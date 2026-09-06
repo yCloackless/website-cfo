@@ -1,0 +1,6 @@
+{
+  "name": "Cronograma de Estudos CFO CBMERJ",
+  "description": "Tabela horizontal semanal de matérias do CFO CBMERJ com status de conclusão, ciclo semanal com reset na segunda-feira, revisões espaçadas, Bizuário tático de alta precisão com fórmulas em LaTeX (KaTeX), gerador direto com IA por Matéria e Conteúdo, persistência em IndexedDB e inteligência artificial de equilíbrio pedagógico.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
