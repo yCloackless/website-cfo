@@ -59,11 +59,13 @@ import { AddCustomSubjectModal } from './components/AddCustomSubjectModal';
 import { CycleHistoryModal } from './components/CycleHistoryModal';
 import { WeeklyGoalModal } from './components/WeeklyGoalModal';
 import { SecurityGate } from './components/SecurityGate';
+import { Setup2FAModal } from './components/Setup2FAModal';
 
 export default function App() {
   // 🛡️ Security Gate (2FA TOTP Terminal) State
   const [isTerminalUnlocked, setIsTerminalUnlocked] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [isSetup2FAModalOpen, setIsSetup2FAModalOpen] = useState(false);
 
   // Validação automática de sessão 2FA persistente (30 dias)
   useEffect(() => {
@@ -101,6 +103,9 @@ export default function App() {
         if (res.ok && data.valid) {
           if (isMounted) {
             setIsTerminalUnlocked(true);
+            if (data.is2faActive === false) {
+              setIsSetup2FAModalOpen(true);
+            }
           }
         } else {
           localStorage.removeItem('cfo_terminal_session');
@@ -768,8 +773,11 @@ export default function App() {
   if (!isTerminalUnlocked) {
     return (
       <SecurityGate
-        onAuthenticated={() => {
+        onAuthenticated={(_token, _expiresAt, is2faActive) => {
           setIsTerminalUnlocked(true);
+          if (!is2faActive) {
+            setIsSetup2FAModalOpen(true);
+          }
         }}
       />
     );
@@ -1320,6 +1328,16 @@ export default function App() {
         currentGoalHours={weeklyGoalHours}
         onSaveGoal={handleSaveGoalHours}
         theme={theme}
+      />
+
+      {/* Modal de Ativação Inicial do Google Authenticator (Exibido apenas na 1ª vez) */}
+      <Setup2FAModal
+        isOpen={isSetup2FAModalOpen}
+        sessionToken={localStorage.getItem('cfo_terminal_session')}
+        onActivated={() => {
+          setIsSetup2FAModalOpen(false);
+          showToast('Blindagem 2FA ativada com sucesso! O QR Code não será mais exibido.', 'success');
+        }}
       />
     </div>
   );

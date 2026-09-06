@@ -214,11 +214,14 @@ app.get("/api/health", (_req: Request, res: Response) => {
 // ==========================================
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "cfocbmerj2026!";
+const DEFAULT_TOTP_SECRET = "T37NFOFA5PCDA5NRXKDVWVEHZ2F22ZV3";
+const DEFAULT_SESSION_SECRET = "b6708b60d07229c5f49cbc2612e747acae36b92bf8435b11569bc916560ea12f";
 const SECURITY_CONFIG_FILE = path.join(process.cwd(), "data", "security-config.json");
 
 interface SecurityConfig {
   totpSecret: string;
   sessionSecret: string;
+  is2faActive: boolean;
   createdAt: string;
 }
 
@@ -227,33 +230,36 @@ function getSecurityConfig(): SecurityConfig {
     if (fs.existsSync(SECURITY_CONFIG_FILE)) {
       const raw = fs.readFileSync(SECURITY_CONFIG_FILE, "utf-8");
       const parsed = JSON.parse(raw);
-      if (parsed.totpSecret && parsed.sessionSecret) {
-        return {
-          totpSecret: process.env.TOTP_SECRET || parsed.totpSecret,
-          sessionSecret: process.env.SESSION_SECRET || parsed.sessionSecret,
-          createdAt: parsed.createdAt,
-        };
-      }
+      return {
+        totpSecret: process.env.TOTP_SECRET || parsed.totpSecret || DEFAULT_TOTP_SECRET,
+        sessionSecret: process.env.SESSION_SECRET || parsed.sessionSecret || DEFAULT_SESSION_SECRET,
+        is2faActive: Boolean(parsed.is2faActive),
+        createdAt: parsed.createdAt || new Date().toISOString(),
+      };
     }
   } catch (e) {
     console.warn("Falha ao ler security-config.json:", e);
   }
 
   const newConfig: SecurityConfig = {
-    totpSecret: process.env.TOTP_SECRET || generateSecret(),
-    sessionSecret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
+    totpSecret: process.env.TOTP_SECRET || DEFAULT_TOTP_SECRET,
+    sessionSecret: process.env.SESSION_SECRET || DEFAULT_SESSION_SECRET,
+    is2faActive: false,
     createdAt: new Date().toISOString(),
   };
 
+  saveSecurityConfig(newConfig);
+  return newConfig;
+}
+
+function saveSecurityConfig(config: SecurityConfig): void {
   try {
     const dir = path.dirname(SECURITY_CONFIG_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(SECURITY_CONFIG_FILE, JSON.stringify(newConfig, null, 2), "utf-8");
+    fs.writeFileSync(SECURITY_CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
   } catch (e) {
     console.warn("Falha ao gravar security-config.json:", e);
   }
-
-  return newConfig;
 }
 
 function createTerminalSession(username: string, rememberMe: boolean): { token: string; expiresAt: number } {
@@ -297,7 +303,8 @@ function verifyTerminalSession(token?: string | null): { valid: boolean; usernam
 function verifyTotpToken(token: string, secret: string): boolean {
   const cleanToken = token.trim().replace(/\s+/g, "");
   const currentEpoch = Math.floor(Date.now() / 1000);
-  for (const offset of [0, -30, 30, -60, 60]) {
+  // Tolerância estendida para desvios de relógio de celular (+/- 120 segundos)
+  for (const offset of [0, -30, 30, -60, 60, -90, 90, -120, 120]) {
     const result = verifySync({ token: cleanToken, secret, epoch: currentEpoch + offset });
     if (result && result.valid) {
       return true;
@@ -306,13 +313,23 @@ function verifyTotpToken(token: string, secret: string): boolean {
   return false;
 }
 
-// 1. Rota de Configuração Administrativa do 2FA (Protegida por Chave Mestra)
+// 1. Rota de Status do 2FA (Verifica se já foi ativado permanentemente)
+app.get("/api/auth/2fa-status", (_req: Request, res: Response) => {
+  const config = getSecurityConfig();
+  return res.json({ is2faActive: config.is2faActive });
+});
+
+// 2. Rota de Obtenção de QR Code (Apenas com sessão autenticada ou chave mestra)
 app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const sessionResult = verifyTerminalSession(token);
   const adminKey = req.query.adminKey || req.headers["x-admin-key"];
-  if (adminKey !== ADMIN_PASSWORD) {
+
+  if (!sessionResult.valid && adminKey !== ADMIN_PASSWORD) {
     return res.status(403).json({
       error: "FORBIDDEN",
-      message: "Acesso restrito. Chave de administração obrigatória.",
+      message: "Acesso restrito. Faça login primeiro para visualizar o QR Code de ativação.",
     });
   }
 
@@ -339,21 +356,22 @@ app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
       otpauthUrl,
       qrCode,
       issuer: "CFO CBMERJ Terminal",
+      is2faActive: config.is2faActive,
     });
   } catch (err: any) {
     return res.status(500).json({ error: "SETUP_FAILED", message: err?.message });
   }
 });
 
-// 2. Rota de Validação 2FA (TOTP + Usuário + Senha) com Sessão de 30 Dias
+// 3. Rota de Validação de Login no Terminal (Se 2FA ativo, exige TOTP. Se não ativo, permite login inicial)
 app.post("/api/auth/verify-2fa", async (req: Request, res: Response) => {
   try {
     const { username, password, token, rememberMe } = req.body || {};
 
-    if (!username || !password || !token) {
+    if (!username || !password) {
       return res.status(400).json({
         error: "MISSING_FIELDS",
-        message: "Usuário, senha e código Authenticator de 6 dígitos são obrigatórios.",
+        message: "Usuário e senha são obrigatórios.",
       });
     }
 
@@ -372,16 +390,27 @@ app.post("/api/auth/verify-2fa", async (req: Request, res: Response) => {
     }
 
     const config = getSecurityConfig();
-    const isCodeValid = verifyTotpToken(token, config.totpSecret);
-    if (!isCodeValid) {
-      return res.status(401).json({
-        error: "INVALID_TOTP",
-        message: "Código Authenticator incorreto ou expirado. Verifique o relógio do seu celular e tente o código atual.",
-      });
+
+    // Se o 2FA já estiver permanentemente ativado, o código é rigorosamente obrigatório
+    if (config.is2faActive) {
+      if (!token || token.trim().length !== 6) {
+        return res.status(400).json({
+          error: "TOTP_REQUIRED",
+          message: "Código Authenticator de 6 dígitos é obrigatório.",
+        });
+      }
+
+      const isCodeValid = verifyTotpToken(token, config.totpSecret);
+      if (!isCodeValid) {
+        return res.status(401).json({
+          error: "INVALID_TOTP",
+          message: "Código Authenticator incorreto ou expirado. Verifique o relógio do seu celular.",
+        });
+      }
     }
 
     const session = createTerminalSession(ADMIN_USER, !!rememberMe);
-    console.log(`[Terminal CFO CBMERJ] Acesso autenticado com sucesso para '${ADMIN_USER}' (Lembrar 30 dias: ${!!rememberMe})`);
+    console.log(`[Terminal CFO CBMERJ] Acesso autenticado para '${ADMIN_USER}' (2FA Ativo: ${config.is2faActive})`);
 
     return res.json({
       success: true,
@@ -389,6 +418,7 @@ app.post("/api/auth/verify-2fa", async (req: Request, res: Response) => {
       expiresAt: session.expiresAt,
       username: ADMIN_USER,
       rememberMe: !!rememberMe,
+      is2faActive: config.is2faActive,
       expiresInDays: rememberMe ? 30 : 1,
     });
   } catch (err: any) {
@@ -396,7 +426,47 @@ app.post("/api/auth/verify-2fa", async (req: Request, res: Response) => {
   }
 });
 
-// 3. Rota de Verificação de Sessão Ativa
+// 4. Rota de Ativação Permanente do 2FA (Ao confirmar o primeiro código dentro do site)
+app.post("/api/auth/activate-2fa", async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const sessionToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : req.body?.sessionToken;
+    const sessionResult = verifyTerminalSession(sessionToken);
+
+    if (!sessionResult.valid) {
+      return res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida para ativação do 2FA." });
+    }
+
+    const { token } = req.body || {};
+    if (!token || token.trim().length !== 6) {
+      return res.status(400).json({ error: "INVALID_CODE", message: "Digite o código de 6 dígitos gerado no Google Authenticator." });
+    }
+
+    const config = getSecurityConfig();
+    const isCodeValid = verifyTotpToken(token, config.totpSecret);
+    if (!isCodeValid) {
+      return res.status(400).json({
+        error: "INVALID_TOTP",
+        message: "Código incorreto. Sincronize o relógio do celular e tente o código atual gerado pelo app.",
+      });
+    }
+
+    // Ativa permanentemente o 2FA
+    config.is2faActive = true;
+    saveSecurityConfig(config);
+    console.log(`[Terminal CFO CBMERJ] ✅ 2FA ATIVADO PERMANENTEMENTE PARA ${ADMIN_USER}!`);
+
+    return res.json({
+      success: true,
+      message: "Blindagem 2FA ativada com sucesso! O QR Code não será mais exibido e o código será solicitado nos próximos logins.",
+      is2faActive: true,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: "ACTIVATION_FAILED", message: err?.message });
+  }
+});
+
+// 5. Rota de Verificação de Sessão Ativa
 app.post("/api/auth/verify-session", (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
   const token =
@@ -407,10 +477,13 @@ app.post("/api/auth/verify-session", (req: Request, res: Response) => {
     return res.status(401).json({ valid: false, message: "Sessão expirada ou terminal bloqueado." });
   }
 
+  const config = getSecurityConfig();
+
   return res.json({
     valid: true,
     username: result.username,
     expiresAt: result.expiresAt,
+    is2faActive: config.is2faActive,
   });
 });
 

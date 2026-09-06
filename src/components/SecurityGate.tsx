@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 
 interface SecurityGateProps {
-  onAuthenticated: (token: string, expiresAt: number) => void;
+  onAuthenticated: (token: string, expiresAt: number, is2faActive: boolean) => void;
 }
 
 export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated }) => {
@@ -25,8 +25,18 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated }) =
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [is2faRequired, setIs2faRequired] = useState(true);
 
   const codeInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetch('/api/auth/2fa-status')
+      .then((r) => r.json())
+      .then((d) => {
+        setIs2faRequired(Boolean(d.is2faActive));
+      })
+      .catch(() => {});
+  }, []);
 
   // Format TOTP code input: allow only digits, max 6, auto space display (e.g. "123 456")
   const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,7 +55,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated }) =
       setErrorMsg('Informe a chave de acesso mestra.');
       return;
     }
-    if (totpCode.length !== 6) {
+    if (is2faRequired && totpCode.length !== 6) {
       setErrorMsg('Digite o código Authenticator completo de 6 dígitos.');
       codeInputRef.current?.focus();
       return;
@@ -79,7 +89,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated }) =
       localStorage.setItem('cfo_terminal_expires_at', String(data.expiresAt));
       localStorage.setItem('cfo_terminal_user', data.username);
 
-      onAuthenticated(data.token, data.expiresAt);
+      onAuthenticated(data.token, data.expiresAt, Boolean(data.is2faActive));
     } catch (err: any) {
       setErrorMsg('Falha de conexão com o terminal de segurança. Verifique se o backend está ativo.');
     } finally {
@@ -401,35 +411,45 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated }) =
                 </div>
               </div>
 
-              {/* Field: Código Authenticator (6 dígitos) */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-[11px] font-mono uppercase tracking-wider text-zinc-400">
-                    Token Google Authenticator (6 Dígitos)
-                  </label>
-                  <span className="text-[10px] font-mono text-red-400 flex items-center gap-1">
-                    <Smartphone className="w-3 h-3" /> TOTP
-                  </span>
-                </div>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
-                    <KeyRound className="w-4 h-4 text-red-500" />
+              {/* Field: Código Authenticator (6 dígitos) - Condicional */}
+              {is2faRequired ? (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-mono uppercase tracking-wider text-zinc-400">
+                      Token Google Authenticator (6 Dígitos)
+                    </label>
+                    <span className="text-[10px] font-mono text-red-400 flex items-center gap-1">
+                      <Smartphone className="w-3 h-3" /> TOTP
+                    </span>
                   </div>
-                  <input
-                    ref={codeInputRef}
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={6}
-                    value={totpCode}
-                    onChange={handleCodeChange}
-                    placeholder="000000"
-                    autoComplete="one-time-code"
-                    required
-                    className="w-full pl-9 pr-3 py-3 rounded-lg bg-black/80 border border-red-900/60 focus:border-red-500 focus:ring-2 focus:ring-red-500/50 text-white text-center font-mono text-xl tracking-[0.4em] placeholder:tracking-normal placeholder-zinc-700 transition-all font-bold"
-                  />
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
+                      <KeyRound className="w-4 h-4 text-red-500" />
+                    </div>
+                    <input
+                      ref={codeInputRef}
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={6}
+                      value={totpCode}
+                      onChange={handleCodeChange}
+                      placeholder="000000"
+                      autoComplete="one-time-code"
+                      required
+                      className="w-full pl-9 pr-3 py-3 rounded-lg bg-black/80 border border-red-900/60 focus:border-red-500 focus:ring-2 focus:ring-red-500/50 text-white text-center font-mono text-xl tracking-[0.4em] placeholder:tracking-normal placeholder-zinc-700 transition-all font-bold"
+                    />
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-red-950/40 border border-red-800/50 text-red-300 text-xs flex items-start gap-2.5 animate-fadeIn">
+                  <Flame className="w-4 h-4 text-red-400 shrink-0 mt-0.5 animate-pulse" />
+                  <div className="leading-relaxed">
+                    <strong className="text-white block font-mono uppercase text-[11px]">Primeiro Acesso Detectado</strong>
+                    Digite suas credenciais mestras para destravar e cadastrar seu Google Authenticator via QR Code exclusivo.
+                  </div>
+                </div>
+              )}
 
               {/* Checkbox: Lembrar este dispositivo por 30 dias */}
               <div className="pt-1">
