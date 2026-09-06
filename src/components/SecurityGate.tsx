@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -7,14 +7,9 @@ import {
   KeyRound,
   Eye,
   EyeOff,
-  QrCode,
-  Copy,
-  Check,
   Flame,
   Smartphone,
   AlertTriangle,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 
 interface SecurityGateProps {
@@ -31,43 +26,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated }) =
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Setup 2FA Modal / Drawer
-  const [showSetup, setShowSetup] = useState(false);
-  const [setupData, setSetupData] = useState<{
-    secret: string;
-    qrCode: string;
-    otpauthUrl: string;
-  } | null>(null);
-  const [copiedSecret, setCopiedSecret] = useState(false);
-
   const codeInputRef = useRef<HTMLInputElement>(null);
-
-  // Fetch 2FA Setup Data (QR Code e Secret)
-  const fetchSetupData = async () => {
-    try {
-      const res = await fetch('/api/auth/2fa-setup');
-      if (res.ok) {
-        const data = await res.json();
-        setSetupData(data);
-      }
-    } catch (e) {
-      console.warn('Não foi possível carregar QR Code 2FA:', e);
-    }
-  };
-
-  useEffect(() => {
-    if (showSetup && !setupData) {
-      fetchSetupData();
-    }
-  }, [showSetup, setupData]);
-
-  const handleCopySecret = () => {
-    if (setupData?.secret) {
-      navigator.clipboard.writeText(setupData.secret);
-      setCopiedSecret(true);
-      setTimeout(() => setCopiedSecret(false), 2500);
-    }
-  };
 
   // Format TOTP code input: allow only digits, max 6, auto space display (e.g. "123 456")
   const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -509,71 +468,6 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated }) =
                 )}
               </button>
             </form>
-
-            {/* Quick 2FA Setup Toggle (Ler QR Code / Configurar no Celular) */}
-            <div className="mt-6 pt-4 border-t border-zinc-900 flex flex-col items-center">
-              <button
-                type="button"
-                onClick={() => setShowSetup(!showSetup)}
-                className="text-xs font-mono text-zinc-400 hover:text-red-400 flex items-center gap-1.5 transition-colors py-1 cursor-pointer"
-              >
-                <QrCode className="w-3.5 h-3.5 text-red-500" />
-                <span>Configurar Google Authenticator (QR Code)</span>
-                {showSetup ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-              </button>
-
-              {showSetup && (
-                <div className="w-full mt-3 p-4 rounded-xl bg-black/80 border border-red-950/80 text-center animate-fadeIn">
-                  <p className="text-[11px] text-zinc-300 font-mono mb-3 leading-relaxed">
-                    Escaneie o QR Code abaixo no app <strong>Google Authenticator</strong> do seu celular:
-                  </p>
-
-                  {setupData?.qrCode ? (
-                    <div className="flex flex-col items-center justify-center">
-                      <div className="p-2 bg-black rounded-lg border border-red-700/50 shadow-lg shadow-red-950/40 mb-3">
-                        <img
-                          src={setupData.qrCode}
-                          alt="QR Code 2FA"
-                          className="w-44 h-44 rounded"
-                        />
-                      </div>
-
-                      <div className="w-full flex items-center justify-between gap-2 p-2 rounded bg-zinc-900/90 border border-zinc-800 text-[11px] font-mono text-zinc-300">
-                        <span className="truncate select-all text-red-300 font-bold">{setupData.secret}</span>
-                        <button
-                          type="button"
-                          onClick={handleCopySecret}
-                          className="px-2 py-1 rounded bg-red-950 hover:bg-red-900 border border-red-800/60 text-red-300 flex items-center gap-1 shrink-0 text-[10px] transition-colors cursor-pointer"
-                        >
-                          {copiedSecret ? (
-                            <>
-                              <Check className="w-3 h-3 text-green-400" />
-                              <span>Copiado</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3 h-3" />
-                              <span>Copiar</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="py-6 text-xs text-zinc-500 font-mono flex items-center justify-center gap-2">
-                      <span className="w-3.5 h-3.5 border border-red-500/40 border-t-red-500 rounded-full animate-spin" />
-                      <span>Gerando chave de segurança...</span>
-                    </div>
-                  )}
-
-                  <div className="mt-3 text-[10px] text-zinc-500 text-left font-mono space-y-1">
-                    <div>1. Abra o Google Authenticator e toque em <strong>+</strong>.</div>
-                    <div>2. Selecione <strong>Ler código QR</strong> e aponte para a imagem acima.</div>
-                    <div>3. Insira o código de 6 dígitos gerado no formulário acima.</div>
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </main>

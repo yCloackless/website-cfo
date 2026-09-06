@@ -306,8 +306,16 @@ function verifyTotpToken(token: string, secret: string): boolean {
   return false;
 }
 
-// 1. Rota de Configuração / QR Code Inicial do 2FA
-app.get("/api/auth/2fa-setup", async (_req: Request, res: Response) => {
+// 1. Rota de Configuração Administrativa do 2FA (Protegida por Chave Mestra)
+app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
+  const adminKey = req.query.adminKey || req.headers["x-admin-key"];
+  if (adminKey !== ADMIN_PASSWORD) {
+    return res.status(403).json({
+      error: "FORBIDDEN",
+      message: "Acesso restrito. Chave de administração obrigatória.",
+    });
+  }
+
   try {
     const config = getSecurityConfig();
     const otpauthUrl = generateURI({
