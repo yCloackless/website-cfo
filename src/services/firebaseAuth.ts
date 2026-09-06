@@ -21,6 +21,14 @@ const STORAGE_TOKEN_KEY = 'cfo_cbmerj_google_calendar_token';
 const STORAGE_EXPIRY_KEY = 'cfo_cbmerj_google_calendar_token_expiry';
 const STORAGE_EMAIL_KEY = 'cfo_cbmerj_google_calendar_user_email';
 
+// Whitelist de usuários autorizados
+export const ALLOWED_EMAILS = ['jb080956@gmail.com'];
+
+export const isEmailAuthorized = (email?: string | null): boolean => {
+  if (!email) return false;
+  return ALLOWED_EMAILS.includes(email.toLowerCase().trim());
+};
+
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
 
@@ -101,6 +109,14 @@ export const initAuth = (
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
+      if (user.email && !isEmailAuthorized(user.email)) {
+        console.warn(`[Segurança] Usuário não autorizado: ${user.email}`);
+        await signOut(auth);
+        clearStoredAccessToken();
+        if (onAuthFailure) onAuthFailure();
+        return;
+      }
+
       const storedToken = getStoredAccessToken();
       if (storedToken) {
         cachedAccessToken = storedToken;
@@ -139,6 +155,16 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
   try {
     isSigningIn = true;
     const result = await signInWithPopup(auth, provider);
+    
+    // Validação de segurança por e-mail
+    if (result.user?.email && !isEmailAuthorized(result.user.email)) {
+      await signOut(auth);
+      clearStoredAccessToken();
+      throw new Error(
+        `Acesso não autorizado para ${result.user.email}. Este cronograma é de uso exclusivo de jb080956@gmail.com.`
+      );
+    }
+
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       throw new Error('Falha ao obter token de acesso do Google Calendar');

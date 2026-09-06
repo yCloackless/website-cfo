@@ -29,6 +29,56 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const APP_URL = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 const CALENDAR_SESSION_FILE = path.join(process.cwd(), "data", "calendar-session.json");
 
+// Whitelist de e-mails autorizados (Uso exclusivo e proteção de custos de IA)
+const ALLOWED_EMAILS = [
+  "jb080956@gmail.com",
+  ...(process.env.ALLOWED_EMAILS ? process.env.ALLOWED_EMAILS.split(",") : []),
+]
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
+// Whitelist opcional de IPs autorizados (configurável via ALLOWED_IPS no .env / Render)
+const ALLOWED_IPS = (process.env.ALLOWED_IPS ? process.env.ALLOWED_IPS.split(",") : [])
+  .map((ip) => ip.trim())
+  .filter(Boolean);
+
+function getClientIp(req: Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string") {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.socket?.remoteAddress || "";
+}
+
+function isRequestAuthorized(req: Request, userEmail?: string): boolean {
+  // 1. Se localhost / loopback em desenvolvimento
+  const host = req.get("host") || "";
+  if (host.startsWith("localhost") || host.startsWith("127.0.0.1")) {
+    return true;
+  }
+
+  // 2. Se IP estiver na whitelist configurada
+  if (ALLOWED_IPS.length > 0) {
+    const clientIp = getClientIp(req);
+    if (ALLOWED_IPS.includes(clientIp) || clientIp === "127.0.0.1" || clientIp === "::1") {
+      return true;
+    }
+  }
+
+  // 3. Se e-mail fornecido estiver na whitelist
+  if (userEmail && ALLOWED_EMAILS.includes(userEmail.toLowerCase().trim())) {
+    return true;
+  }
+
+  // 4. Se houver sessão salva com e-mail autorizado
+  const session = readCalendarSession();
+  if (session?.email && ALLOWED_EMAILS.includes(session.email.toLowerCase().trim())) {
+    return true;
+  }
+
+  return false;
+}
+
 interface CalendarSession {
   access_token: string;
   refresh_token?: string;
@@ -414,6 +464,36 @@ app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
       }
     } catch {}
 
+    // 🔒 Blindagem de Segurança (Whitelist): apenas jb080956@gmail.com ou IP autorizado
+    const clientIp = getClientIp(req);
+    const isAuthorized = isRequestAuthorized(req, email);
+    if (!isAuthorized) {
+      console.warn(`[Bloqueio de Segurança] Acesso negado para e-mail '${email}' e IP '${clientIp}'`);
+      return res.status(403).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Acesso Negado</title>
+          <meta charset="utf-8" />
+        </head>
+        <body style="font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; background: #090d16; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
+          <div style="text-align: center; padding: 36px; background: #111827; border: 1px solid #ef4444; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); max-width: 440px; margin: 20px;">
+            <div style="width: 56px; height: 56px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 28px;">
+              🚫
+            </div>
+            <h2 style="color: #ef4444; margin: 0 0 8px; font-size: 20px; font-weight: 700;">Acesso Não Autorizado</h2>
+            <p style="color: #94a3b8; font-size: 14px; margin: 0 0 20px; line-height: 1.5;">
+              O e-mail <strong>${email || "não autenticado"}</strong> não possui autorização para utilizar este sistema.<br />
+              Este cronograma é de uso exclusivo e privado de <strong>jb080956@gmail.com</strong>.
+            </p>
+            <div style="color: #64748b; font-size: 11px; margin-bottom: 16px;">IP: ${clientIp}</div>
+            <button onclick="window.close()" style="background: #dc2626; color: white; border: none; padding: 10px 24px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">Fechar Janela</button>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+
     const session: CalendarSession = {
       access_token: tokenData.access_token,
       refresh_token: tokenData.refresh_token || existingSession?.refresh_token,
@@ -466,12 +546,20 @@ app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
   }
 });
 
-// 4. Save client token on backend (backup store)
+// 4. Save client token on backend (backup store com whitelist)
 app.post("/api/calendar/save-token", async (req: Request, res: Response) => {
   try {
     const { token, expiresIn = 3600, email, name } = req.body;
     if (!token) {
       return res.status(400).json({ error: "Token não fornecido" });
+    }
+
+    // 🔒 Blindagem de Segurança (Whitelist)
+    if (email && !ALLOWED_EMAILS.includes(email.toLowerCase())) {
+      return res.status(403).json({
+        error: "UNAUTHORIZED_EMAIL",
+        message: `O e-mail ${email} não possui autorização de acesso a este cronograma.`,
+      });
     }
 
     const existing = readCalendarSession();
@@ -672,6 +760,20 @@ app.post("/api/calendar/batch-sync", async (req: Request, res: Response) => {
       message: error?.message || "Falha ao sincronizar eventos com Google Agenda",
     });
   }
+});
+
+// 🔒 Blindagem das Rotas de Inteligência Artificial (Gemini API)
+app.use("/api/ai", (req: Request, res: Response, next) => {
+  const userEmail = (req.headers["x-user-email"] as string) || req.body?.userEmail;
+  if (!isRequestAuthorized(req, userEmail)) {
+    const clientIp = getClientIp(req);
+    console.warn(`[Bloqueio IA] Acesso não autorizado em ${req.path} | IP: ${clientIp}`);
+    return res.status(403).json({
+      error: "UNAUTHORIZED",
+      message: "Acesso restrito ao usuário autorizado (jb080956@gmail.com).",
+    });
+  }
+  next();
 });
 
 // AI Study Analysis Endpoint
