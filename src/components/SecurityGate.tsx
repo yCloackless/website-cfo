@@ -17,7 +17,7 @@ interface SecurityGateProps {
 }
 
 export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated }) => {
-  const [username, setUsername] = useState('admin');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
@@ -365,8 +365,8 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated }) =
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="admin"
-                    autoComplete="username"
+                    placeholder=""
+                    autoComplete="off"
                     required
                     className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-black/60 border border-zinc-800 focus:border-red-500 focus:ring-1 focus:ring-red-500 text-white placeholder-zinc-600 font-mono text-sm transition-all"
                   />
@@ -387,7 +387,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated }) =
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••••••"
-                    autoComplete="current-password"
+                    autoComplete="off"
                     required
                     className="w-full pl-9 pr-10 py-2.5 rounded-lg bg-black/60 border border-zinc-800 focus:border-red-500 focus:ring-1 focus:ring-red-500 text-white placeholder-zinc-600 font-mono text-sm transition-all"
                   />
