@@ -8,7 +8,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json({ limit: "10mb" }));
 
@@ -26,7 +26,7 @@ try {
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || defaultClientId;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
-const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
+const APP_URL = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 const CALENDAR_SESSION_FILE = path.join(process.cwd(), "data", "calendar-session.json");
 
 interface CalendarSession {
@@ -307,11 +307,16 @@ app.get("/api/calendar/auth-url", (req: Request, res: Response) => {
   }
 
   const host = req.get("host") || `localhost:${PORT}`;
+  const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
   const redirectUri =
     process.env.REDIRECT_URI ||
-    (host.includes("127.0.0.1")
+    (process.env.RENDER_EXTERNAL_URL
+      ? `${process.env.RENDER_EXTERNAL_URL}/api/auth/google/callback`
+      : host.includes("127.0.0.1")
       ? `http://127.0.0.1:${PORT}/api/auth/google/callback`
-      : `http://localhost:${PORT}/api/auth/google/callback`);
+      : host.includes("localhost")
+      ? `http://localhost:${PORT}/api/auth/google/callback`
+      : `${protocol}://${host}/api/auth/google/callback`);
 
   console.log("===> [OAuth] Gerando auth-url com redirectUri:", redirectUri);
 
@@ -352,11 +357,16 @@ app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
     }
 
     const host = req.get("host") || `localhost:${PORT}`;
+    const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
     const redirectUri =
       process.env.REDIRECT_URI ||
-      (host.includes("127.0.0.1")
+      (process.env.RENDER_EXTERNAL_URL
+        ? `${process.env.RENDER_EXTERNAL_URL}/api/auth/google/callback`
+        : host.includes("127.0.0.1")
         ? `http://127.0.0.1:${PORT}/api/auth/google/callback`
-        : `http://localhost:${PORT}/api/auth/google/callback`);
+        : host.includes("localhost")
+        ? `http://localhost:${PORT}/api/auth/google/callback`
+        : `${protocol}://${host}/api/auth/google/callback`);
 
     // Troca o código pelo token com refresh_token
     const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
