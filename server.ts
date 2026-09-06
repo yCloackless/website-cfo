@@ -1,9 +1,12 @@
 import express, { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
+import { generateSecret, verifySync, generateURI } from "otplib";
+import QRCode from "qrcode";
 
 dotenv.config();
 
@@ -204,6 +207,203 @@ function getGeminiClient(): GoogleGenAI | null {
 // API Health
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// ==========================================
+// 🛡️ TERMINAL DE ACESSO RESTRITO (2FA TOTP)
+// ==========================================
+const ADMIN_USER = process.env.ADMIN_USER || "admin";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "cfocbmerj2026!";
+const SECURITY_CONFIG_FILE = path.join(process.cwd(), "data", "security-config.json");
+
+interface SecurityConfig {
+  totpSecret: string;
+  sessionSecret: string;
+  createdAt: string;
+}
+
+function getSecurityConfig(): SecurityConfig {
+  try {
+    if (fs.existsSync(SECURITY_CONFIG_FILE)) {
+      const raw = fs.readFileSync(SECURITY_CONFIG_FILE, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (parsed.totpSecret && parsed.sessionSecret) {
+        return {
+          totpSecret: process.env.TOTP_SECRET || parsed.totpSecret,
+          sessionSecret: process.env.SESSION_SECRET || parsed.sessionSecret,
+          createdAt: parsed.createdAt,
+        };
+      }
+    }
+  } catch (e) {
+    console.warn("Falha ao ler security-config.json:", e);
+  }
+
+  const newConfig: SecurityConfig = {
+    totpSecret: process.env.TOTP_SECRET || generateSecret(),
+    sessionSecret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
+    createdAt: new Date().toISOString(),
+  };
+
+  try {
+    const dir = path.dirname(SECURITY_CONFIG_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(SECURITY_CONFIG_FILE, JSON.stringify(newConfig, null, 2), "utf-8");
+  } catch (e) {
+    console.warn("Falha ao gravar security-config.json:", e);
+  }
+
+  return newConfig;
+}
+
+function createTerminalSession(username: string, rememberMe: boolean): { token: string; expiresAt: number } {
+  const config = getSecurityConfig();
+  const durationMs = rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+  const expiresAt = Date.now() + durationMs;
+  const payload = {
+    u: username,
+    exp: expiresAt,
+    r: rememberMe ? 1 : 0,
+    iat: Date.now(),
+  };
+  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", config.sessionSecret).update(payloadB64).digest("base64url");
+  return {
+    token: `${payloadB64}.${signature}`,
+    expiresAt,
+  };
+}
+
+function verifyTerminalSession(token?: string | null): { valid: boolean; username?: string; expiresAt?: number } {
+  if (!token || typeof token !== "string") return { valid: false };
+  const parts = token.split(".");
+  if (parts.length !== 2) return { valid: false };
+
+  const [payloadB64, signature] = parts;
+  const config = getSecurityConfig();
+  const expectedSignature = crypto.createHmac("sha256", config.sessionSecret).update(payloadB64).digest("base64url");
+
+  if (signature !== expectedSignature) return { valid: false };
+
+  try {
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf-8"));
+    if (!payload.exp || Date.now() > payload.exp) return { valid: false };
+    return { valid: true, username: payload.u, expiresAt: payload.exp };
+  } catch {
+    return { valid: false };
+  }
+}
+
+function verifyTotpToken(token: string, secret: string): boolean {
+  const cleanToken = token.trim().replace(/\s+/g, "");
+  const currentEpoch = Math.floor(Date.now() / 1000);
+  for (const offset of [0, -30, 30, -60, 60]) {
+    const result = verifySync({ token: cleanToken, secret, epoch: currentEpoch + offset });
+    if (result && result.valid) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// 1. Rota de Configuração / QR Code Inicial do 2FA
+app.get("/api/auth/2fa-setup", async (_req: Request, res: Response) => {
+  try {
+    const config = getSecurityConfig();
+    const otpauthUrl = generateURI({
+      label: `${ADMIN_USER}@cfo-cbmerj`,
+      issuer: "CFO CBMERJ Terminal",
+      secret: config.totpSecret,
+    });
+
+    const qrCode = await QRCode.toDataURL(otpauthUrl, {
+      margin: 2,
+      color: {
+        dark: "#ef4444",
+        light: "#0b0f19",
+      },
+      width: 320,
+    });
+
+    return res.json({
+      username: ADMIN_USER,
+      secret: config.totpSecret,
+      otpauthUrl,
+      qrCode,
+      issuer: "CFO CBMERJ Terminal",
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: "SETUP_FAILED", message: err?.message });
+  }
+});
+
+// 2. Rota de Validação 2FA (TOTP + Usuário + Senha) com Sessão de 30 Dias
+app.post("/api/auth/verify-2fa", async (req: Request, res: Response) => {
+  try {
+    const { username, password, token, rememberMe } = req.body || {};
+
+    if (!username || !password || !token) {
+      return res.status(400).json({
+        error: "MISSING_FIELDS",
+        message: "Usuário, senha e código Authenticator de 6 dígitos são obrigatórios.",
+      });
+    }
+
+    if (username.trim().toLowerCase() !== ADMIN_USER.toLowerCase()) {
+      return res.status(401).json({
+        error: "INVALID_CREDENTIALS",
+        message: "Identificador de operador incorreto.",
+      });
+    }
+
+    if (password !== ADMIN_PASSWORD) {
+      return res.status(401).json({
+        error: "INVALID_CREDENTIALS",
+        message: "Chave mestra de acesso incorreta.",
+      });
+    }
+
+    const config = getSecurityConfig();
+    const isCodeValid = verifyTotpToken(token, config.totpSecret);
+    if (!isCodeValid) {
+      return res.status(401).json({
+        error: "INVALID_TOTP",
+        message: "Código Authenticator incorreto ou expirado. Verifique o relógio do seu celular e tente o código atual.",
+      });
+    }
+
+    const session = createTerminalSession(ADMIN_USER, !!rememberMe);
+    console.log(`[Terminal CFO CBMERJ] Acesso autenticado com sucesso para '${ADMIN_USER}' (Lembrar 30 dias: ${!!rememberMe})`);
+
+    return res.json({
+      success: true,
+      token: session.token,
+      expiresAt: session.expiresAt,
+      username: ADMIN_USER,
+      rememberMe: !!rememberMe,
+      expiresInDays: rememberMe ? 30 : 1,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: "AUTH_ERROR", message: err?.message });
+  }
+});
+
+// 3. Rota de Verificação de Sessão Ativa
+app.post("/api/auth/verify-session", (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization;
+  const token =
+    req.body?.token || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null);
+
+  const result = verifyTerminalSession(token);
+  if (!result.valid) {
+    return res.status(401).json({ valid: false, message: "Sessão expirada ou terminal bloqueado." });
+  }
+
+  return res.json({
+    valid: true,
+    username: result.username,
+    expiresAt: result.expiresAt,
+  });
 });
 
 // Helper for next day string in Google Calendar all-day events

@@ -58,8 +58,80 @@ import { SmartRevisionsModal } from './components/SmartRevisionsModal';
 import { AddCustomSubjectModal } from './components/AddCustomSubjectModal';
 import { CycleHistoryModal } from './components/CycleHistoryModal';
 import { WeeklyGoalModal } from './components/WeeklyGoalModal';
+import { SecurityGate } from './components/SecurityGate';
 
 export default function App() {
+  // 🛡️ Security Gate (2FA TOTP Terminal) State
+  const [isTerminalUnlocked, setIsTerminalUnlocked] = useState(false);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+
+  // Validação automática de sessão 2FA persistente (30 dias)
+  useEffect(() => {
+    let isMounted = true;
+    const verifySavedSession = async () => {
+      try {
+        const savedToken = localStorage.getItem('cfo_terminal_session');
+        const expiresAt = Number(localStorage.getItem('cfo_terminal_expires_at'));
+
+        if (!savedToken) {
+          if (isMounted) setIsCheckingSession(false);
+          return;
+        }
+
+        // Se localmente já expirou
+        if (expiresAt && Date.now() > expiresAt) {
+          localStorage.removeItem('cfo_terminal_session');
+          localStorage.removeItem('cfo_terminal_expires_at');
+          localStorage.removeItem('cfo_terminal_user');
+          if (isMounted) setIsCheckingSession(false);
+          return;
+        }
+
+        // Valida token com o backend
+        const res = await fetch('/api/auth/verify-session', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${savedToken}`,
+          },
+          body: JSON.stringify({ token: savedToken }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.valid) {
+          if (isMounted) {
+            setIsTerminalUnlocked(true);
+          }
+        } else {
+          localStorage.removeItem('cfo_terminal_session');
+          localStorage.removeItem('cfo_terminal_expires_at');
+          localStorage.removeItem('cfo_terminal_user');
+        }
+      } catch (err) {
+        // Fallback para contingência caso backend offline mas token válido
+        const savedToken = localStorage.getItem('cfo_terminal_session');
+        const expiresAt = Number(localStorage.getItem('cfo_terminal_expires_at'));
+        if (savedToken && expiresAt && Date.now() < expiresAt) {
+          if (isMounted) setIsTerminalUnlocked(true);
+        }
+      } finally {
+        if (isMounted) setIsCheckingSession(false);
+      }
+    };
+
+    verifySavedSession();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleLockTerminal = useCallback(() => {
+    localStorage.removeItem('cfo_terminal_session');
+    localStorage.removeItem('cfo_terminal_expires_at');
+    localStorage.removeItem('cfo_terminal_user');
+    setIsTerminalUnlocked(false);
+  }, []);
+
   // Theme state ('dark' | 'light')
   const [theme, setTheme] = useState<AppTheme>(() => {
     const saved = localStorage.getItem('cfo_theme');
@@ -90,8 +162,9 @@ export default function App() {
     setBizuItems(loadBizuItems());
   }, []);
 
-  // Synchronize Bizu items with IndexedDB extended store
+  // Synchronize Bizu items with IndexedDB extended store (apenas se terminal destravado)
   useEffect(() => {
+    if (!isTerminalUnlocked) return;
     initBizuStorageAsync((items) => {
       setBizuItems(items);
     });
@@ -99,7 +172,7 @@ export default function App() {
       setBizuItems(items);
     });
     return () => unsubscribe();
-  }, []);
+  }, [isTerminalUnlocked]);
 
   // Auth state
   const [user, setUser] = useState<User | null>(null);
@@ -214,8 +287,10 @@ export default function App() {
     [subjects, currentCycle, showToast]
   );
 
-  // Initialize Auth & Data on Mount
+  // Initialize Auth & Data on Mount (apenas se terminal destravado)
   useEffect(() => {
+    if (!isTerminalUnlocked) return;
+
     // 1. Load subjects
     const loadedSubs = loadSubjects();
     setSubjects(loadedSubs);
@@ -267,7 +342,7 @@ export default function App() {
       unsubscribe();
       window.removeEventListener('message', handleAuthMessage);
     };
-  }, [showToast, refreshCalendarStatus]);
+  }, [isTerminalUnlocked, showToast, refreshCalendarStatus]);
 
   // Trigger automated AI analysis whenever cycle entries change or subjects load
   useEffect(() => {
@@ -673,6 +748,33 @@ export default function App() {
 
   const isDark = theme === 'dark';
 
+  // 🛡️ Tela de Bloqueio Obrigatória (Security Gate 2FA)
+  if (isCheckingSession) {
+    return (
+      <div className="min-h-screen w-full bg-black flex flex-col items-center justify-center font-mono select-none">
+        <div className="relative flex items-center justify-center">
+          <div className="w-16 h-16 rounded-full border-2 border-red-500/20 border-t-red-500 animate-spin" />
+          <div className="absolute inset-0 flex items-center justify-center text-red-500 font-bold text-xs">
+            CFO
+          </div>
+        </div>
+        <p className="mt-4 text-xs tracking-widest text-red-500/80 uppercase">
+          Verificando Terminal de Acesso...
+        </p>
+      </div>
+    );
+  }
+
+  if (!isTerminalUnlocked) {
+    return (
+      <SecurityGate
+        onAuthenticated={() => {
+          setIsTerminalUnlocked(true);
+        }}
+      />
+    );
+  }
+
   return (
     <div
       className={`min-h-screen flex flex-col antialiased selection:bg-red-500 selection:text-white transition-colors duration-200 ${
@@ -698,6 +800,7 @@ export default function App() {
         onToggleTheme={toggleTheme}
         activeTab={activeTab}
         onSelectTab={setActiveTab}
+        onLockTerminal={handleLockTerminal}
       />
 
       {/* Main Content Area */}

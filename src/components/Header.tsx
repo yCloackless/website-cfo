@@ -13,6 +13,7 @@ import {
   LayoutGrid,
   BookOpen,
   Target,
+  Lock,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
@@ -35,6 +36,7 @@ interface HeaderProps {
   onToggleTheme: () => void;
   activeTab: 'table' | 'bizuario' | 'highyield' | 'ai';
   onSelectTab: (tab: 'table' | 'bizuario' | 'highyield' | 'ai') => void;
+  onLockTerminal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -55,6 +57,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleTheme,
   activeTab,
   onSelectTab,
+  onLockTerminal,
 }) => {
   const isDark = theme === 'dark';
 
@@ -332,6 +335,22 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               )}
             </div>
+
+            {/* Lock Terminal 2FA Button */}
+            {onLockTerminal && (
+              <button
+                onClick={onLockTerminal}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-mono font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
+                  isDark
+                    ? 'bg-red-950/40 border-red-900/60 text-red-400 hover:bg-red-900/50 hover:border-red-700'
+                    : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'
+                }`}
+                title="Bloquear Terminal (Exigir 2FA TOTP novamente)"
+              >
+                <Lock className="w-3.5 h-3.5 text-red-500" />
+                <span className="hidden sm:inline text-[10px] tracking-wider uppercase">Bloquear</span>
+              </button>
+            )}
 
           </div>
         </div>
