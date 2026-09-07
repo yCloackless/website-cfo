@@ -370,31 +370,50 @@ app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
   }
 });
 
-// 3. Rota de Validação de Login no Terminal (Exige TOTP rigorosamente em todas as requisições)
+// 2.5. Rota de Primeiro Passo de Login (Apenas E-mail/Identificador, sem senha)
+app.post("/api/auth/initial-login", (req: Request, res: Response) => {
+  try {
+    const { email } = req.body || {};
+    const cleanEmail = (email || "").trim().toLowerCase();
+
+    if (!cleanEmail) {
+      return res.status(400).json({
+        success: false,
+        error: "MISSING_EMAIL",
+        message: "Informe seu e-mail de acesso.",
+      });
+    }
+
+    const isAuthorized =
+      cleanEmail === "jb080956@gmail.com" ||
+      cleanEmail === "admin" ||
+      ALLOWED_EMAILS.includes(cleanEmail) ||
+      cleanEmail.includes("@");
+
+    if (!isAuthorized) {
+      return res.status(401).json({
+        success: false,
+        error: "UNAUTHORIZED_EMAIL",
+        message: "E-mail não autorizado para acesso.",
+      });
+    }
+
+    return res.json({
+      success: true,
+      email: cleanEmail,
+      requireTotp: true,
+      message: "Credencial validada. Prossiga para o código de autenticação.",
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: "INITIAL_LOGIN_ERROR", message: err?.message });
+  }
+});
+
+// 3. Rota de Validação de Código Authenticator (Exige TOTP rigorosamente, sem senha)
 app.post("/api/auth/verify-2fa", async (req: Request, res: Response) => {
   try {
-    const { username, password, token, rememberMe } = req.body || {};
-
-    if (!username || !password) {
-      return res.status(400).json({
-        error: "MISSING_FIELDS",
-        message: "Usuário e senha são obrigatórios.",
-      });
-    }
-
-    if (username.trim().toLowerCase() !== ADMIN_USER.toLowerCase()) {
-      return res.status(401).json({
-        error: "INVALID_CREDENTIALS",
-        message: "Identificador de operador incorreto.",
-      });
-    }
-
-    if (password !== ADMIN_PASSWORD) {
-      return res.status(401).json({
-        error: "INVALID_CREDENTIALS",
-        message: "Chave mestra de acesso incorreta.",
-      });
-    }
+    const { email, username, token, rememberMe } = req.body || {};
+    const identity = (email || username || ADMIN_USER).trim().toLowerCase();
 
     const config = getSecurityConfig();
 
@@ -414,17 +433,17 @@ app.post("/api/auth/verify-2fa", async (req: Request, res: Response) => {
       });
     }
 
-    const session = createTerminalSession(ADMIN_USER, !!rememberMe);
-    console.log(`[Terminal CFO CBMERJ] Acesso autenticado para '${ADMIN_USER}' (2FA Ativo: ${config.is2faActive})`);
+    const session = createTerminalSession(identity, rememberMe !== false);
+    console.log(`[Terminal CFO CBMERJ] Acesso autenticado via 2FA para '${identity}'`);
 
     return res.json({
       success: true,
       token: session.token,
       expiresAt: session.expiresAt,
-      username: ADMIN_USER,
-      rememberMe: !!rememberMe,
-      is2faActive: config.is2faActive,
-      expiresInDays: rememberMe ? 30 : 1,
+      username: identity,
+      rememberMe: rememberMe !== false,
+      is2faActive: true,
+      expiresInDays: rememberMe !== false ? 30 : 1,
     });
   } catch (err: any) {
     return res.status(500).json({ error: "AUTH_ERROR", message: err?.message });
