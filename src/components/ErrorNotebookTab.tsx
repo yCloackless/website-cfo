@@ -28,6 +28,7 @@ import {
   Maximize2,
 } from 'lucide-react';
 import { AppTheme } from '../types';
+import { getUserStorageKey } from '../utils/userStorage';
 
 export interface Flashcard {
   id: string;
@@ -200,7 +201,8 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   // 1. Estado dos Baralhos (Decks)
   const [decks, setDecks] = useState<Deck[]>(() => {
     try {
-      const saved = localStorage.getItem('cfo_anki_decks');
+      const storageKey = getUserStorageKey('cfo_anki_decks');
+      const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -209,28 +211,32 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     return INITIAL_DECKS;
   });
 
-  // 2. Estado dos Flashcards
+  // 2. Estado dos Flashcards (Conta nova de cadete começa limpa)
   const [cards, setCards] = useState<Flashcard[]>(() => {
     try {
-      const saved = localStorage.getItem('cfo_anki_cards');
+      const storageKey = getUserStorageKey('cfo_anki_cards');
+      const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch {}
-    return INITIAL_CARDS;
+    const isMasterAdmin = !localStorage.getItem('cfo_terminal_user') || localStorage.getItem('cfo_terminal_user') === 'admin';
+    return isMasterAdmin ? INITIAL_CARDS : [];
   });
 
   // Salva no localStorage
   useEffect(() => {
     try {
-      localStorage.setItem('cfo_anki_decks', JSON.stringify(decks));
+      const storageKey = getUserStorageKey('cfo_anki_decks');
+      localStorage.setItem(storageKey, JSON.stringify(decks));
     } catch {}
   }, [decks]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('cfo_anki_cards', JSON.stringify(cards));
+      const storageKey = getUserStorageKey('cfo_anki_cards');
+      localStorage.setItem(storageKey, JSON.stringify(cards));
     } catch (err) {
       console.warn('LocalStorage limit reached for cards:', err);
     }

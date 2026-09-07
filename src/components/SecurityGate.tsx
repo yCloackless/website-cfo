@@ -225,7 +225,18 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
         return;
       }
 
-      // Avança para o passo 2 (Google Authenticator)
+      // Se for login direto de Aluno/Cadete (não requer 2FA mestre do Admin)
+      if (data.directLogin && data.token) {
+        localStorage.setItem('cfo_terminal_session', data.token);
+        localStorage.setItem('cfo_terminal_expires_at', String(data.expiresAt));
+        localStorage.setItem('cfo_terminal_user', data.username || 'cadete');
+        localStorage.setItem('cfo_terminal_role', data.role || 'cadet');
+        localStorage.setItem('cfo_can_access_notion', String(Boolean(data.canAccessNotion)));
+        onAuthenticated(data.token, data.expiresAt, false);
+        return;
+      }
+
+      // Avança para o passo 2 (Google Authenticator) para a conta Admin
       setStep('totp');
       setTimeout(() => {
         totpInputRef.current?.focus();
@@ -290,6 +301,8 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
       localStorage.setItem('cfo_terminal_session', data.token);
       localStorage.setItem('cfo_terminal_expires_at', String(data.expiresAt));
       localStorage.setItem('cfo_terminal_user', data.username);
+      localStorage.setItem('cfo_terminal_role', data.role || 'admin');
+      localStorage.setItem('cfo_can_access_notion', String(Boolean(data.canAccessNotion ?? true)));
 
       onAuthenticated(data.token, data.expiresAt, true);
     } catch (err) {

@@ -33,6 +33,7 @@ interface TacticalSidebarProps {
   isCollapsed: boolean;
   onToggleCollapse: () => void;
   pendingRevisionsCount?: number;
+  canAccessNotion?: boolean;
 }
 
 interface NavItem {
@@ -52,6 +53,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
   isCollapsed,
   onToggleCollapse,
   pendingRevisionsCount = 0,
+  canAccessNotion = true,
 }) => {
   const isDark = theme === 'dark';
 
@@ -62,17 +64,21 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
       icon: LayoutGrid,
       description: 'Grade semanal de estudos',
     },
-    {
-      id: 'calendar',
-      label: 'Agenda Notion',
-      icon: Calendar,
-      badge: 'Notion',
-      badgeClass: {
-        dark: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-        light: 'bg-blue-100 text-blue-900 border-blue-300',
-      },
-      description: 'Revisões contínuas',
-    },
+    ...(canAccessNotion
+      ? [
+          {
+            id: 'calendar' as TabType,
+            label: 'Agenda Notion',
+            icon: Calendar,
+            badge: 'Notion',
+            badgeClass: {
+              dark: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+              light: 'bg-blue-100 text-blue-900 border-blue-300',
+            },
+            description: 'Revisões contínuas',
+          },
+        ]
+      : []),
     {
       id: 'timer',
       label: 'Cronômetro',

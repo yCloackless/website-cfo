@@ -1,13 +1,32 @@
 import { Subject, WeeklyCycle, StudyEntry, SmartRevisionItem } from '../types';
 import { DEFAULT_CFO_SUBJECTS } from '../data/cfoSubjects';
 import { getMondayOfWeek, toISODate, addDays, getWeekRangeLabel } from '../utils/dateUtils';
+import { getUserStorageKey } from '../utils/userStorage';
 
-const STORAGE_KEYS = {
+const RAW_STORAGE_KEYS = {
   SUBJECTS: 'cfo_cbmerj_subjects_v1',
   ACTIVE_CYCLE: 'cfo_cbmerj_active_cycle_v1',
   CYCLES_HISTORY: 'cfo_cbmerj_cycles_history_v1',
   REVISIONS: 'cfo_cbmerj_revisions_v1',
   WEEKLY_GOAL: 'cfo_cbmerj_weekly_goal_hours_v1',
+};
+
+const STORAGE_KEYS = {
+  get SUBJECTS() {
+    return getUserStorageKey(RAW_STORAGE_KEYS.SUBJECTS);
+  },
+  get ACTIVE_CYCLE() {
+    return getUserStorageKey(RAW_STORAGE_KEYS.ACTIVE_CYCLE);
+  },
+  get CYCLES_HISTORY() {
+    return getUserStorageKey(RAW_STORAGE_KEYS.CYCLES_HISTORY);
+  },
+  get REVISIONS() {
+    return getUserStorageKey(RAW_STORAGE_KEYS.REVISIONS);
+  },
+  get WEEKLY_GOAL() {
+    return getUserStorageKey(RAW_STORAGE_KEYS.WEEKLY_GOAL);
+  },
 };
 
 export function loadWeeklyGoalHours(): number {

@@ -72,6 +72,10 @@ export default function App() {
   const [isTerminalUnlocked, setIsTerminalUnlocked] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [canAccessNotion, setCanAccessNotion] = useState<boolean>(() => {
+    const saved = localStorage.getItem('cfo_can_access_notion');
+    return saved === null ? true : saved === 'true';
+  });
 
   // 🧭 Estado do Menu Lateral de Abas Táticas (expandido, recolhido ou oculto)
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
@@ -130,6 +134,8 @@ export default function App() {
           localStorage.removeItem('cfo_terminal_session');
           localStorage.removeItem('cfo_terminal_expires_at');
           localStorage.removeItem('cfo_terminal_user');
+          localStorage.removeItem('cfo_terminal_role');
+          localStorage.removeItem('cfo_can_access_notion');
           if (isMounted) setIsCheckingSession(false);
           return;
         }
@@ -148,11 +154,17 @@ export default function App() {
         if (res.ok && data.valid) {
           if (isMounted) {
             setIsTerminalUnlocked(true);
+            if (data.canAccessNotion !== undefined) {
+              setCanAccessNotion(Boolean(data.canAccessNotion));
+              localStorage.setItem('cfo_can_access_notion', String(Boolean(data.canAccessNotion)));
+            }
           }
         } else {
           localStorage.removeItem('cfo_terminal_session');
           localStorage.removeItem('cfo_terminal_expires_at');
           localStorage.removeItem('cfo_terminal_user');
+          localStorage.removeItem('cfo_terminal_role');
+          localStorage.removeItem('cfo_can_access_notion');
         }
       } catch (err) {
         // Fallback para contingência caso backend offline mas token válido
@@ -176,6 +188,9 @@ export default function App() {
     localStorage.removeItem('cfo_terminal_session');
     localStorage.removeItem('cfo_terminal_expires_at');
     localStorage.removeItem('cfo_terminal_user');
+    localStorage.removeItem('cfo_terminal_role');
+    localStorage.removeItem('cfo_can_access_notion');
+    setCanAccessNotion(true);
     setIsTerminalUnlocked(false);
     setShowLoginModal(false);
   }, []);
@@ -984,6 +999,18 @@ export default function App() {
             onAuthenticated={() => {
               setIsTerminalUnlocked(true);
               setShowLoginModal(false);
+              const notionAccess = localStorage.getItem('cfo_can_access_notion') === 'true';
+              setCanAccessNotion(notionAccess);
+              if (!notionAccess && activeTab === 'calendar') {
+                setActiveTab('table');
+              }
+              // Recarrega matérias, ciclo e metas para a conta do usuário recém-autenticado
+              setSubjects(loadSubjects());
+              setWeeklyGoalHours(loadWeeklyGoalHours());
+              const { cycle: newCycle } = getOrCreateCurrentCycle();
+              setCurrentCycle(newCycle);
+              setCyclesHistory(getCyclesHistory());
+              setRevisions(loadRevisions());
             }}
             onBackToLanding={() => {
               setShowLoginModal(false);
@@ -1051,6 +1078,7 @@ export default function App() {
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={handleToggleCollapse}
           pendingRevisionsCount={pendingRevisionsCount}
+          canAccessNotion={canAccessNotion}
         />
 
         {/* Main Content Area */}
@@ -1435,8 +1463,8 @@ export default function App() {
           </>
         )}
 
-        {/* Render Tab: Agenda Mensal Contínua & Revisões Notion */}
-        {activeTab === 'calendar' && (
+        {/* Render Tab: Agenda Mensal Contínua & Revisões Notion (Restrito ao Admin) */}
+        {activeTab === 'calendar' && canAccessNotion && (
           <NotionAgendaTab
             theme={theme}
             showToast={showToast}

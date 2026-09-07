@@ -48,6 +48,8 @@ interface TacticalSimulationsProps {
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
+import { getUserStorageKey } from '../utils/userStorage';
+
 export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
   theme = 'dark',
   showToast,
@@ -60,7 +62,8 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
   // 2. Estado de Simulados com persistência em localStorage (Totalmente vazio por padrão, sem dados de exemplo)
   const [simulations, setSimulations] = useState<SimulationRecord[]>(() => {
     try {
-      const stored = localStorage.getItem('cfo_tactical_simulations');
+      const storageKey = getUserStorageKey('cfo_tactical_simulations');
+      const stored = localStorage.getItem(storageKey);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
@@ -83,7 +86,8 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
 
   useEffect(() => {
     try {
-      localStorage.setItem('cfo_tactical_simulations', JSON.stringify(simulations));
+      const storageKey = getUserStorageKey('cfo_tactical_simulations');
+      localStorage.setItem(storageKey, JSON.stringify(simulations));
     } catch (e) {
       console.error('[Simulations] Falha ao salvar no localStorage:', e);
     }

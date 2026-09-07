@@ -1,7 +1,8 @@
 import { BizuItem } from '../types';
 import { formatNotesToSeparatedTopics } from './bizuFormatter';
+import { getUserStorageKey } from './userStorage';
 
-const STORAGE_KEY = 'cfo_bizuario_items';
+const getStorageKey = () => getUserStorageKey('cfo_bizuario_items');
 
 // SVG map diagram representation for the default Seas & Straits of Europe and Middle East
 export const DEFAULT_MAP_SVG = `data:image/svg+xml;utf8,${encodeURIComponent(`
@@ -274,7 +275,7 @@ function notifyBizuSubscribers(items: BizuItem[]): void {
  */
 function trySaveToLocalStorage(items: BizuItem[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    localStorage.setItem(getStorageKey(), JSON.stringify(items));
   } catch {
     try {
       // Tentativa 2: Sanitiza imagens base64 volumosas no localStorage
@@ -287,7 +288,7 @@ function trySaveToLocalStorage(items: BizuItem[]): void {
         }
         return item;
       });
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+      localStorage.setItem(getStorageKey(), JSON.stringify(sanitized));
       console.info('[Bizuário Storage] Imagens pesadas salvas no IndexedDB de alta capacidade.');
     } catch {
       // Tentativa 3: Mantém somente os registros mais recentes no localStorage
@@ -296,7 +297,7 @@ function trySaveToLocalStorage(items: BizuItem[]): void {
           ...item,
           imageUrl: item.imageUrl && item.imageUrl.length > 5000 ? '' : item.imageUrl,
         }));
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(minimal));
+        localStorage.setItem(getStorageKey(), JSON.stringify(minimal));
       } catch {
         // Falha silenciosa de localStorage: os dados completos estão salvos no IndexedDB e na memória
       }
@@ -322,7 +323,7 @@ export function loadBizuItems(): BizuItem[] {
   }
 
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(getStorageKey());
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -347,7 +348,7 @@ export function loadBizuItems(): BizuItem[] {
  */
 export async function initBizuStorageAsync(onLoaded?: (items: BizuItem[]) => void): Promise<BizuItem[]> {
   try {
-    const idbItems = await idbGet<BizuItem[]>(STORAGE_KEY);
+    const idbItems = await idbGet<BizuItem[]>(getStorageKey());
     if (Array.isArray(idbItems) && idbItems.length > 0) {
       const normalized = normalizeBizuItems(idbItems);
       memoryBizuCache = normalized;
@@ -358,7 +359,7 @@ export async function initBizuStorageAsync(onLoaded?: (items: BizuItem[]) => voi
 
     // Se IndexedDB ainda não possui, migra do localStorage ou inicial
     const current = loadBizuItems();
-    await idbSet(STORAGE_KEY, current);
+    await idbSet(getStorageKey(), current);
     return current;
   } catch {
     return loadBizuItems();
@@ -370,7 +371,7 @@ export function saveBizuItems(items: BizuItem[]): void {
   notifyBizuSubscribers(items);
 
   // 1. Salva a versão integral (com imagens completas) no IndexedDB
-  idbSet(STORAGE_KEY, items).catch(() => {});
+  idbSet(getStorageKey(), items).catch(() => {});
 
   // 2. Salva no localStorage com resiliência de quota
   trySaveToLocalStorage(items);

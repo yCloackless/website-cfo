@@ -497,6 +497,8 @@ app.get("/api/health", (_req: Request, res: Response) => {
 // ==========================================
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "cfocbmerj2026!";
+const CADET_USER = process.env.CADET_USER || "cadete";
+const CADET_PASSWORD = process.env.CADET_PASSWORD || "cadetecfo2026!";
 const DEFAULT_TOTP_SECRET = "T37NFOFA5PCDA5NRXKDVWVEHZ2F22ZV3";
 const DEFAULT_SESSION_SECRET = "b6708b60d07229c5f49cbc2612e747acae36b92bf8435b11569bc916560ea12f";
 const SECURITY_CONFIG_FILE = path.join(process.cwd(), "data", "security-config.json");
@@ -545,12 +547,19 @@ function saveSecurityConfig(config: SecurityConfig): void {
   }
 }
 
-function createTerminalSession(username: string, rememberMe: boolean): { token: string; expiresAt: number } {
+function createTerminalSession(
+  username: string,
+  rememberMe: boolean,
+  role: string = "admin"
+): { token: string; expiresAt: number; role: string; canAccessNotion: boolean } {
   const config = getSecurityConfig();
   const durationMs = rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
   const expiresAt = Date.now() + durationMs;
+  const canAccessNotion = role === "admin";
   const payload = {
     u: username,
+    role,
+    canAccessNotion,
     exp: expiresAt,
     r: rememberMe ? 1 : 0,
     iat: Date.now(),
@@ -560,10 +569,18 @@ function createTerminalSession(username: string, rememberMe: boolean): { token: 
   return {
     token: `${payloadB64}.${signature}`,
     expiresAt,
+    role,
+    canAccessNotion,
   };
 }
 
-function verifyTerminalSession(token?: string | null): { valid: boolean; username?: string; expiresAt?: number } {
+function verifyTerminalSession(token?: string | null): {
+  valid: boolean;
+  username?: string;
+  role?: string;
+  canAccessNotion?: boolean;
+  expiresAt?: number;
+} {
   if (!token || typeof token !== "string") return { valid: false };
   const parts = token.split(".");
   if (parts.length !== 2) return { valid: false };
@@ -577,7 +594,15 @@ function verifyTerminalSession(token?: string | null): { valid: boolean; usernam
   try {
     const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf-8"));
     if (!payload.exp || Date.now() > payload.exp) return { valid: false };
-    return { valid: true, username: payload.u, expiresAt: payload.exp };
+    const role = payload.role || (payload.u === ADMIN_USER ? "admin" : "cadet");
+    const canAccessNotion = payload.canAccessNotion !== undefined ? Boolean(payload.canAccessNotion) : role === "admin";
+    return {
+      valid: true,
+      username: payload.u,
+      role,
+      canAccessNotion,
+      expiresAt: payload.exp,
+    };
   } catch {
     return { valid: false };
   }
@@ -863,6 +888,37 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
       }
     }
 
+    // 1.5. Verificação de Conta de Aluno / Cadete (Sem acesso ao Notion, login direto)
+    const isCadetTarget =
+      inputUser === CADET_USER.toLowerCase() ||
+      inputUser === "cadete@cfo.cbmerj" ||
+      inputUser === "aluno" ||
+      inputUser === "aluno@cfocbmerj.com";
+
+    if (isCadetTarget) {
+      if (password !== CADET_PASSWORD) {
+        return res.status(401).json({
+          success: false,
+          error: "INVALID_CREDENTIALS",
+          message: "Senha de acesso do Cadete incorreta.",
+        });
+      }
+
+      // Cria sessão do cadete (role: cadet, canAccessNotion: false)
+      const session = createTerminalSession("cadete", true, "cadet");
+      console.log(`[Terminal CFO CBMERJ] Acesso de Cadete autenticado: ${inputUser}`);
+      return res.json({
+        success: true,
+        directLogin: true,
+        token: session.token,
+        expiresAt: session.expiresAt,
+        username: "cadete",
+        role: "cadet",
+        canAccessNotion: false,
+        message: "Acesso concedido. Bem-vindo ao Terminal, Cadete!",
+      });
+    }
+
     // 2. Geo-fencing Estrito para a Conta Admin (Apenas Rio de Janeiro / Brasil)
     const isAdminTarget =
       inputUser === ADMIN_USER.toLowerCase() ||
@@ -1011,7 +1067,7 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
       });
     }
 
-    const session = createTerminalSession(cleanUser, rememberMe !== false);
+    const session = createTerminalSession(cleanUser, rememberMe !== false, "admin");
     console.log(`[Terminal CFO CBMERJ] Acesso autenticado via 2FA para '${cleanUser}' (30 dias: ${rememberMe !== false})`);
 
     return res.json({
@@ -1019,6 +1075,8 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
       token: session.token,
       expiresAt: session.expiresAt,
       username: cleanUser,
+      role: "admin",
+      canAccessNotion: true,
       rememberMe: rememberMe !== false,
       is2faActive: true,
       expiresInDays: rememberMe !== false ? 30 : 1,
@@ -1084,6 +1142,8 @@ app.post("/api/auth/verify-session", (req: Request, res: Response) => {
   return res.json({
     valid: true,
     username: result.username,
+    role: result.role,
+    canAccessNotion: result.canAccessNotion,
     expiresAt: result.expiresAt,
     is2faActive: config.is2faActive,
   });
@@ -2428,6 +2488,25 @@ A MATÉRIA QUE EU QUERO É: ${topic}`;
 // ==========================================
 // ROTAS DE INTEGRAÇÃO NOTION - REVISÕES CFO
 // ==========================================
+
+// 🛑 MIDDLEWARE DE SEGURANÇA NOTION: Acesso exclusivo do Administrador
+app.use("/api/notion", (req: Request, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : (req.query.token as string) || (req.headers["x-terminal-session"] as string);
+
+  // Valida a sessão e permissão da conta
+  const session = verifyTerminalSession(token);
+  if (!session.valid || !session.canAccessNotion) {
+    return res.status(403).json({
+      error: "NOTION_FORBIDDEN",
+      message: "403 Acesso Negado: A integração e agenda do Notion são restritas exclusivamente ao Administrador.",
+    });
+  }
+
+  next();
+});
 
 // 1. Status da Conexão com o Notion
 app.get("/api/notion/status", (_req: Request, res: Response) => {
