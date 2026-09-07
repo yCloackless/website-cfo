@@ -49,6 +49,7 @@ import { AuthService } from "./src/db/authService";
 import { getDb } from "./src/db/database";
 import { UserRepository, ProfileRepository, AuditRepository, SessionRepository, RecoveryCodeRepository } from "./src/db/repositories";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
+import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtimeHub";
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -134,6 +135,12 @@ function banIp(ip: string, reason: string, geo?: { country?: string; region?: st
     action: 'ACCOUNT_SUSPENDED',
     ip: clean,
     details: { reason, geo },
+  });
+  adminRealtimeHub.publish('SECURITY_ALERT', {
+    action: 'IP_BANNED',
+    ip: clean,
+    reason,
+    geo,
   });
   console.error(`🚨 [SEGURANÇA CFO CBMERJ] IP BANIDO PERMANENTEMENTE: ${clean} | Motivo: ${reason}`);
 }
@@ -766,6 +773,27 @@ function logSecurityEvent(
 
     logAuditEvent({
       eventType: event.action,
+      action: event.action,
+      actor: event.actor,
+      resource: event.resource,
+      status: event.status,
+      ip,
+      userAgent,
+      userId: event.userId,
+      details: event.details,
+    });
+
+    // Transmissão realtime com baixa latência para os administradores conectados
+    let realtimeType: AdminRealtimeEventType = 'METRICS_UPDATED';
+    if (event.action === 'ADMIN_LOGIN_FAILED') realtimeType = 'ADMIN_LOGIN_FAILED';
+    else if (event.action === 'LOGIN_FAILED') realtimeType = 'LOGIN_FAILED';
+    else if (event.action === 'ACCOUNT_SUSPENDED') realtimeType = 'ACCOUNT_SUSPENDED';
+    else if (event.action === 'SESSION_REVOKED') realtimeType = 'SESSION_REVOKED';
+    else if (event.action === 'USER_CREATED' || event.action === 'USER_REGISTERED') realtimeType = 'USER_CREATED';
+    else if (event.action === 'USER_UPDATED' || event.action === 'ROLE_CHANGED' || event.action === 'ACCOUNT_ACTIVATED') realtimeType = 'USER_UPDATED';
+    else if (event.action === '2FA_FAILED' || event.status === 'FAILED' || event.action === 'IP_BANNED') realtimeType = 'SECURITY_ALERT';
+
+    adminRealtimeHub.publish(realtimeType, {
       action: event.action,
       actor: event.actor,
       resource: event.resource,
@@ -1716,6 +1744,30 @@ app.get("/api/admin/verify", requireAdminAuth, (req: Request, res: Response) => 
       role: adminUser.role,
       expiresAt: adminUser.expiresAt,
     },
+  });
+});
+
+// 13.0. Transmissão em Tempo Real para o Painel Administrativo (Server-Sent Events)
+app.get("/api/admin/realtime/stream", requireAdminAuth, (req: Request, res: Response) => {
+  const adminUser = (req as any).user;
+  const lastEventId = (req.headers["last-event-id"] as string) || (req.query.lastEventId as string) || undefined;
+
+  // Configuração estrita de headers SSE
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+
+  if (typeof res.flushHeaders === "function") {
+    res.flushHeaders();
+  }
+
+  const clientId = adminRealtimeHub.addClient(res, adminUser?.username || "admin", lastEventId);
+
+  req.on("close", () => {
+    adminRealtimeHub.removeClient(clientId);
   });
 });
 

@@ -160,6 +160,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newRecoveryCodes, setNewRecoveryCodes] = useState<string[] | null>(null);
   const [isGeneratingRecoveryCodes, setIsGeneratingRecoveryCodes] = useState(false);
 
+  // ⚡ Conexão Realtime Server-Sent Events (SSE)
+  const [realtimeStatus, setRealtimeStatus] = useState<'connected' | 'reconnecting' | 'offline'>('reconnecting');
+  const [lastRealtimeEventAt, setLastRealtimeEventAt] = useState<string | null>(null);
+  const processedEventIds = React.useRef(new Set<string>());
+
+  const handleRealtimeEvent = useCallback((type: string, payload: any) => {
+    const eventData = payload.data || payload;
+
+    // Atualização reativa de contadores do dashboard
+    setStats((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev };
+      if (type === 'LOGIN_FAILED') next.loginFailed24h += 1;
+      else if (type === 'ADMIN_LOGIN_FAILED') next.loginFailed24h += 1;
+      else if (type === 'SECURITY_ALERT' || type === '2FA_FAILED') next.twoFactorFailed24h += 1;
+      else if (type === 'ACCOUNT_SUSPENDED') next.suspendedUsers += 1;
+      else if (type === 'USER_CREATED') next.totalUsers += 1;
+      return next;
+    });
+
+    // Se for evento de auditoria, adiciona no topo da lista sem recarregar tela
+    if (eventData && eventData.action) {
+      const newAuditItem: AuditEventItem = {
+        id: payload.id || crypto.randomUUID(),
+        action: eventData.action,
+        actor: eventData.actor || 'sistema',
+        resource: eventData.resource || '/realtime',
+        status: eventData.status || 'WARNING',
+        ip: eventData.ip || null,
+        userAgent: eventData.userAgent || null,
+        userId: eventData.userId || null,
+        detailsJson: eventData.details ? JSON.stringify(eventData.details) : null,
+        createdAt: payload.timestamp || new Date().toISOString(),
+      };
+
+      setRecentEvents((prev) => [newAuditItem, ...prev.slice(0, 9)]);
+    }
+  }, []);
+
   const getHeaders = useCallback((overrideStepUp?: string | null) => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (sessionToken) {
@@ -171,6 +210,121 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
     return headers;
   }, [sessionToken, stepUpToken]);
+
+  // Efeito de conexão contínua ao SSE Realtime
+  useEffect(() => {
+    if (!isAuthorized || !sessionToken) return;
+
+    let isMounted = true;
+    const abortController = new AbortController();
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    let reconnectAttempts = 0;
+
+    const connectSse = async () => {
+      try {
+        if (!isMounted) return;
+        setRealtimeStatus('reconnecting');
+
+        const res = await fetch('/api/admin/realtime/stream', {
+          headers: {
+            Authorization: `Bearer ${sessionToken}`,
+            Accept: 'text/event-stream',
+          },
+          signal: abortController.signal,
+        });
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        if (!res.body) {
+          throw new Error('Corpo de stream indisponível.');
+        }
+
+        if (isMounted) {
+          setRealtimeStatus('connected');
+          reconnectAttempts = 0;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (isMounted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          let currentEvent: { id?: string; event?: string; data?: any } = {};
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) {
+              if (currentEvent.data) {
+                const eventId = currentEvent.id || '';
+                if (eventId && processedEventIds.current.has(eventId)) {
+                  currentEvent = {};
+                  continue;
+                }
+                if (eventId) {
+                  processedEventIds.current.add(eventId);
+                  if (processedEventIds.current.size > 150) {
+                    const first = processedEventIds.current.values().next().value;
+                    if (first) processedEventIds.current.delete(first);
+                  }
+                }
+
+                if (isMounted) {
+                  setLastRealtimeEventAt(new Date().toLocaleTimeString());
+                  handleRealtimeEvent(currentEvent.event || 'METRICS_UPDATED', currentEvent.data);
+                }
+              }
+              currentEvent = {};
+              continue;
+            }
+
+            if (trimmed.startsWith(':')) {
+              // Keepalive ping do servidor
+              continue;
+            }
+
+            if (trimmed.startsWith('id:')) {
+              currentEvent.id = trimmed.slice(3).trim();
+            } else if (trimmed.startsWith('event:')) {
+              currentEvent.event = trimmed.slice(6).trim();
+            } else if (trimmed.startsWith('data:')) {
+              try {
+                currentEvent.data = JSON.parse(trimmed.slice(5).trim());
+              } catch {
+                currentEvent.data = trimmed.slice(5).trim();
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+        if (isMounted) {
+          setRealtimeStatus('offline');
+          reconnectAttempts++;
+          const delay = Math.min(15000, 2000 * Math.pow(1.5, reconnectAttempts));
+          reconnectTimeout = setTimeout(() => {
+            if (isMounted) connectSse();
+          }, delay);
+        }
+      }
+    };
+
+    connectSse();
+
+    return () => {
+      isMounted = false;
+      abortController.abort();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    };
+  }, [isAuthorized, sessionToken, handleRealtimeEvent]);
 
   // 1. Verificação de Acesso Server-Side
   useEffect(() => {
@@ -576,6 +730,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Badge de Conexão Realtime SSE */}
+          {realtimeStatus === 'connected' && (
+            <div
+              className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold select-none shadow-xs"
+              title={`Streaming SSE ativo com baixa latência.${lastRealtimeEventAt ? ` Último evento: ${lastRealtimeEventAt}` : ''}`}
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              AO VIVO
+            </div>
+          )}
+
+          {realtimeStatus === 'reconnecting' && (
+            <div
+              className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-mono font-bold select-none"
+              title="Tentando restabelecer streaming realtime..."
+            >
+              <RefreshCw className="w-3 h-3 animate-spin text-amber-400" />
+              RECONECTANDO
+            </div>
+          )}
+
+          {realtimeStatus === 'offline' && (
+            <div
+              className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-mono font-bold select-none"
+              title="Canal realtime temporariamente offline."
+            >
+              <span className="w-2 h-2 rounded-full bg-red-500" />
+              OFFLINE
+            </div>
+          )}
           <button
             type="button"
             onClick={() => {
