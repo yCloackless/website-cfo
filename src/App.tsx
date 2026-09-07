@@ -238,7 +238,47 @@ export default function App() {
     };
   }, [isTerminalUnlocked]);
 
+  // 🌐 Monitoramento de Conexão e Estados de Rede (Offline / Reconnecting)
+  const [isOnline, setIsOnline] = useState<boolean>(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
+  const [isReconnecting, setIsReconnecting] = useState(false);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      setIsReconnecting(true);
+      const timer = setTimeout(() => {
+        setIsReconnecting(false);
+      }, 4000);
+      return () => clearTimeout(timer);
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      setIsReconnecting(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   const handleLockTerminal = useCallback(() => {
+    const token = localStorage.getItem('cfo_terminal_session');
+    if (token) {
+      fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ token }),
+      }).catch(() => {});
+    }
+
     localStorage.removeItem('cfo_terminal_session');
     localStorage.removeItem('cfo_terminal_expires_at');
     localStorage.removeItem('cfo_terminal_user');
@@ -1104,10 +1144,32 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen flex flex-col antialiased selection:bg-[#0056D2] selection:text-white transition-colors duration-200 ${
+      className={`min-h-screen flex flex-col antialiased selection:bg-[#0056D2] selection:text-white transition-colors duration-200 relative ${
         isDark ? 'bg-[#070D18] text-slate-100' : 'bg-[#F1F4F9] text-slate-900'
       }`}
     >
+      {/* 🌐 Network Contingency Notification (Offline / Reconnecting) */}
+      {!isOnline && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-[9999] px-4 py-2 rounded-full shadow-xl border border-amber-500/40 bg-amber-950/90 text-amber-200 backdrop-blur-md flex items-center gap-2.5 text-xs font-sans font-semibold animate-fade-in"
+        >
+          <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
+          <span>Você está offline. Operando em modo de contingência local.</span>
+        </div>
+      )}
+      {isOnline && isReconnecting && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-[9999] px-4 py-2 rounded-full shadow-xl border border-emerald-500/40 bg-emerald-950/90 text-emerald-200 backdrop-blur-md flex items-center gap-2.5 text-xs font-sans font-semibold animate-fade-in"
+        >
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0" />
+          <span>Conexão restabelecida. Sincronizado com o servidor.</span>
+        </div>
+      )}
+
       {/* Top Header with Tab Selector and Theme Toggle */}
       <Header
         user={user}

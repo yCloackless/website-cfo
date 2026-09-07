@@ -95,6 +95,9 @@ export class AuthService {
         status: 'SUCCESS',
         details: { email: cadetEmail, role: 'cadet' },
       });
+    } else if (process.env.NODE_ENV === 'test') {
+      const hash = await bcrypt.hash(cadetPass, 10);
+      this.userRepo.updatePasswordHash(cadet.id, hash);
     }
 
     const supportEmail = (process.env.SUPPORT_USER_EMAIL || 'suporte@cbmerj.com').toLowerCase().trim();

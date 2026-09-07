@@ -47,6 +47,10 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  // Estados de 2FA Alternativo (Código de Recuperação / Backup)
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
+  const [recoveryCodeInput, setRecoveryCodeInput] = useState('');
+
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -335,29 +339,43 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
     }
   };
 
-  // Passo 2: Validação com Google Authenticator
+  // Passo 2: Validação com Google Authenticator ou Recovery Code
   const handleTotpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (totpCode.length !== 6) {
-      setErrorMsg('Digite o código de 6 dígitos do Google Authenticator.');
-      totpInputRef.current?.focus();
-      return;
+    if (useRecoveryCode) {
+      if (!recoveryCodeInput.trim()) {
+        setErrorMsg('Digite seu código de recuperação de backup.');
+        return;
+      }
+    } else {
+      if (totpCode.length !== 6) {
+        setErrorMsg('Digite o código de 6 dígitos do Google Authenticator.');
+        totpInputRef.current?.focus();
+        return;
+      }
     }
 
     setLoading(true);
     setErrorMsg(null);
 
     try {
+      const payload: Record<string, any> = {
+        username: email.trim(),
+        password,
+        rememberMe,
+        turnstileToken,
+      };
+
+      if (useRecoveryCode) {
+        payload.recoveryCode = recoveryCodeInput.trim().toUpperCase();
+      } else {
+        payload.token = totpCode;
+      }
+
       const res = await fetch('/api/auth/verify-2fa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: email.trim(),
-          password,
-          token: totpCode,
-          rememberMe,
-          turnstileToken,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -375,7 +393,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
       }
 
       if (!res.ok || !data.success) {
-        setErrorMsg(data.message || 'Código Authenticator inválido ou expirado.');
+        setErrorMsg(data.message || (useRecoveryCode ? 'Código de recuperação inválido ou já utilizado.' : 'Código Authenticator inválido ou expirado.'));
         setLoading(false);
         return;
       }
@@ -540,10 +558,12 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                     {step === 'totp' && (
                       <>
                         <h1 className="text-[22px] sm:text-[23px] font-bold text-[#0f172a] tracking-tight mt-6 mb-1.5 font-sans">
-                          Autenticação 2FA
+                          {useRecoveryCode ? 'Código de Recuperação' : 'Autenticação 2FA'}
                         </h1>
                         <p className="text-[13px] font-normal text-[#64748b] leading-relaxed">
-                          Digite o código de 6 dígitos gerado pelo Google Authenticator.
+                          {useRecoveryCode
+                            ? 'Digite um dos seus códigos de backup de contingência.'
+                            : 'Digite o código de 6 dígitos gerado pelo Google Authenticator.'}
                         </p>
                       </>
                     )}
@@ -947,68 +967,117 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                   </form>
                 )}
 
-              {/* STEP 2: TOTP GOOGLE AUTHENTICATOR FORM */}
+              {/* STEP 2: TOTP GOOGLE AUTHENTICATOR / RECOVERY CODE FORM */}
               {step === 'totp' && (
                 <form
                   className="w-full mt-6 flex flex-col space-y-4"
                   data-purpose="totp-form"
                   onSubmit={handleTotpSubmit}
                 >
-                  <div className="flex flex-col space-y-1.5">
-                    <div className="flex items-center justify-between px-0.5">
-                      <label
-                        className="text-[11px] font-bold uppercase tracking-wider text-[#64748b]"
-                        htmlFor="totp-input"
-                      >
-                        CÓDIGO DE 6 DÍGITOS
-                      </label>
-                      <span className="text-[10.5px] font-semibold text-[#164491] bg-blue-50 px-2 py-0.5 rounded-full">
-                        Google Authenticator
-                      </span>
-                    </div>
-
-                    <div className="relative flex items-center rounded-xl border border-[#e2e8f0] bg-white transition duration-150 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-600/15">
-                      {/* Shield/Key Icon */}
-                      <span
-                        aria-hidden="true"
-                        className="absolute left-3.5 flex items-center pointer-events-none text-[#94a3b8]"
-                      >
-                        <svg
-                          className="w-[18px] h-[18px]"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="1.8"
-                          viewBox="0 0 24 24"
-                          xmlns="http://www.w3.org/2000/svg"
+                  {!useRecoveryCode ? (
+                    <div className="flex flex-col space-y-1.5">
+                      <div className="flex items-center justify-between px-0.5">
+                        <label
+                          className="text-[11px] font-bold uppercase tracking-wider text-[#64748b]"
+                          htmlFor="totp-input"
                         >
-                          <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
-                          <line x1="12" y1="18" x2="12.01" y2="18" />
-                        </svg>
-                      </span>
-                      <input
-                        ref={totpInputRef}
-                        id="totp-input"
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        maxLength={6}
-                        value={totpCode}
-                        onChange={handleTotpChange}
-                        placeholder="000000"
-                        autoComplete="one-time-code"
-                        required
-                        className="w-full pl-10 pr-4 py-3.5 text-center text-[20px] font-mono font-bold tracking-[0.35em] placeholder:tracking-normal text-slate-900 placeholder:text-[#94a3b8] bg-transparent border-0 rounded-xl focus:ring-0 focus:outline-none"
-                      />
+                          CÓDIGO DE 6 DÍGITOS
+                        </label>
+                        <span className="text-[10.5px] font-semibold text-[#164491] bg-blue-50 px-2 py-0.5 rounded-full">
+                          Google Authenticator
+                        </span>
+                      </div>
+
+                      <div className="relative flex items-center rounded-xl border border-[#e2e8f0] bg-white transition duration-150 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-600/15">
+                        <span
+                          aria-hidden="true"
+                          className="absolute left-3.5 flex items-center pointer-events-none text-[#94a3b8]"
+                        >
+                          <svg
+                            className="w-[18px] h-[18px]"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="1.8"
+                            viewBox="0 0 24 24"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+                            <line x1="12" y1="18" x2="12.01" y2="18" />
+                          </svg>
+                        </span>
+                        <input
+                          ref={totpInputRef}
+                          id="totp-input"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          maxLength={6}
+                          value={totpCode}
+                          onChange={handleTotpChange}
+                          placeholder="000000"
+                          autoComplete="one-time-code"
+                          required
+                          className="w-full pl-10 pr-4 py-3.5 text-center text-[20px] font-mono font-bold tracking-[0.35em] placeholder:tracking-normal text-slate-900 placeholder:text-[#94a3b8] bg-transparent border-0 rounded-xl focus:ring-0 focus:outline-none"
+                        />
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex flex-col space-y-1.5">
+                      <div className="flex items-center justify-between px-0.5">
+                        <label
+                          className="text-[11px] font-bold uppercase tracking-wider text-[#64748b]"
+                          htmlFor="recovery-code-input"
+                        >
+                          CÓDIGO DE RECUPERAÇÃO
+                        </label>
+                        <span className="text-[10.5px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                          Backup de Contingência
+                        </span>
+                      </div>
+
+                      <div className="relative flex items-center rounded-xl border border-[#e2e8f0] bg-white transition duration-150 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-600/15">
+                        <span
+                          aria-hidden="true"
+                          className="absolute left-3.5 flex items-center pointer-events-none text-[#94a3b8]"
+                        >
+                          <svg
+                            className="w-[18px] h-[18px]"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="1.8"
+                            viewBox="0 0 24 24"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <rect height="11" rx="2" ry="2" width="18" x="3" y="11" />
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                          </svg>
+                        </span>
+                        <input
+                          id="recovery-code-input"
+                          type="text"
+                          value={recoveryCodeInput}
+                          onChange={(e) => {
+                            setRecoveryCodeInput(e.target.value.toUpperCase());
+                            setErrorMsg(null);
+                          }}
+                          placeholder="XXXX-XXXX-XXXX-XXXX"
+                          autoComplete="off"
+                          required
+                          className="w-full pl-10 pr-4 py-3.5 text-center text-[15px] font-mono font-bold tracking-[0.15em] placeholder:tracking-normal text-slate-900 placeholder:text-[#94a3b8] bg-transparent border-0 rounded-xl focus:ring-0 focus:outline-none uppercase"
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   {/* Submit CTA Button */}
                   <div className="pt-2">
                     <button
                       type="submit"
-                      disabled={loading || totpCode.length !== 6}
+                      disabled={loading || (!useRecoveryCode && totpCode.length !== 6) || (useRecoveryCode && !recoveryCodeInput.trim())}
                       className="w-full py-3.5 px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] active:bg-[#0e2b5c] text-white font-bold text-[13px] tracking-[0.08em] uppercase transition-all duration-150 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#164491] focus:ring-offset-2 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {loading ? (
@@ -1017,18 +1086,33 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                           <span>VALIDANDO ACESSO...</span>
                         </>
                       ) : (
-                        <span>CONFIRMAR E ENTRAR</span>
+                        <span>{useRecoveryCode ? 'CONFIRMAR COM CÓDIGO DE RECUPERAÇÃO' : 'CONFIRMAR E ENTRAR'}</span>
                       )}
                     </button>
                   </div>
 
+                  {/* Toggle entre TOTP e Recovery Code */}
+                  <div className="text-center pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUseRecoveryCode(!useRecoveryCode);
+                        setErrorMsg(null);
+                      }}
+                      className="text-[12px] font-medium text-[#164491] hover:text-[#12397a] hover:underline transition-colors cursor-pointer"
+                    >
+                      {useRecoveryCode ? '← Usar código do Google Authenticator' : 'Sem acesso ao app? Entrar com código de recuperação'}
+                    </button>
+                  </div>
+
                   {/* Voltar às credenciais */}
-                  <div className="text-center pt-1">
+                  <div className="text-center pt-0.5">
                     <button
                       type="button"
                       onClick={() => {
                         setStep('credentials');
                         setErrorMsg(null);
+                        setUseRecoveryCode(false);
                       }}
                       className="text-[12.5px] font-medium text-[#64748b] hover:text-[#164491] transition-colors cursor-pointer"
                     >

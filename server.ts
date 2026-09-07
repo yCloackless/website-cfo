@@ -730,8 +730,29 @@ function createTerminalSession(
   };
   const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const signature = crypto.createHmac("sha256", config.sessionSecret).update(payloadB64).digest("base64url");
+  const rawToken = `${payloadB64}.${signature}`;
+
+  try {
+    const rawDb = getDb().getRawDb();
+    let targetUser = userRepoInstance.findByUsername(username) || userRepoInstance.findByEmail(username);
+    if (!targetUser) {
+      targetUser = userRepoInstance.findByUsername(ADMIN_USER);
+    }
+    if (targetUser) {
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      const nowIso = new Date().toISOString();
+      const expiresAtIso = new Date(expiresAt).toISOString();
+      rawDb.prepare(
+        `INSERT INTO sessions (id, user_id, token_hash, role, ip, user_agent, expires_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(crypto.randomUUID(), targetUser.id, tokenHash, role, null, null, expiresAtIso, nowIso);
+    }
+  } catch (err) {
+    console.warn("Falha ao registrar sessão persistente no banco:", err);
+  }
+
   return {
-    token: `${payloadB64}.${signature}`,
+    token: rawToken,
     expiresAt,
     role,
     canAccessNotion,
@@ -856,6 +877,17 @@ function verifyTerminalSession(token?: string | null): {
       userId: dbCheck.user.id,
     };
   }
+
+  // 1.1 Se o token existe no banco mas foi revogado, rejeitar terminantemente (sem fallback)
+  try {
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const revokedRow = getDb().getRawDb().prepare(
+      `SELECT 1 FROM sessions WHERE token_hash = ? AND revoked_at IS NOT NULL LIMIT 1`
+    ).get(tokenHash);
+    if (revokedRow) {
+      return { valid: false };
+    }
+  } catch {}
 
   // 2. Fallback de compatibilidade para sessões HMAC assinadas
   const parts = token.split(".");
@@ -1595,6 +1627,9 @@ app.post("/api/auth/logout", (req: Request, res: Response) => {
   const token = req.body?.token || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null);
   if (token) {
     authServiceInstance.logout(token, getClientIp(req));
+    try {
+      sessionRepoInstance.revokeSession(token);
+    } catch {}
     logSecurityEvent(req, {
       action: "LOGOUT",
       actor: "authenticated_session",
