@@ -58,7 +58,7 @@ export class AuthService {
     const DEFAULT_CADET_HASH = '$2b$10$2Au.s9BUlB9ii0okzlmSY.Jh5lvsYOeSzjNDRGIj/vGPEUEtqLMg6';
     const DEFAULT_SUPPORT_HASH = '$2b$10$0S8mbvn25RkmDdbvbZYaFu3I8xYBSV8esqpDR/EWLcT07GE/EdHMW';
 
-    const adminEmail = (process.env.ADMIN_USER_EMAIL || 'admin@cbmerj.com').toLowerCase().trim();
+    const adminEmail = (process.env.ADMIN_USER_EMAIL || 'jb080956@gmail.com').toLowerCase().trim();
     const adminUsername = (process.env.ADMIN_USER || 'admin').toLowerCase().trim();
     const adminPass = process.env.ADMIN_PASSWORD;
     const adminHash = process.env.ADMIN_PASSWORD_HASH;
@@ -81,6 +81,9 @@ export class AuthService {
         status: 'SUCCESS',
         details: { email: adminEmail, role: 'admin' },
       });
+    } else if (admin.email !== adminEmail && admin.username === adminUsername) {
+      this.userRepo.updateEmail(admin.id, adminEmail);
+      admin.email = adminEmail;
     }
 
     const cadetEmail = (process.env.CADET_USER_EMAIL || 'cadete@cbmerj.com').toLowerCase().trim();
@@ -136,7 +139,10 @@ export class AuthService {
   public async verifyCredentials(identifier: string, password: string): Promise<DbUser | null> {
     if (typeof identifier !== 'string' || typeof password !== 'string') return null;
     const clean = identifier.trim().toLowerCase();
-    const user = this.userRepo.findByEmail(clean) || this.userRepo.findByUsername(clean);
+    let user = this.userRepo.findByEmail(clean) || this.userRepo.findByUsername(clean);
+    if (!user && (clean === 'admin@cbmerj.com' || clean === 'jb080956@gmail.com')) {
+      user = this.userRepo.findByUsername('admin');
+    }
     const matches = await bcrypt.compare(password, user?.passwordHash || DUMMY_PASSWORD_HASH);
     return matches && user?.status === 'active' ? user : null;
   }
@@ -151,7 +157,10 @@ export class AuthService {
       return { success: false, message: 'Usuário e senha são obrigatórios.' };
     }
 
-    const user = this.userRepo.findByEmail(cleanId) || this.userRepo.findByUsername(cleanId);
+    let user = this.userRepo.findByEmail(cleanId) || this.userRepo.findByUsername(cleanId);
+    if (!user && (cleanId === 'admin@cbmerj.com' || cleanId === 'jb080956@gmail.com')) {
+      user = this.userRepo.findByUsername('admin');
+    }
     if (!user) {
       // Timing attack protection: perform dummy bcrypt check to prevent user enumeration
       await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
@@ -400,7 +409,8 @@ export class AuthService {
       }
     }
 
-    const existing = this.userRepo.findByEmail(cleanEmail);
+    const isReservedAdmin = cleanEmail === 'admin@cbmerj.com' || cleanEmail === 'jb080956@gmail.com';
+    const existing = this.userRepo.findByEmail(cleanEmail) || (isReservedAdmin ? this.userRepo.findByUsername('admin') : null);
     if (existing && existing.id !== userId) {
       return { success: false, message: 'Este endereço de e-mail já está em uso por outro operador.' };
     }

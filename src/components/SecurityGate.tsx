@@ -183,7 +183,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
     e.preventDefault();
     const cleanUser = email.trim();
     if (!cleanUser) {
-      setErrorMsg('Por favor, informe seu e-mail de acesso.');
+      setErrorMsg('Por favor, informe seu usuário ou e-mail de acesso.');
       return;
     }
     if (!password) {
@@ -227,7 +227,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
       }
 
       if (!res.ok || !data.success) {
-        setErrorMsg(data.message || 'E-mail ou senha incorretos.');
+        setErrorMsg(data.message || 'Usuário/e-mail ou senha incorretos.');
         // Se falhou o Turnstile, reseta
         if (turnstileWidgetIdRef.current && window.turnstile) {
           window.turnstile.reset(turnstileWidgetIdRef.current);
@@ -638,16 +638,21 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                           </span>
                         </div>
                       )}
-                  {/* Input Group: E-mail */}
+                  {/* Input Group: Usuário ou E-mail */}
                   <div className="flex flex-col space-y-1.5" data-purpose="email-field-group">
-                    <label
-                      className="text-[11px] font-bold uppercase tracking-wider text-[#64748b] px-0.5"
-                      htmlFor="email-input"
-                    >
-                      E-MAIL
-                    </label>
+                    <div className="flex justify-between items-center px-0.5">
+                      <label
+                        className="text-[11px] font-bold uppercase tracking-wider text-[#64748b]"
+                        htmlFor="email-input"
+                      >
+                        USUÁRIO OU E-MAIL
+                      </label>
+                      <span className="text-[10px] text-blue-600 font-medium bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                        Apenas usuário ou e-mail
+                      </span>
+                    </div>
                     <div className="relative flex items-center rounded-xl border border-[#e2e8f0] bg-white transition duration-150 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-600/15">
-                      {/* Envelope Icon */}
+                      {/* User Icon */}
                       <span
                         aria-hidden="true"
                         className="absolute left-3.5 flex items-center pointer-events-none text-[#94a3b8]"
@@ -662,8 +667,8 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                           viewBox="0 0 24 24"
                           xmlns="http://www.w3.org/2000/svg"
                         >
-                          <rect height="16" rx="2" width="20" x="2" y="4" />
-                          <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                          <circle cx="12" cy="7" r="4" />
                         </svg>
                       </span>
                       <input
@@ -674,12 +679,15 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                           setEmail(e.target.value);
                           setErrorMsg(null);
                         }}
-                        placeholder="seu@email.com"
-                        autoComplete="email"
+                        placeholder="Digite seu usuário ou e-mail cadastrado"
+                        autoComplete="username"
                         required
                         className="w-full pl-10 pr-4 py-3 text-[14px] text-slate-800 placeholder:text-[#94a3b8] placeholder:font-normal bg-transparent border-0 rounded-xl focus:ring-0 focus:outline-none"
                       />
                     </div>
+                    <p className="text-[11px] text-slate-500 px-1">
+                      Acesso restrito: utilize exclusivamente seu usuário ou e-mail cadastrado.
+                    </p>
                   </div>
 
                   {/* Input Group: Senha */}
