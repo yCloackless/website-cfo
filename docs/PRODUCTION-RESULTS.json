@@ -1,0 +1,293 @@
+{
+    "date":  "2026-09-07",
+    "sourceCommit":  "b26c722",
+    "node":  "24.20.0",
+    "typecheck":  "pass",
+    "build":  "pass",
+    "existingSuite":  [
+                          {
+                              "file":  "models",
+                              "exitCode":  0,
+                              "summary":  [
+                                              "# tests 5",
+                                              "# pass 5",
+                                              "# fail 0",
+                                              "# duration_ms 821.1373"
+                                          ]
+                          },
+                          {
+                              "file":  "auth",
+                              "exitCode":  0,
+                              "summary":  [
+                                              "# tests 5",
+                                              "# pass 5",
+                                              "# fail 0",
+                                              "# duration_ms 2832.4972"
+                                          ]
+                          },
+                          {
+                              "file":  "profile",
+                              "exitCode":  0,
+                              "summary":  [
+                                              "# tests 4",
+                                              "# pass 4",
+                                              "# fail 0",
+                                              "# duration_ms 1130.6543"
+                                          ]
+                          },
+                          {
+                              "file":  "audit_security",
+                              "exitCode":  0,
+                              "summary":  [
+                                              "# tests 7",
+                                              "# pass 7",
+                                              "# fail 0",
+                                              "# duration_ms 3035.4409"
+                                          ]
+                          },
+                          {
+                              "file":  "admin_panel",
+                              "exitCode":  0,
+                              "summary":  [
+                                              "# tests 6",
+                                              "# pass 6",
+                                              "# fail 0",
+                                              "# duration_ms 3341.098"
+                                          ]
+                          },
+                          {
+                              "file":  "admin_security_2fa",
+                              "exitCode":  0,
+                              "summary":  [
+                                              "# tests 10",
+                                              "# pass 10",
+                                              "# fail 0",
+                                              "# duration_ms 3032.4476"
+                                          ]
+                          },
+                          {
+                              "file":  "admin_realtime",
+                              "exitCode":  0,
+                              "summary":  [
+                                              "# tests 9",
+                                              "# pass 9",
+                                              "# fail 0",
+                                              "# duration_ms 2943.4794"
+                                          ]
+                          },
+                          {
+                              "file":  "admin_users_management",
+                              "exitCode":  0,
+                              "summary":  [
+                                              "# tests 10",
+                                              "# pass 10",
+                                              "# fail 0",
+                                              "# duration_ms 3086.4704"
+                                          ]
+                          },
+                          {
+                              "file":  "admin_audit",
+                              "exitCode":  0,
+                              "summary":  [
+                                              "# tests 10",
+                                              "# pass 10",
+                                              "# fail 0",
+                                              "# duration_ms 2670.6295"
+                                          ]
+                          },
+                          {
+                              "file":  "frontend_integration",
+                              "exitCode":  0,
+                              "summary":  [
+                                              "# tests 7",
+                                              "# pass 7",
+                                              "# fail 0",
+                                              "# duration_ms 2927.5533"
+                                          ]
+                          },
+                          {
+                              "file":  "security_review",
+                              "exitCode":  0,
+                              "summary":  [
+                                              "# tests 8",
+                                              "# pass 8",
+                                              "# fail 0",
+                                              "# duration_ms 683.6071"
+                                          ]
+                          }
+                      ],
+    "productionHttp":  [
+                           {
+                               "name":  "production startup without Resend configuration",
+                               "pass":  false,
+                               "evidence":  "Started without RESEND_API_KEY or EMAIL_FROM"
+                           },
+                           {
+                               "name":  "migrations and database integrity",
+                               "pass":  true,
+                               "evidence":  "7 migrations; fresh database integrity_check"
+                           },
+                           {
+                               "name":  "frontend production HTML",
+                               "pass":  true,
+                               "evidence":  "HTTP 200"
+                           },
+                           {
+                               "name":  "security headers",
+                               "pass":  true,
+                               "evidence":  "CSP, HSTS and nosniff inspected"
+                           },
+                           {
+                               "name":  "private build artifact /server.cjs",
+                               "pass":  false,
+                               "evidence":  "HTTP 200; 240377 characters; accessible=true"
+                           },
+                           {
+                               "name":  "private build artifact /server.cjs.map",
+                               "pass":  false,
+                               "evidence":  "HTTP 200; 433857 characters; accessible=true"
+                           },
+                           {
+                               "name":  "CORS rejects foreign origin",
+                               "pass":  true,
+                               "evidence":  "HTTP 500"
+                           },
+                           {
+                               "name":  "invalid login",
+                               "pass":  true,
+                               "evidence":  "HTTP 401"
+                           },
+                           {
+                               "name":  "valid cadet login",
+                               "pass":  true,
+                               "evidence":  "HTTP 200"
+                           },
+                           {
+                               "name":  "Bearer session without cookies",
+                               "pass":  true,
+                               "evidence":  "No Set-Cookie; Secure/HttpOnly/SameSite do not apply to this session mechanism"
+                           },
+                           {
+                               "name":  "authenticated profile",
+                               "pass":  true,
+                               "evidence":  "HTTP 200"
+                           },
+                           {
+                               "name":  "profile update and mass assignment",
+                               "pass":  true,
+                               "evidence":  "HTTP 200"
+                           },
+                           {
+                               "name":  "cadet denied admin",
+                               "pass":  true,
+                               "evidence":  "GET /api/admin/users"
+                           },
+                           {
+                               "name":  "anonymous denied admin",
+                               "pass":  true,
+                               "evidence":  "GET /api/admin/users"
+                           },
+                           {
+                               "name":  "active session",
+                               "pass":  true,
+                               "evidence":  "verify-session"
+                           },
+                           {
+                               "name":  "logout revokes session",
+                               "pass":  true,
+                               "evidence":  "verify-session after logout"
+                           },
+                           {
+                               "name":  "expired session",
+                               "pass":  false,
+                               "evidence":  "HTTP 200; database expiry forced into past, original signed payload still valid"
+                           },
+                           {
+                               "name":  "admin requires 2FA",
+                               "pass":  true,
+                               "evidence":  "Credential step does not issue session"
+                           },
+                           {
+                               "name":  "missing 2FA denied",
+                               "pass":  true,
+                               "evidence":  "HTTP 400"
+                           },
+                           {
+                               "name":  "valid TOTP login",
+                               "pass":  true,
+                               "evidence":  "HTTP 200"
+                           },
+                           {
+                               "name":  "admin users",
+                               "pass":  true,
+                               "evidence":  "Authenticated production API"
+                           },
+                           {
+                               "name":  "admin audit",
+                               "pass":  true,
+                               "evidence":  "Authenticated production API"
+                           },
+                           {
+                               "name":  "security events",
+                               "pass":  true,
+                               "evidence":  "Authenticated production API"
+                           },
+                           {
+                               "name":  "SSE authenticated handshake",
+                               "pass":  true,
+                               "evidence":  "HTTP 200"
+                           },
+                           {
+                               "name":  "SSE terminates after revocation",
+                               "pass":  false,
+                               "evidence":  "done=false; received LOGIN_FAILED=true"
+                           },
+                           {
+                               "name":  "production recovery hides code",
+                               "pass":  true,
+                               "evidence":  "HTTP 200; no outbound email configured"
+                           },
+                           {
+                               "name":  "password reset API",
+                               "pass":  true,
+                               "evidence":  "HTTP 200; code fixture injected into disposable database"
+                           },
+                           {
+                               "name":  "login with reset password",
+                               "pass":  false,
+                               "evidence":  "HTTP 401"
+                           },
+                           {
+                               "name":  "old password rejected after reset",
+                               "pass":  false,
+                               "evidence":  "HTTP 200"
+                           },
+                           {
+                               "name":  "timer mutation requires auth",
+                               "pass":  false,
+                               "evidence":  "Anonymous HTTP 200"
+                           },
+                           {
+                               "name":  "AI rejects forged email",
+                               "pass":  false,
+                               "evidence":  "Anonymous HTTP 200; no AI provider invoked"
+                           },
+                           {
+                               "name":  "login rate limit",
+                               "pass":  true,
+                               "evidence":  "HTTP 429"
+                           }
+                       ],
+    "storage":  [
+                    {
+                        "name":  "SQLite backup roundtrip preserves bytes",
+                        "pass":  false,
+                        "evidence":  "Closed database with binary fixture; comparison before/after actual backup+restore"
+                    },
+                    {
+                        "name":  "migration 6 preserves existing profiles",
+                        "pass":  false,
+                        "evidence":  "Profiles remaining after upgrade: 0"
+                    }
+                ]
+}
