@@ -198,6 +198,42 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at);
     `,
   },
+  {
+    id: 2,
+    name: '002_auth_sessions_and_resets',
+    sql: `
+      -- 10. PASSWORD RESETS (Recuperação Segura com Hash de Código de 6 Dígitos / Token)
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        is_used INTEGER NOT NULL DEFAULT 0 CHECK (is_used IN (0, 1)),
+        used_at TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_password_resets_user_id ON password_resets(user_id);
+      CREATE INDEX IF NOT EXISTS idx_password_resets_code_hash ON password_resets(code_hash);
+
+      -- 11. SESSIONS (Sessões Server-Side com Revogação Instantânea e Hash de Token)
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        role TEXT NOT NULL CHECK (role IN ('cadet', 'admin')),
+        ip TEXT,
+        user_agent TEXT,
+        expires_at TEXT NOT NULL,
+        revoked_at TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
+      CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+    `,
+  },
 ];
 
 export class DatabaseService {

@@ -33,12 +33,19 @@ interface SecurityStatusData {
 }
 
 export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onBackToLanding }) => {
-  const [step, setStep] = useState<'credentials' | 'totp'>('credentials');
+  const [step, setStep] = useState<'credentials' | 'totp' | 'forgot' | 'reset'>('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
+
+  // Estados de Recuperação de Senha
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetCode, setResetCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -252,6 +259,82 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
     }
   };
 
+  // Solicitar Código de Recuperação de Senha
+  const handleRequestReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = resetEmail.trim();
+    if (!clean) {
+      setErrorMsg('Informe seu e-mail cadastrado.');
+      return;
+    }
+
+    setLoading(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: clean }),
+      });
+      const data = await res.json();
+      setSuccessMsg(data.message || 'Se este e-mail estiver cadastrado, um código foi gerado.');
+      setStep('reset');
+    } catch {
+      setErrorMsg('Falha ao processar solicitação. Tente novamente.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Confirmar Código e Definir Nova Senha
+  const handleConfirmReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = resetEmail.trim();
+    const cleanCode = resetCode.trim();
+    if (!cleanEmail || !cleanCode || !newPassword) {
+      setErrorMsg('Preencha todos os campos obrigatórios.');
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setErrorMsg('A nova senha deve ter no mínimo 8 caracteres.');
+      return;
+    }
+
+    setLoading(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanEmail,
+          code: cleanCode,
+          newPassword,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setErrorMsg(data.message || 'Código de recuperação inválido ou expirado.');
+        setLoading(false);
+        return;
+      }
+
+      setSuccessMsg('Senha redefinida com sucesso! Faça login com sua nova senha.');
+      setEmail(cleanEmail);
+      setPassword('');
+      setStep('credentials');
+    } catch {
+      setErrorMsg('Erro de conexão ao redefinir senha. Tente novamente.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Passo 2: Validação com Google Authenticator
   const handleTotpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -444,7 +527,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                     </span>
 
                     {/* Main Welcome Title & Subtitle */}
-                    {step === 'credentials' ? (
+                    {step === 'credentials' && (
                       <>
                         <h1 className="text-[23px] sm:text-[24px] font-bold text-[#0f172a] tracking-tight mt-6 mb-1.5 font-sans">
                           Bem-vindo de volta
@@ -453,7 +536,8 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                           Entre para continuar seus estudos.
                         </p>
                       </>
-                    ) : (
+                    )}
+                    {step === 'totp' && (
                       <>
                         <h1 className="text-[22px] sm:text-[23px] font-bold text-[#0f172a] tracking-tight mt-6 mb-1.5 font-sans">
                           Autenticação 2FA
@@ -463,8 +547,38 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                         </p>
                       </>
                     )}
+                    {step === 'forgot' && (
+                      <>
+                        <h1 className="text-[22px] sm:text-[23px] font-bold text-[#0f172a] tracking-tight mt-6 mb-1.5 font-sans">
+                          Recuperar Acesso
+                        </h1>
+                        <p className="text-[13px] font-normal text-[#64748b] leading-relaxed">
+                          Informe seu e-mail cadastrado para receber o código de recuperação.
+                        </p>
+                      </>
+                    )}
+                    {step === 'reset' && (
+                      <>
+                        <h1 className="text-[22px] sm:text-[23px] font-bold text-[#0f172a] tracking-tight mt-6 mb-1.5 font-sans">
+                          Redefinir Senha
+                        </h1>
+                        <p className="text-[13px] font-normal text-[#64748b] leading-relaxed">
+                          Digite o código de 6 dígitos e escolha sua nova senha de acesso.
+                        </p>
+                      </>
+                    )}
                   </header>
                   {/* END: BrandHeader */}
+
+                  {/* Success Message Alert */}
+                  {successMsg && (
+                    <div className="w-full mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-start gap-2.5">
+                      <svg className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="leading-relaxed font-medium">{successMsg}</span>
+                    </div>
+                  )}
 
                   {/* Error Message Alert */}
                   {errorMsg && (
@@ -667,26 +781,171 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                     </div>
                   )}
 
-                  {/* Submit CTA Button */}
-                  <div className="pt-2">
+                    {/* Submit CTA Button */}
+                    <div className="pt-2">
+                      <button
+                        type="submit"
+                        disabled={loading || (securityStatus?.turnstileRequired && !turnstileToken)}
+                        data-purpose="submit-login-button"
+                        className="w-full py-3.5 px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] active:bg-[#0e2b5c] text-white font-bold text-[13px] tracking-[0.08em] uppercase transition-all duration-150 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#164491] focus:ring-offset-2 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                      >
+                        {loading ? (
+                          <>
+                            <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            <span>VERIFICANDO...</span>
+                          </>
+                        ) : (
+                          <span>ENTRAR</span>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Esqueci minha senha Link */}
+                    <div className="text-center pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setResetEmail(email);
+                          setErrorMsg(null);
+                          setSuccessMsg(null);
+                          setStep('forgot');
+                        }}
+                        className="text-[12.5px] font-medium text-[#164491] hover:text-[#0e2b5c] hover:underline transition-colors cursor-pointer"
+                      >
+                        Esqueceu sua senha?
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* STEP: ESQUECEU SUA SENHA (FORGOT PASSWORD) */}
+                {step === 'forgot' && (
+                  <form
+                    className="w-full mt-6 flex flex-col space-y-4"
+                    onSubmit={handleRequestReset}
+                  >
+                    <div className="flex flex-col space-y-1.5">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-[#64748b] px-0.5" htmlFor="reset-email-input">
+                        E-MAIL CADASTRADO
+                      </label>
+                      <input
+                        id="reset-email-input"
+                        type="email"
+                        value={resetEmail}
+                        onChange={(e) => {
+                          setResetEmail(e.target.value);
+                          setErrorMsg(null);
+                        }}
+                        placeholder="seu@email.com"
+                        required
+                        className="w-full px-4 py-3 text-[14px] text-slate-800 border border-[#e2e8f0] rounded-xl focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15 outline-none"
+                      />
+                    </div>
+
                     <button
                       type="submit"
-                      disabled={loading || (securityStatus?.turnstileRequired && !turnstileToken)}
-                      data-purpose="submit-login-button"
-                      className="w-full py-3.5 px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] active:bg-[#0e2b5c] text-white font-bold text-[13px] tracking-[0.08em] uppercase transition-all duration-150 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#164491] focus:ring-offset-2 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                      disabled={loading || !resetEmail.trim()}
+                      className="w-full py-3.5 px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] text-white font-bold text-[13px] tracking-wider uppercase transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                     >
                       {loading ? (
                         <>
                           <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                          <span>VERIFICANDO...</span>
+                          <span>ENVIANDO...</span>
                         </>
                       ) : (
-                        <span>ENTRAR</span>
+                        <span>ENVIAR CÓDIGO DE RECUPERAÇÃO</span>
                       )}
                     </button>
-                  </div>
-                </form>
-              )}
+
+                    <div className="text-center pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStep('credentials');
+                          setErrorMsg(null);
+                          setSuccessMsg(null);
+                        }}
+                        className="text-[12.5px] font-medium text-[#64748b] hover:text-[#164491] transition-colors cursor-pointer"
+                      >
+                        ← Voltar ao login
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* STEP: REDEFINIR SENHA COM CÓDIGO (RESET PASSWORD) */}
+                {step === 'reset' && (
+                  <form
+                    className="w-full mt-6 flex flex-col space-y-4"
+                    onSubmit={handleConfirmReset}
+                  >
+                    <div className="flex flex-col space-y-1.5">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-[#64748b] px-0.5">
+                        CÓDIGO DE RECUPERAÇÃO (6 DÍGITOS)
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={resetCode}
+                        onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        placeholder="123456"
+                        required
+                        className="w-full px-4 py-3 text-center font-mono font-bold text-lg text-slate-900 border border-[#e2e8f0] rounded-xl focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15 outline-none tracking-[0.2em]"
+                      />
+                    </div>
+
+                    <div className="flex flex-col space-y-1.5">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-[#64748b] px-0.5">
+                        NOVA SENHA (MÍNIMO 8 CARACTERES)
+                      </label>
+                      <div className="relative flex items-center rounded-xl border border-[#e2e8f0] bg-white">
+                        <input
+                          type={showNewPassword ? 'text' : 'password'}
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="••••••••"
+                          required
+                          className="w-full px-4 py-3 pr-10 text-[14px] text-slate-800 rounded-xl outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPassword(!showNewPassword)}
+                          className="absolute right-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                        >
+                          {showNewPassword ? 'Ocultar' : 'Mostrar'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading || resetCode.length !== 6 || newPassword.length < 8}
+                      className="w-full py-3.5 px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] text-white font-bold text-[13px] tracking-wider uppercase transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {loading ? (
+                        <>
+                          <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          <span>SALVANDO...</span>
+                        </>
+                      ) : (
+                        <span>DEFINIR NOVA SENHA</span>
+                      )}
+                    </button>
+
+                    <div className="text-center pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStep('forgot');
+                          setErrorMsg(null);
+                        }}
+                        className="text-[12.5px] font-medium text-[#64748b] hover:text-[#164491] transition-colors cursor-pointer"
+                      >
+                        ← Reenviar código
+                      </button>
+                    </div>
+                  </form>
+                )}
 
               {/* STEP 2: TOTP GOOGLE AUTHENTICATOR FORM */}
               {step === 'totp' && (

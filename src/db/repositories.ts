@@ -15,6 +15,8 @@ import {
   DbEntitlement,
   DbRefundRequest,
   DbAuditEvent,
+  DbPasswordReset,
+  DbSession,
   OrderStatus,
   RefundRequestStatus,
   UserRole,
@@ -67,6 +69,20 @@ export class UserRepository {
       .get(username.toLowerCase().trim()) as any;
     if (!row) return null;
     return this.mapUser(row);
+  }
+
+  public updatePasswordHash(userId: string, newHash: string): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
+      .run(newHash, now, userId);
+  }
+
+  public updateEmail(userId: string, newEmail: string): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare('UPDATE users SET email = ?, updated_at = ? WHERE id = ?')
+      .run(newEmail.toLowerCase().trim(), now, userId);
   }
 
   private mapUser(row: any): DbUser {
@@ -584,3 +600,151 @@ export class AuditRepository {
     };
   }
 }
+
+export class PasswordResetRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public createResetCode(userId: string, expiresInMinutes: number = 15): { code: string; record: DbPasswordReset } {
+    const id = crypto.randomUUID();
+    // 6-digit numeric recovery code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+
+    const now = new Date();
+    const createdAt = now.toISOString();
+    const expiresAt = new Date(now.getTime() + expiresInMinutes * 60 * 1000).toISOString();
+
+    this.db
+      .prepare(
+        `INSERT INTO password_resets (id, user_id, code_hash, expires_at, is_used, created_at)
+         VALUES (?, ?, ?, ?, 0, ?)`
+      )
+      .run(id, userId, codeHash, expiresAt, createdAt);
+
+    return {
+      code,
+      record: {
+        id,
+        userId,
+        codeHash,
+        expiresAt,
+        isUsed: false,
+        createdAt,
+      },
+    };
+  }
+
+  public verifyAndConsume(userId: string, code: string): boolean {
+    const codeHash = crypto.createHash('sha256').update(code.trim()).digest('hex');
+    const now = new Date().toISOString();
+
+    const result = this.db
+      .prepare(
+        `UPDATE password_resets
+         SET is_used = 1, used_at = ?
+         WHERE user_id = ? AND code_hash = ? AND is_used = 0 AND expires_at > ?`
+      )
+      .run(now, userId, codeHash, now);
+
+    return result.changes > 0;
+  }
+}
+
+export class SessionRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public createSession(data: {
+    userId: string;
+    role: UserRole;
+    ip?: string | null;
+    userAgent?: string | null;
+    expiresInDays?: number;
+  }): { rawToken: string; session: DbSession } {
+    const id = crypto.randomUUID();
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+    const now = new Date();
+    const createdAt = now.toISOString();
+    const days = data.expiresInDays || 30;
+    const expiresAt = new Date(now.getTime() + days * 24 * 3600 * 1000).toISOString();
+
+    this.db
+      .prepare(
+        `INSERT INTO sessions (id, user_id, token_hash, role, ip, user_agent, expires_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(id, data.userId, tokenHash, data.role, data.ip ?? null, data.userAgent ?? null, expiresAt, createdAt);
+
+    return {
+      rawToken,
+      session: {
+        id,
+        userId: data.userId,
+        tokenHash,
+        role: data.role,
+        ip: data.ip ?? null,
+        userAgent: data.userAgent ?? null,
+        expiresAt,
+        createdAt,
+      },
+    };
+  }
+
+  public validateSession(rawToken: string): { valid: boolean; session?: DbSession; user?: DbUser } {
+    if (!rawToken || typeof rawToken !== 'string') return { valid: false };
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const now = new Date().toISOString();
+
+    const row = this.db
+      .prepare(
+        `SELECT s.id AS s_id, s.user_id, s.token_hash, s.role AS s_role, s.ip, s.user_agent,
+                s.expires_at, s.revoked_at, s.created_at AS s_created_at,
+                u.id AS u_id, u.email, u.username, u.password_hash, u.role AS u_role, u.status,
+                u.created_at AS u_created_at, u.updated_at AS u_updated_at
+         FROM sessions s
+         JOIN users u ON s.user_id = u.id
+         WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ? AND u.status = 'active'`
+      )
+      .get(tokenHash, now) as any;
+
+    if (!row) return { valid: false };
+
+    return {
+      valid: true,
+      session: {
+        id: row.s_id,
+        userId: row.user_id,
+        tokenHash: row.token_hash,
+        role: row.s_role as UserRole,
+        ip: row.ip,
+        userAgent: row.user_agent,
+        expiresAt: row.expires_at,
+        revokedAt: row.revoked_at,
+        createdAt: row.s_created_at,
+      },
+      user: {
+        id: row.u_id,
+        email: row.email,
+        username: row.username,
+        passwordHash: row.password_hash,
+        role: row.u_role as UserRole,
+        status: row.status as UserStatus,
+        createdAt: row.u_created_at,
+        updatedAt: row.u_updated_at,
+      },
+    };
+  }
+
+  public revokeSession(rawToken: string): void {
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE sessions SET revoked_at = ? WHERE token_hash = ?').run(now, tokenHash);
+  }
+
+  public revokeAllUserSessions(userId: string): void {
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ?').run(now, userId);
+  }
+}
+

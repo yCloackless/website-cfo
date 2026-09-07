@@ -158,3 +158,26 @@ export interface DbAuditEvent {
   detailsJson?: string | null;
   createdAt: string;
 }
+
+export interface DbPasswordReset {
+  id: string;
+  userId: string;
+  codeHash: string;
+  expiresAt: string;
+  isUsed: boolean;
+  usedAt?: string | null;
+  createdAt: string;
+}
+
+export interface DbSession {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  role: UserRole;
+  ip?: string | null;
+  userAgent?: string | null;
+  expiresAt: string;
+  revokedAt?: string | null;
+  createdAt: string;
+}
+

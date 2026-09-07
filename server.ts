@@ -45,6 +45,8 @@ import {
   initBackupScheduler,
 } from "./src/services/backupService";
 import { logAuditEvent, readRecentAuditLogs } from "./src/services/auditLogger";
+import { AuthService } from "./src/db/authService";
+import { getDb } from "./src/db/database";
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -718,14 +720,35 @@ function createTerminalSession(
   };
 }
 
+const authServiceInstance = new AuthService(getDb());
+
 function verifyTerminalSession(token?: string | null): {
   valid: boolean;
   username?: string;
   role?: string;
   canAccessNotion?: boolean;
   expiresAt?: number;
+  userId?: string;
 } {
   if (!token || typeof token !== "string") return { valid: false };
+
+  // 1. Verificação primária na nova base de sessões do banco de dados
+  const dbCheck = authServiceInstance.validateToken(token);
+  if (dbCheck.valid && dbCheck.user && dbCheck.session) {
+    const role = dbCheck.session.role;
+    const canAccessNotion = role === "admin";
+    const expiresAt = new Date(dbCheck.session.expiresAt).getTime();
+    return {
+      valid: true,
+      username: dbCheck.user.username,
+      role,
+      canAccessNotion,
+      expiresAt,
+      userId: dbCheck.user.id,
+    };
+  }
+
+  // 2. Fallback de compatibilidade para sessões HMAC assinadas
   const parts = token.split(".");
   if (parts.length !== 2) return { valid: false };
 
@@ -1361,6 +1384,77 @@ app.post("/api/auth/verify-session", (req: Request, res: Response) => {
     expiresAt: result.expiresAt,
     is2faActive: config.is2faActive,
   });
+});
+
+// 6. Rota de Logout (Revogação Segura de Sessão)
+app.post("/api/auth/logout", (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization;
+  const token = req.body?.token || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null);
+  if (token) {
+    authServiceInstance.logout(token, getClientIp(req));
+  }
+  return res.json({ success: true, message: "Sessão encerrada com sucesso." });
+});
+
+// 7. Rota de Solicitação de Recuperação de Senha (Código de 6 dígitos enviado com validade de 15min)
+app.post("/api/auth/forgot-password", authLimiter, (req: Request, res: Response) => {
+  try {
+    const { email } = req.body || {};
+    const clientIp = getClientIp(req);
+    const result = authServiceInstance.requestPasswordReset(email, clientIp);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: "Erro ao processar solicitação de recuperação." });
+  }
+});
+
+// 8. Rota de Confirmação de Recuperação de Senha (Valida código de uso único e define nova senha)
+app.post("/api/auth/reset-password", authLimiter, async (req: Request, res: Response) => {
+  try {
+    const { email, code, newPassword } = req.body || {};
+    const clientIp = getClientIp(req);
+    const result = await authServiceInstance.confirmPasswordReset(email, code, newPassword, clientIp);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: "Erro ao redefinir senha." });
+  }
+});
+
+// 9. Rota de Alteração de Senha (Autenticada)
+app.post("/api/auth/change-password", requireUserAuth, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { currentPassword, newPassword } = req.body || {};
+    const clientIp = getClientIp(req);
+
+    const result = await authServiceInstance.changePassword(user.userId || user.username, currentPassword, newPassword, clientIp);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: "Erro ao alterar senha." });
+  }
+});
+
+// 10. Rota de Atualização de E-mail (Autenticada com validação server-side de unicidade)
+app.post("/api/auth/update-email", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { newEmail } = req.body || {};
+    const clientIp = getClientIp(req);
+
+    const result = authServiceInstance.updateEmail(user.userId || user.username, newEmail, clientIp);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: "Erro ao atualizar e-mail." });
+  }
 });
 
 // Helper for next day string in Google Calendar all-day events
@@ -3132,6 +3226,9 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 async function startServer() {
+  // Inicializa e assegura contas no banco de dados
+  await authServiceInstance.ensureDefaultAccounts();
+
   // Inicializa o agendador automático diário de backup às 03:00 com retenção de 30 dias
   initBackupScheduler();
 
