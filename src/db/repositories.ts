@@ -822,7 +822,7 @@ export class AuditRepository {
         data.action,
         data.actor,
         actorUserId,
-        data.resource,
+        data.resource ?? null,
         data.status,
         targetType,
         targetId,

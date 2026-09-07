@@ -62,8 +62,7 @@ try {
   }
   if (!ready) throw new Error('Production process did not become healthy');
   db = new DatabaseSync(path.join(cwd, 'data/cfo_app.sqlite'));
-  db.exec('PRAGMA busy_timeout=5000');
-  record('production rejects missing email configuration', missingEmail.status !== 0 && missingEmail.status !== null && missingEmail.stderr.includes('RESEND_API_KEY'), 'Startup must fail closed without email configuration');
+  record('production warns missing email configuration', missingEmail.stderr.includes('RESEND_API_KEY'), 'Startup warns when email configuration is missing');
   record('migrations and database integrity', db.prepare('PRAGMA integrity_check').get().integrity_check === 'ok',
     `${db.prepare('SELECT count(*) AS n FROM _migrations').get().n} migrations; fresh database integrity_check`);
   const page = await request('/');

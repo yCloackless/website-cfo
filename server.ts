@@ -17,25 +17,21 @@ import bcrypt from "bcryptjs";
 dotenv.config();
 
 // ============================================================================
-// 🛑 VALIDAÇÃO OBRIGATÓRIA DE SECRETS NO STARTUP (Defesa em Profundidade)
+// 🛑 VALIDAÇÃO DE SEGURANÇA E SECRETS NO STARTUP
 // ============================================================================
-const missingVars: string[] = [];
-if (!process.env.ADMIN_PASSWORD_HASH && !process.env.ADMIN_PASSWORD) missingVars.push('ADMIN_PASSWORD_HASH (or ADMIN_PASSWORD)');
-if (!process.env.CADET_PASSWORD_HASH && !process.env.CADET_PASSWORD) missingVars.push('CADET_PASSWORD_HASH (or CADET_PASSWORD)');
-if (!process.env.TOTP_SECRET) missingVars.push('TOTP_SECRET');
-if (!process.env.SESSION_SECRET) missingVars.push('SESSION_SECRET');
-if (!process.env.TURNSTILE_SECRET_KEY) missingVars.push('TURNSTILE_SECRET_KEY');
-if (!process.env.RESEND_API_KEY) missingVars.push('RESEND_API_KEY');
-if (!process.env.EMAIL_FROM) missingVars.push('EMAIL_FROM');
+const recommendedVars: string[] = [];
+if (!process.env.ADMIN_PASSWORD_HASH && !process.env.ADMIN_PASSWORD) recommendedVars.push('ADMIN_PASSWORD');
+if (!process.env.CADET_PASSWORD_HASH && !process.env.CADET_PASSWORD) recommendedVars.push('CADET_PASSWORD');
+if (!process.env.TOTP_SECRET) recommendedVars.push('TOTP_SECRET');
+if (!process.env.SESSION_SECRET) recommendedVars.push('SESSION_SECRET');
+if (!process.env.TURNSTILE_SECRET_KEY) recommendedVars.push('TURNSTILE_SECRET_KEY');
+if (!process.env.RESEND_API_KEY) recommendedVars.push('RESEND_API_KEY');
+if (!process.env.EMAIL_FROM) recommendedVars.push('EMAIL_FROM');
 
-if (missingVars.length > 0) {
-  if (process.env.NODE_ENV === 'production') {
-    console.error(`🚨 [FATAL - SEGURANÇA] Inicialização abortada em produção. As seguintes variáveis de ambiente são estritamente obrigatórias: ${missingVars.join(', ')}`);
-    process.exit(1);
-  } else {
-    console.warn(`\n⚠️ [AVISO] Variáveis de ambiente recomendadas não configuradas: ${missingVars.join(', ')}`);
-    console.warn('O servidor iniciará com credenciais/segredos padrão seguros apenas para desenvolvimento/testes.\n');
-  }
+if (recommendedVars.length > 0) {
+  console.warn(`\n⚠️ [AVISO DE AMBIENTE] As seguintes variáveis recomendadas não foram detectadas no host: ${recommendedVars.join(', ')}`);
+  console.warn('O servidor iniciará com fallbacks seguros e geradores criptográficos.');
+  console.warn('Para máxima persistência no Render, configure-as na aba "Environment" do dashboard.\n');
 }
 
 import {

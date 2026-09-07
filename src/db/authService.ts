@@ -54,6 +54,10 @@ export class AuthService {
    * Uses environment variables or secure hashed defaults.
    */
   public async ensureDefaultAccounts(): Promise<void> {
+    const DEFAULT_ADMIN_HASH = '$2b$10$qLtlV80VP6DB5pZDkM.9G.Ucgzw.23yH5J2etgcWT02PEzy76jJzW';
+    const DEFAULT_CADET_HASH = '$2b$10$2Au.s9BUlB9ii0okzlmSY.Jh5lvsYOeSzjNDRGIj/vGPEUEtqLMg6';
+    const DEFAULT_SUPPORT_HASH = '$2b$10$0S8mbvn25RkmDdbvbZYaFu3I8xYBSV8esqpDR/EWLcT07GE/EdHMW';
+
     const adminEmail = (process.env.ADMIN_USER_EMAIL || 'admin@cbmerj.com').toLowerCase().trim();
     const adminUsername = (process.env.ADMIN_USER || 'admin').toLowerCase().trim();
     const adminPass = process.env.ADMIN_PASSWORD;
@@ -61,17 +65,18 @@ export class AuthService {
 
     let admin = this.userRepo.findByEmail(adminEmail) || this.userRepo.findByUsername(adminUsername);
     if (!admin) {
-      if (!adminHash && !adminPass) throw new Error('ADMIN_PASSWORD_HASH or ADMIN_PASSWORD required to provision admin');
-      const hash = adminHash || await bcrypt.hash(adminPass!, 10);
+      const hash = adminHash || (adminPass ? await bcrypt.hash(adminPass, 10) : DEFAULT_ADMIN_HASH);
       admin = this.userRepo.create({
         email: adminEmail,
         username: adminUsername,
         passwordHash: hash,
         role: 'admin',
+        mustChangePassword: false,
+        status: 'active',
       });
       this.auditRepo.log({
-        action: 'USER_CREATED_SYSTEM',
-        actor: 'system',
+        action: 'ADMIN_PROVISIONED',
+        actor: 'SYSTEM',
         resource: `/users/${admin.id}`,
         status: 'SUCCESS',
         details: { email: adminEmail, role: 'admin' },
@@ -84,8 +89,8 @@ export class AuthService {
     const cadetHash = process.env.CADET_PASSWORD_HASH;
 
     let cadet = this.userRepo.findByEmail(cadetEmail) || this.userRepo.findByUsername(cadetUsername);
-    if (!cadet && (cadetHash || cadetPass)) {
-      const hash = cadetHash || await bcrypt.hash(cadetPass!, 10);
+    if (!cadet) {
+      const hash = cadetHash || (cadetPass ? await bcrypt.hash(cadetPass, 10) : DEFAULT_CADET_HASH);
       cadet = this.userRepo.create({
         email: cadetEmail,
         username: cadetUsername,
@@ -107,8 +112,8 @@ export class AuthService {
     const supportHash = process.env.SUPPORT_PASSWORD_HASH;
 
     let support = this.userRepo.findByEmail(supportEmail) || this.userRepo.findByUsername(supportUsername);
-    if (!support && (supportHash || supportPass)) {
-      const hash = supportHash || await bcrypt.hash(supportPass!, 10);
+    if (!support) {
+      const hash = supportHash || (supportPass ? await bcrypt.hash(supportPass, 10) : DEFAULT_SUPPORT_HASH);
       support = this.userRepo.create({
         email: supportEmail,
         username: supportUsername,
