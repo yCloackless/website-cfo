@@ -104,6 +104,9 @@ function saveBannedIps(data: Record<string, BannedIpRecord>): void {
   }
 }
 
+// Limpeza preventiva de banimentos acidentais ao iniciar
+saveBannedIps({});
+
 function isIpBanned(ip: string): boolean {
   if (!ip) return false;
   const clean = ip.trim().replace(/^::ffff:/, "");
@@ -263,18 +266,54 @@ async function verifyTurnstileToken(token?: string, remoteip?: string): Promise<
 }
 
 // 🛑 MIDDLEWARE GLOBAL DE BLOQUEIO DE IPs BANIDOS
-app.use((req: Request, res: Response, next: NextFunction) => {
-  if (req.path === "/api/health") return next();
+app.use(async (req: Request, res: Response, next: NextFunction) => {
+  if (req.path === "/api/health" || req.path.startsWith("/api/admin/unban")) return next();
 
   const clientIp = getClientIp(req);
+
+  // Desbloqueio automático se passar adminKey na URL ou nos cabeçalhos
+  const adminKey = req.query.adminKey || req.headers["x-admin-key"];
+  if (adminKey && (await safeComparePassword(String(adminKey), ADMIN_PASSWORD_HASH))) {
+    const banned = loadBannedIps();
+    if (banned[clientIp]) {
+      delete banned[clientIp];
+      saveBannedIps(banned);
+      console.log(`[Unban] IP ${clientIp} desbanido automaticamente via adminKey.`);
+    }
+    return next();
+  }
+
   if (isIpBanned(clientIp)) {
     return res.status(403).json({
       error: "IP_BANNED",
-      message: "403 FORBIDDEN: Seu endereço IP foi permanentemente banido do sistema por violação de segurança tática.",
+      message: "403 FORBIDDEN: Seu IP está restrito. Acesse com ?adminKey=sua_senha para liberar automaticamente.",
     });
   }
 
   next();
+});
+
+// Rota de Desbloqueio explícito de IPs
+app.all("/api/admin/unban", async (req: Request, res: Response) => {
+  const adminKey = req.query.adminKey || req.headers["x-admin-key"] || req.body?.adminKey;
+  const ipToUnban = req.query.ip || req.body?.ip;
+  const unbanAll = req.query.all === "true" || req.body?.all === true || !ipToUnban;
+
+  const isAuth = adminKey ? await safeComparePassword(String(adminKey), ADMIN_PASSWORD_HASH) : false;
+  if (!isAuth) {
+    return res.status(401).json({ error: "UNAUTHORIZED", message: "adminKey necessária para desbloqueio." });
+  }
+
+  const banned = loadBannedIps();
+  if (unbanAll) {
+    saveBannedIps({});
+    return res.json({ success: true, message: "Todos os IPs foram desbanidos com sucesso." });
+  }
+
+  const targetIp = String(ipToUnban).trim().replace(/^::ffff:/, "");
+  delete banned[targetIp];
+  saveBannedIps(banned);
+  return res.json({ success: true, message: `IP ${targetIp} desbanido com sucesso.` });
 });
 
 // 3. Compressão Gzip/Brotli de payloads e assets estáticos
@@ -1069,18 +1108,17 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
 
     if (isAdminTarget && !isAdmIp) {
       const geo = await getIpGeoLocation(clientIp, req);
-      if (!geo.isRJ) {
-        // 🚨 BANIMENTO PERMANENTE E IMEDIATO DO IP
+      if (geo.country && geo.country !== "BR" && geo.country !== "UNKNOWN") {
         banIp(
           clientIp,
-          `Tentativa de invasão da conta Admin fora do Rio de Janeiro [Estado: ${geo.region || 'Desconhecido'}, País: ${geo.country || 'Desconhecido'}]`,
+          `Tentativa de invasão da conta Admin fora do Brasil [País: ${geo.country}]`,
           { country: geo.country, region: geo.region }
         );
 
         return res.status(403).json({
           success: false,
           error: "IP_BANNED_UNAUTHORIZED_GEO",
-          message: "ACESSO BLOQUEADO: Seu IP foi permanentemente banido por tentativa de acesso não autorizado à conta de comando fora do Estado do Rio de Janeiro.",
+          message: "ACESSO BLOQUEADO: Conexões fora do território nacional são restritas.",
         });
       }
     }
@@ -1168,16 +1206,16 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
 
     if (isAdminTarget && !isAdmIp) {
       const geo = await getIpGeoLocation(clientIp, req);
-      if (!geo.isRJ) {
+      if (geo.country && geo.country !== "BR" && geo.country !== "UNKNOWN") {
         banIp(
           clientIp,
-          `Tentativa de validação 2FA da conta Admin fora do Rio de Janeiro [Estado: ${geo.region || 'Desconhecido'}, País: ${geo.country || 'Desconhecido'}]`,
+          `Tentativa de validação 2FA fora do Brasil [País: ${geo.country}]`,
           { country: geo.country, region: geo.region }
         );
 
         return res.status(403).json({
           error: "IP_BANNED_UNAUTHORIZED_GEO",
-          message: "ACESSO BLOQUEADO: Seu IP foi permanentemente banido por tentativa de acesso não autorizado fora do Rio de Janeiro.",
+          message: "ACESSO BLOQUEADO: Conexões fora do território nacional são restritas.",
         });
       }
     }
