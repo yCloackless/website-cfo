@@ -61,6 +61,7 @@ import { WeeklyGoalModal } from './components/WeeklyGoalModal';
 import { SecurityGate } from './components/SecurityGate';
 import { LandingPage } from './components/LandingPage';
 import { TimerTab } from './components/TimerTab';
+import { NotionAgendaTab } from './components/NotionAgendaTab';
 
 export default function App() {
   // 🛡️ Security Gate (2FA TOTP Terminal) State
@@ -151,8 +152,8 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
 
-  // Active Tab ('table' | 'timer' | 'bizuario' | 'highyield' | 'ai')
-  const [activeTab, setActiveTab] = useState<'table' | 'timer' | 'bizuario' | 'highyield' | 'ai'>('table');
+  // Active Tab ('table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar')
+  const [activeTab, setActiveTab] = useState<'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar'>('table');
 
   // Preset topic for creating a Bizu from HighYield tab
   const [presetTopicForBizu, setPresetTopicForBizu] = useState<{
@@ -1270,6 +1271,14 @@ export default function App() {
               />
             </section>
           </>
+        )}
+
+        {/* Render Tab: Agenda Mensal Contínua & Revisões Notion */}
+        {activeTab === 'calendar' && (
+          <NotionAgendaTab
+            theme={theme}
+            showToast={showToast}
+          />
         )}
 
         {/* Render Tab: Cronômetro & Foco Tático */}

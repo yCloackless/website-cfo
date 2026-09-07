@@ -33,8 +33,8 @@ interface HeaderProps {
   pendingRevisionsCount: number;
   theme: AppTheme;
   onToggleTheme: () => void;
-  activeTab: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai';
-  onSelectTab: (tab: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai') => void;
+  activeTab: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar';
+  onSelectTab: (tab: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar') => void;
   onLockTerminal?: () => void;
 }
 
@@ -124,6 +124,24 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <LayoutGrid className="w-3.5 h-3.5" />
               <span>Cronograma</span>
+            </button>
+
+            <button
+              id="tab-agenda-notion"
+              onClick={() => onSelectTab('calendar')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === 'calendar'
+                  ? 'bg-[#0056D2] text-white shadow-sm'
+                  : isDark
+                  ? 'text-slate-400 hover:text-blue-400'
+                  : 'text-slate-600 hover:text-blue-600'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Agenda</span>
+              <span className="px-1 py-0.2 rounded text-[8.5px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 uppercase">
+                Notion
+              </span>
             </button>
 
             <button

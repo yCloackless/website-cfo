@@ -14,6 +14,13 @@ import rateLimit from "express-rate-limit";
 
 dotenv.config();
 
+import {
+  getNotionConfig,
+  fetchRevisoesFromNotion,
+  updateCheckinInNotion,
+  createStudyInNotion,
+} from "./notionBackend";
+
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
@@ -1894,6 +1901,107 @@ Tópico 5 - Método de Prova & Resolução Rápida
   } catch (error: any) {
     console.error("Erro na rota /api/ai/bizu-notes:", error);
     res.status(500).json({ error: "FALHA_AO_GERAR_BIZU", message: error?.message });
+  }
+});
+
+// ==========================================
+// ROTAS DE INTEGRAÇÃO NOTION - REVISÕES CFO
+// ==========================================
+
+// 1. Status da Conexão com o Notion
+app.get("/api/notion/status", (_req: Request, res: Response) => {
+  const cfg = getNotionConfig();
+  return res.json({
+    isConfigured: cfg.isConfigured,
+    hasApiKey: Boolean(cfg.apiKey),
+    hasDatabaseId: Boolean(cfg.databaseId),
+  });
+});
+
+// 2. Buscar Lista de Revisões (Notion API com Fallback e Cache Local)
+app.get("/api/notion/revisoes", async (_req: Request, res: Response) => {
+  try {
+    const result = await fetchRevisoesFromNotion();
+    return res.json({
+      success: true,
+      items: result.items,
+      source: result.source,
+      error: result.error,
+    });
+  } catch (e: any) {
+    console.error("Erro ao buscar revisões do Notion:", e);
+    return res.status(500).json({
+      error: "NOTION_FETCH_ERROR",
+      message: e?.message || "Falha ao obter dados do Notion",
+    });
+  }
+});
+
+// 3. Fazer Check-in (Atualiza caixas Semana, Mês 1, Mês 2, Mês 3)
+app.patch("/api/notion/checkin", async (req: Request, res: Response) => {
+  try {
+    const { pageId, cycleKey, checked } = req.body || {};
+    if (!pageId || !cycleKey) {
+      return res.status(400).json({
+        error: "MISSING_PARAMS",
+        message: "pageId e cycleKey (semana, mes1, mes2, mes3) são obrigatórios.",
+      });
+    }
+
+    const validKeys = ["semana", "mes1", "mes2", "mes3"];
+    if (!validKeys.includes(cycleKey)) {
+      return res.status(400).json({
+        error: "INVALID_CYCLE_KEY",
+        message: "cycleKey deve ser: semana, mes1, mes2 ou mes3.",
+      });
+    }
+
+    const checkedVal = checked !== undefined ? Boolean(checked) : true;
+    const result = await updateCheckinInNotion(pageId, cycleKey, checkedVal);
+
+    return res.json({
+      success: result.success,
+      item: result.item,
+      error: result.error,
+    });
+  } catch (e: any) {
+    console.error("Erro ao processar check-in do Notion:", e);
+    return res.status(500).json({
+      error: "CHECKIN_ERROR",
+      message: e?.message || "Falha ao registrar check-in",
+    });
+  }
+});
+
+// 4. Cadastrar Novo Estudo (Cria linha no Notion e atualiza calendário)
+app.post("/api/notion/novo-estudo", async (req: Request, res: Response) => {
+  try {
+    const { assunto, materia, data, tipoRevisao } = req.body || {};
+    if (!assunto || !materia || !data) {
+      return res.status(400).json({
+        error: "MISSING_FIELDS",
+        message: "assunto, materia e data são campos obrigatórios.",
+      });
+    }
+
+    const result = await createStudyInNotion({
+      assunto: String(assunto).trim(),
+      materia: String(materia).trim(),
+      data: String(data).trim(),
+      tipoRevisao: Array.isArray(tipoRevisao) ? tipoRevisao : ["Questões"],
+    });
+
+    return res.json({
+      success: result.success,
+      item: result.item,
+      syncedToNotion: result.syncedToNotion,
+    });
+  } catch (e: any) {
+    console.error("Erro ao cadastrar novo estudo no Notion:", e);
+    return res.status(500).json({
+      error: "CREATE_STUDY_ERROR",
+      message: e?.message || "Falha ao registrar estudo no Notion",
+    });
   }
 });
 

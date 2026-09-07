@@ -104,3 +104,33 @@ export interface BizuItem {
   updatedAt: string;
 }
 
+export type RevisionCycleKey = 'semana' | 'mes1' | 'mes2' | 'mes3';
+
+export interface NotionRevisionItem {
+  id: string;
+  assunto: string;
+  materia: string;
+  data: string; // YYYY-MM-DD
+  tipoRevisao: string[]; // ex: ['Questões', 'LDI', 'Apostila', 'Qcon']
+  proximaRevisao?: string; // YYYY-MM-DD
+  semana: boolean; // 7 dias
+  mes1: boolean; // 30 dias
+  mes2: boolean; // 60 dias
+  mes3: boolean; // 90 dias
+  url?: string;
+  updatedAt?: string;
+}
+
+export interface NotionCalendarEvent {
+  id: string;
+  notionId: string;
+  title: string;
+  materia: string;
+  tipo: 'estudo' | 'revisao_24h' | 'revisao_7d' | 'revisao_30d' | 'revisao_60d' | 'revisao_90d' | 'proxima';
+  cycleKey?: RevisionCycleKey;
+  dateStr: string; // YYYY-MM-DD
+  isCompleted: boolean;
+  tipoRevisao: string[];
+}
+
+
