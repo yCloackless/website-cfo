@@ -1,8 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
-  Calendar as CalendarIcon,
-  ChevronLeft,
-  ChevronRight,
   Sparkles,
   CheckCircle2,
   Circle,
@@ -14,17 +11,18 @@ import {
   Check,
   AlertCircle,
   Flame,
-  ExternalLink,
-  ChevronDown,
-  Layers,
+  Search,
+  CheckSquare,
+  Square,
+  SlidersHorizontal,
+  Calendar,
+  X,
 } from "lucide-react";
-import { AppTheme, NotionRevisionItem, NotionCalendarEvent, RevisionCycleKey } from "../types";
+import { AppTheme, NotionRevisionItem, RevisionCycleKey } from "../types";
 import {
   fetchNotionRevisoes,
   checkinRevision,
   createNewStudy,
-  generateCalendarEvents,
-  getRevisionsDueForDate,
   getSubjectColor,
   getNotionConnectionStatus,
   addDays,
@@ -35,52 +33,55 @@ interface NotionAgendaTabProps {
   showToast: (message: string, type: "success" | "error" | "info") => void;
 }
 
-const WEEK_DAYS = ["dom", "seg", "ter", "qua", "qui", "sex", "sab"];
+// Estilo de tags para tipos de revisão do Notion
+const TIPO_REVISAO_STYLES: Record<string, string> = {
+  Questões: "bg-amber-950/60 text-amber-300 border-amber-800/60",
+  LDI: "bg-sky-950/60 text-sky-300 border-sky-800/60",
+  Pestana: "bg-fuchsia-950/60 text-fuchsia-300 border-fuchsia-800/60",
+  Apostila: "bg-orange-950/60 text-orange-300 border-orange-800/60",
+  PDF: "bg-blue-950/60 text-blue-300 border-blue-800/60",
+  Qcon: "bg-emerald-950/60 text-emerald-300 border-emerald-800/60",
+  Teoria: "bg-purple-950/60 text-purple-300 border-purple-800/60",
+  Default: "bg-slate-800/60 text-slate-300 border-slate-700/60",
+};
 
 export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToast }) => {
   const isDark = theme === "dark";
 
-  // Data e estado de revisões
+  // Dados e estado
   const [items, setItems] = useState<NotionRevisionItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [dataSource, setDataSource] = useState<"notion_api" | "local_cache">("local_cache");
-  const [notionStatus, setNotionStatus] = useState<{ isConfigured: boolean }>({ isConfigured: false });
+  const [notionStatus, setNotionStatus] = useState<{ isConfigured: boolean; hasApiKey?: boolean }>({
+    isConfigured: false,
+  });
 
   // Filtros
-  const [selectedMateria, setSelectedMateria] = useState<string>("TODAS");
-  const [statusFilter, setStatusFilter] = useState<"TODAS" | "PENDENTES" | "CONCLUIDAS">("TODAS");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterMateria, setFilterMateria] = useState<string>("TODAS");
+  const [filterTab, setFilterTab] = useState<"APENAS_REVISAR" | "HOJE_ATRASADAS" | "TODAS" | "CONCLUIDAS">(
+    "APENAS_REVISAR"
+  );
 
-  // Navegação de Meses (Scroll Contínuo)
-  // Iniciamos com o mês atual e meses adjacentes
-  const today = useMemo(() => new Date(), []);
-  const todayStr = useMemo(() => {
-    const y = today.getFullYear();
-    const m = String(today.getMonth() + 1).padStart(2, "0");
-    const d = String(today.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
-  }, [today]);
-
-  const [visibleMonths, setVisibleMonths] = useState<Array<{ year: number; month: number }>>([
-    { year: 2026, month: 7 }, // Agosto
-    { year: 2026, month: 8 }, // Setembro
-    { year: 2026, month: 9 }, // Outubro
-    { year: 2026, month: 10 }, // Novembro
-  ]);
-
-  // Modais
-  const [selectedDayEvents, setSelectedDayEvents] = useState<{
-    dateStr: string;
-    events: NotionCalendarEvent[];
-  } | null>(null);
-  const [isNewStudyModalOpen, setIsNewStudyModalOpen] = useState(false);
-  const [newStudyDate, setNewStudyDate] = useState<string>(todayStr);
-  const [newSubject, setNewSubject] = useState("Química");
-  const [newTopic, setNewTopic] = useState("");
-  const [newTypes, setNewTypes] = useState<string[]>(["Questões"]);
+  // Modal Novo Estudo
+  const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+  const [newAssunto, setNewAssunto] = useState("");
+  const [newMateria, setNewMateria] = useState("Química");
+  const [newData, setNewData] = useState(() => new Date().toISOString().split("T")[0]);
+  const [newTipo, setNewTipo] = useState("Questões");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Carregar status e dados iniciais
+  // Data de referência de Hoje (YYYY-MM-DD)
+  const todayStr = useMemo(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }, []);
+
+  // Carrega status e revisões
   useEffect(() => {
     loadData();
     getNotionConnectionStatus().then(setNotionStatus);
@@ -97,198 +98,250 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
       if (forceApi) {
         showToast(
           res.source === "notion_api"
-            ? "Sincronizado com o Notion com sucesso!"
-            : "Atualizado via cache local de revisões.",
+            ? "Caderno sincronizado diretamente com a API do Notion!"
+            : "Caderno atualizado com sucesso via cache sincronizado.",
           "success"
         );
       }
     } catch (e: any) {
-      showToast("Falha ao carregar dados do Notion.", "error");
+      showToast("Não foi possível carregar as revisões do Notion.", "error");
     } finally {
       setIsLoading(false);
       setIsSyncing(false);
     }
   };
 
-  // Check-in rápido
-  const handleCheckin = async (
-    notionId: string,
+  // Check-in / Toggle direto de checkbox do Notion
+  const handleToggleCheckbox = async (
+    item: NotionRevisionItem,
     cycleKey: RevisionCycleKey,
-    currentValue: boolean
+    currentVal: boolean
   ) => {
-    const nextVal = !currentValue;
-    // Otimista
+    const nextVal = !currentVal;
+
+    // Atualização otimista imediata no estado local
     setItems((prev) =>
-      prev.map((item) => (item.id === notionId ? { ...item, [cycleKey]: nextVal } : item))
+      prev.map((it) => {
+        if (it.id !== item.id) return it;
+        const updated = { ...it, [cycleKey]: nextVal };
+
+        // Recálculo da Próxima Revisão
+        if (!updated.semana) {
+          updated.proximaRevisao = addDays(updated.data, 7);
+        } else if (!updated.mes1) {
+          updated.proximaRevisao = addDays(updated.data, 37);
+        } else if (!updated.mes2) {
+          updated.proximaRevisao = addDays(updated.data, 97);
+        } else if (!updated.mes3) {
+          updated.proximaRevisao = addDays(updated.data, 127);
+        } else {
+          updated.proximaRevisao = undefined;
+        }
+
+        return updated;
+      })
     );
 
-    const res = await checkinRevision(notionId, cycleKey, nextVal);
+    const cycleLabelMap: Record<RevisionCycleKey, string> = {
+      semana: "Semana (7D)",
+      mes1: "Mês 1 (30D)",
+      mes2: "Mês 2 (60D)",
+      mes3: "Mês 3 (90D)",
+    };
+
+    // Chamada à API
+    const res = await checkinRevision(item.id, cycleKey, nextVal);
     if (res.success) {
       showToast(
         nextVal
-          ? `Check-in de ${cycleKey === "semana" ? "Semana (7D)" : cycleKey.toUpperCase()} registrado!`
-          : `Revisão desmarcada.`,
+          ? `Notion: marcado '${cycleLabelMap[cycleKey]}' para ${item.assunto}!`
+          : `Notion: desmarcado '${cycleLabelMap[cycleKey]}' de ${item.assunto}.`,
         "success"
       );
-      if (res.item) {
-        setItems((prev) => prev.map((item) => (item.id === res.item!.id ? res.item! : item)));
-      }
     } else {
-      showToast(res.error || "Erro ao registrar check-in", "error");
-      // Reverter
-      setItems((prev) =>
-        prev.map((item) => (item.id === notionId ? { ...item, [cycleKey]: currentValue } : item))
-      );
+      showToast("Não foi possível sincronizar o check com o Notion.", "error");
+      loadData();
     }
   };
 
-  // Submeter novo estudo
+  // Cadastrar novo estudo
   const handleCreateStudy = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTopic.trim()) {
-      showToast("Preencha o nome do assunto.", "error");
+    if (!newAssunto.trim()) {
+      showToast("Por favor, preencha o assunto estudado.", "info");
       return;
     }
 
     setIsSubmitting(true);
     try {
       const res = await createNewStudy({
-        assunto: newTopic.trim(),
-        materia: newSubject,
-        data: newStudyDate,
-        tipoRevisao: newTypes,
+        assunto: newAssunto.trim(),
+        materia: newMateria,
+        data: newData,
+        tipoRevisao: [newTipo],
       });
 
       if (res.success && res.item) {
         setItems((prev) => [res.item!, ...prev]);
-        showToast(`"${res.item.assunto}" adicionado à agenda do Notion!`, "success");
-        setNewTopic("");
-        setIsNewStudyModalOpen(false);
+        setIsNewModalOpen(false);
+        setNewAssunto("");
+        showToast(`Novo estudo adicionado ao Notion com sucesso!`, "success");
       } else {
-        showToast(res.error || "Erro ao cadastrar estudo", "error");
+        showToast(res.error || "Erro ao registrar estudo.", "error");
       }
+    } catch {
+      showToast("Falha ao salvar estudo.", "error");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Obter lista de matérias únicas para o filtro
-  const uniqueMaterias = useMemo(() => {
-    const set = new Set<string>();
+  // Obter disciplinas únicas para o filtro
+  const materiasList = useMemo(() => {
+    const setM = new Set<string>();
     items.forEach((it) => {
-      if (it.materia) set.add(it.materia);
+      if (it.materia) setM.add(it.materia);
     });
-    return Array.from(set).sort();
+    return Array.from(setM).sort();
   }, [items]);
 
-  // Itens filtrados
+  // Auxiliar: Determina qual é o próximo ciclo pendente de uma matéria
+  const getPendingCycleInfo = (item: NotionRevisionItem): {
+    cycleKey: RevisionCycleKey | null;
+    label: string;
+    isCompleted: boolean;
+  } => {
+    if (!item.semana) return { cycleKey: "semana", label: "Semana (7D)", isCompleted: false };
+    if (!item.mes1) return { cycleKey: "mes1", label: "Mês 1 (30D)", isCompleted: false };
+    if (!item.mes2) return { cycleKey: "mes2", label: "Mês 2 (60D)", isCompleted: false };
+    if (!item.mes3) return { cycleKey: "mes3", label: "Mês 3 (90D)", isCompleted: false };
+    return { cycleKey: null, label: "Concluído", isCompleted: true };
+  };
+
+  // Auxiliar: Determina o status da Próxima Revisão em relação à data atual
+  const getRevisionUrgency = (
+    item: NotionRevisionItem
+  ): { status: "hoje" | "atrasada" | "futura" | "concluida"; label: string; colorClass: string } => {
+    const { isCompleted } = getPendingCycleInfo(item);
+    if (isCompleted || !item.proximaRevisao) {
+      return { status: "concluida", label: "Ciclo Concluído", colorClass: "text-emerald-400 bg-emerald-950/40 border-emerald-800/50" };
+    }
+
+    if (item.proximaRevisao === todayStr) {
+      return { status: "hoje", label: "Revisar Hoje!", colorClass: "text-amber-400 bg-amber-950/50 border-amber-800/60 font-bold" };
+    }
+    if (item.proximaRevisao < todayStr) {
+      return { status: "atrasada", label: "Revisão Atrasada", colorClass: "text-rose-400 bg-rose-950/50 border-rose-800/60 font-bold" };
+    }
+    return { status: "futura", label: "Programada", colorClass: "text-slate-300 bg-slate-800/50 border-slate-700/50" };
+  };
+
+  // Matérias que TÊM que revisar (Atrasadas ou Hoje ou Pendentes)
+  const dueItems = useMemo(() => {
+    return items.filter((item) => {
+      const { isCompleted } = getPendingCycleInfo(item);
+      if (isCompleted) return false;
+      if (!item.proximaRevisao) return true;
+      // Itens cuja revisão já venceu ou vence hoje
+      return item.proximaRevisao <= todayStr;
+    });
+  }, [items, todayStr]);
+
+  // Itens filtrados para a tabela principal
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
-      if (selectedMateria !== "TODAS" && item.materia !== selectedMateria) {
+      // 1. Busca textual
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchesAssunto = item.assunto.toLowerCase().includes(q);
+        const matchesMateria = item.materia.toLowerCase().includes(q);
+        if (!matchesAssunto && !matchesMateria) return false;
+      }
+
+      // 2. Filtro por matéria
+      if (filterMateria !== "TODAS" && item.materia !== filterMateria) {
         return false;
       }
-      return true;
-    });
-  }, [items, selectedMateria]);
 
-  // Mapa de eventos no calendário
-  const eventsByDate = useMemo(() => {
-    return generateCalendarEvents(filteredItems);
-  }, [filteredItems]);
-
-  // Revisões devidas HOJE para o widget tático
-  const todayRevisions = useMemo(() => {
-    return getRevisionsDueForDate(filteredItems, todayStr);
-  }, [filteredItems, todayStr]);
-
-  // Adicionar meses ao scroll (para cima ou para baixo)
-  const addPreviousMonth = () => {
-    setVisibleMonths((prev) => {
-      const first = prev[0];
-      let prevM = first.month - 1;
-      let prevY = first.year;
-      if (prevM < 0) {
-        prevM = 11;
-        prevY -= 1;
+      // 3. Filtro por aba
+      const { isCompleted } = getPendingCycleInfo(item);
+      if (filterTab === "APENAS_REVISAR") {
+        return !isCompleted;
       }
-      return [{ year: prevY, month: prevM }, ...prev];
-    });
-  };
-
-  const addNextMonth = () => {
-    setVisibleMonths((prev) => {
-      const last = prev[prev.length - 1];
-      let nextM = last.month + 1;
-      let nextY = last.year;
-      if (nextM > 11) {
-        nextM = 0;
-        nextY += 1;
+      if (filterTab === "HOJE_ATRASADAS") {
+        return !isCompleted && item.proximaRevisao && item.proximaRevisao <= todayStr;
       }
-      return [...prev, { year: nextY, month: nextM }];
-    });
-  };
+      if (filterTab === "CONCLUIDAS") {
+        return isCompleted;
+      }
 
-  const monthNames = [
-    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-  ];
+      return true; // TODAS
+    });
+  }, [items, searchQuery, filterMateria, filterTab, todayStr]);
+
+  // Estatísticas do Caderno
+  const stats = useMemo(() => {
+    const total = items.length;
+    let atrasadasOuHoje = 0;
+    let concluidas = 0;
+    let pendentes = 0;
+
+    items.forEach((it) => {
+      const { isCompleted } = getPendingCycleInfo(it);
+      if (isCompleted) {
+        concluidas++;
+      } else {
+        pendentes++;
+        if (it.proximaRevisao && it.proximaRevisao <= todayStr) {
+          atrasadasOuHoje++;
+        }
+      }
+    });
+
+    return { total, atrasadasOuHoje, concluidas, pendentes };
+  }, [items, todayStr]);
+
+  // Formatação amigável de data
+  const formatDateDisplay = (dateStr?: string) => {
+    if (!dateStr) return "-";
+    const parts = dateStr.split("-");
+    if (parts.length !== 3) return dateStr;
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  };
 
   return (
-    <div className="space-y-6">
-      
-      {/* 1. SEÇÃO DE DESTAQUE: MATÉRIA DO DIA PARA REVISAR (HERO TÁTICO) */}
-      <section
-        className={`p-5 rounded-2xl border transition-all shadow-xl relative overflow-hidden ${
-          isDark
-            ? "bg-[#0B1528] border-slate-800 shadow-black/40"
-            : "bg-white border-slate-200 shadow-slate-200/50"
+    <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-6 space-y-6">
+      {/* 1. Header do Caderno com Status Notion e KPIs */}
+      <div
+        className={`p-5 rounded-2xl border backdrop-blur-md shadow-xl transition-all ${
+          isDark ? "bg-[#0B1528]/80 border-slate-800" : "bg-white border-slate-200 shadow-slate-100"
         }`}
       >
-        {/* Glow de fundo */}
-        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-[#0056D2]/10 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800/60">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#0056D2] to-blue-500 text-white flex items-center justify-center shrink-0 shadow-lg shadow-blue-950/40">
-              <Flame className="w-6 h-6 animate-pulse text-amber-300" />
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-rose-500 to-amber-500 text-white flex items-center justify-center shrink-0 shadow-lg shadow-rose-950/40 font-bold text-xl">
+              📕
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h2
-                  className={`text-lg font-black tracking-tight ${
-                    isDark ? "text-white" : "text-slate-900"
-                  }`}
-                >
-                  Matérias do Dia para Revisar
-                </h2>
-                <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                  Hoje: {new Date().toLocaleDateString("pt-BR", { weekday: "short", day: "numeric", month: "short" })}
+                <h1 className={`text-lg sm:text-xl font-black tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>
+                  Revisões Notion • CFO CBMERJ
+                </h1>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  {dataSource === "notion_api" ? "Notion API Conectado" : "Sincronizado com Notion"}
                 </span>
-                {todayRevisions.length > 0 && (
-                  <span className="px-2 py-0.5 rounded-full text-[10.5px] font-extrabold bg-[#0056D2] text-white">
-                    {todayRevisions.filter((r) => !r.isCompleted).length} pendentes
-                  </span>
-                )}
               </div>
-              <p className={`text-xs mt-0.5 ${isDark ? "text-slate-400" : "text-slate-600"}`}>
-                Sincronizado diretamente com a sua tabela do Notion. Dê o check-in aqui e as caixas são marcadas automaticamente!
+              <p className={`text-xs mt-1 max-w-2xl ${isDark ? "text-slate-400" : "text-slate-600"}`}>
+                Espelho fiel da sua base <strong className="text-white">📕 Revisões</strong>. Marque as caixas de{" "}
+                <strong className="text-emerald-400">Semana</strong>, <strong className="text-blue-400">Mês 1</strong>,{" "}
+                <strong className="text-purple-400">Mês 2</strong> e <strong className="text-amber-400">Mês 3</strong> diretamente
+                aqui pelo site.
               </p>
             </div>
           </div>
 
-          {/* Ações Rápidas */}
-          <div className="flex items-center gap-2 self-end lg:self-center flex-wrap">
-            <button
-              onClick={() => {
-                setNewStudyDate(todayStr);
-                setIsNewStudyModalOpen(true);
-              }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-[#0056D2] hover:bg-[#0047B3] transition-colors shadow-md shadow-blue-950/30 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Novo Estudo / Tópico</span>
-            </button>
-
+          <div className="flex items-center gap-2.5 shrink-0 self-end lg:self-center">
             <button
               onClick={() => loadData(true)}
               disabled={isSyncing}
@@ -297,708 +350,571 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                   ? "bg-slate-900/80 hover:bg-slate-800 text-slate-300 border-slate-700"
                   : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300"
               }`}
-              title="Recarregar do Notion agora"
+              title="Atualizar dados do Notion"
             >
-              <RefreshCw className={`w-3.5 h-3.5 text-blue-400 ${isSyncing ? "animate-spin" : ""}`} />
-              <span className="hidden sm:inline">Sincronizar</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-blue-400" : ""}`} />
+              <span>{isSyncing ? "Sincronizando..." : "Sincronizar"}</span>
+            </button>
+
+            <button
+              onClick={() => setIsNewModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-[#0056D2] hover:bg-[#0047B3] shadow-md shadow-blue-950/40 border border-blue-400/30 transition-all cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Novo Estudo</span>
             </button>
           </div>
         </div>
 
-        {/* Lista de Revisões do Dia */}
-        <div className="mt-4">
-          {todayRevisions.length === 0 ? (
-            <div
-              className={`py-8 px-4 rounded-xl border text-center flex flex-col items-center justify-center gap-2 ${
-                isDark ? "bg-[#070D18]/60 border-slate-800/80" : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-                <CheckCircle2 className="w-5 h-5" />
-              </div>
-              <h4 className={`text-sm font-bold ${isDark ? "text-slate-200" : "text-slate-800"}`}>
-                Nenhuma revisão pendente para hoje!
-              </h4>
-              <p className={`text-xs max-w-md ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                Parabéns! Seus ciclos de revisão do Notion estão em dia. Aproveite para bater a meta de novos conteúdos ou adiantar o cronograma.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {todayRevisions.map(({ item, cycleKey, cycleLabel, isCompleted }) => {
-                const colors = getSubjectColor(item.materia);
-                return (
-                  <div
-                    key={`${item.id}_${cycleKey}`}
-                    className={`p-3.5 rounded-xl border transition-all relative flex flex-col justify-between gap-3 ${
-                      isCompleted
-                        ? isDark
-                          ? "bg-emerald-950/20 border-emerald-900/40 opacity-75"
-                          : "bg-emerald-50/60 border-emerald-200 opacity-85"
-                        : isDark
-                        ? `${colors.bg} ${colors.border}`
-                        : "bg-white border-slate-200 shadow-sm"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <span
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${colors.badgeBg}`}
-                        >
-                          {item.materia}
-                        </span>
+        {/* Linha de KPIs Rápidos */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t border-slate-800/60">
+          <div className={`p-3 rounded-xl border ${isDark ? "bg-slate-900/50 border-slate-800/80" : "bg-slate-50 border-slate-200"}`}>
+            <span className="text-[11px] font-medium text-slate-400 block">Total no Caderno</span>
+            <span className="text-xl font-extrabold text-white mt-0.5 block">{stats.total} matérias</span>
+          </div>
 
-                        <span
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                            cycleKey === "semana"
-                              ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
-                              : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                          }`}
-                        >
-                          {cycleLabel}
-                        </span>
-                      </div>
+          <div className={`p-3 rounded-xl border ${isDark ? "bg-rose-950/30 border-rose-900/40" : "bg-rose-50 border-rose-200"}`}>
+            <span className="text-[11px] font-medium text-rose-400 block">Para Revisar Agora / Hoje</span>
+            <span className="text-xl font-extrabold text-rose-300 mt-0.5 block">{stats.atrasadasOuHoje} pendentes</span>
+          </div>
 
-                      <h4
-                        className={`text-sm font-bold leading-snug line-clamp-2 ${
-                          isCompleted
-                            ? "line-through text-slate-500 dark:text-slate-400"
-                            : isDark
-                            ? "text-slate-100"
-                            : "text-slate-900"
-                        }`}
-                      >
-                        {item.assunto}
-                      </h4>
+          <div className={`p-3 rounded-xl border ${isDark ? "bg-blue-950/30 border-blue-900/40" : "bg-blue-50 border-blue-200"}`}>
+            <span className="text-[11px] font-medium text-blue-400 block">Em Ciclo de Revisão</span>
+            <span className="text-xl font-extrabold text-blue-300 mt-0.5 block">{stats.pendentes} em andamento</span>
+          </div>
 
-                      <div className="flex items-center gap-1.5 mt-2 flex-wrap text-[11px]">
-                        {item.tipoRevisao.map((t) => (
-                          <span
-                            key={t}
-                            className={`px-1.5 py-0.2 rounded text-[9.5px] font-medium ${
-                              isDark ? "bg-slate-800 text-slate-300" : "bg-slate-200 text-slate-700"
-                            }`}
-                          >
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Botão de Check-in em 1 Clique */}
-                    <button
-                      onClick={() => handleCheckin(item.id, cycleKey, isCompleted)}
-                      className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs ${
-                        isCompleted
-                          ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                          : "bg-[#0056D2] hover:bg-[#0047B3] text-white"
-                      }`}
-                    >
-                      {isCompleted ? (
-                        <>
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Revisado no Notion ✓</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Fazer Check-in</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* 2. BARRA DE FILTROS & CONTROLE DO CALENDÁRIO */}
-      <div
-        className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-3 ${
-          isDark ? "bg-[#0B1528] border-slate-800" : "bg-white border-slate-200 shadow-sm"
-        }`}
-      >
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1 ${isDark ? "text-slate-400" : "text-slate-600"}`}>
-            <Filter className="w-3.5 h-3.5 text-blue-400" />
-            <span>Filtrar Matéria:</span>
-          </span>
-
-          <button
-            onClick={() => setSelectedMateria("TODAS")}
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-              selectedMateria === "TODAS"
-                ? "bg-[#0056D2] text-white"
-                : isDark
-                ? "bg-slate-900 text-slate-400 hover:text-slate-200"
-                : "bg-slate-100 text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            Todas ({items.length})
-          </button>
-
-          {uniqueMaterias.slice(0, 6).map((mat) => {
-            const isSelected = selectedMateria === mat;
-            return (
-              <button
-                key={mat}
-                onClick={() => setSelectedMateria(mat)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                  isSelected
-                    ? "bg-[#0056D2] text-white"
-                    : isDark
-                    ? "bg-slate-900 text-slate-400 hover:text-slate-200"
-                    : "bg-slate-100 text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                {mat}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Status da Fonte */}
-        <div className="flex items-center gap-2 text-xs">
-          <span
-            className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1.5 ${
-              dataSource === "notion_api"
-                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            {dataSource === "notion_api" ? "Notion API Conectada" : "Cache Local (Revisões)"}
-          </span>
+          <div className={`p-3 rounded-xl border ${isDark ? "bg-emerald-950/30 border-emerald-900/40" : "bg-emerald-50 border-emerald-200"}`}>
+            <span className="text-[11px] font-medium text-emerald-400 block">Ciclo 100% Concluído</span>
+            <span className="text-xl font-extrabold text-emerald-300 mt-0.5 block">{stats.concluidas} dominadas</span>
+          </div>
         </div>
       </div>
 
-      {/* Botão de Rolar para Mês Anterior */}
-      <div className="flex justify-center">
-        <button
-          onClick={addPreviousMonth}
-          className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition-all flex items-center gap-1.5 cursor-pointer shadow-xs ${
-            isDark
-              ? "bg-slate-900/80 hover:bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-500"
-              : "bg-white hover:bg-slate-50 text-slate-700 border-slate-300"
+      {/* 2. Seção Tática: "Matérias que você tem para revisar agora" */}
+      {dueItems.length > 0 && (
+        <div
+          className={`p-5 rounded-2xl border backdrop-blur-md shadow-xl transition-all ${
+            isDark ? "bg-[#0f172a]/90 border-rose-900/40 shadow-rose-950/10" : "bg-white border-rose-200 shadow-rose-100"
           }`}
         >
-          <ChevronLeft className="w-3.5 h-3.5 rotate-90" />
-          <span>Carregar Mês Anterior</span>
-        </button>
-      </div>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-center gap-2">
+              <span className="flex h-2.5 w-2.5 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+              </span>
+              <h2 className="text-sm font-extrabold tracking-wide uppercase text-rose-400">
+                Matérias do Dia Para Revisar (Notion)
+              </h2>
+            </div>
+            <span className="text-xs font-medium text-slate-400">
+              {dueItems.length} {dueItems.length === 1 ? "revisão pendente" : "revisões pendentes"}
+            </span>
+          </div>
 
-      {/* 3. CALENDÁRIO COM SCROLL CONTÍNUO (MÊS A MÊS) */}
-      <div className="space-y-8">
-        {visibleMonths.map(({ year, month }) => {
-          const monthTitle = `${monthNames[month].toLowerCase()} ${year}`;
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {dueItems.map((item) => {
+              const pendingCycle = getPendingCycleInfo(item);
+              const urgency = getRevisionUrgency(item);
+              const subjColor = getSubjectColor(item.materia);
 
-          // Calcular dias do mês
-          const firstDayIndex = new Date(year, month, 1).getDay(); // 0 = dom, 1 = seg...
-          const daysInMonth = new Date(year, month + 1, 0).getDate();
-          const daysInPrevMonth = new Date(year, month, 0).getDate();
-
-          // Células do calendário (dias anteriores para preencher a primeira semana)
-          const cells: Array<{
-            dayNum: number;
-            dateStr: string;
-            isCurrentMonth: boolean;
-            isToday: boolean;
-          }> = [];
-
-          // Dias do mês anterior
-          for (let i = firstDayIndex - 1; i >= 0; i--) {
-            const dayNum = daysInPrevMonth - i;
-            let prevM = month - 1;
-            let prevY = year;
-            if (prevM < 0) {
-              prevM = 11;
-              prevY -= 1;
-            }
-            const dateStr = `${prevY}-${String(prevM + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
-            cells.push({ dayNum, dateStr, isCurrentMonth: false, isToday: dateStr === todayStr });
-          }
-
-          // Dias do mês atual
-          for (let d = 1; d <= daysInMonth; d++) {
-            const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-            cells.push({ dayNum: d, dateStr, isCurrentMonth: true, isToday: dateStr === todayStr });
-          }
-
-          // Dias do próximo mês para fechar a última linha
-          const remainder = cells.length % 7;
-          if (remainder !== 0) {
-            const daysToAdd = 7 - remainder;
-            for (let nextD = 1; nextD <= daysToAdd; nextD++) {
-              let nextM = month + 1;
-              let nextY = year;
-              if (nextM > 11) {
-                nextM = 0;
-                nextY += 1;
-              }
-              const dateStr = `${nextY}-${String(nextM + 1).padStart(2, "0")}-${String(nextD).padStart(2, "0")}`;
-              cells.push({ dayNum: nextD, dateStr, isCurrentMonth: false, isToday: dateStr === todayStr });
-            }
-          }
-
-          return (
-            <div
-              key={`${year}-${month}`}
-              className={`rounded-2xl border transition-all shadow-xl overflow-hidden ${
-                isDark ? "bg-[#0B1528] border-slate-800" : "bg-white border-slate-200 shadow-sm"
-              }`}
-            >
-              {/* Cabeçalho do Mês */}
-              <div
-                className={`px-6 py-4 border-b flex items-center justify-between ${
-                  isDark ? "border-slate-800 bg-[#070D18]/80" : "border-slate-200 bg-slate-50"
-                }`}
-              >
-                <h3
-                  className={`text-xl font-extrabold tracking-tight capitalize ${
-                    isDark ? "text-white" : "text-slate-900"
+              return (
+                <div
+                  key={item.id}
+                  className={`p-4 rounded-xl border flex flex-col justify-between gap-3 transition-all hover:border-slate-700 ${
+                    isDark ? "bg-[#111827] border-slate-800" : "bg-slate-50 border-slate-200"
                   }`}
                 >
-                  {monthTitle}
-                </h3>
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${subjColor.badgeBg}`}
+                      >
+                        {item.materia}
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${urgency.colorClass}`}
+                      >
+                        {urgency.label} ({formatDateDisplay(item.proximaRevisao)})
+                      </span>
+                    </div>
 
-                <span className={`text-xs font-medium ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                  CFO CBMERJ • Ciclo de Revisões
-                </span>
-              </div>
+                    <h3 className="text-sm font-bold text-white line-clamp-2 leading-snug">
+                      {item.assunto}
+                    </h3>
 
-              {/* Dias da Semana (dom, seg, ter...) */}
-              <div
-                className={`grid grid-cols-7 border-b text-center text-[11px] font-bold uppercase tracking-wider py-2.5 ${
-                  isDark ? "border-slate-800 text-slate-400 bg-[#0B1528]" : "border-slate-200 text-slate-600 bg-slate-100/70"
-                }`}
-              >
-                {WEEK_DAYS.map((w) => (
-                  <div key={w}>{w}</div>
-                ))}
-              </div>
-
-              {/* Grade de Dias */}
-              <div className="grid grid-cols-7 auto-rows-fr divide-x divide-y divide-slate-800/40">
-                {cells.map((cell, idx) => {
-                  const dayEvents = eventsByDate[cell.dateStr] || [];
-                  const isToday = cell.isToday;
-
-                  return (
-                    <div
-                      key={idx}
-                      onClick={() =>
-                        setSelectedDayEvents({
-                          dateStr: cell.dateStr,
-                          events: dayEvents,
-                        })
-                      }
-                      className={`min-h-[115px] p-2 flex flex-col justify-between transition-colors relative cursor-pointer group ${
-                        cell.isCurrentMonth
-                          ? isDark
-                            ? "bg-[#0B1528] hover:bg-[#0F1D38]"
-                            : "bg-white hover:bg-slate-50"
-                          : isDark
-                          ? "bg-[#070D18]/60 opacity-40 hover:opacity-80"
-                          : "bg-slate-50/70 opacity-45 hover:opacity-80"
-                      } ${isToday ? (isDark ? "ring-2 ring-blue-500/50 ring-inset" : "ring-2 ring-blue-500 ring-inset") : ""}`}
-                    >
-                      {/* Topo da Célula: Número do Dia */}
-                      <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                      {item.tipoRevisao.map((tipo) => (
                         <span
-                          className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full transition-transform group-hover:scale-110 ${
-                            isToday
-                              ? "bg-red-500 text-white shadow-md shadow-red-950/40"
-                              : cell.isCurrentMonth
-                              ? isDark
-                                ? "text-slate-300"
-                                : "text-slate-700"
-                              : isDark
-                              ? "text-slate-600"
-                              : "text-slate-400"
+                          key={tipo}
+                          className={`text-[9.5px] px-1.5 py-0.2 rounded border font-medium ${
+                            TIPO_REVISAO_STYLES[tipo] || TIPO_REVISAO_STYLES.Default
                           }`}
                         >
-                          {cell.dayNum}
+                          {tipo}
                         </span>
-
-                        {dayEvents.length > 0 && (
-                          <span
-                            className={`text-[9.5px] font-semibold px-1 rounded ${
-                              isDark ? "text-slate-500" : "text-slate-400"
-                            }`}
-                          >
-                            {dayEvents.length}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Lista de Eventos do Dia (Pílulas inspiradas no print do usuário) */}
-                      <div className="space-y-1 overflow-hidden flex-1">
-                        {dayEvents.slice(0, 3).map((ev) => {
-                          const colors = getSubjectColor(ev.materia);
-
-                          // Badge de Estudo Original (Verde / Estilo do Print)
-                          if (ev.tipo === "estudo") {
-                            return (
-                              <div
-                                key={ev.id}
-                                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border truncate flex items-center gap-1 transition-all ${
-                                  isDark
-                                    ? "bg-emerald-950/40 border-emerald-800/60 text-emerald-300 hover:bg-emerald-900/50"
-                                    : "bg-emerald-50 border-emerald-300 text-emerald-800"
-                                }`}
-                                title={`${ev.materia}: ${ev.title}`}
-                              >
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                                <span className="truncate">{ev.title}</span>
-                              </div>
-                            );
-                          }
-
-                          // Badges de Revisão Espaçada
-                          let badgeBg = "bg-blue-600/80 text-white";
-                          let badgeText = "Revisão";
-
-                          if (ev.tipo === "revisao_24h") {
-                            badgeBg = "bg-purple-600 text-white";
-                            badgeText = "⚡ 24h";
-                          } else if (ev.tipo === "revisao_7d") {
-                            badgeBg = "bg-[#0056D2] text-white";
-                            badgeText = "📅 7D";
-                          } else if (ev.tipo === "revisao_30d") {
-                            badgeBg = "bg-amber-600 text-white";
-                            badgeText = "⭐ 30D";
-                          } else if (ev.tipo === "revisao_60d") {
-                            badgeBg = "bg-orange-600 text-white";
-                            badgeText = "🎯 60D";
-                          } else if (ev.tipo === "revisao_90d") {
-                            badgeBg = "bg-amber-700 text-white";
-                            badgeText = "🏆 90D";
-                          }
-
-                          return (
-                            <div
-                              key={ev.id}
-                              className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded border truncate flex items-center justify-between gap-1 ${
-                                ev.isCompleted
-                                  ? isDark
-                                    ? "bg-slate-900/90 text-slate-500 border-slate-800 line-through"
-                                    : "bg-slate-200 text-slate-500 border-slate-300 line-through"
-                                  : `${badgeBg} border-white/20 shadow-xs`
-                              }`}
-                              title={`${badgeText} • ${ev.materia}: ${ev.title}`}
-                            >
-                              <span className="truncate">
-                                [{badgeText}] {ev.title}
-                              </span>
-                              {ev.isCompleted && <Check className="w-2.5 h-2.5 shrink-0" />}
-                            </div>
-                          );
-                        })}
-
-                        {dayEvents.length > 3 && (
-                          <div
-                            className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded text-center transition-colors ${
-                              isDark
-                                ? "text-blue-400 bg-blue-950/30 hover:bg-blue-950/60"
-                                : "text-blue-600 bg-blue-50 hover:bg-blue-100"
-                            }`}
-                          >
-                            +{dayEvents.length - 3} mais
-                          </div>
-                        )}
-                      </div>
+                      ))}
+                      <span className="text-[10px] text-slate-400 ml-auto">
+                        Estudado em {formatDateDisplay(item.data)}
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                  </div>
 
-      {/* Botão de Rolar para Próximo Mês */}
-      <div className="flex justify-center pt-2">
-        <button
-          onClick={addNextMonth}
-          className={`px-5 py-2 rounded-full text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer shadow-md ${
-            isDark
-              ? "bg-[#0056D2] hover:bg-[#0047B3] text-white border-blue-400/30 shadow-blue-950/40"
-              : "bg-[#0056D2] hover:bg-[#0047B3] text-white border-blue-600 shadow-slate-200"
-          }`}
-        >
-          <span>Carregar Próximo Mês</span>
-          <ChevronRight className="w-3.5 h-3.5 rotate-90" />
-        </button>
-      </div>
-
-      {/* 4. MODAL DE DETALHES DO DIA SELECIONADO */}
-      {selectedDayEvents && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in">
-          <div
-            className={`w-full max-w-lg rounded-2xl border shadow-2xl p-6 relative max-h-[85vh] overflow-y-auto ${
-              isDark ? "bg-[#0B1528] border-slate-800 text-slate-100" : "bg-white border-slate-200 text-slate-900"
-            }`}
-          >
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800/80 mb-4">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-blue-400">
-                  Agenda de Estudos
-                </p>
-                <h3 className="text-lg font-bold">
-                  {new Date(selectedDayEvents.dateStr + "T00:00:00").toLocaleDateString("pt-BR", {
-                    weekday: "long",
-                    day: "numeric",
-                    month: "long",
-                    year: "numeric",
-                  })}
-                </h3>
-              </div>
-
-              <button
-                onClick={() => setSelectedDayEvents(null)}
-                className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
-                  isDark
-                    ? "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
-                    : "bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Itens do Dia */}
-            <div className="space-y-3">
-              {selectedDayEvents.events.length === 0 ? (
-                <p className={`text-xs py-4 text-center ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                  Nenhuma sessão ou revisão registrada para este dia.
-                </p>
-              ) : (
-                selectedDayEvents.events.map((ev) => {
-                  const colors = getSubjectColor(ev.materia);
-                  const isStudy = ev.tipo === "estudo";
-
-                  return (
-                    <div
-                      key={ev.id}
-                      className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 ${
-                        isDark ? "bg-slate-900/60 border-slate-800" : "bg-slate-50 border-slate-200"
-                      }`}
-                    >
-                      <div className="flex-1">
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${colors.badgeBg}`}>
-                            {ev.materia}
-                          </span>
-                          <span
-                            className={`px-1.5 py-0.2 rounded text-[9.5px] font-bold uppercase ${
-                              isStudy
-                                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                                : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                            }`}
-                          >
-                            {isStudy ? "Estudo Realizado" : ev.tipo.replace("revisao_", "Revisão ")}
-                          </span>
-                        </div>
-                        <h4 className="text-sm font-bold">{ev.title}</h4>
-                        <div className="flex items-center gap-1 text-[10px] text-slate-400 mt-1">
-                          {ev.tipoRevisao.map((t) => (
-                            <span key={t} className="bg-slate-800 px-1.5 py-0.2 rounded">
-                              {t}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Botão de Check-in para Ciclos */}
-                      {ev.cycleKey && (
+                  {/* 4 Caixas Interativas do Notion */}
+                  <div className="pt-2 border-t border-slate-800/80">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1.5">
+                      Marcar no Notion:
+                    </span>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {[
+                        { key: "semana" as RevisionCycleKey, label: "Semana", checked: item.semana },
+                        { key: "mes1" as RevisionCycleKey, label: "Mês 1", checked: item.mes1 },
+                        { key: "mes2" as RevisionCycleKey, label: "Mês 2", checked: item.mes2 },
+                        { key: "mes3" as RevisionCycleKey, label: "Mês 3", checked: item.mes3 },
+                      ].map((box) => (
                         <button
-                          onClick={() => {
-                            handleCheckin(ev.notionId, ev.cycleKey!, ev.isCompleted);
-                            setSelectedDayEvents((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    events: prev.events.map((e) =>
-                                      e.id === ev.id ? { ...e, isCompleted: !e.isCompleted } : e
-                                    ),
-                                  }
-                                : null
-                            );
-                          }}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 shrink-0 cursor-pointer ${
-                            ev.isCompleted
-                              ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                              : "bg-[#0056D2] text-white hover:bg-[#0047B3]"
+                          key={box.key}
+                          type="button"
+                          onClick={() => handleToggleCheckbox(item, box.key, box.checked)}
+                          className={`py-1.5 px-1 rounded-lg border text-center transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
+                            box.checked
+                              ? "bg-blue-600/30 border-blue-500/60 text-blue-300 font-bold"
+                              : pendingCycle.cycleKey === box.key
+                              ? "bg-rose-950/40 border-rose-500/60 text-rose-300 font-semibold hover:bg-rose-900/40 animate-pulse"
+                              : isDark
+                              ? "bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700"
+                              : "bg-white border-slate-300 text-slate-600 hover:bg-slate-100"
                           }`}
+                          title={`Clique para marcar/desmarcar '${box.label}' no Notion`}
                         >
-                          {ev.isCompleted ? (
-                            <>
-                              <Check className="w-3.5 h-3.5" />
-                              <span>Revisado</span>
-                            </>
+                          {box.checked ? (
+                            <CheckSquare className="w-4 h-4 text-blue-400" />
                           ) : (
-                            <span>Check-in</span>
+                            <Square className="w-4 h-4 opacity-60" />
                           )}
+                          <span className="text-[9.5px] truncate w-full">{box.label}</span>
                         </button>
-                      )}
+                      ))}
                     </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Ação de Adicionar Estudo neste dia */}
-            <div className="mt-5 pt-4 border-t border-slate-800/80 flex items-center justify-between">
-              <button
-                onClick={() => {
-                  setNewStudyDate(selectedDayEvents.dateStr);
-                  setSelectedDayEvents(null);
-                  setIsNewStudyModalOpen(true);
-                }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-[#0056D2] hover:bg-[#0047B3] transition-colors cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Adicionar Estudo neste Dia</span>
-              </button>
-
-              <button
-                onClick={() => setSelectedDayEvents(null)}
-                className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white cursor-pointer"
-              >
-                Fechar
-              </button>
-            </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* 5. MODAL DE CADASTRO DE NOVO ESTUDO NO NOTION */}
-      {isNewStudyModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in">
+      {/* 3. Tabela Oficial de Revisões (Espelho da base Notion) */}
+      <div
+        className={`p-5 rounded-2xl border backdrop-blur-md shadow-xl transition-all ${
+          isDark ? "bg-[#0B1528]/90 border-slate-800" : "bg-white border-slate-200 shadow-slate-100"
+        }`}
+      >
+        {/* Barra de Filtros e Busca */}
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 mb-5">
+          {/* Abas de Filtro */}
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-900/80 border border-slate-800 overflow-x-auto">
+            <button
+              onClick={() => setFilterTab("APENAS_REVISAR")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                filterTab === "APENAS_REVISAR"
+                  ? "bg-[#0056D2] text-white shadow-sm"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              🔥 O que Tem que Revisar ({stats.pendentes})
+            </button>
+            <button
+              onClick={() => setFilterTab("HOJE_ATRASADAS")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                filterTab === "HOJE_ATRASADAS"
+                  ? "bg-rose-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-rose-400"
+              }`}
+            >
+              🚨 Hoje / Atrasadas ({stats.atrasadasOuHoje})
+            </button>
+            <button
+              onClick={() => setFilterTab("TODAS")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                filterTab === "TODAS" ? "bg-[#0056D2] text-white shadow-sm" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              📋 Todas ({stats.total})
+            </button>
+            <button
+              onClick={() => setFilterTab("CONCLUIDAS")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                filterTab === "CONCLUIDAS"
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-emerald-400"
+              }`}
+            >
+              ✅ Concluídas ({stats.concluidas})
+            </button>
+          </div>
+
+          {/* Busca e Dropdown de Disciplina */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 md:w-56">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Buscar assunto..."
+                className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                  isDark
+                    ? "bg-slate-900 border-slate-700 text-white placeholder-slate-500"
+                    : "bg-slate-50 border-slate-300 text-slate-900"
+                }`}
+              />
+            </div>
+
+            <select
+              value={filterMateria}
+              onChange={(e) => setFilterMateria(e.target.value)}
+              className={`px-2.5 py-1.5 text-xs font-medium rounded-xl border focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer ${
+                isDark ? "bg-slate-900 border-slate-700 text-slate-300" : "bg-slate-50 border-slate-300 text-slate-700"
+              }`}
+            >
+              <option value="TODAS">Todas Matérias</option>
+              {materiasList.map((mat) => (
+                <option key={mat} value={mat}>
+                  {mat}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Tabela do Notion */}
+        <div className="overflow-x-auto rounded-xl border border-slate-800/80">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className={`border-b ${isDark ? "bg-slate-900/80 border-slate-800 text-slate-400" : "bg-slate-100 border-slate-200 text-slate-700"}`}>
+                <th className="py-3 px-3.5 font-bold uppercase tracking-wider text-[11px] min-w-[220px]">
+                  Aa Assunto
+                </th>
+                <th className="py-3 px-3 font-bold uppercase tracking-wider text-[11px] min-w-[120px]">
+                  Matéria
+                </th>
+                <th className="py-3 px-3 font-bold uppercase tracking-wider text-[11px] min-w-[100px]">
+                  📅 Data
+                </th>
+                <th className="py-3 px-3 font-bold uppercase tracking-wider text-[11px] min-w-[140px]">
+                  Tipo de Revisão
+                </th>
+                <th className="py-3 px-3 font-bold uppercase tracking-wider text-[11px] min-w-[130px]">
+                  ∑ Próxima Revisão
+                </th>
+                <th className="py-3 px-2.5 font-bold uppercase tracking-wider text-[11px] text-center w-16">
+                  ☑ Semana
+                </th>
+                <th className="py-3 px-2.5 font-bold uppercase tracking-wider text-[11px] text-center w-16">
+                  ☑ Mês 1
+                </th>
+                <th className="py-3 px-2.5 font-bold uppercase tracking-wider text-[11px] text-center w-16">
+                  ☑ Mês 2
+                </th>
+                <th className="py-3 px-2.5 font-bold uppercase tracking-wider text-[11px] text-center w-16">
+                  ☑ Mês 3
+                </th>
+                <th className="py-3 px-3 font-bold uppercase tracking-wider text-[11px] text-center w-24">
+                  Progresso
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/50">
+              {filteredItems.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                    Nenhuma matéria encontrada com os filtros selecionados.
+                  </td>
+                </tr>
+              ) : (
+                filteredItems.map((item) => {
+                  const subjColor = getSubjectColor(item.materia);
+                  const urgency = getRevisionUrgency(item);
+                  const completedCount = [item.semana, item.mes1, item.mes2, item.mes3].filter(Boolean).length;
+                  const progressPct = Math.round((completedCount / 4) * 100);
+
+                  return (
+                    <tr
+                      key={item.id}
+                      className={`transition-colors ${
+                        isDark ? "hover:bg-slate-800/40" : "hover:bg-slate-50"
+                      }`}
+                    >
+                      {/* Assunto */}
+                      <td className="py-3 px-3.5">
+                        <div className="flex items-start gap-2">
+                          <span className="text-slate-400 mt-0.5">📄</span>
+                          <span className="font-semibold text-white leading-snug">
+                            {item.assunto}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Matéria */}
+                      <td className="py-3 px-3 whitespace-nowrap">
+                        <span
+                          className={`inline-block px-2.5 py-0.5 rounded text-[11px] font-bold border ${subjColor.badgeBg}`}
+                        >
+                          {item.materia}
+                        </span>
+                      </td>
+
+                      {/* Data */}
+                      <td className="py-3 px-3 whitespace-nowrap text-slate-300 font-medium">
+                        {formatDateDisplay(item.data)}
+                      </td>
+
+                      {/* Tipo de Revisão */}
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {item.tipoRevisao.map((tipo) => (
+                            <span
+                              key={tipo}
+                              className={`text-[10px] px-2 py-0.5 rounded border font-medium ${
+                                TIPO_REVISAO_STYLES[tipo] || TIPO_REVISAO_STYLES.Default
+                              }`}
+                            >
+                              {tipo}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+
+                      {/* ∑ Próxima Revisão */}
+                      <td className="py-3 px-3 whitespace-nowrap">
+                        {item.proximaRevisao ? (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] border ${urgency.colorClass}`}
+                          >
+                            <span>{formatDateDisplay(item.proximaRevisao)}</span>
+                            {urgency.status === "hoje" && <span className="font-bold">🔥</span>}
+                            {urgency.status === "atrasada" && <span className="font-bold">⚠️</span>}
+                          </span>
+                        ) : (
+                          <span className="text-emerald-400 text-[11px] font-semibold">
+                            ✅ Concluída
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Checkbox Semana */}
+                      <td className="py-3 px-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleCheckbox(item, "semana", item.semana)}
+                          className={`w-6 h-6 rounded border inline-flex items-center justify-center transition-all cursor-pointer ${
+                            item.semana
+                              ? "bg-blue-600 border-blue-500 text-white shadow-xs"
+                              : isDark
+                              ? "border-slate-600 hover:border-blue-400 bg-slate-900/50"
+                              : "border-slate-300 hover:border-blue-500 bg-white"
+                          }`}
+                          title="Semana (7 dias) • Clique para marcar no Notion"
+                        >
+                          {item.semana && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                        </button>
+                      </td>
+
+                      {/* Checkbox Mês 1 */}
+                      <td className="py-3 px-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleCheckbox(item, "mes1", item.mes1)}
+                          className={`w-6 h-6 rounded border inline-flex items-center justify-center transition-all cursor-pointer ${
+                            item.mes1
+                              ? "bg-blue-600 border-blue-500 text-white shadow-xs"
+                              : isDark
+                              ? "border-slate-600 hover:border-blue-400 bg-slate-900/50"
+                              : "border-slate-300 hover:border-blue-500 bg-white"
+                          }`}
+                          title="Mês 1 (30 dias) • Clique para marcar no Notion"
+                        >
+                          {item.mes1 && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                        </button>
+                      </td>
+
+                      {/* Checkbox Mês 2 */}
+                      <td className="py-3 px-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleCheckbox(item, "mes2", item.mes2)}
+                          className={`w-6 h-6 rounded border inline-flex items-center justify-center transition-all cursor-pointer ${
+                            item.mes2
+                              ? "bg-blue-600 border-blue-500 text-white shadow-xs"
+                              : isDark
+                              ? "border-slate-600 hover:border-blue-400 bg-slate-900/50"
+                              : "border-slate-300 hover:border-blue-500 bg-white"
+                          }`}
+                          title="Mês 2 (60 dias) • Clique para marcar no Notion"
+                        >
+                          {item.mes2 && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                        </button>
+                      </td>
+
+                      {/* Checkbox Mês 3 */}
+                      <td className="py-3 px-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleCheckbox(item, "mes3", item.mes3)}
+                          className={`w-6 h-6 rounded border inline-flex items-center justify-center transition-all cursor-pointer ${
+                            item.mes3
+                              ? "bg-blue-600 border-blue-500 text-white shadow-xs"
+                              : isDark
+                              ? "border-slate-600 hover:border-blue-400 bg-slate-900/50"
+                              : "border-slate-300 hover:border-blue-500 bg-white"
+                          }`}
+                          title="Mês 3 (90 dias) • Clique para marcar no Notion"
+                        >
+                          {item.mes3 && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                        </button>
+                      </td>
+
+                      {/* Progresso */}
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        <div className="flex items-center gap-1.5 justify-center">
+                          <div className="w-12 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                            <div
+                              className={`h-full transition-all ${
+                                progressPct === 100
+                                  ? "bg-emerald-500"
+                                  : progressPct >= 50
+                                  ? "bg-blue-500"
+                                  : "bg-amber-500"
+                              }`}
+                              style={{ width: `${progressPct}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-400">{completedCount}/4</span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 4. Modal de Criação de Novo Estudo */}
+      {isNewModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-200">
           <div
-            className={`w-full max-w-md rounded-2xl border shadow-2xl p-6 relative ${
-              isDark ? "bg-[#0B1528] border-slate-800 text-slate-100" : "bg-white border-slate-200 text-slate-900"
+            className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl ${
+              isDark ? "bg-[#0d1424] border-slate-800 text-white" : "bg-white border-slate-300 text-slate-900"
             }`}
           >
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
               <div className="flex items-center gap-2">
-                <BookOpen className="w-5 h-5 text-blue-400" />
-                <h3 className="text-base font-bold">Registrar Estudo no Notion</h3>
+                <span className="text-xl">📕</span>
+                <h3 className="font-bold text-base">Cadastrar Novo Estudo no Notion</h3>
               </div>
               <button
-                onClick={() => setIsNewStudyModalOpen(false)}
-                className="text-slate-400 hover:text-white cursor-pointer"
+                onClick={() => setIsNewModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateStudy} className="space-y-4">
+            <form onSubmit={handleCreateStudy} className="space-y-4 pt-4">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
-                  Assunto / Conteúdo Estudado
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Assunto / Conteúdo Estudado *
                 </label>
                 <input
                   type="text"
-                  value={newTopic}
-                  onChange={(e) => setNewTopic(e.target.value)}
-                  placeholder="Ex: Reações Orgânicas, Eletroquímica, Matrizes..."
-                  className={`w-full px-3.5 py-2 rounded-xl border text-xs font-medium outline-hidden transition-all ${
-                    isDark
-                      ? "bg-slate-900 border-slate-700 text-white focus:border-blue-500"
-                      : "bg-slate-50 border-slate-300 text-slate-900 focus:border-blue-600"
+                  required
+                  value={newAssunto}
+                  onChange={(e) => setNewAssunto(e.target.value)}
+                  placeholder="Ex: Reações Químicas, Morfologia, MRUV..."
+                  className={`w-full px-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    isDark ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-300"
                   }`}
-                  autoFocus
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
-                    Matéria
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Matéria *
                   </label>
                   <select
-                    value={newSubject}
-                    onChange={(e) => setNewSubject(e.target.value)}
-                    className={`w-full px-3 py-2 rounded-xl border text-xs font-medium outline-hidden ${
-                      isDark ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-300 text-slate-900"
+                    value={newMateria}
+                    onChange={(e) => setNewMateria(e.target.value)}
+                    className={`w-full px-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      isDark ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-300"
                     }`}
                   >
                     <option value="Química">Química</option>
+                    <option value="Português">Português</option>
+                    <option value="História">História</option>
                     <option value="Matemática I">Matemática I</option>
                     <option value="Matemática II">Matemática II</option>
+                    <option value="Matemática III">Matemática III</option>
                     <option value="Física I">Física I</option>
                     <option value="Física II">Física II</option>
-                    <option value="História">História</option>
                     <option value="Geografia">Geografia</option>
                     <option value="Biologia">Biologia</option>
-                    <option value="Língua Portuguesa">Língua Portuguesa</option>
                     <option value="Redação">Redação</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
-                    Data do Estudo
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Data do Estudo *
                   </label>
                   <input
                     type="date"
-                    value={newStudyDate}
-                    onChange={(e) => setNewStudyDate(e.target.value)}
-                    className={`w-full px-3 py-2 rounded-xl border text-xs font-medium outline-hidden ${
-                      isDark ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-300 text-slate-900"
+                    required
+                    value={newData}
+                    onChange={(e) => setNewData(e.target.value)}
+                    className={`w-full px-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      isDark ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-300"
                     }`}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
                   Tipo de Revisão
                 </label>
-                <div className="flex flex-wrap gap-2">
-                  {["Questões", "Apostila", "LDI", "Qcon", "Teoria"].map((type) => {
-                    const isChecked = newTypes.includes(type);
-                    return (
-                      <button
-                        type="button"
-                        key={type}
-                        onClick={() => {
-                          if (isChecked) {
-                            setNewTypes(newTypes.filter((t) => t !== type));
-                          } else {
-                            setNewTypes([...newTypes, type]);
-                          }
-                        }}
-                        className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                          isChecked
-                            ? "bg-[#0056D2] border-blue-400 text-white"
-                            : isDark
-                            ? "bg-slate-900 border-slate-700 text-slate-400"
-                            : "bg-slate-100 border-slate-300 text-slate-700"
-                        }`}
-                      >
-                        {type}
-                      </button>
-                    );
-                  })}
-                </div>
+                <select
+                  value={newTipo}
+                  onChange={(e) => setNewTipo(e.target.value)}
+                  className={`w-full px-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    isDark ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-300"
+                  }`}
+                >
+                  <option value="Questões">Questões</option>
+                  <option value="LDI">LDI</option>
+                  <option value="Pestana">Pestana</option>
+                  <option value="Apostila">Apostila</option>
+                  <option value="PDF">PDF</option>
+                  <option value="Qcon">Qcon</option>
+                  <option value="Teoria">Teoria</option>
+                </select>
               </div>
 
-              <div className="pt-3 border-t border-slate-800 flex items-center justify-end gap-2">
+              <div className="pt-3 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsNewStudyModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white cursor-pointer"
+                  onClick={() => setIsNewModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white border border-slate-700 transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-[#0056D2] hover:bg-[#0047B3] shadow-md shadow-blue-950/40 transition-colors cursor-pointer"
+                  className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-[#0056D2] hover:bg-[#0047B3] transition-colors shadow-md shadow-blue-950/40"
                 >
                   {isSubmitting ? "Salvando..." : "Salvar no Notion"}
                 </button>
@@ -1007,7 +923,6 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
           </div>
         </div>
       )}
-
     </div>
   );
 };

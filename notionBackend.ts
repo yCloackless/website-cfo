@@ -20,54 +20,28 @@ const NOTION_CACHE_FILE = path.join(process.cwd(), "data", "notion-revisoes-cach
 const NOTION_SEED_FILE = path.join(process.cwd(), "data", "notion-seed.json");
 
 const DEFAULT_SEED_ITEMS: BackendNotionRevisionItem[] = [
-  { id: "notion_seed_01", assunto: "Misturas e Introdução à Química", materia: "Química", data: "2026-04-05", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-09", semana: true, mes1: true, mes2: true, mes3: true },
-  { id: "notion_seed_02", assunto: "Idade Moderna II / Período pré-colonial / Brasil Colônia", materia: "História", data: "2026-07-06", tipoRevisao: ["Questões", "Apostila"], proximaRevisao: "2026-10-11", semana: true, mes1: true, mes2: false, mes3: false },
-  { id: "notion_seed_03", assunto: "Exponencial / Inequação Exponencial e Equação Exponencial", materia: "Matemática I", data: "2026-04-07", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-11", semana: true, mes1: true, mes2: true, mes3: true },
-  { id: "notion_seed_04", assunto: "Logaritmo", materia: "Matemática I", data: "2026-04-13", tipoRevisao: ["Questões", "LDI"], proximaRevisao: "2026-09-17", semana: true, mes1: true, mes2: true, mes3: true },
-  { id: "notion_seed_05", assunto: "Ciclo Celular e Histologia Animal", materia: "Biologia", data: "2026-04-09", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-13", semana: true, mes1: true, mes2: true, mes3: true },
-  { id: "notion_seed_06", assunto: "Clima", materia: "Geografia", data: "2026-04-10", tipoRevisao: ["Questões", "LDI"], proximaRevisao: "2026-09-14", semana: true, mes1: true, mes2: true, mes3: true },
-  { id: "notion_seed_07", assunto: "Estrutura Atômica Moderna", materia: "Química", data: "2026-04-12", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-16", semana: true, mes1: true, mes2: true, mes3: true },
-  { id: "notion_seed_08", assunto: "Idade Moderna III", materia: "História", data: "2026-04-13", tipoRevisao: ["Questões", "Qcon"], proximaRevisao: "2026-09-17", semana: true, mes1: true, mes2: true, mes3: true },
-  { id: "notion_seed_09", assunto: "Funções Inorgânicas", materia: "Química", data: "2026-04-15", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-19", semana: true, mes1: true, mes2: true, mes3: true },
-  { id: "notion_seed_10", assunto: "Fisiologia Humana I", materia: "Biologia", data: "2026-04-15", tipoRevisao: ["Questões", "Qcon"], proximaRevisao: "2026-09-19", semana: true, mes1: true, mes2: true, mes3: true },
-  { id: "notion_seed_11", assunto: "Vetores", materia: "Física I", data: "2026-07-16", tipoRevisao: ["Questões"], proximaRevisao: "2026-10-21", semana: true, mes1: true, mes2: false, mes3: false },
-  { id: "notion_seed_12", assunto: "Dinâmica da Atmosfera do Brasil", materia: "Geografia", data: "2026-04-18", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-22", semana: true, mes1: true, mes2: true, mes3: true },
-  { id: "notion_seed_13", assunto: "Brasil Colônia II", materia: "História", data: "2026-04-21", tipoRevisao: ["Questões", "Qcon"], proximaRevisao: "2026-09-25", semana: true, mes1: true, mes2: true, mes3: true },
-  { id: "notion_seed_14", assunto: "Conceitos Básicos de Cinemática (Movimento Uniforme)", materia: "Física I", data: "2026-07-23", tipoRevisao: ["Questões"], proximaRevisao: "2026-07-30", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_15", assunto: "P.A", materia: "Matemática II", data: "2026-04-23", tipoRevisao: ["Questões", "LDI"], proximaRevisao: "2026-08-28", semana: true, mes1: true, mes2: true, mes3: false },
-  { id: "notion_seed_16", assunto: "Vegetação", materia: "Geografia", data: "2026-04-28", tipoRevisao: ["Questões"], proximaRevisao: "2026-10-02", semana: true, mes1: true, mes2: true, mes3: true },
-  { id: "notion_seed_17", assunto: "Matrizes", materia: "Matemática I", data: "2026-09-01", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-08", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_18", assunto: "Determinantes", materia: "Matemática I", data: "2026-09-02", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-09", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_19", assunto: "Reações Químicas", materia: "Química", data: "2026-09-05", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-12", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_20", assunto: "Independência", materia: "História", data: "2026-09-07", tipoRevisao: ["Questões", "Apostila"], proximaRevisao: "2026-09-07", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_21", assunto: "Função Orgânica", materia: "Química", data: "2026-09-07", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-07", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_22", assunto: "Segundo Reinado", materia: "História", data: "2026-09-06", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-07", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_23", assunto: "Termoquímica", materia: "Química", data: "2026-09-09", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-16", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_24", assunto: "Polinômios", materia: "Matemática I", data: "2026-09-10", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-17", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_25", assunto: "Estequiometria", materia: "Química", data: "2026-09-10", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-17", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_26", assunto: "Plantas - MAS FALTA H...", materia: "Biologia", data: "2026-09-11", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-18", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_27", assunto: "Período Democrático", materia: "História", data: "2026-09-12", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-19", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_28", assunto: "Eletroquímica", materia: "Química", data: "2026-09-12", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-19", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_29", assunto: "Geopolítica (Importante)", materia: "Geografia", data: "2026-09-12", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-19", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_30", assunto: "O mundo entre guerras", materia: "História", data: "2026-09-13", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-20", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_31", assunto: "Razão e Proporção", materia: "Matemática II", data: "2026-09-16", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-23", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_32", assunto: "Regra de 3 - Simples e Composta", materia: "Matemática II", data: "2026-09-16", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-23", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_33", assunto: "Hidrografia", materia: "Geografia", data: "2026-09-16", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-23", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_34", assunto: "Era Vargas", materia: "História", data: "2026-09-17", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-24", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_35", assunto: "Fisiologia Humana II", materia: "Biologia", data: "2026-09-17", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-24", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_36", assunto: "1ª REPÚBLICA", materia: "História", data: "2026-09-21", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-28", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_37", assunto: "Cinética Química", materia: "Química", data: "2026-09-22", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-29", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_38", assunto: "Meio Ambiente", materia: "Geografia", data: "2026-09-23", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-30", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_39", assunto: "Classificação Biológica", materia: "Biologia", data: "2026-09-24", tipoRevisao: ["Questões"], proximaRevisao: "2026-10-01", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_40", assunto: "Oxirredução", materia: "Química", data: "2026-09-24", tipoRevisao: ["Questões"], proximaRevisao: "2026-10-01", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_41", assunto: "Conjuntos", materia: "Matemática I", data: "2026-09-27", tipoRevisao: ["Questões"], proximaRevisao: "2026-10-04", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_42", assunto: "Bioquímica das Células", materia: "Biologia", data: "2026-09-28", tipoRevisao: ["Questões"], proximaRevisao: "2026-10-05", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_43", assunto: "Período Regencial", materia: "História", data: "2026-09-29", tipoRevisao: ["Questões"], proximaRevisao: "2026-10-06", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_44", assunto: "Equilíbrio Químico", materia: "Química", data: "2026-09-30", tipoRevisao: ["Questões"], proximaRevisao: "2026-10-07", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_45", assunto: "Vírus", materia: "Biologia", data: "2026-10-01", tipoRevisao: ["Questões"], proximaRevisao: "2026-10-08", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_46", assunto: "Taxonomia", materia: "Biologia", data: "2026-10-01", tipoRevisao: ["Questões"], proximaRevisao: "2026-10-08", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_47", assunto: "Soluções (DIFICULDADE)", materia: "Química", data: "2026-10-01", tipoRevisao: ["Questões"], proximaRevisao: "2026-10-08", semana: false, mes1: false, mes2: false, mes3: false },
-  { id: "notion_seed_48", assunto: "Briófitas", materia: "Biologia", data: "2026-10-06", tipoRevisao: ["Questões"], proximaRevisao: "2026-10-13", semana: false, mes1: false, mes2: false, mes3: false },
+  { id: "notion_01", assunto: "Reações Química", materia: "Química", data: "2026-05-01", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-05", semana: true, mes1: true, mes2: true, mes3: false },
+  { id: "notion_02", assunto: "Morfologia I", materia: "Português", data: "2026-05-10", tipoRevisao: ["Pestana", "Questões"], proximaRevisao: "2026-06-16", semana: true, mes1: false, mes2: false, mes3: false },
+  { id: "notion_03", assunto: "Periodo Joanino", materia: "História", data: "2026-05-04", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-08", semana: true, mes1: true, mes2: true, mes3: false },
+  { id: "notion_04", assunto: "Estequiometria", materia: "Química", data: "2026-05-06", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-10", semana: true, mes1: true, mes2: true, mes3: false },
+  { id: "notion_05", assunto: "Angulos", materia: "Matemática III", data: "2026-05-22", tipoRevisao: ["Questões"], proximaRevisao: "2026-08-27", semana: true, mes1: true, mes2: false, mes3: false },
+  { id: "notion_06", assunto: "P.G", materia: "Matemática II", data: "2026-05-08", tipoRevisao: ["Questões"], proximaRevisao: "2026-06-14", semana: true, mes1: false, mes2: false, mes3: false },
+  { id: "notion_07", assunto: "Independencia e Primeiro Reinado", materia: "História", data: "2026-05-11", tipoRevisao: ["Questões"], proximaRevisao: "2026-05-18", semana: false, mes1: false, mes2: false, mes3: false },
+  { id: "notion_08", assunto: "MRUV", materia: "Física I", data: "2026-05-12", tipoRevisao: ["Questões", "PDF"], proximaRevisao: "2026-06-18", semana: true, mes1: false, mes2: false, mes3: false },
+  { id: "notion_09", assunto: "Hidrografia do Brasil", materia: "Geografia", data: "2026-05-12", tipoRevisao: ["LDI", "Questões"], proximaRevisao: "2026-09-16", semana: true, mes1: true, mes2: true, mes3: false },
+  { id: "notion_10", assunto: "Hidrografia", materia: "Geografia", data: "2026-05-12", tipoRevisao: ["LDI", "Questões"], proximaRevisao: "2026-09-16", semana: true, mes1: true, mes2: true, mes3: false },
+  { id: "notion_11", assunto: "Fisiologia Humana II", materia: "Biologia", data: "2026-05-13", tipoRevisao: ["LDI", "Questões"], proximaRevisao: "2026-09-17", semana: true, mes1: true, mes2: true, mes3: false },
+  { id: "notion_12", assunto: "Ánalise Gráfica", materia: "Física I", data: "2026-05-16", tipoRevisao: ["Questões"], proximaRevisao: "2026-05-23", semana: false, mes1: false, mes2: false, mes3: false },
+  { id: "notion_13", assunto: "Morfologia II", materia: "Português", data: "2026-05-17", tipoRevisao: ["Questões"], proximaRevisao: "2026-05-24", semana: false, mes1: false, mes2: false, mes3: false },
+  { id: "notion_14", assunto: "Periodo Contemporaneo II", materia: "História", data: "2026-05-18", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-22", semana: true, mes1: true, mes2: true, mes3: false },
+  { id: "notion_15", assunto: "Cinematica Vetorial", materia: "Física I", data: "2026-05-19", tipoRevisao: ["Questões"], proximaRevisao: "2026-05-26", semana: false, mes1: false, mes2: false, mes3: false },
+  { id: "notion_16", assunto: "Oxirredução", materia: "Química", data: "2026-05-20", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-24", semana: true, mes1: true, mes2: true, mes3: false },
+  { id: "notion_17", assunto: "Classificação biologica", materia: "Biologia", data: "2026-05-20", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-24", semana: true, mes1: true, mes2: true, mes3: false },
+  { id: "notion_18", assunto: "Lançamento", materia: "Física I", data: "2026-05-21", tipoRevisao: ["Questões"], proximaRevisao: "2026-05-28", semana: false, mes1: false, mes2: false, mes3: false },
+  { id: "notion_19", assunto: "Periodo regencial", materia: "História", data: "2026-05-25", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-29", semana: true, mes1: true, mes2: true, mes3: false },
+  { id: "notion_20", assunto: "Meio Ambiente", materia: "Geografia", data: "2026-05-19", tipoRevisao: ["Questões"], proximaRevisao: "2026-09-23", semana: true, mes1: true, mes2: true, mes3: false },
+  { id: "notion_21", assunto: "Soluções (DIFICULDADE EM MISTURA, BATER NESSE PONTO FRACO, MISTURA DE DUAS REAÇÕES E N FIZ EXERCICIO)", materia: "Química", data: "2026-05-27", tipoRevisao: ["Questões"], proximaRevisao: "2026-10-01", semana: true, mes1: true, mes2: true, mes3: false },
+  { id: "notion_22", assunto: "Taxonomia", materia: "Biologia", data: "2026-05-27", tipoRevisao: ["Questões"], proximaRevisao: "2026-10-01", semana: true, mes1: true, mes2: true, mes3: false }
 ];
 
 let memoryCache: BackendNotionRevisionItem[] | null = null;
@@ -277,6 +251,34 @@ export async function fetchRevisoesFromNotion(): Promise<{
   }
 }
 
+function calculateNextRevision(item: { data: string; semana: boolean; mes1: boolean; mes2: boolean; mes3: boolean }): string | undefined {
+  if (!item.data) return undefined;
+  const d = new Date(item.data + "T12:00:00Z");
+  if (isNaN(d.getTime())) return undefined;
+
+  if (!item.semana) {
+    // 7 dias
+    d.setUTCDate(d.getUTCDate() + 7);
+    return d.toISOString().split("T")[0];
+  }
+  if (!item.mes1) {
+    // 37 dias (aprox 1 mês e 1 semana do estudo original)
+    d.setUTCDate(d.getUTCDate() + 37);
+    return d.toISOString().split("T")[0];
+  }
+  if (!item.mes2) {
+    // 97 dias (~3 meses do estudo original)
+    d.setUTCDate(d.getUTCDate() + 97);
+    return d.toISOString().split("T")[0];
+  }
+  if (!item.mes3) {
+    // 127 dias (~4 meses do estudo original)
+    d.setUTCDate(d.getUTCDate() + 127);
+    return d.toISOString().split("T")[0];
+  }
+  return undefined;
+}
+
 /**
  * Realiza o Check-in atualizando a checkbox no Notion e no cache local
  */
@@ -291,6 +293,7 @@ export async function updateCheckinInNotion(
 
   if (targetItem) {
     targetItem[cycleKey] = checkedValue;
+    targetItem.proximaRevisao = calculateNextRevision(targetItem);
     targetItem.updatedAt = new Date().toISOString();
     items[index] = targetItem;
     saveLocalRevisoes(items);
