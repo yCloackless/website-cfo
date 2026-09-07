@@ -49,7 +49,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
   return (
     <div
       className={`w-full rounded-2xl border transition-colors shadow-2xl overflow-hidden ${
-        isDark ? 'bg-[#111218] border-slate-800' : 'bg-white border-slate-200 shadow-slate-200/50'
+        isDark ? 'bg-[#0B1528] border-slate-800/80' : 'bg-white border-slate-200 shadow-slate-200/50'
       }`}
     >
       {/* Scrollable Horizontal Container */}
@@ -59,7 +59,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
             <tr
               className={`border-b text-xs font-bold uppercase tracking-wider transition-colors ${
                 isDark
-                  ? 'bg-[#0D0E13] border-slate-800 text-slate-400'
+                  ? 'bg-[#070D18] border-slate-800 text-slate-400'
                   : 'bg-slate-50 border-slate-200 text-slate-600'
               }`}
             >
@@ -67,7 +67,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
               <th
                 className={`sticky left-0 z-20 backdrop-blur-xs py-3.5 px-4 w-64 min-w-[240px] border-r transition-colors ${
                   isDark
-                    ? 'bg-[#0D0E13]/95 border-slate-800 text-slate-300'
+                    ? 'bg-[#070D18]/95 border-slate-800 text-slate-300'
                     : 'bg-slate-50/95 border-slate-200 text-slate-800'
                 }`}
               >
@@ -94,8 +94,8 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                     } ${
                       day.isToday
                         ? isDark
-                          ? 'bg-red-950/30 text-red-400 font-extrabold'
-                          : 'bg-red-50 text-red-600 font-extrabold'
+                          ? 'bg-blue-950/40 text-blue-400 font-extrabold'
+                          : 'bg-blue-50 text-blue-600 font-extrabold'
                         : ''
                     }`}
                   >
@@ -103,7 +103,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                       <div className="flex items-center gap-1">
                         <span>{dayMeta.short}</span>
                         {day.isToday && (
-                          <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-red-600 text-white uppercase tracking-tighter">
+                          <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-[#0056D2] text-white uppercase tracking-tighter">
                             Hoje
                           </span>
                         )}
@@ -111,7 +111,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                       <span
                         className={`text-[11px] font-medium mt-0.5 ${
                           day.isToday
-                            ? 'text-red-500 font-semibold'
+                            ? 'text-blue-400 font-semibold'
                             : isDark
                             ? 'text-slate-500 font-normal'
                             : 'text-slate-400 font-normal'
@@ -155,7 +155,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                   <td
                     className={`sticky left-0 z-10 py-3 px-4 border-r transition-colors ${
                       isDark
-                        ? 'bg-[#111218] group-hover:bg-[#151720] border-slate-800'
+                        ? 'bg-[#0B1528] group-hover:bg-[#0F1D38] border-slate-800'
                         : 'bg-white group-hover:bg-slate-50 border-slate-200'
                     }`}
                   >
@@ -216,20 +216,20 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                         className={`p-2 border-r text-center cursor-pointer select-none transition-all ${
                           isDark ? 'border-slate-800/70' : 'border-slate-200'
                         } ${
-                          day.isToday ? (isDark ? 'bg-red-950/15' : 'bg-red-50/40') : ''
+                          day.isToday ? (isDark ? 'bg-blue-950/20' : 'bg-blue-50/40') : ''
                         } ${isDark ? 'hover:bg-slate-900/60' : 'hover:bg-slate-100/60'}`}
                       >
                         {isCompleted ? (
                           <div
-                            className={`w-full h-full min-h-[58px] p-2 rounded-lg border border-l-2 border-l-red-500 flex flex-col justify-between items-start text-left shadow-sm group/cell transition-all ${
+                            className={`w-full h-full min-h-[58px] p-2 rounded-lg border border-l-2 border-l-blue-600 flex flex-col justify-between items-start text-left shadow-sm group/cell transition-all ${
                               isDark
-                                ? 'bg-slate-900/90 border-slate-800 hover:border-slate-700'
+                                ? 'bg-[#0F1D38]/80 border-slate-800 hover:border-slate-700'
                                 : 'bg-white border-slate-200 hover:border-slate-300'
                             }`}
                           >
                             {/* Top badge row */}
                             <div className="w-full flex items-center justify-between gap-1">
-                              <span className="inline-flex items-center gap-1 text-[9px] font-bold text-red-500 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                              <span className="inline-flex items-center gap-1 text-[9px] font-bold text-blue-400 bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.5 rounded uppercase tracking-wider">
                                 Concluído
                               </span>
 
@@ -237,7 +237,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                               <button
                                 onClick={(e) => onQuickToggle(subject, day.index, day.dateStr, e)}
                                 title="Desmarcar estudo"
-                                className="w-5 h-5 rounded text-red-500 hover:bg-red-500/20 flex items-center justify-center transition-colors"
+                                className="w-5 h-5 rounded text-blue-400 hover:bg-blue-500/20 flex items-center justify-center transition-colors cursor-pointer"
                               >
                                 <Check className="w-3.5 h-3.5 stroke-[3]" />
                               </button>
@@ -273,7 +273,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                                   isDark ? 'text-slate-300' : 'text-slate-700'
                                 }`}
                               >
-                                <Clock className="w-2.5 h-2.5 text-red-500" />
+                                <Clock className="w-2.5 h-2.5 text-blue-400" />
                                 {formatDurationHours(entry?.durationMinutes || 60)}
                               </span>
 
@@ -281,7 +281,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                                 {entry?.googleCalendarSynced && (
                                   <span
                                     title="Sincronizado com Google Agenda"
-                                    className="text-blue-500"
+                                    className="text-blue-400"
                                   >
                                     <Calendar className="w-3 h-3" />
                                   </span>
@@ -289,7 +289,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                                 {entry?.revisionScheduled && (
                                   <span
                                     title="Revisões agendadas: Próximo dia, 1 semana e mensais"
-                                    className="text-amber-500"
+                                    className="text-amber-400"
                                   >
                                     <Sparkles className="w-3 h-3" />
                                   </span>
@@ -299,9 +299,9 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                             </div>
                           </div>
                         ) : (
-                          /* Pending cell state */
+                          /* Empty uncompleted cell */
                           <div
-                            className={`w-full h-full min-h-[58px] p-2 rounded-lg border border-dashed flex flex-col items-center justify-center transition-all group/empty ${
+                            className={`w-full h-full min-h-[58px] p-2 rounded-lg border border-dashed flex flex-col items-center justify-center group/empty transition-all ${
                               isDark
                                 ? 'border-slate-800 hover:border-slate-700 bg-slate-900/20 hover:bg-slate-900/50 text-slate-500'
                                 : 'border-slate-300 hover:border-slate-400 bg-slate-50/40 hover:bg-slate-100/60 text-slate-400'
@@ -309,10 +309,10 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                           >
                             <button
                               onClick={(e) => onQuickToggle(subject, day.index, day.dateStr, e)}
-                              className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors ${
+                              className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors cursor-pointer ${
                                 isDark
-                                  ? 'border-slate-800 group-hover/empty:border-red-500/50 group-hover/empty:bg-red-950/30 text-slate-600 group-hover/empty:text-red-400'
-                                  : 'border-slate-300 group-hover/empty:border-red-500/50 group-hover/empty:bg-red-50 text-slate-400 group-hover/empty:text-red-500'
+                                  ? 'border-slate-800 group-hover/empty:border-blue-500/50 group-hover/empty:bg-blue-950/30 text-slate-600 group-hover/empty:text-blue-400'
+                                  : 'border-slate-300 group-hover/empty:border-blue-500/50 group-hover/empty:bg-blue-50 text-slate-400 group-hover/empty:text-blue-600'
                               }`}
                               title="Marcar como estudado com 1 clique"
                             >

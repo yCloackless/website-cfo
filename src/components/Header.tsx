@@ -17,8 +17,6 @@ import {
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
-import { CloudTimer } from './CloudTimer';
-
 interface HeaderProps {
   user: User | null;
   hasCalendarAccess?: boolean;
@@ -35,8 +33,8 @@ interface HeaderProps {
   pendingRevisionsCount: number;
   theme: AppTheme;
   onToggleTheme: () => void;
-  activeTab: 'table' | 'bizuario' | 'highyield' | 'ai';
-  onSelectTab: (tab: 'table' | 'bizuario' | 'highyield' | 'ai') => void;
+  activeTab: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai';
+  onSelectTab: (tab: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai') => void;
   onLockTerminal?: () => void;
 }
 
@@ -66,29 +64,33 @@ export const Header: React.FC<HeaderProps> = ({
     <header
       className={`sticky top-0 z-30 shadow-xl border-b backdrop-blur-md transition-colors ${
         isDark
-          ? 'bg-[#0A0B0E]/95 border-slate-800 text-slate-100'
-          : 'bg-white/95 border-slate-200 text-slate-900 shadow-slate-100'
+          ? 'bg-[#070D18]/95 border-slate-800/80 text-slate-100'
+          : 'bg-white/95 border-slate-200 text-slate-900 shadow-slate-200/50'
       }`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           
-          {/* Brand & Cycle Info */}
+          {/* Brand & Cycle Info with Official Blue Phoenix Logo */}
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-linear-to-tr from-red-600 via-red-500 to-amber-500 flex items-center justify-center text-white shadow-lg shadow-red-950/40 shrink-0 border border-red-500/20">
-              <Flame className="w-5 h-5 fill-white stroke-red-600" />
+            <div className="w-11 h-11 rounded-xl bg-[#0B1528] border border-blue-500/30 flex items-center justify-center p-1 shadow-md shrink-0">
+              <img
+                src="/phoenix-logo-cropped.png"
+                alt="Logo Fênix RUMO ao CFO"
+                className="w-full h-full object-contain drop-shadow-[0_4px_10px_rgba(0,86,210,0.4)]"
+              />
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-[0.3em] text-red-500 font-bold">
-                Quartel General de Estudos
+              <p className="text-[10.5px] uppercase tracking-[0.25em] text-blue-400 font-bold">
+                RUMO AO CFO
               </p>
               <div className="flex items-baseline gap-2">
                 <h1
-                  className={`text-xl font-semibold tracking-tight ${
-                    isDark ? 'text-slate-100' : 'text-slate-900'
+                  className={`text-xl font-extrabold tracking-tight ${
+                    isDark ? 'text-white' : 'text-slate-900'
                   }`}
                 >
-                  CFO CBMERJ
+                  Área de Alunos
                 </h1>
                 <span
                   className={`italic text-xs font-normal ${
@@ -101,35 +103,50 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Navigation Tabs (Table vs AI Balance) */}
+          {/* Navigation Tabs (Table, Timer, Bizuario, Mais Caem, IA) */}
           <div
             className={`flex items-center p-1 rounded-xl border ${
               isDark
-                ? 'bg-slate-900/90 border-slate-800'
+                ? 'bg-[#0B1528] border-slate-800'
                 : 'bg-slate-100 border-slate-200'
             }`}
           >
             <button
               id="tab-cronograma"
               onClick={() => onSelectTab('table')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === 'table'
-                  ? 'bg-red-600 text-white shadow-sm'
+                  ? 'bg-[#0056D2] text-white shadow-sm'
                   : isDark
                   ? 'text-slate-400 hover:text-slate-200'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <LayoutGrid className="w-3.5 h-3.5" />
-              <span>Cronograma Semanal</span>
+              <span>Cronograma</span>
+            </button>
+
+            <button
+              id="tab-cronometro"
+              onClick={() => onSelectTab('timer')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === 'timer'
+                  ? 'bg-[#0056D2] text-white shadow-sm'
+                  : isDark
+                  ? 'text-slate-400 hover:text-blue-400'
+                  : 'text-slate-600 hover:text-blue-600'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Cronômetro</span>
             </button>
 
             <button
               id="tab-bizuario"
               onClick={() => onSelectTab('bizuario')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === 'bizuario'
-                  ? 'bg-blue-600 text-white shadow-sm'
+                  ? 'bg-[#0056D2] text-white shadow-sm'
                   : isDark
                   ? 'text-slate-400 hover:text-blue-400'
                   : 'text-slate-600 hover:text-blue-600'
@@ -142,12 +159,12 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="tab-mais-caem"
               onClick={() => onSelectTab('highyield')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === 'highyield'
-                  ? 'bg-red-600 text-white shadow-sm'
+                  ? 'bg-[#EA580C] text-white shadow-sm'
                   : isDark
-                  ? 'text-slate-400 hover:text-red-400'
-                  : 'text-slate-600 hover:text-red-600'
+                  ? 'text-slate-400 hover:text-orange-400'
+                  : 'text-slate-600 hover:text-orange-600'
               }`}
             >
               <Target className="w-3.5 h-3.5 text-amber-400" />
@@ -160,42 +177,36 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="tab-ia-equilibrio"
               onClick={() => onSelectTab('ai')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === 'ai'
-                  ? 'bg-amber-500 text-slate-950 shadow-sm'
+                  ? 'bg-indigo-600 text-white shadow-sm'
                   : isDark
-                  ? 'text-slate-400 hover:text-amber-400'
-                  : 'text-slate-600 hover:text-amber-600'
+                  ? 'text-slate-400 hover:text-indigo-400'
+                  : 'text-slate-600 hover:text-indigo-600'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>Equilíbrio & IA</span>
-              <span className="px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-red-600 text-white uppercase">
-                Novo
-              </span>
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>IA</span>
             </button>
           </div>
 
-          {/* Action buttons & Utilities */}
+          {/* Action buttons & Utilities (Uncluttered, CloudTimer moved to its dedicated tab) */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Cronômetro Sincronizado na Nuvem (PC e Celular) */}
-            <CloudTimer />
-
             {/* Smart Revisions Button */}
             <button
               id="btn-revisoes-inteligentes"
               onClick={onOpenRevisions}
-              className={`relative inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors border shadow-2xs ${
+              className={`relative inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors border shadow-2xs cursor-pointer ${
                 isDark
-                  ? 'bg-slate-900/90 hover:bg-slate-800 text-amber-400 border-slate-800 hover:border-amber-700/50'
+                  ? 'bg-[#0B1528] hover:bg-[#0F1D38] text-amber-400 border-slate-800 hover:border-amber-500/40'
                   : 'bg-white hover:bg-slate-50 text-amber-600 border-slate-200 hover:border-amber-300'
               }`}
               title="Gerenciador de revisões de 1 semana e mensais"
             >
-              <Sparkles className="w-3.5 h-3.5" />
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
               <span className="hidden sm:inline">Revisões</span>
               {pendingRevisionsCount > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500 text-slate-950 animate-pulse">
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#FF6B00] text-white animate-pulse">
                   {pendingRevisionsCount}
                 </span>
               )}
@@ -205,7 +216,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="btn-adicionar-materia"
               onClick={onOpenAddSubject}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-white bg-red-600 hover:bg-red-700 border border-red-500/40 shadow-xs transition-colors"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#0056D2] hover:bg-[#0047B3] border border-blue-400/30 shadow-xs transition-colors cursor-pointer"
               title="Adicionar nova disciplina à grade"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -344,15 +355,14 @@ export const Header: React.FC<HeaderProps> = ({
             {onLockTerminal && (
               <button
                 onClick={onLockTerminal}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-mono font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-sans font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
                   isDark
-                    ? 'bg-red-950/40 border-red-900/60 text-red-400 hover:bg-red-900/50 hover:border-red-700'
-                    : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'
+                    ? 'bg-blue-950/40 border-blue-900/60 text-blue-300 hover:bg-blue-900/50 hover:border-blue-500/50'
+                    : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
                 }`}
-                title="Bloquear Terminal (Exigir 2FA TOTP novamente)"
+                title="Bloquear terminal e retornar à Landing Page"
               >
-                <Lock className="w-3.5 h-3.5 text-red-500" />
-                <span className="hidden sm:inline text-[10px] tracking-wider uppercase">Bloquear</span>
+                <Lock className="w-3 h-3 text-blue-400" />
               </button>
             )}
 

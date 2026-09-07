@@ -60,6 +60,7 @@ import { CycleHistoryModal } from './components/CycleHistoryModal';
 import { WeeklyGoalModal } from './components/WeeklyGoalModal';
 import { SecurityGate } from './components/SecurityGate';
 import { LandingPage } from './components/LandingPage';
+import { TimerTab } from './components/TimerTab';
 
 export default function App() {
   // 🛡️ Security Gate (2FA TOTP Terminal) State
@@ -150,8 +151,8 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
 
-  // Active Tab ('table' | 'bizuario' | 'highyield' | 'ai')
-  const [activeTab, setActiveTab] = useState<'table' | 'bizuario' | 'highyield' | 'ai'>('table');
+  // Active Tab ('table' | 'timer' | 'bizuario' | 'highyield' | 'ai')
+  const [activeTab, setActiveTab] = useState<'table' | 'timer' | 'bizuario' | 'highyield' | 'ai'>('table');
 
   // Preset topic for creating a Bizu from HighYield tab
   const [presetTopicForBizu, setPresetTopicForBizu] = useState<{
@@ -623,6 +624,42 @@ export default function App() {
     showToast(`Matéria "${newSubject.name}" adicionada ao cronograma!`, 'success');
   };
 
+  // Handle logging study time from dedicated Timer Tab
+  const handleLogTimerStudySession = useCallback(
+    (subjectId: string, minutes: number, notes?: string) => {
+      if (!currentCycle) return;
+      const today = new Date().toISOString().split('T')[0];
+      const cellKey = `${subjectId}_${today}`;
+      const existing = currentCycle.entries[cellKey];
+
+      const newEntry: StudyEntry = {
+        id: existing?.id || `study_${Date.now()}`,
+        subjectId,
+        date: today,
+        durationMinutes: (existing?.durationMinutes || 0) + minutes,
+        completed: true,
+        notes: notes || existing?.notes || 'Sessão registrada via Cronômetro de Foco',
+        questionsDone: existing?.questionsDone || 0,
+        questionsCorrect: existing?.questionsCorrect || 0,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const updatedCycle: WeeklyCycle = {
+        ...currentCycle,
+        entries: {
+          ...currentCycle.entries,
+          [cellKey]: newEntry,
+        },
+        updatedAt: new Date().toISOString(),
+      };
+
+      setCurrentCycle(updatedCycle);
+      saveActiveCycle(updatedCycle);
+      showToast(`Sessão de ${minutes} min registrada no cronograma de hoje!`, 'success');
+    },
+    [currentCycle, showToast]
+  );
+
   // Delete/remove subject handler (supports removing default subjects like Química or custom ones)
   const handleDeleteCustomSubject = (subjectId: string) => {
     const updated = subjects.filter((s) => s.id !== subjectId);
@@ -795,8 +832,8 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen flex flex-col antialiased selection:bg-red-500 selection:text-white transition-colors duration-200 ${
-        isDark ? 'bg-[#0A0B0E] text-slate-100' : 'bg-[#F8FAFC] text-slate-900'
+      className={`min-h-screen flex flex-col antialiased selection:bg-[#0056D2] selection:text-white transition-colors duration-200 ${
+        isDark ? 'bg-[#070D18] text-slate-100' : 'bg-[#F1F4F9] text-slate-900'
       }`}
     >
       {/* Top Header with Tab Selector and Theme Toggle */}
@@ -831,7 +868,7 @@ export default function App() {
             <div
               className={`p-5 rounded-2xl border transition-all shadow-xl ${
                 isDark
-                  ? 'bg-[#111218] border-slate-800/90 shadow-black/40'
+                  ? 'bg-[#0B1528] border-slate-800/90 shadow-black/40'
                   : 'bg-white border-slate-200 shadow-slate-200/50'
               }`}
             >
@@ -841,7 +878,7 @@ export default function App() {
                     className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-md ${
                       goalProgress.isMet
                         ? 'bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-emerald-950/40'
-                        : 'bg-gradient-to-tr from-red-600 to-amber-500 text-white shadow-red-950/40'
+                        : 'bg-gradient-to-tr from-[#0056D2] via-blue-600 to-[#FF6B00] text-white shadow-blue-950/40'
                     }`}
                   >
                     {goalProgress.isMet ? (
@@ -864,7 +901,7 @@ export default function App() {
                           🔥 Meta Batida! (+{goalProgress.surplus}h)
                         </span>
                       ) : (
-                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
                           Faltam {goalProgress.remaining}h para bater a meta
                         </span>
                       )}
@@ -907,7 +944,7 @@ export default function App() {
                         : 'border-slate-300 bg-slate-100 hover:bg-slate-200/80 text-slate-800'
                     }`}
                   >
-                    <Target className="w-3.5 h-3.5 text-red-500" />
+                    <Target className="w-3.5 h-3.5 text-[#FF6B00]" />
                     <span>Definir Meta</span>
                   </button>
                 </div>
@@ -921,10 +958,10 @@ export default function App() {
                   }`}
                 >
                   <div
-                    className={`h-full rounded-full transition-all duration-500 ${
+                    className={`h-full rounded-full transition-all duration-700 ${
                       goalProgress.isMet
                         ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
-                        : 'bg-gradient-to-r from-red-600 via-orange-500 to-amber-400'
+                        : 'bg-gradient-to-r from-[#0056D2] via-blue-500 to-[#FF6B00]'
                     }`}
                     style={{ width: `${goalProgress.percentage}%` }}
                   />
@@ -1199,6 +1236,16 @@ export default function App() {
               />
             </section>
           </>
+        )}
+
+        {/* Render Tab: Cronômetro & Foco Tático */}
+        {activeTab === 'timer' && (
+          <TimerTab
+            theme={theme}
+            subjects={subjects}
+            onLogStudySession={handleLogTimerStudySession}
+            weeklyGoalHours={weeklyGoalHours}
+          />
         )}
 
         {/* Render Tab 2: Bizuário de Fotos & Matérias */}

@@ -51,9 +51,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
           {/* LOGO */}
           <a href="#inicio" className="flex items-center gap-3 group">
             <img
-              src="https://lh3.googleusercontent.com/aida/AEtjO1WT6g9pUCc4sVuAau0tfC5rGGTPkxXvy7_61hGuvlEIBVg_j6FgW47KImLVQhXJWsCdtDzPhN-cr2JR5dhcaXymf0_e3L-0Ql4Zv4Zg_jtcK-bOkrnc2cwkBtguImHaY9gFk8ihhDg8BMQBcV_2agl6VSFGtH9BMh8KwNyH-KGBWlggcG12EU7jMtexwr_8XCMbgIUcSF3lDBkNcRoL21u9McKZcBDn17mHukoebJscVKsdPb06fVCY8Q"
+              src="/phoenix-logo-cropped.png"
               alt="Logo Fênix RUMO ao CFO"
-              className="w-9 h-9 object-contain"
+              className="w-10 h-10 object-contain drop-shadow-sm"
             />
             <div className="flex flex-col">
               <span className="text-xl font-extrabold tracking-tight text-navy-950 font-display">

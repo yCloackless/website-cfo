@@ -183,130 +183,14 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
               <header className="flex flex-col items-center text-center w-full" data-purpose="brand-presentation">
                 {/* Blue Phoenix Emblem */}
                 <div
-                  className="w-14 h-14 mb-2 flex items-center justify-center transition-transform hover:scale-105 duration-200"
+                  className="w-16 h-16 mb-2 flex items-center justify-center transition-transform hover:scale-105 duration-200"
                   data-purpose="brand-logo"
                 >
-                  <svg
-                    className="w-full h-full drop-shadow-sm"
-                    fill="none"
-                    viewBox="0 0 500 500"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <defs>
-                      <linearGradient id="blueGlow" x1="0%" x2="100%" y1="0%" y2="100%">
-                        <stop offset="0%" stopColor="#38bdf8" />
-                        <stop offset="40%" stopColor="#0284c7" />
-                        <stop offset="80%" stopColor="#0056d2" />
-                        <stop offset="100%" stopColor="#0f172a" />
-                      </linearGradient>
-                      <linearGradient id="cyanAccent" x1="0%" x2="50%" y1="0%" y2="100%">
-                        <stop offset="0%" stopColor="#e0f2fe" />
-                        <stop offset="40%" stopColor="#38bdf8" />
-                        <stop offset="100%" stopColor="#0369a1" />
-                      </linearGradient>
-                      <linearGradient id="metallicWing" x1="20%" x2="80%" y1="0%" y2="100%">
-                        <stop offset="0%" stopColor="#60a5fa" />
-                        <stop offset="30%" stopColor="#1d4ed8" />
-                        <stop offset="70%" stopColor="#00359e" />
-                        <stop offset="100%" stopColor="#0c1e4a" />
-                      </linearGradient>
-                      <linearGradient id="spineWhite" x1="0%" x2="100%" y1="0%" y2="100%">
-                        <stop offset="0%" stopColor="#ffffff" />
-                        <stop offset="50%" stopColor="#dbeafe" />
-                        <stop offset="100%" stopColor="#93c5fd" />
-                      </linearGradient>
-                      <filter height="120%" id="cleanDrop" width="120%" x="-10%" y="-10%">
-                        <feDropShadow dx="0" dy="6" floodColor="#0056d2" floodOpacity="0.35" stdDeviation="8" />
-                      </filter>
-                    </defs>
-                    <g filter="url(#cleanDrop)">
-                      {/* Left Wing Feathers */}
-                      <path
-                        d="M250,330 C200,280 80,180 60,35 C80,120 120,200 175,260 C140,190 125,120 120,70 C140,150 180,225 225,275 C195,215 180,150 178,110 C200,180 235,245 250,290 Z"
-                        fill="url(#metallicWing)"
-                      />
-                      <path
-                        d="M60,35 C75,100 115,180 175,240 C145,170 125,105 120,70 C95,55 75,45 60,35 Z"
-                        fill="url(#cyanAccent)"
-                        opacity="0.9"
-                      />
-                      <path
-                        d="M250,340 C210,295 130,220 90,140 C115,200 160,265 210,310 C180,260 160,205 155,170 C180,230 218,285 248,325 Z"
-                        fill="url(#blueGlow)"
-                      />
-                      <path
-                        d="M250,365 C220,325 160,265 125,205 C145,250 185,295 230,338 C205,305 185,265 178,240 C200,285 228,325 248,355 Z"
-                        fill="url(#metallicWing)"
-                      />
-                      <path
-                        d="M250,390 C230,355 190,305 160,260 C180,295 210,335 242,370 Z"
-                        fill="url(#cyanAccent)"
-                      />
-                      {/* Right Wing Feathers */}
-                      <path
-                        d="M250,330 C300,280 420,180 440,35 C420,120 380,200 325,260 C360,190 375,120 380,70 C360,150 320,225 275,275 C305,215 320,150 322,110 C300,180 265,245 250,290 Z"
-                        fill="url(#metallicWing)"
-                      />
-                      <path
-                        d="M440,35 C425,100 385,180 325,240 C355,170 375,105 380,70 C405,55 425,45 440,35 Z"
-                        fill="url(#cyanAccent)"
-                        opacity="0.9"
-                      />
-                      <path
-                        d="M250,340 C290,295 370,220 410,140 C385,200 340,265 290,310 C320,260 340,205 345,170 C320,230 282,285 252,325 Z"
-                        fill="url(#blueGlow)"
-                      />
-                      <path
-                        d="M250,365 C280,325 340,265 375,205 C355,250 315,295 270,338 C295,305 315,265 322,240 C300,285 272,325 252,355 Z"
-                        fill="url(#metallicWing)"
-                      />
-                      <path
-                        d="M250,390 C270,355 310,305 340,260 C320,295 290,335 258,370 Z"
-                        fill="url(#cyanAccent)"
-                      />
-                      {/* Tail Feathers */}
-                      <path
-                        d="M250,470 C240,420 230,370 240,330 C250,370 260,420 250,470 Z"
-                        fill="url(#cyanAccent)"
-                      />
-                      <path
-                        d="M250,455 C230,400 215,360 210,335 C225,370 238,410 250,455 Z"
-                        fill="url(#blueGlow)"
-                      />
-                      <path
-                        d="M250,455 C270,400 285,360 290,335 C275,370 262,410 250,455 Z"
-                        fill="url(#blueGlow)"
-                      />
-                      {/* Body & Torso */}
-                      <path
-                        d="M250,195 C225,235 218,290 250,380 C282,290 275,235 250,195 Z"
-                        fill="url(#metallicWing)"
-                      />
-                      <path
-                        d="M242,210 C228,255 232,310 250,370 C255,310 248,255 242,210 Z"
-                        fill="url(#spineWhite)"
-                      />
-                      {/* Head & Crest */}
-                      <path
-                        d="M245,205 C238,175 242,150 260,135 C275,122 295,120 308,125 C295,135 292,148 305,152 C318,156 325,160 312,175 C302,186 288,195 270,202 C258,206 250,208 245,205 Z"
-                        fill="url(#blueGlow)"
-                      />
-                      <path
-                        d="M298,168 C312,172 320,175 316,182 C306,184 296,185 288,181 Z"
-                        fill="url(#cyanAccent)"
-                      />
-                      <ellipse cx="282" cy="162" fill="#ffffff" rx="4" ry="2.5" />
-                      <ellipse cx="282" cy="162" fill="#38bdf8" rx="2" ry="1.2" />
-                      <path
-                        d="M255,145 C230,115 205,108 190,102 C212,120 228,140 236,160 Z"
-                        fill="url(#cyanAccent)"
-                      />
-                      <path
-                        d="M242,165 C220,145 200,138 190,135 C208,150 222,165 230,180 Z"
-                        fill="url(#metallicWing)"
-                      />
-                    </g>
-                  </svg>
+                  <img
+                    src="/phoenix-logo-cropped.png"
+                    alt="Logo Fênix RUMO ao CFO"
+                    className="w-full h-full object-contain drop-shadow-[0_8px_20px_rgba(0,86,210,0.35)]"
+                  />
                 </div>
 
                 {/* Brand Sub-Texts */}
