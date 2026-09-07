@@ -189,10 +189,12 @@ export default function App() {
     connected: boolean;
     permanent: boolean;
     email: string | null;
+    name: string | null;
   }>({
     connected: false,
     permanent: false,
     email: null,
+    name: null,
   });
 
   const refreshCalendarStatus = useCallback(async () => {
@@ -201,9 +203,11 @@ export default function App() {
       connected: status.connected,
       permanent: status.permanent,
       email: status.email,
+      name: status.name,
     });
     return status;
   }, []);
+
 
   // Data state
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -370,8 +374,9 @@ export default function App() {
         const authResult = await initiateGoogleCalendarAuth();
         if (authResult.success) {
           await refreshCalendarStatus();
+          const welcomeName = authResult.name?.split(' ')[0] || authResult.email?.split('@')[0] || 'você';
           showToast(
-            `Google Agenda conectado permanentemente! Seus estudos agora serão sincronizados sem deslogar.`,
+            `Google Agenda conectado permanentemente para ${welcomeName}! Seus estudos agora serão sincronizados.`,
             'success'
           );
           return;
@@ -404,9 +409,10 @@ export default function App() {
     await logout();
     setUser(null);
     setAccessToken(null);
-    setBackendCalendar({ connected: false, permanent: false, email: null });
+    setBackendCalendar({ connected: false, permanent: false, email: null, name: null });
     showToast('Desconectado do Google Agenda.', 'info');
   };
+
 
   // Week days calculation
   const weekDays = useMemo(() => {
@@ -876,6 +882,7 @@ export default function App() {
         user={user}
         hasCalendarAccess={backendCalendar.connected || Boolean(user && accessToken)}
         calendarEmail={backendCalendar.email || user?.email}
+        calendarName={backendCalendar.name || user?.displayName}
         isPermanentCalendar={backendCalendar.permanent}
         onSignIn={handleSignIn}
         onSignOut={handleSignOut}

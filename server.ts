@@ -951,6 +951,7 @@ app.get("/api/calendar/auth-url", (req: Request, res: Response) => {
     });
   }
 
+  const clientOrigin = (req.query.origin as string) || "";
   const host = req.get("host") || `localhost:${PORT}`;
   const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
   const redirectUri =
@@ -965,10 +966,18 @@ app.get("/api/calendar/auth-url", (req: Request, res: Response) => {
 
   console.log("===> [OAuth] Gerando auth-url com redirectUri:", redirectUri);
 
+  const statePayload = Buffer.from(
+    JSON.stringify({
+      origin: clientOrigin || `${protocol}://${host}`,
+      ts: Date.now(),
+    })
+  ).toString("base64url");
+
   const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   authUrl.searchParams.set("client_id", GOOGLE_CLIENT_ID);
   authUrl.searchParams.set("redirect_uri", redirectUri);
   authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("state", statePayload);
   authUrl.searchParams.set(
     "scope",
     "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile"
@@ -982,7 +991,15 @@ app.get("/api/calendar/auth-url", (req: Request, res: Response) => {
 // 3. Google OAuth Callback
 app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
   try {
-    const { code, error } = req.query;
+    const { code, error, state } = req.query;
+
+    let targetOrigin = "";
+    try {
+      if (typeof state === "string") {
+        const parsed = JSON.parse(Buffer.from(state, "base64url").toString("utf-8"));
+        if (parsed.origin) targetOrigin = parsed.origin;
+      }
+    } catch (_) {}
 
     if (error) {
       return res.send(`
@@ -991,7 +1008,7 @@ app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
         <body style="font-family: system-ui; background: #0f172a; color: #f8fafc; padding: 40px; text-align: center;">
           <h2 style="color: #ef4444;">Autorização Cancelada</h2>
           <p>${error}</p>
-          <script>setTimeout(() => window.close(), 2500);</script>
+          <script>setTimeout(() => window.close(), 1500);</script>
         </body>
         </html>
       `);
@@ -1100,7 +1117,7 @@ app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
     };
 
     saveCalendarSession(session);
-    console.log(`Google Calendar conectado com sucesso para ${session.email || "usuário"} (Refresh Token permanente: ${!!session.refresh_token})`);
+    console.log(`Google Calendar conectado com sucesso para ${session.name ? `${session.name} (${session.email})` : session.email || "usuário"} (Refresh Token permanente: ${!!session.refresh_token})`);
 
     return res.send(`
       <!DOCTYPE html>
@@ -1115,22 +1132,60 @@ app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
             ✅
           </div>
           <h2 style="color: #22c55e; margin: 0 0 8px; font-size: 20px; font-weight: 700;">Google Agenda Conectado!</h2>
-          <p style="color: #94a3b8; font-size: 14px; margin: 0 0 20px; line-height: 1.5;">
-            Sua conta <strong>${session.email || ""}</strong> foi vinculada permanentemente. Os estudos e revisões serão sincronizados sem desconectar a cada hora.
+          <p style="color: #94a3b8; font-size: 14px; margin: 0 0 16px; line-height: 1.5;">
+            Conta de <strong>${session.name || session.email || "Aluno"}</strong> vinculada permanentemente ao cronograma!
           </p>
-          <div style="color: #64748b; font-size: 12px;">Fechando janela em instantes...</div>
+          <p style="color: #64748b; font-size: 12px; margin-bottom: 20px;">Esta janela será fechada automaticamente em instantes.</p>
+          <button id="closeBtn" onclick="doClose()" style="background: #0056D2; color: white; border: none; padding: 10px 24px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer;">
+            Concluir & Fechar Janela
+          </button>
         </div>
         <script>
+          const authPayload = {
+            type: 'GOOGLE_CALENDAR_CONNECTED',
+            success: true,
+            email: ${JSON.stringify(session.email || '')},
+            name: ${JSON.stringify(session.name || '')}
+          };
+
+          // 1. Notifica a aba principal via BroadcastChannel (funciona mesmo quando o browser anula o window.opener)
           try {
-            if (window.opener) {
-              window.opener.postMessage({ type: 'GOOGLE_CALENDAR_CONNECTED', success: true, email: '${session.email || ""}' }, '*');
-              setTimeout(() => window.close(), 1200);
-            } else {
-              setTimeout(() => { window.location.href = '/'; }, 1500);
+            if (typeof BroadcastChannel !== 'undefined') {
+              const channel = new BroadcastChannel('cfo_google_calendar_auth');
+              channel.postMessage(authPayload);
+              channel.close();
             }
-          } catch (e) {
-            setTimeout(() => window.close(), 1500);
+          } catch(e) {}
+
+          // 2. Notifica via localStorage
+          try {
+            localStorage.setItem('cfo_calendar_auth_success', JSON.stringify(authPayload));
+          } catch(e) {}
+
+          // 3. PostMessage caso o opener ainda esteja acessível
+          try {
+            if (window.opener && !window.opener.closed) {
+              window.opener.postMessage(authPayload, '*');
+            }
+          } catch(e) {}
+
+          function doClose() {
+            try {
+              window.close();
+            } catch(e) {}
+            // Se o navegador impedir o window.close() do pop-up, redireciona apenas para a página original do usuário (nunca abre nova cópia do app)
+            setTimeout(() => {
+              if (!window.closed) {
+                const target = ${JSON.stringify(targetOrigin || '')};
+                if (target && window.location.href !== target) {
+                  window.location.replace(target);
+                }
+              }
+            }, 600);
           }
+
+          // Fecha automaticamente
+          setTimeout(doClose, 800);
         </script>
       </body>
       </html>
@@ -1140,6 +1195,7 @@ app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
     return res.status(500).send("Erro interno ao processar autenticação do Google.");
   }
 });
+
 
 // 4. Save client token on backend (backup store com whitelist)
 app.post("/api/calendar/save-token", async (req: Request, res: Response) => {

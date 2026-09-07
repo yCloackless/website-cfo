@@ -55,8 +55,9 @@ export async function getBackendCalendarStatus(): Promise<BackendCalendarStatus>
 /**
  * Inicia o fluxo OAuth 2.0 com acesso offline (Refresh Token) abrindo uma janela pop-up segura.
  */
-export async function initiateGoogleCalendarAuth(): Promise<{ success: boolean; email?: string }> {
-  const res = await fetch('/api/calendar/auth-url');
+export async function initiateGoogleCalendarAuth(): Promise<{ success: boolean; email?: string; name?: string }> {
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  const res = await fetch(`/api/calendar/auth-url?origin=${encodeURIComponent(currentOrigin)}`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'Falha ao obter URL de autenticação com o Google');
@@ -82,32 +83,75 @@ export async function initiateGoogleCalendarAuth(): Promise<{ success: boolean; 
 
     let resolved = false;
 
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'GOOGLE_CALENDAR_CONNECTED') {
-        resolved = true;
-        window.removeEventListener('message', handleMessage);
-        resolve({ success: true, email: event.data.email });
+    // 1. BroadcastChannel para comunicação direta entre janelas (funciona com COOP/opener nulo)
+    let channel: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        channel = new BroadcastChannel('cfo_google_calendar_auth');
+        channel.onmessage = (event) => {
+          if (event.data?.type === 'GOOGLE_CALENDAR_CONNECTED') {
+            finish(true, event.data.email, event.data.name);
+          }
+        };
+      }
+    } catch (_) {}
+
+    // 2. Storage event (fallback via localStorage)
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'cfo_calendar_auth_success' && e.newValue) {
+        try {
+          const payload = JSON.parse(e.newValue);
+          finish(true, payload.email, payload.name);
+        } catch (_) {
+          finish(true);
+        }
       }
     };
+    window.addEventListener('storage', handleStorage);
 
+    // 3. Window postMessage listener
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'GOOGLE_CALENDAR_CONNECTED') {
+        finish(true, event.data.email, event.data.name);
+      }
+    };
     window.addEventListener('message', handleMessage);
 
-    const timer = setInterval(async () => {
-      if (popup.closed) {
-        clearInterval(timer);
-        window.removeEventListener('message', handleMessage);
-        if (!resolved) {
-          const status = await getBackendCalendarStatus();
-          if (status.connected) {
-            resolve({ success: true, email: status.email || undefined });
-          } else {
-            resolve({ success: false });
-          }
+    const finish = (success: boolean, email?: string, name?: string) => {
+      if (resolved) return;
+      resolved = true;
+      clearInterval(timer);
+      window.removeEventListener('message', handleMessage);
+      window.removeEventListener('storage', handleStorage);
+      if (channel) {
+        channel.close();
+      }
+      try {
+        if (popup && !popup.closed) {
+          popup.close();
         }
+      } catch (_) {}
+      resolve({ success, email, name });
+    };
+
+    // 4. Polling inteligente: checa ativamente no backend a cada 800ms
+    const timer = setInterval(async () => {
+      try {
+        const status = await getBackendCalendarStatus();
+        if (status.connected) {
+          finish(true, status.email || undefined, status.name || undefined);
+          return;
+        }
+      } catch (_) {}
+
+      if (popup.closed) {
+        const status = await getBackendCalendarStatus();
+        finish(status.connected, status.email || undefined, status.name || undefined);
       }
     }, 800);
   });
 }
+
 
 /**
  * Desconecta a conta do Google Agenda no backend.

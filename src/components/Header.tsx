@@ -21,6 +21,7 @@ interface HeaderProps {
   user: User | null;
   hasCalendarAccess?: boolean;
   calendarEmail?: string | null;
+  calendarName?: string | null;
   isPermanentCalendar?: boolean;
   onSignIn: () => void;
   onSignOut: () => void;
@@ -42,6 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
   user,
   hasCalendarAccess = false,
   calendarEmail = null,
+  calendarName = null,
   isPermanentCalendar = false,
   onSignIn,
   onSignOut,
@@ -315,9 +317,21 @@ export const Header: React.FC<HeaderProps> = ({
                   }
                 >
                   <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shrink-0"></div>
-                  <span className="truncate max-w-[100px] font-medium text-[11px]">
-                    {calendarEmail?.split('@')[0] || user?.displayName?.split(' ')[0] || user?.email?.split('@')[0] || 'Agenda'}
+                  <span
+                    className="truncate max-w-[125px] font-semibold text-[11px]"
+                    title={
+                      calendarName
+                        ? `${calendarName} (${calendarEmail || ''})`
+                        : calendarEmail || 'Google Agenda'
+                    }
+                  >
+                    {calendarName && calendarName.trim().length > 0
+                      ? calendarName.trim().split(' ').slice(0, 2).join(' ')
+                      : user?.displayName && user.displayName.trim().length > 0
+                      ? user.displayName.trim().split(' ').slice(0, 2).join(' ')
+                      : calendarEmail?.split('@')[0] || 'Agenda'}
                   </span>
+
                   {isPermanentCalendar && (
                     <span className="text-[9px] font-bold text-emerald-400 bg-emerald-950/70 px-1.5 py-0.5 rounded border border-emerald-800/60 hidden sm:inline">
                       Permanente
