@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
+import { CloudTimer } from './CloudTimer';
 
 interface HeaderProps {
   user: User | null;
@@ -177,6 +178,9 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Action buttons & Utilities */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Cronômetro Sincronizado na Nuvem (PC e Celular) */}
+            <CloudTimer />
+
             {/* Smart Revisions Button */}
             <button
               id="btn-revisoes-inteligentes"

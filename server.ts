@@ -1,4 +1,4 @@
-import express, { Request, Response } from "express";
+import express, { Request, Response, NextFunction } from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -7,11 +7,81 @@ import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
 import { generateSecret, verifySync, generateURI } from "otplib";
 import QRCode from "qrcode";
+import helmet from "helmet";
+import cors from "cors";
+import compression from "compression";
+import rateLimit from "express-rate-limit";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+// 1. Confiar no Proxy reverso do Render para captura precisa de IP
+app.set("trust proxy", 1);
+
+// 2. Rota de Health Check ultraleve para UptimeRobot / anti-sleep do Render
+app.get("/api/health", (_req: Request, res: Response) => {
+  return res.status(200).json({
+    status: "healthy",
+    uptime: Math.floor(process.uptime()),
+    timestamp: Date.now(),
+    service: "cfo-cbmerj-backend",
+  });
+});
+
+// 3. Compressão Gzip/Brotli de payloads e assets estáticos
+app.use(compression());
+
+// 4. Segurança de Borda e Cabeçalhos com Helmet
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  })
+);
+
+// 5. Configuração Estrita de CORS
+const APP_URL = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:5173",
+  APP_URL,
+  process.env.RENDER_EXTERNAL_URL,
+].filter(Boolean) as string[];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const isAllowed = allowedOrigins.some((allowed) => origin.startsWith(allowed) || allowed.startsWith(origin));
+      if (isAllowed || origin.includes("render.com") || origin.includes("localhost")) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
+    credentials: true,
+  })
+);
+
+// 6. Rate Limiters
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 350,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "TOO_MANY_REQUESTS", message: "Muitas requisições. Tente novamente em alguns minutos." },
+});
+app.use("/api/", apiLimiter);
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "TOO_MANY_LOGIN_ATTEMPTS", message: "Muitas tentativas de autenticação. Acesso bloqueado por 15 minutos." },
+});
 
 app.use(express.json({ limit: "10mb" }));
 
@@ -29,7 +99,6 @@ try {
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || defaultClientId;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
-const APP_URL = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 const CALENDAR_SESSION_FILE = path.join(process.cwd(), "data", "calendar-session.json");
 
 // Whitelist de e-mails autorizados (Uso exclusivo e proteção de custos de IA)
@@ -409,11 +478,159 @@ app.post("/api/auth/initial-login", (req: Request, res: Response) => {
   }
 });
 
-// 3. Rota de Validação de Código Authenticator (Exige TOTP rigorosamente, sem senha)
-app.post("/api/auth/verify-2fa", async (req: Request, res: Response) => {
+// ============================================================================
+// ⏱️ CLOUD TIMER (Sincronizado entre PC e Celular via Servidor)
+// ============================================================================
+
+interface TimerState {
+  status: "STOPPED" | "RUNNING" | "PAUSED";
+  accumulatedTime: number; // milissegundos acumulados
+  startTime: number | null; // timestamp de início da última contagem
+  activeSubjectId?: string;
+  activeSubjectName?: string;
+  updatedAt: string;
+}
+
+const TIMER_STATE_FILE = path.join(process.cwd(), "data", "timer-state.json");
+
+function readTimerState(): TimerState {
   try {
-    const { email, username, token, rememberMe } = req.body || {};
-    const identity = (email || username || ADMIN_USER).trim().toLowerCase();
+    if (fs.existsSync(TIMER_STATE_FILE)) {
+      const raw = fs.readFileSync(TIMER_STATE_FILE, "utf-8");
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.warn("Falha ao ler timer-state.json:", e);
+  }
+  return {
+    status: "STOPPED",
+    accumulatedTime: 0,
+    startTime: null,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function saveTimerState(state: TimerState): void {
+  try {
+    const dir = path.dirname(TIMER_STATE_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(TIMER_STATE_FILE, JSON.stringify(state, null, 2), "utf-8");
+  } catch (e) {
+    console.warn("Falha ao salvar timer-state.json:", e);
+  }
+}
+
+// 1. Status do Cronômetro (Calculado no servidor para sincronização multidispositivo)
+app.get("/api/timer/status", (_req: Request, res: Response) => {
+  const state = readTimerState();
+  const now = Date.now();
+  let totalElapsedMs = state.accumulatedTime;
+
+  if (state.status === "RUNNING" && state.startTime) {
+    totalElapsedMs += Math.max(0, now - state.startTime);
+  }
+
+  return res.json({
+    ...state,
+    totalElapsedMs,
+    serverTime: now,
+  });
+});
+
+// 2. Iniciar Cronômetro
+app.post("/api/timer/start", (req: Request, res: Response) => {
+  const { subjectId, subjectName } = req.body || {};
+  const state = readTimerState();
+  const now = Date.now();
+
+  if (state.status !== "RUNNING") {
+    state.status = "RUNNING";
+    state.startTime = now;
+  }
+  if (subjectId) state.activeSubjectId = subjectId;
+  if (subjectName) state.activeSubjectName = subjectName;
+  state.updatedAt = new Date().toISOString();
+
+  saveTimerState(state);
+
+  const totalElapsedMs = state.accumulatedTime + (state.startTime ? Math.max(0, now - state.startTime) : 0);
+  return res.json({
+    success: true,
+    ...state,
+    totalElapsedMs,
+    serverTime: now,
+  });
+});
+
+// 3. Pausar Cronômetro
+app.post("/api/timer/pause", (_req: Request, res: Response) => {
+  const state = readTimerState();
+  const now = Date.now();
+
+  if (state.status === "RUNNING" && state.startTime) {
+    const delta = Math.max(0, now - state.startTime);
+    state.accumulatedTime += delta;
+    state.startTime = null;
+    state.status = "PAUSED";
+    state.updatedAt = new Date().toISOString();
+    saveTimerState(state);
+  }
+
+  return res.json({
+    success: true,
+    ...state,
+    totalElapsedMs: state.accumulatedTime,
+    serverTime: now,
+  });
+});
+
+// 4. Resetar Cronômetro
+app.post("/api/timer/reset", (_req: Request, res: Response) => {
+  const state: TimerState = {
+    status: "STOPPED",
+    accumulatedTime: 0,
+    startTime: null,
+    updatedAt: new Date().toISOString(),
+  };
+  saveTimerState(state);
+  return res.json({
+    success: true,
+    ...state,
+    totalElapsedMs: 0,
+    serverTime: Date.now(),
+  });
+});
+
+// ============================================================================
+// 🛡️ AUTENTICAÇÃO E SECURITY GATE (Dragão Carmesim - 2FA TOTP)
+// ============================================================================
+
+// 3. Rota de Validação de Código Authenticator (com authLimiter anti-força bruta)
+app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response) => {
+  try {
+    const { username, password, token, rememberMe } = req.body || {};
+
+    if (!username || !password) {
+      return res.status(400).json({
+        error: "MISSING_FIELDS",
+        message: "Usuário e senha são obrigatórios.",
+      });
+    }
+
+    const cleanUser = username.trim().toLowerCase();
+    if (cleanUser !== ADMIN_USER.toLowerCase() && cleanUser !== "jb080956@gmail.com") {
+      return res.status(401).json({
+        error: "INVALID_CREDENTIALS",
+        message: "Identificador de operador incorreto.",
+      });
+    }
+
+    if (password !== ADMIN_PASSWORD) {
+      return res.status(401).json({
+        error: "INVALID_CREDENTIALS",
+        message: "Chave mestra de acesso incorreta.",
+      });
+    }
 
     const config = getSecurityConfig();
 
@@ -433,14 +650,14 @@ app.post("/api/auth/verify-2fa", async (req: Request, res: Response) => {
       });
     }
 
-    const session = createTerminalSession(identity, rememberMe !== false);
-    console.log(`[Terminal CFO CBMERJ] Acesso autenticado via 2FA para '${identity}'`);
+    const session = createTerminalSession(cleanUser, rememberMe !== false);
+    console.log(`[Terminal CFO CBMERJ] Acesso autenticado via 2FA para '${cleanUser}' (30 dias: ${rememberMe !== false})`);
 
     return res.json({
       success: true,
       token: session.token,
       expiresAt: session.expiresAt,
-      username: identity,
+      username: cleanUser,
       rememberMe: rememberMe !== false,
       is2faActive: true,
       expiresInDays: rememberMe !== false ? 30 : 1,
@@ -1612,6 +1829,15 @@ Tópico 5 - Método de Prova & Resolução Rápida
     console.error("Erro na rota /api/ai/bizu-notes:", error);
     res.status(500).json({ error: "FALHA_AO_GERAR_BIZU", message: error?.message });
   }
+});
+
+// Middleware Centralizado de Tratamento de Erros (Evita vazamento de stacktrace)
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error("[Unhandled Server Exception]:", err?.message || err);
+  return res.status(err?.status || 500).json({
+    error: "INTERNAL_SERVER_ERROR",
+    message: "Ocorreu uma falha no processamento. Tente novamente.",
+  });
 });
 
 async function startServer() {
