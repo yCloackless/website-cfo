@@ -1,7 +1,7 @@
 /**
  * CFO CBMERJ - Authentication Service & Provider Layer
  * Implements server-side authority for logins, sessions, password recovery and email updates.
- * Supports Amazon Cognito when configured, and falls back to our robust database-backed auth.
+ * Robust database-backed auth with cryptographic guarantees and immutable audit trail.
  */
 
 import crypto from 'node:crypto';
@@ -16,9 +16,7 @@ import {
 import { DbUser, DbSession, UserRole } from './schema';
 
 export interface AuthConfig {
-  cognitoUserPoolId?: string;
-  cognitoClientId?: string;
-  cognitoRegion?: string;
+  sessionDurationDays?: number;
 }
 
 export interface LoginResult {
@@ -53,6 +51,11 @@ export class AuthService {
    * Uses environment variables or secure hashed defaults.
    */
   public async ensureDefaultAccounts(): Promise<void> {
+    const isProd = process.env.NODE_ENV === 'production';
+    if (isProd && (!process.env.ADMIN_PASSWORD || !process.env.CADET_PASSWORD)) {
+      throw new Error('CONFIG_ERROR: Em produção, ADMIN_PASSWORD e CADET_PASSWORD devem ser configurados explicitamente via variáveis de ambiente.');
+    }
+
     const adminEmail = (process.env.ADMIN_USER_EMAIL || 'admin@cbmerj.com').toLowerCase().trim();
     const adminUsername = (process.env.ADMIN_USER || 'admin').toLowerCase().trim();
     const adminPass = process.env.ADMIN_PASSWORD || 'cfocbmerj2026!';
@@ -255,7 +258,9 @@ export class AuthService {
 
     // In development/testing, or when email service is logged, return debugCode
     const isDev = process.env.NODE_ENV !== 'production';
-    console.log(`[Segurança / Recuperação de Senha] Código gerado para ${cleanEmail}: ${code}`);
+    if (isDev && process.env.NODE_ENV === 'test') {
+      // Retido apenas em ambiente de teste automatizado
+    }
 
     return {
       success: true,

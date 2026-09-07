@@ -26,8 +26,13 @@ if (!process.env.SESSION_SECRET) missingVars.push('SESSION_SECRET');
 if (!process.env.TURNSTILE_SECRET_KEY) missingVars.push('TURNSTILE_SECRET_KEY');
 
 if (missingVars.length > 0) {
-  console.warn(`\n⚠️ [AVISO] Variáveis de ambiente recomendadas não configuradas: ${missingVars.join(', ')}`);
-  console.warn('O servidor iniciará com credenciais/segredos padrão seguros. Para produção, configure-as no painel do Render.\n');
+  if (process.env.NODE_ENV === 'production') {
+    console.error(`🚨 [FATAL - SEGURANÇA] Inicialização abortada em produção. As seguintes variáveis de ambiente são estritamente obrigatórias: ${missingVars.join(', ')}`);
+    process.exit(1);
+  } else {
+    console.warn(`\n⚠️ [AVISO] Variáveis de ambiente recomendadas não configuradas: ${missingVars.join(', ')}`);
+    console.warn('O servidor iniciará com credenciais/segredos padrão seguros apenas para desenvolvimento/testes.\n');
+  }
 }
 
 import {
@@ -278,54 +283,19 @@ async function verifyTurnstileToken(token?: string, remoteip?: string): Promise<
 }
 
 // 🛑 MIDDLEWARE GLOBAL DE BLOQUEIO DE IPs BANIDOS
-app.use(async (req: Request, res: Response, next: NextFunction) => {
-  if (req.path === "/api/health" || req.path.startsWith("/api/admin/unban")) return next();
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.path === "/api/health") return next();
 
   const clientIp = getClientIp(req);
-
-  // Desbloqueio automático se passar adminKey na URL ou nos cabeçalhos
-  const adminKey = req.query.adminKey || req.headers["x-admin-key"];
-  if (adminKey && (await safeComparePassword(String(adminKey), ADMIN_PASSWORD_HASH))) {
-    const banned = loadBannedIps();
-    if (banned[clientIp]) {
-      delete banned[clientIp];
-      saveBannedIps(banned);
-      console.log(`[Unban] IP ${clientIp} desbanido automaticamente via adminKey.`);
-    }
-    return next();
-  }
 
   if (isIpBanned(clientIp)) {
     return res.status(403).json({
       error: "IP_BANNED",
-      message: "403 FORBIDDEN: Seu IP está restrito. Acesse com ?adminKey=sua_senha para liberar automaticamente.",
+      message: "403 FORBIDDEN: Seu endereço IP está restrito por medidas de segurança.",
     });
   }
 
   next();
-});
-
-// Rota de Desbloqueio explícito de IPs
-app.all("/api/admin/unban", async (req: Request, res: Response) => {
-  const adminKey = req.query.adminKey || req.headers["x-admin-key"] || req.body?.adminKey;
-  const ipToUnban = req.query.ip || req.body?.ip;
-  const unbanAll = req.query.all === "true" || req.body?.all === true || !ipToUnban;
-
-  const isAuth = adminKey ? await safeComparePassword(String(adminKey), ADMIN_PASSWORD_HASH) : false;
-  if (!isAuth) {
-    return res.status(401).json({ error: "UNAUTHORIZED", message: "adminKey necessária para desbloqueio." });
-  }
-
-  const banned = loadBannedIps();
-  if (unbanAll) {
-    saveBannedIps({});
-    return res.json({ success: true, message: "Todos os IPs foram desbanidos com sucesso." });
-  }
-
-  const targetIp = String(ipToUnban).trim().replace(/^::ffff:/, "");
-  delete banned[targetIp];
-  saveBannedIps(banned);
-  return res.json({ success: true, message: `IP ${targetIp} desbanido com sucesso.` });
 });
 
 // 3. Compressão Gzip/Brotli de payloads e assets estáticos
@@ -384,7 +354,7 @@ app.use(
 
 // 5. Configuração Estrita de CORS
 const APP_URL = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
-const allowedOrigins = [
+const allowedOriginsList = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",
   "http://localhost:5173",
@@ -392,19 +362,41 @@ const allowedOrigins = [
   process.env.RENDER_EXTERNAL_URL,
 ].filter(Boolean) as string[];
 
+function extractOrigin(urlStr: string): string | null {
+  try {
+    return new URL(urlStr).origin.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+const normalizedAllowedOrigins = new Set(
+  allowedOriginsList.map(extractOrigin).filter(Boolean) as string[]
+);
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Requests sem origin (server-to-server, curl, mobile) — permitir
+      // Requests sem origin (server-to-server, curl, mobile nativo) — permitir
       if (!origin) return callback(null, true);
-      const isAllowed = allowedOrigins.some((allowed) => origin.startsWith(allowed) || allowed.startsWith(origin));
-      if (isAllowed) {
+
+      const normalized = extractOrigin(origin);
+      if (normalized && normalizedAllowedOrigins.has(normalized)) {
         return callback(null, true);
       }
-      // Em desenvolvimento, permitir localhost
-      if (process.env.NODE_ENV !== 'production' && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
-        return callback(null, true);
+
+      // Em desenvolvimento/testes, permitir localhost e 127.0.0.1
+      if (process.env.NODE_ENV !== 'production') {
+        try {
+          const parsed = new URL(origin);
+          if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+            return callback(null, true);
+          }
+        } catch {
+          // url inválida
+        }
       }
+
       console.warn(`[CORS] Origin rejeitada: ${origin}`);
       return callback(new Error('CORS: Origin não autorizada'), false);
     },
@@ -1022,18 +1014,16 @@ app.get("/api/auth/2fa-status", (_req: Request, res: Response) => {
   return res.json({ is2faActive: config.is2faActive });
 });
 
-// 2. Rota de Obtenção de QR Code (Apenas com sessão autenticada ou chave mestra)
+// 2. Rota de Obtenção de QR Code (Apenas com sessão de admin autenticada)
 app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
   const sessionResult = verifyTerminalSession(token);
-  const adminKey = req.query.adminKey || req.headers["x-admin-key"];
 
-  const isAdminKeyValid = adminKey ? await safeComparePassword(String(adminKey), ADMIN_PASSWORD_HASH) : false;
-  if (!sessionResult.valid && !isAdminKeyValid) {
+  if (!sessionResult.valid || sessionResult.role !== "admin") {
     return res.status(403).json({
       error: "FORBIDDEN",
-      message: "Acesso restrito. Faça login primeiro para visualizar o QR Code de ativação.",
+      message: "Acesso restrito. Faça login como administrador para visualizar o QR Code de ativação.",
     });
   }
 
@@ -2404,6 +2394,44 @@ app.patch("/api/admin/settings", requireAdminWriteAuth, requireStepUpAuth, (req:
     console.error("[Admin Settings Update Error]:", err);
     return res.status(500).json({ success: false, message: "Erro ao atualizar configurações." });
   }
+});
+
+// 21.2. Rota de Desbloqueio explícito de IPs (Apenas Administrador Pleno com Step-Up)
+app.post("/api/admin/unban", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
+  const adminUser = (req as any).user;
+  const { ip, all } = req.body || {};
+  const unbanAll = all === true || !ip;
+
+  const banned = loadBannedIps();
+  if (unbanAll) {
+    saveBannedIps({});
+    logSecurityEvent(req, {
+      action: 'SECURITY_SETTING_CHANGED',
+      actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.id || null,
+      targetType: 'ip_ban_list',
+      targetId: 'all',
+      resource: '/api/admin/unban',
+      status: 'SUCCESS',
+      details: { unbannedAll: true },
+    });
+    return res.json({ success: true, message: "Todos os IPs foram desbanidos com sucesso pelo administrador." });
+  }
+
+  const targetIp = String(ip).trim().replace(/^::ffff:/, "");
+  delete banned[targetIp];
+  saveBannedIps(banned);
+  logSecurityEvent(req, {
+    action: 'SECURITY_SETTING_CHANGED',
+    actor: adminUser?.username || 'admin',
+    actorUserId: adminUser?.id || null,
+    targetType: 'ip_ban_list',
+    targetId: targetIp,
+    resource: '/api/admin/unban',
+    status: 'SUCCESS',
+    details: { targetIp },
+  });
+  return res.json({ success: true, message: `IP ${targetIp} desbanido com sucesso.` });
 });
 
 // ==========================================
@@ -4013,12 +4041,6 @@ app.post("/api/notion/novo-estudo", async (req: Request, res: Response) => {
 async function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  const adminKey = req.query.adminKey || req.headers["x-admin-key"];
-
-  if (adminKey) {
-    const isKeyValid = await safeComparePassword(String(adminKey), ADMIN_PASSWORD_HASH);
-    if (isKeyValid) return next();
-  }
 
   const session = verifyTerminalSession(token);
   if (session.valid && (session.role === "admin" || session.role === "support")) {
@@ -4036,12 +4058,6 @@ async function requireAdminAuth(req: Request, res: Response, next: NextFunction)
 async function requireAdminWriteAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  const adminKey = req.query.adminKey || req.headers["x-admin-key"];
-
-  if (adminKey) {
-    const isKeyValid = await safeComparePassword(String(adminKey), ADMIN_PASSWORD_HASH);
-    if (isKeyValid) return next();
-  }
 
   const session = verifyTerminalSession(token);
   if (session.valid) {

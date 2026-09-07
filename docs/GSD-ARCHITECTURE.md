@@ -35,11 +35,12 @@ O sistema opera com um modelo de **contas pré-definidas/hardcoded no código co
 - **Segundo Fator (2FA TOTP)**: Obrigatório apenas para o perfil Admin, implementado via `otplib` (RFC 6238) com segredo persistido em `data/security-config.json` ou lido de `TOTP_SECRET`. Há proteção anti-replay com cache de códigos usados por 3 minutos.
 - **Geo-fencing de IP**: Bloqueia e bane automaticamente IPs com origem fora do Brasil/RJ ao tentar autenticar como `admin`.
 - **Bypass de Turnstile**: IPs identificados como admin (`127.0.0.1`, sub-redes locais ou `ADMIN_TRUSTED_IPS`) ignoram o desafio do Turnstile.
-- **Bypass de Desbloqueio via URL**: Middleware global de banimento permite desbanimento automático se fornecido `?adminKey=<senha>` na query string ou cabeçalho `x-admin-key`.
+- **Controle de Bloqueio de IP**: Middleware global bloqueia conexões de IPs banidos. Desbloqueio restrito a administradores autenticados com 2FA Step-Up via endpoint `/api/admin/unban` (qualquer bypass via chave de URL foi estritamente eliminado).
 
 #### 2.2 Autorização no Backend
-- `requireAdminAuth`: Valida sessão HMAC role === "admin" OU cabeçalho/query `adminKey` comparado com `ADMIN_PASSWORD_HASH`.
-- `requireUserAuth`: Valida sessão HMAC ativa de qualquer usuário autenticado (cadete ou admin).
+- `requireAdminAuth`: Valida estritamente sessão autenticada com role === "admin" ou role === "support".
+- `requireAdminWriteAuth`: Valida estritamente sessão com role === "admin" para operações com mutação de estado.
+- `requireUserAuth`: Valida sessão HMAC/DB ativa de qualquer usuário autenticado (cadete, suporte ou admin).
 - `isRequestAuthorized`: Utilizado em endpoints de IA e Calendar, permitindo requisições se forem originadas de localhost/loopback, se o IP estiver na whitelist `ALLOWED_IPS`, ou se o e-mail estiver em `ALLOWED_EMAILS` ("jb080956@gmail.com").
 - Rota `/api/notion/*`: Restringe o acesso exclusivamente a sessões válidas com `canAccessNotion: true` (Admin).
 
