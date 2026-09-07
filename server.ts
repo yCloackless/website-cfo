@@ -1842,7 +1842,7 @@ app.post("/api/admin/step-up", requireAdminAuth, twoFactorLimiter, async (req: R
 });
 
 // 13.2. Geração de Novos Códigos de Recuperação (Requer Step-Up prévio)
-app.post("/api/admin/2fa/generate-recovery-codes", requireAdminAuth, requireStepUpAuth, (req: Request, res: Response) => {
+app.post("/api/admin/2fa/generate-recovery-codes", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const adminUser = (req as any).user;
     let targetUser = adminUser.userId ? userRepoInstance.findById(adminUser.userId) : null;
@@ -1950,8 +1950,54 @@ app.get("/api/admin/users", requireAdminAuth, (req: Request, res: Response) => {
   }
 });
 
-// 16. Alterar Status de Conta de Usuário (Suspender ou Reativar - Requer Step-Up)
-app.patch("/api/admin/users/:id/status", requireAdminAuth, requireStepUpAuth, (req: Request, res: Response) => {
+// 15.1. Consulta Detalhada de Usuário Específico (Admin ou Support - Sem vazamento de senhas)
+app.get("/api/admin/users/:id", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const userId = req.params.id;
+    const targetUser = userRepoInstance.findById(userId);
+
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        error: "USER_NOT_FOUND",
+        message: "Usuário não encontrado no sistema.",
+      });
+    }
+
+    const profile = profileRepoInstance.findByUserId(targetUser.id);
+    const activeSessions = sessionRepoInstance.listActiveSessionsByUserId(targetUser.id);
+    const securityEvents = auditRepoInstance.findEventsByUserId(targetUser.id, 25);
+
+    // DADOS PROTEGIDOS: Senhas, hashes, totp e recovery codes NUNCA são expostos
+    return res.json({
+      success: true,
+      user: {
+        id: targetUser.id,
+        email: targetUser.email,
+        username: targetUser.username,
+        role: targetUser.role,
+        status: targetUser.status,
+        createdAt: targetUser.createdAt,
+        updatedAt: targetUser.updatedAt,
+        profile: {
+          fullName: profile?.fullName || targetUser.username,
+          phone: profile?.phone || null,
+          targetExam: profile?.targetExam || null,
+          bio: profile?.bio || null,
+          avatarUrl: profile?.avatarUrl || null,
+        },
+        activeSessions,
+        securityEvents,
+      },
+    });
+  } catch (err: any) {
+    console.error("[Admin User Detail Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao obter detalhes do usuário." });
+  }
+});
+
+// 16. Alterar Status de Conta de Usuário (Suspender ou Reativar - Requer Step-Up e Admin pleno)
+app.patch("/api/admin/users/:id/status", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const userId = req.params.id;
     const { status } = req.body || {};
@@ -1963,7 +2009,7 @@ app.patch("/api/admin/users/:id/status", requireAdminAuth, requireStepUpAuth, (r
 
     const targetUser = userRepoInstance.findById(userId);
     if (!targetUser) {
-      return res.status(404).json({ success: false, message: "Usuário não encontrado." });
+      return res.status(404).json({ success: false, error: "USER_NOT_FOUND", message: "Usuário não encontrado." });
     }
 
     // Proteção: não permitir suspender o administrador mestre
@@ -1971,6 +2017,7 @@ app.patch("/api/admin/users/:id/status", requireAdminAuth, requireStepUpAuth, (r
       return res.status(400).json({ success: false, message: "Não é permitido suspender a conta do administrador mestre." });
     }
 
+    const previousStatus = targetUser.status;
     userRepoInstance.updateStatus(userId, status);
 
     // Se suspenso, revoga imediatamente todas as sessões ativas do usuário
@@ -1984,7 +2031,12 @@ app.patch("/api/admin/users/:id/status", requireAdminAuth, requireStepUpAuth, (r
       resource: `/users/${userId}`,
       status: 'SUCCESS',
       userId,
-      details: { previousStatus: targetUser.status, newStatus: status },
+      details: {
+        targetUserId: userId,
+        targetUsername: targetUser.username,
+        previousState: { status: previousStatus },
+        newState: { status },
+      },
     });
 
     return res.json({
@@ -1998,26 +2050,27 @@ app.patch("/api/admin/users/:id/status", requireAdminAuth, requireStepUpAuth, (r
   }
 });
 
-// 17. Alterar Papel / Privilégio de Usuário (Admin / Cadet - Requer Step-Up)
-app.patch("/api/admin/users/:id/role", requireAdminAuth, requireStepUpAuth, (req: Request, res: Response) => {
+// 17. Alterar Papel / Privilégio de Usuário (Admin / Support / Cadet - Requer Step-Up e Admin pleno)
+app.patch("/api/admin/users/:id/role", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const userId = req.params.id;
     const { role } = req.body || {};
     const adminUser = (req as any).user;
 
-    if (!['cadet', 'admin'].includes(role)) {
-      return res.status(400).json({ success: false, message: "Papel (role) inválido." });
+    if (!['cadet', 'admin', 'support'].includes(role)) {
+      return res.status(400).json({ success: false, message: "Papel (role) inválido. Permitidos: cadet, support, admin." });
     }
 
     const targetUser = userRepoInstance.findById(userId);
     if (!targetUser) {
-      return res.status(404).json({ success: false, message: "Usuário não encontrado." });
+      return res.status(404).json({ success: false, error: "USER_NOT_FOUND", message: "Usuário não encontrado." });
     }
 
     if (targetUser.username === ADMIN_USER && role !== 'admin') {
       return res.status(400).json({ success: false, message: "O papel do administrador mestre não pode ser alterado." });
     }
 
+    const previousRole = targetUser.role;
     userRepoInstance.updateRole(userId, role);
 
     logSecurityEvent(req, {
@@ -2026,7 +2079,12 @@ app.patch("/api/admin/users/:id/role", requireAdminAuth, requireStepUpAuth, (req
       resource: `/users/${userId}`,
       status: 'SUCCESS',
       userId,
-      details: { previousRole: targetUser.role, newRole: role },
+      details: {
+        targetUserId: userId,
+        targetUsername: targetUser.username,
+        previousState: { role: previousRole },
+        newState: { role },
+      },
     });
 
     return res.json({
@@ -2037,6 +2095,46 @@ app.patch("/api/admin/users/:id/role", requireAdminAuth, requireStepUpAuth, (req
   } catch (err: any) {
     console.error("[Admin Update Role Error]:", err);
     return res.status(500).json({ success: false, message: "Erro ao alterar privilégios do usuário." });
+  }
+});
+
+// 17.1. Revogar Todas as Sessões de um Usuário Específico (Requer Step-Up e Admin pleno)
+app.post("/api/admin/users/:id/revoke-sessions", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
+  try {
+    const userId = req.params.id;
+    const adminUser = (req as any).user;
+
+    const targetUser = userRepoInstance.findById(userId);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, error: "USER_NOT_FOUND", message: "Usuário não encontrado." });
+    }
+
+    const activeSessionsBefore = sessionRepoInstance.listActiveSessionsByUserId(targetUser.id);
+    sessionRepoInstance.revokeAllUserSessions(targetUser.id);
+
+    logSecurityEvent(req, {
+      action: 'SESSION_REVOKED',
+      actor: adminUser?.username || 'admin',
+      resource: `/users/${targetUser.id}/sessions`,
+      status: 'SUCCESS',
+      userId: targetUser.id,
+      details: {
+        targetUserId: targetUser.id,
+        targetUsername: targetUser.username,
+        revokedSessionsCount: activeSessionsBefore.length,
+        previousState: { activeSessions: activeSessionsBefore.length },
+        newState: { activeSessions: 0 },
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: `Todas as sessões ativas do usuário '${targetUser.username}' foram revogadas com sucesso.`,
+      revokedCount: activeSessionsBefore.length,
+    });
+  } catch (err: any) {
+    console.error("[Admin Revoke All User Sessions Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao revogar sessões do usuário." });
   }
 });
 
@@ -2056,8 +2154,8 @@ app.get("/api/admin/sessions", requireAdminAuth, (req: Request, res: Response) =
   }
 });
 
-// 19. Revogação de Sessão Específica por ID (Admin - Requer Step-Up)
-app.post("/api/admin/sessions/:id/revoke", requireAdminAuth, requireStepUpAuth, (req: Request, res: Response) => {
+// 19. Revogação de Sessão Específica por ID (Admin - Requer Step-Up e Admin pleno)
+app.post("/api/admin/sessions/:id/revoke", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const sessionId = req.params.id;
     const adminUser = (req as any).user;
@@ -3721,7 +3819,7 @@ app.post("/api/notion/novo-estudo", async (req: Request, res: Response) => {
 // 💾 SISTEMA PROFISSIONAL DE BACKUP E SINCRONIZAÇÃO RESILIENTE
 // ============================================================================
 
-// Middleware de autorização estrita para Operações Administrativas
+// Middleware de autorização para Visualização Administrativa (Admin ou Support)
 async function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -3733,9 +3831,40 @@ async function requireAdminAuth(req: Request, res: Response, next: NextFunction)
   }
 
   const session = verifyTerminalSession(token);
-  if (session.valid && session.role === "admin") {
+  if (session.valid && (session.role === "admin" || session.role === "support")) {
     (req as any).user = session;
     return next();
+  }
+
+  return res.status(403).json({
+    error: "FORBIDDEN",
+    message: "Acesso administrativo restrito. Autenticação de comando necessária.",
+  });
+}
+
+// Middleware de autorização estrita para Operações Administrativas com Mutação (Apenas Admin pleno)
+async function requireAdminWriteAuth(req: Request, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const adminKey = req.query.adminKey || req.headers["x-admin-key"];
+
+  if (adminKey) {
+    const isKeyValid = await safeComparePassword(String(adminKey), ADMIN_PASSWORD_HASH);
+    if (isKeyValid) return next();
+  }
+
+  const session = verifyTerminalSession(token);
+  if (session.valid) {
+    if (session.role === "admin") {
+      (req as any).user = session;
+      return next();
+    }
+    if (session.role === "support") {
+      return res.status(403).json({
+        error: "PERMISSION_DENIED",
+        message: "Operador de suporte possui permissão apenas de leitura. Ação restrita a administradores.",
+      });
+    }
   }
 
   return res.status(403).json({
@@ -3886,7 +4015,7 @@ app.get("/api/admin/backup/list", requireAdminAuth, (_req: Request, res: Respons
 });
 
 // 5. Criação Manual Imediata de Backup Completo
-app.post("/api/admin/backup/create", requireAdminAuth, async (req: Request, res: Response) => {
+app.post("/api/admin/backup/create", requireAdminWriteAuth, async (req: Request, res: Response) => {
   try {
     const actor = (req as any).user?.username || "admin";
     const clientIp = getClientIp(req);
@@ -3943,7 +4072,7 @@ app.post("/api/admin/backup/create", requireAdminAuth, async (req: Request, res:
 });
 
 // 6. Restauração Crítica de Backup do Servidor (Requer confirmação explícita e Step-Up)
-app.post("/api/admin/backup/restore", requireAdminAuth, requireStepUpAuth, async (req: Request, res: Response) => {
+app.post("/api/admin/backup/restore", requireAdminWriteAuth, requireStepUpAuth, async (req: Request, res: Response) => {
   try {
     const { filename, confirm } = req.body || {};
     const actor = (req as any).user?.username || "admin";

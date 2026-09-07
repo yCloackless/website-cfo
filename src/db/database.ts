@@ -25,7 +25,7 @@ export const MIGRATIONS: Migration[] = [
         email TEXT NOT NULL COLLATE NOCASE,
         username TEXT NOT NULL COLLATE NOCASE,
         password_hash TEXT NOT NULL,
-        role TEXT NOT NULL CHECK (role IN ('cadet', 'admin')),
+        role TEXT NOT NULL CHECK (role IN ('cadet', 'admin', 'support')),
         status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'pending_activation')),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -221,7 +221,7 @@ export const MIGRATIONS: Migration[] = [
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         token_hash TEXT NOT NULL UNIQUE,
-        role TEXT NOT NULL CHECK (role IN ('cadet', 'admin')),
+        role TEXT NOT NULL CHECK (role IN ('cadet', 'admin', 'support')),
         ip TEXT,
         user_agent TEXT,
         expires_at TEXT NOT NULL,
@@ -269,6 +269,51 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_recovery_codes_user_id ON admin_recovery_codes(user_id);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_codes_hash ON admin_recovery_codes(code_hash);
       CREATE INDEX IF NOT EXISTS idx_recovery_codes_is_used ON admin_recovery_codes(is_used);
+    `,
+  },
+  {
+    id: 6,
+    name: '006_support_role_and_permissions',
+    sql: `
+      -- Atualiza a tabela users para aceitar role 'support'
+      PRAGMA foreign_keys = OFF;
+      CREATE TABLE IF NOT EXISTS users_new (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL COLLATE NOCASE,
+        username TEXT NOT NULL COLLATE NOCASE,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('cadet', 'admin', 'support')),
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'pending_activation')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT OR IGNORE INTO users_new SELECT id, email, username, password_hash, role, status, created_at, updated_at FROM users;
+      DROP TABLE IF EXISTS users;
+      ALTER TABLE users_new RENAME TO users;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username);
+      CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+
+      -- Atualiza a tabela sessions para aceitar role 'support'
+      CREATE TABLE IF NOT EXISTS sessions_new (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        role TEXT NOT NULL CHECK (role IN ('cadet', 'admin', 'support')),
+        ip TEXT,
+        user_agent TEXT,
+        expires_at TEXT NOT NULL,
+        revoked_at TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      INSERT OR IGNORE INTO sessions_new SELECT id, user_id, token_hash, role, ip, user_agent, expires_at, revoked_at, created_at FROM sessions;
+      DROP TABLE IF EXISTS sessions;
+      ALTER TABLE sessions_new RENAME TO sessions;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
+      CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+      PRAGMA foreign_keys = ON;
     `,
   },
 ];

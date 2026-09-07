@@ -956,6 +956,31 @@ export class AuditRepository {
       })),
     };
   }
+
+  public findEventsByUserId(userId: string, limit: number = 20): DbAuditEvent[] {
+    const rows: any[] = this.db
+      .prepare(
+        `SELECT id, action, actor, resource, status, ip, user_agent, user_id, details_json, created_at
+         FROM audit_events
+         WHERE user_id = ? OR resource LIKE ?
+         ORDER BY created_at DESC
+         LIMIT ?`
+      )
+      .all(userId, `%/users/${userId}%`, limit);
+
+    return rows.map((row) => ({
+      id: row.id,
+      action: row.action,
+      actor: row.actor,
+      resource: row.resource,
+      status: row.status,
+      ip: row.ip,
+      userAgent: row.user_agent,
+      userId: row.user_id,
+      detailsJson: row.details_json,
+      createdAt: row.created_at,
+    }));
+  }
 }
 
 export class PasswordResetRepository {
@@ -1149,6 +1174,38 @@ export class SessionRepository {
     const now = new Date().toISOString();
     const result = this.db.prepare('UPDATE sessions SET revoked_at = ? WHERE id = ?').run(now, sessionId);
     return Number(result.changes) > 0;
+  }
+
+  public listActiveSessionsByUserId(userId: string): Array<{
+    id: string;
+    userId: string;
+    role: UserRole;
+    ip: string | null;
+    userAgent: string | null;
+    expiresAt: string;
+    createdAt: string;
+    isValid: boolean;
+  }> {
+    const now = new Date().toISOString();
+    const rows: any[] = this.db
+      .prepare(
+        `SELECT id, user_id, role, ip, user_agent, expires_at, created_at, revoked_at
+         FROM sessions
+         WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ?
+         ORDER BY created_at DESC`
+      )
+      .all(userId, now);
+
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      role: r.role as UserRole,
+      ip: r.ip ?? null,
+      userAgent: r.user_agent ?? null,
+      expiresAt: r.expires_at,
+      createdAt: r.created_at,
+      isValid: true,
+    }));
   }
 }
 

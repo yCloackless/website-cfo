@@ -96,6 +96,28 @@ export class AuthService {
         details: { email: cadetEmail, role: 'cadet' },
       });
     }
+
+    const supportEmail = (process.env.SUPPORT_USER_EMAIL || 'suporte@cbmerj.com').toLowerCase().trim();
+    const supportUsername = (process.env.SUPPORT_USER || 'suporte').toLowerCase().trim();
+    const supportPass = process.env.SUPPORT_PASSWORD || 'suportecfo2026!';
+
+    let support = this.userRepo.findByEmail(supportEmail) || this.userRepo.findByUsername(supportUsername);
+    if (!support) {
+      const hash = await bcrypt.hash(supportPass, 10);
+      support = this.userRepo.create({
+        email: supportEmail,
+        username: supportUsername,
+        passwordHash: hash,
+        role: 'support',
+      });
+      this.auditRepo.log({
+        action: 'USER_CREATED_SYSTEM',
+        actor: 'system',
+        resource: `/users/${support.id}`,
+        status: 'SUCCESS',
+        details: { email: supportEmail, role: 'support' },
+      });
+    }
   }
 
   /**

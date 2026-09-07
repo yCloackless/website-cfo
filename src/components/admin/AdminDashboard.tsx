@@ -56,13 +56,51 @@ interface UserItem {
   id: string;
   email: string;
   username: string;
-  role: 'admin' | 'cadet';
+  role: 'admin' | 'cadet' | 'support';
   status: 'active' | 'suspended' | 'pending_activation';
   createdAt: string;
   updatedAt: string;
   fullName?: string | null;
   avatarUrl?: string | null;
   phone?: string | null;
+}
+
+interface UserDetail {
+  id: string;
+  email: string;
+  username: string;
+  role: 'admin' | 'cadet' | 'support';
+  status: 'active' | 'suspended' | 'pending_activation';
+  createdAt: string;
+  updatedAt: string;
+  profile: {
+    fullName: string;
+    phone: string | null;
+    targetExam: string | null;
+    bio: string | null;
+    avatarUrl: string | null;
+  };
+  activeSessions: Array<{
+    id: string;
+    userId: string;
+    role: string;
+    ip: string | null;
+    userAgent: string | null;
+    expiresAt: string;
+    createdAt: string;
+    isValid: boolean;
+  }>;
+  securityEvents: Array<{
+    id: string;
+    action: string;
+    actor: string;
+    resource: string;
+    status: string;
+    ip: string | null;
+    userAgent: string | null;
+    detailsJson: string | null;
+    createdAt: string;
+  }>;
 }
 
 interface SessionItem {
@@ -125,6 +163,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [usersRoleFilter, setUsersRoleFilter] = useState<string>('');
   const [usersStatusFilter, setUsersStatusFilter] = useState<string>('');
   const [isUsersLoading, setIsUsersLoading] = useState(false);
+
+  // Ficha Detalhada de Usuário
+  const [currentAdminRole, setCurrentAdminRole] = useState<string>('admin');
+  const [selectedUserDetail, setSelectedUserDetail] = useState<UserDetail | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [detailTab, setDetailTab] = useState<'overview' | 'sessions' | 'security'>('overview');
 
   // Aba Sessões
   const [sessions, setSessions] = useState<SessionItem[]>([]);
@@ -343,6 +388,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         if (isMounted) {
           if (data.success && data.verified) {
             setIsAuthorized(true);
+            if (data.user?.role) {
+              setCurrentAdminRole(data.user.role);
+            }
           } else {
             setIsAuthorized(false);
             setAuthError('Sessão não possui privilégios de Administrador.');
@@ -550,8 +598,95 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  // Ficha e Detalhes de Usuário
+  const handleViewUserDetail = async (userId: string) => {
+    setIsDetailLoading(true);
+    setIsDetailModalOpen(true);
+    setDetailTab('overview');
+    try {
+      const res = await fetch(`/api/admin/users/${userId}`, { headers: getHeaders() });
+      const data = await res.json();
+      if (res.ok && data.success && data.user) {
+        setSelectedUserDetail(data.user);
+      } else {
+        setActionFeedback({ type: 'error', message: data.message || 'Falha ao carregar detalhes do usuário.' });
+        setIsDetailModalOpen(false);
+      }
+    } catch {
+      setActionFeedback({ type: 'error', message: 'Erro de comunicação ao carregar detalhes.' });
+      setIsDetailModalOpen(false);
+    } finally {
+      setIsDetailLoading(false);
+    }
+  };
+
+  // Revogar Todas as Sessões Ativas do Usuário
+  const handleRevokeAllUserSessions = async (targetUser: { id: string; username: string }, overrideStepUp?: string) => {
+    if (!overrideStepUp) {
+      if (!window.confirm(`Tem certeza que deseja revogar IMEDIATAMENTE todas as sessões ativas de @${targetUser.username}?`)) return;
+    }
+
+    try {
+      const res = await fetch(`/api/admin/users/${targetUser.id}/revoke-sessions`, {
+        method: 'POST',
+        headers: getHeaders(overrideStepUp),
+      });
+      const data = await res.json();
+      if (res.status === 403 && data.error === 'STEP_UP_REQUIRED') {
+        setPendingAction(() => (token: string) => handleRevokeAllUserSessions(targetUser, token));
+        setIsStepUpModalOpen(true);
+        return;
+      }
+      if (res.ok && data.success) {
+        setActionFeedback({ type: 'success', message: data.message });
+        if (selectedUserDetail && selectedUserDetail.id === targetUser.id) {
+          handleViewUserDetail(targetUser.id);
+        }
+        loadDashboard();
+        loadSessions();
+      } else {
+        setActionFeedback({ type: 'error', message: data.message || 'Falha ao revogar sessões do usuário.' });
+      }
+    } catch {
+      setActionFeedback({ type: 'error', message: 'Erro de comunicação ao revogar sessões.' });
+    }
+  };
+
+  // Alterar Cargo / Privilégio do Usuário (Admin, Suporte, Cadete)
+  const handleChangeUserRole = async (targetUser: { id: string; username: string }, newRole: 'cadet' | 'support' | 'admin', overrideStepUp?: string) => {
+    if (!overrideStepUp) {
+      const roleName = newRole === 'admin' ? 'ADMINISTRADOR' : newRole === 'support' ? 'SUPORTE (SOMENTE LEITURA)' : 'CADETE';
+      if (!window.confirm(`Deseja alterar o papel de @${targetUser.username} para ${roleName}?`)) return;
+    }
+
+    try {
+      const res = await fetch(`/api/admin/users/${targetUser.id}/role`, {
+        method: 'PATCH',
+        headers: getHeaders(overrideStepUp),
+        body: JSON.stringify({ role: newRole }),
+      });
+      const data = await res.json();
+      if (res.status === 403 && data.error === 'STEP_UP_REQUIRED') {
+        setPendingAction(() => (token: string) => handleChangeUserRole(targetUser, newRole, token));
+        setIsStepUpModalOpen(true);
+        return;
+      }
+      if (res.ok && data.success) {
+        setActionFeedback({ type: 'success', message: data.message });
+        loadUsers();
+        if (selectedUserDetail && selectedUserDetail.id === targetUser.id) {
+          handleViewUserDetail(targetUser.id);
+        }
+      } else {
+        setActionFeedback({ type: 'error', message: data.message || 'Falha ao alterar papel.' });
+      }
+    } catch {
+      setActionFeedback({ type: 'error', message: 'Erro ao alterar papel.' });
+    }
+  };
+
   // Ações de Usuário (Suspender / Reativar)
-  const handleToggleUserStatus = async (user: UserItem, overrideStepUp?: string) => {
+  const handleToggleUserStatus = async (user: UserItem | UserDetail, overrideStepUp?: string) => {
     const nextStatus = user.status === 'suspended' ? 'active' : 'suspended';
     if (!overrideStepUp) {
       const confirmMsg = nextStatus === 'suspended'
@@ -1139,6 +1274,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   >
                     <option value="">Todos os Papéis</option>
                     <option value="cadet">Cadetes (Alunos)</option>
+                    <option value="support">Suporte (Leitura)</option>
                     <option value="admin">Administradores</option>
                   </select>
 
@@ -1213,9 +1349,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <span className={`inline-flex items-center gap-1 font-mono text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                                 u.role === 'admin'
                                   ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                                  : u.role === 'support'
+                                  ? 'bg-purple-500/10 border-purple-500/30 text-purple-300'
                                   : 'bg-blue-500/10 border-blue-500/30 text-blue-300'
                               }`}>
-                                {u.role === 'admin' ? 'OFICIAL ADMIN' : 'CADETE'}
+                                {u.role === 'admin' ? 'OFICIAL ADMIN' : u.role === 'support' ? 'SUPORTE' : 'CADETE'}
                               </span>
                             </td>
                             <td className="px-4 py-3">
@@ -1234,25 +1372,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <div className="inline-flex items-center gap-1.5">
                                 <button
                                   type="button"
-                                  onClick={() => handleToggleUserStatus(u)}
-                                  className={`px-2.5 py-1 rounded-lg font-semibold text-[11px] border transition-all cursor-pointer ${
-                                    u.status === 'suspended'
-                                      ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30'
-                                      : 'bg-red-600/20 border-red-500/40 text-red-300 hover:bg-red-600/30'
-                                  }`}
-                                  title={u.status === 'suspended' ? 'Reativar conta' : 'Suspender conta'}
+                                  onClick={() => handleViewUserDetail(u.id)}
+                                  className="px-2.5 py-1 rounded-lg font-semibold text-[11px] border border-blue-500/40 bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 transition-all cursor-pointer"
+                                  title="Ver ficha completa, sessões e eventos de segurança"
                                 >
-                                  {u.status === 'suspended' ? 'Reativar' : 'Suspender'}
+                                  Ficha
                                 </button>
 
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleUserRole(u)}
-                                  className="px-2.5 py-1 rounded-lg font-semibold text-[11px] border border-slate-700 bg-slate-800/80 text-slate-300 hover:text-white transition-all cursor-pointer"
-                                  title="Alternar entre Cadete e Administrador"
-                                >
-                                  {u.role === 'admin' ? 'Tornar Cadete' : 'Promover Admin'}
-                                </button>
+                                {currentAdminRole === 'admin' ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleUserStatus(u)}
+                                      className={`px-2.5 py-1 rounded-lg font-semibold text-[11px] border transition-all cursor-pointer ${
+                                        u.status === 'suspended'
+                                          ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30'
+                                          : 'bg-red-600/20 border-red-500/40 text-red-300 hover:bg-red-600/30'
+                                      }`}
+                                      title={u.status === 'suspended' ? 'Reativar conta' : 'Suspender conta'}
+                                    >
+                                      {u.status === 'suspended' ? 'Reativar' : 'Suspender'}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRevokeAllUserSessions(u)}
+                                      className="px-2.5 py-1 rounded-lg font-semibold text-[11px] border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-all cursor-pointer"
+                                      title="Revogar todas as sessões ativas deste usuário"
+                                    >
+                                      Sessões
+                                    </button>
+                                  </>
+                                ) : (
+                                  <span className="text-[10px] text-slate-500 italic px-1">Leitura</span>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -1691,6 +1844,256 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         </main>
       </div>
+
+      {/* ===================================================================== */}
+      {/* MODAL DE FICHA DETALHADA DO USUÁRIO (ADMIN / SUPORTE)                  */}
+      {/* ===================================================================== */}
+      {isDetailModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-[#0B1220] border border-slate-700/80 rounded-2xl w-full max-w-3xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            
+            {/* Cabeçalho da Ficha */}
+            <div className="flex items-start justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-4">
+                {selectedUserDetail?.profile?.avatarUrl ? (
+                  <img
+                    src={selectedUserDetail.profile.avatarUrl}
+                    alt={selectedUserDetail.username}
+                    className="w-14 h-14 rounded-full object-cover border-2 border-blue-500/40 shrink-0"
+                  />
+                ) : (
+                  <div className="w-14 h-14 rounded-full bg-blue-600/20 border-2 border-blue-500/40 text-blue-400 flex items-center justify-center font-black text-xl shrink-0">
+                    {(selectedUserDetail?.profile?.fullName || selectedUserDetail?.username || 'U').slice(0, 1).toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-white">
+                      {selectedUserDetail?.profile?.fullName || selectedUserDetail?.username}
+                    </h3>
+                    <span className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      selectedUserDetail?.role === 'admin'
+                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                        : selectedUserDetail?.role === 'support'
+                        ? 'bg-purple-500/10 border-purple-500/30 text-purple-300'
+                        : 'bg-blue-500/10 border-blue-500/30 text-blue-300'
+                    }`}>
+                      {selectedUserDetail?.role === 'admin' ? 'OFICIAL ADMIN' : selectedUserDetail?.role === 'support' ? 'SUPORTE' : 'CADETE'}
+                    </span>
+                    <span className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      selectedUserDetail?.status === 'active'
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                        : 'bg-red-500/10 border-red-500/30 text-red-400'
+                    }`}>
+                      {selectedUserDetail?.status === 'active' ? 'ATIVO' : 'SUSPENSO'}
+                    </span>
+                  </div>
+                  <p className="text-xs font-mono text-blue-400">@{selectedUserDetail?.username}</p>
+                  <p className="text-xs text-slate-400">{selectedUserDetail?.email} • ID: <span className="font-mono text-[11px] text-slate-500">{selectedUserDetail?.id}</span></p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDetailModalOpen(false);
+                  setSelectedUserDetail(null);
+                }}
+                className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {isDetailLoading ? (
+              <div className="py-12 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
+                Carregando histórico e detalhes do usuário...
+              </div>
+            ) : selectedUserDetail ? (
+              <>
+                {/* Alerta para Perfil de Suporte Somente Leitura */}
+                {currentAdminRole === 'support' && (
+                  <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl text-purple-300 text-xs flex items-center gap-2 font-medium">
+                    <Shield className="w-4 h-4 shrink-0 text-purple-400" />
+                    <span>Perfil de Suporte (Somente Leitura): Você pode auditar e inspecionar detalhes, mas ações de mutação de conta são restritas a administradores.</span>
+                  </div>
+                )}
+
+                {/* Barra de Ações Rápidas (Apenas Admin Pleno) */}
+                {currentAdminRole === 'admin' && (
+                  <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-400">Ações de Gestão:</span>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleUserStatus(selectedUserDetail)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                          selectedUserDetail.status === 'suspended'
+                            ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30'
+                            : 'bg-red-600/20 border-red-500/40 text-red-300 hover:bg-red-600/30'
+                        }`}
+                      >
+                        {selectedUserDetail.status === 'suspended' ? 'Reativar Conta' : 'Suspender Conta'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRevokeAllUserSessions(selectedUserDetail)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-all cursor-pointer"
+                      >
+                        Revogar Todas as Sessões
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-400">Alterar Cargo:</span>
+                      <select
+                        value={selectedUserDetail.role}
+                        onChange={(e) => handleChangeUserRole(selectedUserDetail, e.target.value as any)}
+                        className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none"
+                      >
+                        <option value="cadet">Cadete</option>
+                        <option value="support">Suporte</option>
+                        <option value="admin">Administrador</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sub-abas da Ficha */}
+                <div className="flex border-b border-slate-800 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setDetailTab('overview')}
+                    className={`px-4 py-2 border-b-2 transition-all cursor-pointer ${
+                      detailTab === 'overview'
+                        ? 'border-blue-500 text-blue-400 font-bold'
+                        : 'border-transparent text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Visão Cadastral
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDetailTab('sessions')}
+                    className={`px-4 py-2 border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+                      detailTab === 'sessions'
+                        ? 'border-blue-500 text-blue-400 font-bold'
+                        : 'border-transparent text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Sessões Ativas
+                    <span className="bg-slate-800 text-[10px] font-mono px-1.5 py-0.2 rounded-full text-slate-300">
+                      {selectedUserDetail.activeSessions.length}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDetailTab('security')}
+                    className={`px-4 py-2 border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+                      detailTab === 'security'
+                        ? 'border-blue-500 text-blue-400 font-bold'
+                        : 'border-transparent text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Histórico de Auditoria & Segurança
+                    <span className="bg-slate-800 text-[10px] font-mono px-1.5 py-0.2 rounded-full text-slate-300">
+                      {selectedUserDetail.securityEvents.length}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Conteúdo da Aba: Visão Cadastral */}
+                {detailTab === 'overview' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                    <div className="p-3 bg-slate-900/50 rounded-xl border border-slate-800/80 space-y-1">
+                      <span className="text-slate-500 text-[11px] block">Nome Completo</span>
+                      <span className="text-white font-semibold">{selectedUserDetail.profile.fullName || 'Não informado'}</span>
+                    </div>
+                    <div className="p-3 bg-slate-900/50 rounded-xl border border-slate-800/80 space-y-1">
+                      <span className="text-slate-500 text-[11px] block">Telefone / Contato</span>
+                      <span className="text-white font-mono">{selectedUserDetail.profile.phone || 'Não cadastrado'}</span>
+                    </div>
+                    <div className="p-3 bg-slate-900/50 rounded-xl border border-slate-800/80 space-y-1">
+                      <span className="text-slate-500 text-[11px] block">Concurso Alvo</span>
+                      <span className="text-white">{selectedUserDetail.profile.targetExam || 'CFO CBMERJ'}</span>
+                    </div>
+                    <div className="p-3 bg-slate-900/50 rounded-xl border border-slate-800/80 space-y-1">
+                      <span className="text-slate-500 text-[11px] block">Data de Cadastro</span>
+                      <span className="text-white font-mono">{new Date(selectedUserDetail.createdAt).toLocaleString('pt-BR')}</span>
+                    </div>
+                    <div className="sm:col-span-2 p-3 bg-slate-900/50 rounded-xl border border-slate-800/80 space-y-1">
+                      <span className="text-slate-500 text-[11px] block">Biografia / Observações</span>
+                      <span className="text-slate-300 italic">{selectedUserDetail.profile.bio || 'Sem observações registradas.'}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Conteúdo da Aba: Sessões Ativas */}
+                {detailTab === 'sessions' && (
+                  <div className="space-y-3">
+                    {selectedUserDetail.activeSessions.length === 0 ? (
+                      <p className="text-xs text-slate-500 text-center py-6">O usuário não possui nenhuma sessão ativa no momento.</p>
+                    ) : (
+                      <div className="divide-y divide-slate-800 border border-slate-800 rounded-xl overflow-hidden text-xs">
+                        {selectedUserDetail.activeSessions.map((s) => (
+                          <div key={s.id} className="p-3 bg-slate-900/40 flex items-center justify-between">
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-emerald-400 font-bold">IP: {s.ip || '127.0.0.1'}</span>
+                                <span className="text-[10px] font-mono text-slate-400 bg-slate-800 px-1.5 py-0.2 rounded">Sessão {s.id.slice(0, 8)}...</span>
+                              </div>
+                              <p className="text-[11px] text-slate-400 truncate max-w-md">{s.userAgent || 'Navegador Web'}</p>
+                              <p className="text-[10px] text-slate-500 font-mono">Expira em: {new Date(s.expiresAt).toLocaleString('pt-BR')}</p>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                              ATIVA
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Conteúdo da Aba: Auditoria & Segurança */}
+                {detailTab === 'security' && (
+                  <div className="space-y-3">
+                    {selectedUserDetail.securityEvents.length === 0 ? (
+                      <p className="text-xs text-slate-500 text-center py-6">Nenhum evento de segurança registrado para este usuário.</p>
+                    ) : (
+                      <div className="divide-y divide-slate-800 border border-slate-800 rounded-xl overflow-hidden text-xs max-h-72 overflow-y-auto">
+                        {selectedUserDetail.securityEvents.map((evt) => (
+                          <div key={evt.id} className="p-3 bg-slate-900/40 flex items-start justify-between">
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-white">{evt.action}</span>
+                                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded ${
+                                  evt.status === 'SUCCESS' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                                }`}>
+                                  {evt.status}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-400">Operador: <strong className="text-slate-300">@{evt.actor}</strong> • Recurso: {evt.resource}</p>
+                              {evt.detailsJson && (
+                                <p className="text-[10px] font-mono text-slate-500 truncate max-w-lg">{evt.detailsJson}</p>
+                              )}
+                            </div>
+                            <span className="text-[10px] font-mono text-slate-500 shrink-0">
+                              {new Date(evt.createdAt).toLocaleString('pt-BR')}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : null}
+
+          </div>
+        </div>
+      )}
 
       {/* ===================================================================== */}
       {/* MODAL DE CONFIRMAÇÃO DE STEP-UP (AÇÕES CRÍTICAS)                       */}

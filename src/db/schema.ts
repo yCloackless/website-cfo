@@ -3,7 +3,7 @@
  * Schema Types and Invariant Constants
  */
 
-export type UserRole = 'cadet' | 'admin';
+export type UserRole = 'cadet' | 'admin' | 'support';
 export type UserStatus = 'active' | 'suspended' | 'pending_activation';
 
 export interface DbUser {
