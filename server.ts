@@ -37,6 +37,205 @@ app.get("/api/health", (_req: Request, res: Response) => {
   });
 });
 
+// ============================================================================
+// 🛑 GERENCIAMENTO DE IPs BANIDOS & LISTA NEGRA PERMANENTE
+// ============================================================================
+const BANNED_IPS_FILE = path.join(process.cwd(), "banned-ips.json");
+
+interface BannedIpRecord {
+  ip: string;
+  reason: string;
+  bannedAt: string;
+  geo?: { country?: string; region?: string };
+}
+
+function loadBannedIps(): Record<string, BannedIpRecord> {
+  try {
+    if (fs.existsSync(BANNED_IPS_FILE)) {
+      const raw = fs.readFileSync(BANNED_IPS_FILE, "utf-8");
+      return JSON.parse(raw);
+    }
+  } catch (err) {
+    console.warn("Falha ao ler banned-ips.json:", err);
+  }
+  return {};
+}
+
+function saveBannedIps(data: Record<string, BannedIpRecord>): void {
+  try {
+    fs.writeFileSync(BANNED_IPS_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch (err) {
+    console.error("Falha ao gravar banned-ips.json:", err);
+  }
+}
+
+function isIpBanned(ip: string): boolean {
+  if (!ip) return false;
+  const clean = ip.trim().replace(/^::ffff:/, "");
+  const banned = loadBannedIps();
+  return Boolean(banned[clean] || banned[ip]);
+}
+
+function banIp(ip: string, reason: string, geo?: { country?: string; region?: string }): void {
+  if (!ip) return;
+  const clean = ip.trim().replace(/^::ffff:/, "");
+  if (clean === "127.0.0.1" || clean === "::1" || clean === "localhost") return;
+  const banned = loadBannedIps();
+  banned[clean] = {
+    ip: clean,
+    reason,
+    bannedAt: new Date().toISOString(),
+    geo,
+  };
+  saveBannedIps(banned);
+  console.error(`🚨 [SEGURANÇA CFO CBMERJ] IP BANIDO PERMANENTEMENTE: ${clean} | Motivo: ${reason}`);
+}
+
+// Helper para capturar IP real do cliente
+function getClientIp(req: Request): string {
+  const cfIp = req.headers["cf-connecting-ip"];
+  if (typeof cfIp === "string" && cfIp.trim()) return cfIp.trim().replace(/^::ffff:/, "");
+
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    const first = forwarded.split(",")[0].trim().replace(/^::ffff:/, "");
+    if (first) return first;
+  }
+
+  const realIp = req.headers["x-real-ip"];
+  if (typeof realIp === "string" && realIp.trim()) return realIp.trim().replace(/^::ffff:/, "");
+
+  const remote = req.socket?.remoteAddress || "";
+  return remote.replace(/^::ffff:/, "").trim();
+}
+
+// Valida se o IP é o do Admin (Bypass de Turnstile)
+function isAdminIp(ip: string): boolean {
+  if (!ip) return false;
+  const clean = ip.trim().replace(/^::ffff:/, "");
+  if (
+    clean === "127.0.0.1" ||
+    clean === "::1" ||
+    clean === "localhost" ||
+    clean.startsWith("192.168.") ||
+    clean.startsWith("10.")
+  ) {
+    return true;
+  }
+
+  const trustedEnv = process.env.ADMIN_TRUSTED_IPS || "";
+  const trustedList = trustedEnv
+    .split(",")
+    .map((s) => s.trim().replace(/^::ffff:/, ""))
+    .filter(Boolean);
+
+  return trustedList.includes(clean);
+}
+
+// Cache de GeoIP para consultas rápidas
+const geoCache = new Map<string, { country: string; region: string; isRJ: boolean; timestamp: number }>();
+
+async function getIpGeoLocation(
+  ip: string,
+  req: Request
+): Promise<{ country: string; region: string; isRJ: boolean }> {
+  // Localhost e redes internas são consideradas ambiente seguro no RJ
+  if (isAdminIp(ip)) {
+    return { country: "BR", region: "RJ", isRJ: true };
+  }
+
+  // 1. Cabeçalhos diretos da Cloudflare (quando sob proxy Cloudflare)
+  const cfCountry = req.headers["cf-ipcountry"];
+  const cfRegion = req.headers["cf-region"] || req.headers["cf-region-code"];
+  if (typeof cfCountry === "string" && cfCountry) {
+    const country = cfCountry.toUpperCase();
+    const region = typeof cfRegion === "string" ? cfRegion.toUpperCase() : "";
+    const isRJ = country === "BR" && (region === "RJ" || region === "RIO DE JANEIRO");
+    return { country, region, isRJ };
+  }
+
+  // 2. Cache em memória (1 hora)
+  const cached = geoCache.get(ip);
+  if (cached && Date.now() - cached.timestamp < 3600000) {
+    return { country: cached.country, region: cached.region, isRJ: cached.isRJ };
+  }
+
+  // 3. Consulta externa a serviço GeoIP com timeout rápido
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+
+    const resp = await fetch(`http://ip-api.com/json/${ip}?fields=status,countryCode,region,regionName`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (resp.ok) {
+      const data = (await resp.json()) as any;
+      if (data.status === "success") {
+        const country = (data.countryCode || "").toUpperCase();
+        const region = (data.region || "").toUpperCase();
+        const regionName = (data.regionName || "").toUpperCase();
+        const isRJ = country === "BR" && (region === "RJ" || regionName.includes("RIO DE JANEIRO"));
+
+        const result = { country, region, isRJ, timestamp: Date.now() };
+        geoCache.set(ip, result);
+        return result;
+      }
+    }
+  } catch (e) {
+    console.warn(`[GeoIP] Falha na consulta GeoIP para o IP ${ip}:`, e);
+  }
+
+  return { country: "UNKNOWN", region: "UNKNOWN", isRJ: false };
+}
+
+// Verificação do Token do Cloudflare Turnstile
+async function verifyTurnstileToken(token?: string, remoteip?: string): Promise<boolean> {
+  const secretKey = process.env.TURNSTILE_SECRET_KEY || "1x0000000000000000000000000000000AA";
+  if (!token) return false;
+
+  // Chave de teste oficial da Cloudflare que sempre passa em desenvolvimento
+  if (secretKey === "1x0000000000000000000000000000000AA") {
+    return true;
+  }
+
+  try {
+    const formData = new URLSearchParams();
+    formData.append("secret", secretKey);
+    formData.append("response", token);
+    if (remoteip) formData.append("remoteip", remoteip);
+
+    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (res.ok) {
+      const result = (await res.json()) as any;
+      return Boolean(result.success);
+    }
+  } catch (err) {
+    console.error("[Turnstile] Erro ao validar token com Cloudflare:", err);
+  }
+  return false;
+}
+
+// 🛑 MIDDLEWARE GLOBAL DE BLOQUEIO DE IPs BANIDOS
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.path === "/api/health") return next();
+
+  const clientIp = getClientIp(req);
+  if (isIpBanned(clientIp)) {
+    return res.status(403).json({
+      error: "IP_BANNED",
+      message: "403 FORBIDDEN: Seu endereço IP foi permanentemente banido do sistema por violação de segurança tática.",
+    });
+  }
+
+  next();
+});
+
 // 3. Compressão Gzip/Brotli de payloads e assets estáticos
 app.use(compression());
 
@@ -120,14 +319,6 @@ const ALLOWED_EMAILS = [
 const ALLOWED_IPS = (process.env.ALLOWED_IPS ? process.env.ALLOWED_IPS.split(",") : [])
   .map((ip) => ip.trim())
   .filter(Boolean);
-
-function getClientIp(req: Request): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string") {
-    return forwarded.split(",")[0].trim();
-  }
-  return req.socket?.remoteAddress || "";
-}
 
 function isRequestAuthorized(req: Request, userEmail?: string): boolean {
   // 1. Se localhost / loopback em desenvolvimento
@@ -627,11 +818,27 @@ app.post("/api/timer/reset", (_req: Request, res: Response) => {
 // 🛡️ AUTENTICAÇÃO E SECURITY GATE (Dragão Carmesim - 2FA TOTP)
 // ============================================================================
 
+// 2.7. Rota de Status de Segurança do Cliente (Turnstile & IP Check)
+app.get("/api/auth/security-status", (req: Request, res: Response) => {
+  const clientIp = getClientIp(req);
+  const isAdm = isAdminIp(clientIp);
+  const siteKey = process.env.TURNSTILE_SITE_KEY || "1x00000000000000000000AA";
+
+  return res.json({
+    clientIp,
+    isAdminIp: isAdm,
+    turnstileRequired: !isAdm, // Admin no seu IP não precisa rodar Turnstile!
+    siteKey,
+  });
+});
+
 // 2.8. Rota de Verificação Prévia de Credenciais (Passo 1 do Login)
 app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: Response) => {
   try {
-    const { username, email, password } = req.body || {};
+    const { username, email, password, turnstileToken } = req.body || {};
     const inputUser = (email || username || "").trim().toLowerCase();
+    const clientIp = getClientIp(req);
+    const isAdmIp = isAdminIp(clientIp);
 
     if (!inputUser || !password) {
       return res.status(400).json({
@@ -639,6 +846,42 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
         error: "MISSING_FIELDS",
         message: "E-mail e senha são obrigatórios.",
       });
+    }
+
+    // 1. Verificação Cloudflare Turnstile (Bypass automático para o IP do Admin)
+    if (!isAdmIp) {
+      const token = turnstileToken || (req.headers["cf-turnstile-response"] as string);
+      const isTurnstileValid = await verifyTurnstileToken(token, clientIp);
+      if (!isTurnstileValid) {
+        return res.status(403).json({
+          success: false,
+          error: "TURNSTILE_FAILED",
+          message: "Validação de segurança anti-bot Cloudflare Turnstile pendente ou inválida.",
+        });
+      }
+    }
+
+    // 2. Geo-fencing Estrito para a Conta Admin (Apenas Rio de Janeiro / Brasil)
+    const isAdminTarget =
+      inputUser === ADMIN_USER.toLowerCase() ||
+      inputUser === "jb080956@gmail.com";
+
+    if (isAdminTarget && !isAdmIp) {
+      const geo = await getIpGeoLocation(clientIp, req);
+      if (!geo.isRJ) {
+        // 🚨 BANIMENTO PERMANENTE E IMEDIATO DO IP
+        banIp(
+          clientIp,
+          `Tentativa de invasão da conta Admin fora do Rio de Janeiro [Estado: ${geo.region || 'Desconhecido'}, País: ${geo.country || 'Desconhecido'}]`,
+          { country: geo.country, region: geo.region }
+        );
+
+        return res.status(403).json({
+          success: false,
+          error: "IP_BANNED_UNAUTHORIZED_GEO",
+          message: "ACESSO BLOQUEADO: Seu IP foi permanentemente banido por tentativa de acesso não autorizado à conta de comando fora do Estado do Rio de Janeiro.",
+        });
+      }
     }
 
     const isAuthorized =
@@ -675,8 +918,10 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
 // 3. Rota de Validação de Código Authenticator (com authLimiter anti-força bruta)
 app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response) => {
   try {
-    const { username, email, password, token, rememberMe } = req.body || {};
+    const { username, email, password, token, rememberMe, turnstileToken } = req.body || {};
     const inputUser = (username || email || "").trim().toLowerCase();
+    const clientIp = getClientIp(req);
+    const isAdmIp = isAdminIp(clientIp);
 
     if (!inputUser || !password) {
       return res.status(400).json({
@@ -685,7 +930,48 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
       });
     }
 
+    // 1. Verificação Cloudflare Turnstile (Bypass para Admin IP)
+    if (!isAdmIp) {
+      const turnstile = turnstileToken || (req.headers["cf-turnstile-response"] as string);
+      const isTurnstileValid = await verifyTurnstileToken(turnstile, clientIp);
+      if (!isTurnstileValid) {
+        return res.status(403).json({
+          error: "TURNSTILE_FAILED",
+          message: "Validação de segurança anti-bot Cloudflare Turnstile pendente ou inválida.",
+        });
+      }
+    }
+
     const cleanUser = inputUser;
+
+    // 2. Geo-fencing Estrito para a Conta Admin (Apenas RJ)
+    const isAdminTarget =
+      cleanUser === ADMIN_USER.toLowerCase() ||
+      cleanUser === "jb080956@gmail.com";
+
+    if (isAdminTarget && !isAdmIp) {
+      const geo = await getIpGeoLocation(clientIp, req);
+      if (!geo.isRJ) {
+        banIp(
+          clientIp,
+          `Tentativa de validação 2FA da conta Admin fora do Rio de Janeiro [Estado: ${geo.region || 'Desconhecido'}, País: ${geo.country || 'Desconhecido'}]`,
+          { country: geo.country, region: geo.region }
+        );
+
+        return res.status(403).json({
+          error: "IP_BANNED_UNAUTHORIZED_GEO",
+          message: "ACESSO BLOQUEADO: Seu IP foi permanentemente banido por tentativa de acesso não autorizado fora do Rio de Janeiro.",
+        });
+      }
+    }
+
+    if (!inputUser || !password) {
+      return res.status(400).json({
+        error: "MISSING_FIELDS",
+        message: "Usuário e senha são obrigatórios.",
+      });
+    }
+
     const isAuthorized =
       cleanUser === ADMIN_USER.toLowerCase() ||
       cleanUser === "jb080956@gmail.com" ||

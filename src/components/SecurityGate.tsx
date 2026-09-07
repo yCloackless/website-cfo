@@ -1,8 +1,35 @@
-import React, { useState, useRef } from 'react';
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (
+        container: string | HTMLElement,
+        params: {
+          sitekey: string;
+          theme?: 'light' | 'dark' | 'auto';
+          callback?: (token: string) => void;
+          'expired-callback'?: () => void;
+          'error-callback'?: (errorCode?: string) => void;
+        }
+      ) => string;
+      reset: (widgetId?: string) => void;
+      remove: (widgetId?: string) => void;
+    };
+    onloadTurnstileCallback?: () => void;
+  }
+}
+
+import React, { useState, useRef, useEffect } from 'react';
 
 interface SecurityGateProps {
   onAuthenticated: (token: string, expiresAt: number, is2faActive: boolean) => void;
   onBackToLanding?: () => void;
+}
+
+interface SecurityStatusData {
+  clientIp: string;
+  isAdminIp: boolean;
+  turnstileRequired: boolean;
+  siteKey: string;
 }
 
 export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onBackToLanding }) => {
@@ -16,7 +43,122 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Turnstile e Segurança Geográfica
+  const [securityStatus, setSecurityStatus] = useState<SecurityStatusData | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [isBanned, setIsBanned] = useState(false);
+  const [banDetails, setBanDetails] = useState<{ message?: string; clientIp?: string; location?: string } | null>(null);
+
   const totpInputRef = useRef<HTMLInputElement>(null);
+  const turnstileContainerRef = useRef<HTMLDivElement>(null);
+  const turnstileWidgetIdRef = useRef<string | null>(null);
+
+  // 1. Checa status de segurança (IP do Admin vs IP comum) e se o IP já está banido
+  useEffect(() => {
+    let isMounted = true;
+
+    async function checkSecurity() {
+      try {
+        const res = await fetch('/api/auth/security-status');
+        if (res.status === 403) {
+          const errData = await res.json().catch(() => ({}));
+          if (isMounted) {
+            setIsBanned(true);
+            setBanDetails({
+              message: errData.message || 'IP permanentemente banido do sistema por violação de segurança.',
+              clientIp: errData.clientIp,
+            });
+          }
+          return;
+        }
+
+        const data: SecurityStatusData = await res.json();
+        if (isMounted) {
+          setSecurityStatus(data);
+
+          // Se for IP de Admin (você), Turnstile NÃO roda!
+          if (!data.turnstileRequired) {
+            console.log('[SECURITY GATE] IP de Administrador reconhecido. Turnstile ignorado com sucesso.');
+            return;
+          }
+
+          // Se for IP externo comum, carrega o Turnstile
+          loadTurnstileScript(data.siteKey);
+        }
+      } catch (err) {
+        console.warn('[SECURITY GATE] Não foi possível obter security-status:', err);
+      }
+    }
+
+    checkSecurity();
+
+    return () => {
+      isMounted = false;
+      if (turnstileWidgetIdRef.current && window.turnstile) {
+        try {
+          window.turnstile.remove(turnstileWidgetIdRef.current);
+        } catch {}
+      }
+    };
+  }, []);
+
+  // Carrega e renderiza o widget da Cloudflare se for necessário
+  const loadTurnstileScript = (siteKey: string) => {
+    if (window.turnstile) {
+      renderTurnstile(siteKey);
+      return;
+    }
+
+    const scriptId = 'cf-turnstile-script';
+    if (!document.getElementById(scriptId)) {
+      window.onloadTurnstileCallback = () => {
+        renderTurnstile(siteKey);
+      };
+
+      const script = document.createElement('script');
+      script.id = scriptId;
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstileCallback&render=explicit';
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    } else {
+      const interval = setInterval(() => {
+        if (window.turnstile) {
+          clearInterval(interval);
+          renderTurnstile(siteKey);
+        }
+      }, 200);
+    }
+  };
+
+  const renderTurnstile = (siteKey: string) => {
+    if (!turnstileContainerRef.current || !window.turnstile) return;
+    if (turnstileWidgetIdRef.current) {
+      try {
+        window.turnstile.remove(turnstileWidgetIdRef.current);
+      } catch {}
+    }
+
+    try {
+      const widgetId = window.turnstile.render(turnstileContainerRef.current, {
+        sitekey: siteKey,
+        theme: 'light',
+        callback: (token: string) => {
+          setTurnstileToken(token);
+          setErrorMsg(null);
+        },
+        'expired-callback': () => {
+          setTurnstileToken(null);
+        },
+        'error-callback': () => {
+          setErrorMsg('Falha na validação do Cloudflare Turnstile. Recarregue a página.');
+        },
+      });
+      turnstileWidgetIdRef.current = widgetId;
+    } catch (e) {
+      console.error('Erro ao renderizar Turnstile:', e);
+    }
+  };
 
   // Manipulador do código TOTP de 6 dígitos
   const handleTotpChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -38,6 +180,12 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
       return;
     }
 
+    // Se o Turnstile for obrigatório para este IP e ainda não foi resolvido
+    if (securityStatus?.turnstileRequired && !turnstileToken) {
+      setErrorMsg('Por favor, complete a verificação de segurança Cloudflare Turnstile.');
+      return;
+    }
+
     setLoading(true);
     setErrorMsg(null);
 
@@ -48,13 +196,31 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
         body: JSON.stringify({
           email: cleanUser,
           password,
+          turnstileToken,
         }),
       });
 
       const data = await res.json();
 
+      // Checa se tomou ban imediato (ex: tentou logar como admin fora do RJ)
+      if (res.status === 403 || data.error === 'IP_BANNED_UNAUTHORIZED_GEO' || data.error === 'IP_BANNED') {
+        setIsBanned(true);
+        setBanDetails({
+          message: data.message || 'ACESSO BLOQUEADO: Tentativa de login na conta Admin a partir de localização não autorizada (fora do RJ/Brasil). Seu IP foi banido.',
+          clientIp: data.clientIp,
+          location: data.geo ? `${data.geo.city || ''}, ${data.geo.region || ''} (${data.geo.country || ''})` : undefined,
+        });
+        setLoading(false);
+        return;
+      }
+
       if (!res.ok || !data.success) {
         setErrorMsg(data.message || 'E-mail ou senha incorretos.');
+        // Se falhou o Turnstile, reseta
+        if (turnstileWidgetIdRef.current && window.turnstile) {
+          window.turnstile.reset(turnstileWidgetIdRef.current);
+          setTurnstileToken(null);
+        }
         setLoading(false);
         return;
       }
@@ -96,10 +262,23 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
           password,
           token: totpCode,
           rememberMe,
+          turnstileToken,
         }),
       });
 
       const data = await res.json();
+
+      // Checa se tomou ban
+      if (res.status === 403 || data.error === 'IP_BANNED_UNAUTHORIZED_GEO' || data.error === 'IP_BANNED') {
+        setIsBanned(true);
+        setBanDetails({
+          message: data.message || 'ACESSO BLOQUEADO: Tentativa de login na conta Admin a partir de localização não autorizada. Seu IP foi banido.',
+          clientIp: data.clientIp,
+          location: data.geo ? `${data.geo.city || ''}, ${data.geo.region || ''} (${data.geo.country || ''})` : undefined,
+        });
+        setLoading(false);
+        return;
+      }
 
       if (!res.ok || !data.success) {
         setErrorMsg(data.message || 'Código Authenticator inválido ou expirado.');
@@ -179,76 +358,138 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                 </button>
               )}
 
-              {/* BEGIN: BrandHeader */}
-              <header className="flex flex-col items-center text-center w-full" data-purpose="brand-presentation">
-                {/* Blue Phoenix Emblem */}
-                <div
-                  className="w-16 h-16 mb-2 flex items-center justify-center transition-transform hover:scale-105 duration-200"
-                  data-purpose="brand-logo"
-                >
-                  <img
-                    src="/phoenix-logo-cropped.png"
-                    alt="Logo Fênix RUMO ao CFO"
-                    className="w-full h-full object-contain drop-shadow-[0_8px_20px_rgba(0,86,210,0.35)]"
-                  />
-                </div>
+              {/* BANNED SCREEN: Se o IP foi banido por violação de segurança ou geolocalização do Admin */}
+              {isBanned ? (
+                <div className="w-full flex flex-col items-center text-center py-4 space-y-4 animate-fade-in" data-purpose="banned-lockout-screen">
+                  {/* Warning Red Shield */}
+                  <div className="w-20 h-20 rounded-full bg-red-100 border-2 border-red-500/30 flex items-center justify-center text-red-600 shadow-inner relative">
+                    <span className="absolute inset-0 rounded-full bg-red-500/10 animate-ping" />
+                    <svg className="w-10 h-10" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
 
-                {/* Brand Sub-Texts */}
-                <span className="text-[13px] font-bold tracking-[0.14em] text-[#164491] uppercase leading-tight font-display">
-                  RUMO
-                </span>
-                <span className="text-[10.5px] font-semibold tracking-wider text-slate-400 mt-[-1px]">
-                  ao CFO
-                </span>
-
-                {/* Main Welcome Title & Subtitle */}
-                {step === 'credentials' ? (
-                  <>
-                    <h1 className="text-[23px] sm:text-[24px] font-bold text-[#0f172a] tracking-tight mt-6 mb-1.5 font-sans">
-                      Bem-vindo de volta
-                    </h1>
-                    <p className="text-[13.5px] font-normal text-[#64748b] leading-relaxed">
-                      Entre para continuar seus estudos.
+                  <div>
+                    <span className="text-[11px] font-mono font-bold tracking-[0.2em] text-red-600 uppercase bg-red-50 px-2.5 py-1 rounded-full border border-red-200">
+                      DEFCON 1 • PERÍMETRO VIOLADO
+                    </span>
+                    <h2 className="text-[20px] font-black text-slate-900 tracking-tight mt-3">
+                      ACESSO BLOQUEADO & IP BANIDO
+                    </h2>
+                    <p className="text-[13px] text-slate-600 mt-1 max-w-sm">
+                      {banDetails?.message || 'Tentativa de acesso não autorizada a partir de localização fora do Rio de Janeiro/Brasil. Este IP foi bloqueado permanentemente.'}
                     </p>
-                  </>
-                ) : (
-                  <>
-                    <h1 className="text-[22px] sm:text-[23px] font-bold text-[#0f172a] tracking-tight mt-6 mb-1.5 font-sans">
-                      Autenticação 2FA
-                    </h1>
-                    <p className="text-[13px] font-normal text-[#64748b] leading-relaxed">
-                      Digite o código de 6 dígitos gerado pelo Google Authenticator.
-                    </p>
-                  </>
-                )}
-              </header>
-              {/* END: BrandHeader */}
+                  </div>
 
-              {/* Error Message Alert */}
-              {errorMsg && (
-                <div className="w-full mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2.5">
-                  <svg
-                    className="w-4 h-4 text-red-500 shrink-0 mt-0.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="8" x2="12" y2="12" />
-                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
-                  <span className="leading-relaxed font-medium">{errorMsg}</span>
+                  <div className="w-full bg-slate-900 text-slate-200 p-4 rounded-xl text-left font-mono text-xs space-y-1.5 border border-slate-800 shadow-lg">
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-1.5">
+                      <span className="text-slate-400">REGISTRO DE AUDITORIA:</span>
+                      <span className="text-red-400 font-bold">PERMANENT_BAN</span>
+                    </div>
+                    <div className="flex justify-between pt-1">
+                      <span className="text-slate-400">IP DE ORIGEM:</span>
+                      <span className="text-amber-400 font-semibold">{banDetails?.clientIp || securityStatus?.clientIp || 'DETECTADO'}</span>
+                    </div>
+                    {banDetails?.location && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">LOCALIZAÇÃO:</span>
+                        <span className="text-red-300">{banDetails.location}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">POLÍTICA ADMIN:</span>
+                      <span className="text-emerald-400">Exclusivo RJ / Brasil</span>
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-slate-400 text-center pt-2">
+                    Se você é o proprietário legítimo e trocou de rede, acesse através do IP autorizado ou libere o IP no servidor.
+                  </div>
                 </div>
-              )}
+              ) : (
+                <>
+                  {/* BEGIN: BrandHeader */}
+                  <header className="flex flex-col items-center text-center w-full" data-purpose="brand-presentation">
+                    {/* Blue Phoenix Emblem */}
+                    <div
+                      className="w-16 h-16 mb-2 flex items-center justify-center transition-transform hover:scale-105 duration-200"
+                      data-purpose="brand-logo"
+                    >
+                      <img
+                        src="/phoenix-logo-cropped.png"
+                        alt="Logo Fênix RUMO ao CFO"
+                        className="w-full h-full object-contain drop-shadow-[0_8px_20px_rgba(0,86,210,0.35)]"
+                      />
+                    </div>
 
-              {/* STEP 1: CREDENTIALS FORM */}
-              {step === 'credentials' && (
-                <form
-                  className="w-full mt-7 flex flex-col space-y-4"
-                  data-purpose="credentials-form"
-                  onSubmit={handleCredentialsSubmit}
-                >
+                    {/* Brand Sub-Texts */}
+                    <span className="text-[13px] font-bold tracking-[0.14em] text-[#164491] uppercase leading-tight font-display">
+                      RUMO
+                    </span>
+                    <span className="text-[10.5px] font-semibold tracking-wider text-slate-400 mt-[-1px]">
+                      ao CFO
+                    </span>
+
+                    {/* Main Welcome Title & Subtitle */}
+                    {step === 'credentials' ? (
+                      <>
+                        <h1 className="text-[23px] sm:text-[24px] font-bold text-[#0f172a] tracking-tight mt-6 mb-1.5 font-sans">
+                          Bem-vindo de volta
+                        </h1>
+                        <p className="text-[13.5px] font-normal text-[#64748b] leading-relaxed">
+                          Entre para continuar seus estudos.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <h1 className="text-[22px] sm:text-[23px] font-bold text-[#0f172a] tracking-tight mt-6 mb-1.5 font-sans">
+                          Autenticação 2FA
+                        </h1>
+                        <p className="text-[13px] font-normal text-[#64748b] leading-relaxed">
+                          Digite o código de 6 dígitos gerado pelo Google Authenticator.
+                        </p>
+                      </>
+                    )}
+                  </header>
+                  {/* END: BrandHeader */}
+
+                  {/* Error Message Alert */}
+                  {errorMsg && (
+                    <div className="w-full mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2.5">
+                      <svg
+                        className="w-4 h-4 text-red-500 shrink-0 mt-0.5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                      </svg>
+                      <span className="leading-relaxed font-medium">{errorMsg}</span>
+                    </div>
+                  )}
+
+                  {/* STEP 1: CREDENTIALS FORM */}
+                  {step === 'credentials' && (
+                    <form
+                      className="w-full mt-7 flex flex-col space-y-4"
+                      data-purpose="credentials-form"
+                      onSubmit={handleCredentialsSubmit}
+                    >
+                      {/* Admin IP Bypass Badge */}
+                      {securityStatus?.isAdminIp && (
+                        <div className="py-1 px-3 bg-blue-50 border border-blue-200/70 rounded-lg flex items-center justify-between text-[11px] text-[#164491]">
+                          <span className="flex items-center gap-1.5 font-medium">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            IP Admin ({securityStatus.clientIp})
+                          </span>
+                          <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded">
+                            Turnstile Dispensado
+                          </span>
+                        </div>
+                      )}
                   {/* Input Group: E-mail */}
                   <div className="flex flex-col space-y-1.5" data-purpose="email-field-group">
                     <label
@@ -396,11 +637,28 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                     </label>
                   </div>
 
+                  {/* Cloudflare Turnstile Container (apenas para IPs não-administradores) */}
+                  {securityStatus?.turnstileRequired && (
+                    <div className="pt-2 flex flex-col items-center justify-center">
+                      <div
+                        ref={turnstileContainerRef}
+                        id="turnstile-container"
+                        className="flex justify-center min-h-[65px] w-full"
+                      />
+                      <span className="text-[10.5px] text-slate-400 mt-1 flex items-center gap-1.5 font-medium">
+                        <svg className="w-3.5 h-3.5 text-[#f38020]" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M18.8 11.2c-.4-3.1-3.1-5.5-6.3-5.5-2.7 0-5.1 1.7-6 4.2C3.7 10.4 1.5 12.7 1.5 15.5c0 3.3 2.7 6 6 6h11.2c2.6 0 4.8-2.1 4.8-4.8 0-2.5-1.9-4.6-4.4-4.8l-.3-.7z" />
+                        </svg>
+                        Protegido por Cloudflare Turnstile
+                      </span>
+                    </div>
+                  )}
+
                   {/* Submit CTA Button */}
                   <div className="pt-2">
                     <button
                       type="submit"
-                      disabled={loading}
+                      disabled={loading || (securityStatus?.turnstileRequired && !turnstileToken)}
                       data-purpose="submit-login-button"
                       className="w-full py-3.5 px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] active:bg-[#0e2b5c] text-white font-bold text-[13px] tracking-[0.08em] uppercase transition-all duration-150 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#164491] focus:ring-offset-2 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                     >
@@ -506,6 +764,8 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                     </button>
                   </div>
                 </form>
+              )}
+                </>
               )}
             </div>
             {/* Card Inner Body Container End */}
