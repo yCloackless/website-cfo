@@ -1,0 +1,21 @@
+services:
+  cfo-terminal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cfo-cbmerj-terminal:latest
+    container_name: cfo_cbmerj_app
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+    env_file:
+      - .env
+    volumes:
+      - cfo_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  cfo_data:
+    driver: local

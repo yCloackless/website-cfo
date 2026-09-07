@@ -170,6 +170,18 @@ function readCalendarSession(): CalendarSession | null {
   } catch (err) {
     console.warn("Falha ao ler sessão do Google Agenda:", err);
   }
+
+  // Resiliência de Nuvem: Fallback em variável de ambiente (evita perda se o disco reiniciar no Render)
+  const envRefreshToken = process.env.CALENDAR_REFRESH_TOKEN || process.env.GOOGLE_REFRESH_TOKEN;
+  if (envRefreshToken) {
+    return {
+      access_token: "",
+      refresh_token: envRefreshToken,
+      email: process.env.CALENDAR_EMAIL || "jb080956@gmail.com",
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
   return null;
 }
 
@@ -180,6 +192,9 @@ function saveCalendarSession(session: CalendarSession): void {
       fs.mkdirSync(dir, { recursive: true });
     }
     fs.writeFileSync(CALENDAR_SESSION_FILE, JSON.stringify(session, null, 2), "utf-8");
+    if (session.refresh_token) {
+      console.log(`[Google Agenda Resiliente] Sessão sincronizada. Token preservado para persistência perpétua.`);
+    }
   } catch (err) {
     console.error("Falha ao gravar sessão do Google Agenda:", err);
   }
