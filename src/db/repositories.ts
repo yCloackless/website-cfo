@@ -92,6 +92,137 @@ export class UserRepository {
       .run(newUsername.toLowerCase().trim(), now, userId);
   }
 
+  public updateStatus(userId: string, status: UserStatus): void {
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE users SET status = ?, updated_at = ? WHERE id = ?').run(status, now, userId);
+  }
+
+  public updateRole(userId: string, role: UserRole): void {
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE users SET role = ?, updated_at = ? WHERE id = ?').run(role, now, userId);
+  }
+
+  public findAdminFiltered(options: {
+    search?: string;
+    role?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  } = {}): {
+    items: Array<{
+      id: string;
+      email: string;
+      username: string;
+      role: UserRole;
+      status: UserStatus;
+      createdAt: string;
+      updatedAt: string;
+      fullName?: string | null;
+      avatarUrl?: string | null;
+      phone?: string | null;
+    }>;
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  } {
+    const page = Math.max(1, Number(options.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(options.limit) || 20));
+    const offset = (page - 1) * limit;
+
+    const whereClauses: string[] = [];
+    const params: any[] = [];
+
+    if (options.role) {
+      whereClauses.push('u.role = ?');
+      params.push(options.role);
+    }
+
+    if (options.status) {
+      whereClauses.push('u.status = ?');
+      params.push(options.status);
+    }
+
+    if (options.search) {
+      whereClauses.push('(u.username LIKE ? OR u.email LIKE ? OR u.id LIKE ? OR p.full_name LIKE ?)');
+      const pattern = `%${options.search}%`;
+      params.push(pattern, pattern, pattern, pattern);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const countRow: any = this.db
+      .prepare(`SELECT COUNT(*) as total FROM users u LEFT JOIN profiles p ON u.id = p.user_id ${whereSql}`)
+      .get(...params);
+    const total = Number(countRow?.total || 0);
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    const rows: any[] = this.db
+      .prepare(
+        `SELECT u.id, u.email, u.username, u.role, u.status, u.created_at, u.updated_at,
+                p.full_name, p.avatar_url, p.phone
+         FROM users u
+         LEFT JOIN profiles p ON u.id = p.user_id
+         ${whereSql}
+         ORDER BY u.created_at DESC
+         LIMIT ? OFFSET ?`
+      )
+      .all(...params, limit, offset);
+
+    const items = rows.map((r) => ({
+      id: r.id,
+      email: r.email,
+      username: r.username,
+      role: r.role as UserRole,
+      status: r.status as UserStatus,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      fullName: r.full_name ?? null,
+      avatarUrl: r.avatar_url ?? null,
+      phone: r.phone ?? null,
+    }));
+
+    return { items, total, page, limit, totalPages };
+  }
+
+  public getDashboardStats(): {
+    totalUsers: number;
+    activeUsers24h: number;
+    newUsers30d: number;
+    suspendedUsers: number;
+    adminCount: number;
+  } {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    const statsRow: any = this.db
+      .prepare(
+        `SELECT
+           COUNT(*) as totalUsers,
+           SUM(CASE WHEN status = 'suspended' THEN 1 ELSE 0 END) as suspendedUsers,
+           SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) as adminCount,
+           SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as newUsers30d
+         FROM users`
+      )
+      .get(thirtyDaysAgo);
+
+    const activeRow: any = this.db
+      .prepare(
+        `SELECT COUNT(DISTINCT user_id) as activeUsers24h
+         FROM sessions
+         WHERE created_at >= ? AND revoked_at IS NULL`
+      )
+      .get(oneDayAgo);
+
+    return {
+      totalUsers: Number(statsRow?.totalUsers || 0),
+      suspendedUsers: Number(statsRow?.suspendedUsers || 0),
+      adminCount: Number(statsRow?.adminCount || 0),
+      newUsers30d: Number(statsRow?.newUsers30d || 0),
+      activeUsers24h: Number(activeRow?.activeUsers24h || 0),
+    };
+  }
+
   private mapUser(row: any): DbUser {
     return {
       id: row.id,
@@ -970,6 +1101,53 @@ export class SessionRepository {
   public revokeAllUserSessions(userId: string): void {
     const now = new Date().toISOString();
     this.db.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ?').run(now, userId);
+  }
+
+  public listActiveSessions(limit: number = 50): Array<{
+    id: string;
+    userId: string;
+    email: string;
+    username: string;
+    role: UserRole;
+    ip: string | null;
+    userAgent: string | null;
+    expiresAt: string;
+    createdAt: string;
+    isExpired: boolean;
+    isValid: boolean;
+  }> {
+    const now = new Date().toISOString();
+    const rows: any[] = this.db
+      .prepare(
+        `SELECT s.id, s.user_id, s.role, s.ip, s.user_agent, s.expires_at, s.created_at, s.revoked_at,
+                u.email, u.username
+         FROM sessions s
+         JOIN users u ON s.user_id = u.id
+         WHERE s.revoked_at IS NULL AND s.expires_at > ?
+         ORDER BY s.created_at DESC
+         LIMIT ?`
+      )
+      .all(now, limit);
+
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      email: r.email,
+      username: r.username,
+      role: r.role as UserRole,
+      ip: r.ip ?? null,
+      userAgent: r.user_agent ?? null,
+      expiresAt: r.expires_at,
+      createdAt: r.created_at,
+      isExpired: false,
+      isValid: true,
+    }));
+  }
+
+  public revokeSessionById(sessionId: string): boolean {
+    const now = new Date().toISOString();
+    const result = this.db.prepare('UPDATE sessions SET revoked_at = ? WHERE id = ?').run(now, sessionId);
+    return Number(result.changes) > 0;
   }
 }
 

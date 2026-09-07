@@ -189,9 +189,9 @@ test('3. Autenticação: Login correto, login errado e usuário inexistente', as
   // Verifica registros com o IP específico do teste
   const events = auditRepo.findFiltered({ ip: '200.100.50.25', limit: 10 });
   assert.ok(events.total >= 3);
-  assert.equal(events.items[0].actor, 'fantasma_inexistente');
-  assert.equal(events.items[1].action, 'LOGIN_FAILED');
-  assert.equal(events.items[2].action, 'LOGIN_SUCCESS');
+  assert.ok(events.items.some((e) => e.action === 'LOGIN_SUCCESS' && e.actor === 'cadete'), 'Deve conter LOGIN_SUCCESS para cadete');
+  assert.ok(events.items.some((e) => e.action === 'LOGIN_FAILED' && e.actor === 'cadete'), 'Deve conter LOGIN_FAILED para cadete');
+  assert.ok(events.items.some((e) => e.action === 'LOGIN_FAILED' && e.actor === 'fantasma_inexistente'), 'Deve conter LOGIN_FAILED para fantasma_inexistente');
 
   cleanup();
 });

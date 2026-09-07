@@ -47,7 +47,7 @@ import {
 import { logAuditEvent, readRecentAuditLogs } from "./src/services/auditLogger";
 import { AuthService } from "./src/db/authService";
 import { getDb } from "./src/db/database";
-import { UserRepository, ProfileRepository, AuditRepository } from "./src/db/repositories";
+import { UserRepository, ProfileRepository, AuditRepository, SessionRepository } from "./src/db/repositories";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
 
 const app = express();
@@ -725,6 +725,9 @@ function createTerminalSession(
 
 const authServiceInstance = new AuthService(getDb());
 const auditRepoInstance = new AuditRepository(getDb().getRawDb());
+const userRepoInstance = new UserRepository(getDb().getRawDb());
+const profileRepoInstance = new ProfileRepository(getDb().getRawDb());
+const sessionRepoInstance = new SessionRepository(getDb().getRawDb());
 
 function logSecurityEvent(
   req: Request,
@@ -1598,11 +1601,249 @@ app.get("/api/admin/security/metrics", requireAdminAuth, (_req: Request, res: Re
   }
 });
 
+// 13. Verificação de Acesso Administrativo (Handshake seguro para /admin)
+app.get("/api/admin/verify", requireAdminAuth, (req: Request, res: Response) => {
+  const adminUser = (req as any).user;
+  return res.json({
+    success: true,
+    verified: true,
+    user: {
+      username: adminUser.username,
+      role: adminUser.role,
+      expiresAt: adminUser.expiresAt,
+    },
+  });
+});
+
+// 14. Dashboard Administrativo (Métricas Consolidadas em Tempo Real)
+app.get("/api/admin/dashboard", requireAdminAuth, (_req: Request, res: Response) => {
+  try {
+    const userStats = userRepoInstance.getDashboardStats();
+    const securityMetrics = auditRepoInstance.getSecurityMetrics();
+    const activeSessions = sessionRepoInstance.listActiveSessions(10);
+    const recentEvents = auditRepoInstance.findFiltered({ limit: 10 });
+
+    return res.json({
+      success: true,
+      stats: {
+        totalUsers: userStats.totalUsers,
+        activeUsers24h: userStats.activeUsers24h,
+        newUsers30d: userStats.newUsers30d,
+        suspendedUsers: userStats.suspendedUsers,
+        adminCount: userStats.adminCount,
+        loginSuccess24h: securityMetrics.loginSuccess24h,
+        loginFailed24h: securityMetrics.loginFailed24h,
+        twoFactorFailed24h: securityMetrics.twoFactorFailed24h,
+        anomalousIpsCount: securityMetrics.anomalousIps.length,
+      },
+      anomalies: securityMetrics.anomalousIps,
+      recentSessions: activeSessions,
+      recentEvents: recentEvents.items,
+    });
+  } catch (err: any) {
+    console.error("[Admin Dashboard Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao carregar dados do dashboard." });
+  }
+});
+
+// 15. Consulta Paginada e Filtrada de Usuários (Admin)
+app.get("/api/admin/users", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || "20"), 10)));
+    const search = req.query.search ? String(req.query.search).trim() : undefined;
+    const role = req.query.role ? String(req.query.role).trim() : undefined;
+    const status = req.query.status ? String(req.query.status).trim() : undefined;
+
+    const result = userRepoInstance.findAdminFiltered({
+      page,
+      limit,
+      search,
+      role,
+      status,
+    });
+
+    return res.json({
+      success: true,
+      ...result,
+    });
+  } catch (err: any) {
+    console.error("[Admin Users Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao listar usuários." });
+  }
+});
+
+// 16. Alterar Status de Conta de Usuário (Suspender ou Reativar)
+app.patch("/api/admin/users/:id/status", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const userId = req.params.id;
+    const { status } = req.body || {};
+    const adminUser = (req as any).user;
+
+    if (!['active', 'suspended', 'pending_activation'].includes(status)) {
+      return res.status(400).json({ success: false, message: "Status inválido." });
+    }
+
+    const targetUser = userRepoInstance.findById(userId);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: "Usuário não encontrado." });
+    }
+
+    // Proteção: não permitir suspender o administrador mestre
+    if (targetUser.username === ADMIN_USER && status === 'suspended') {
+      return res.status(400).json({ success: false, message: "Não é permitido suspender a conta do administrador mestre." });
+    }
+
+    userRepoInstance.updateStatus(userId, status);
+
+    // Se suspenso, revoga imediatamente todas as sessões ativas do usuário
+    if (status === 'suspended') {
+      sessionRepoInstance.revokeAllUserSessions(userId);
+    }
+
+    logSecurityEvent(req, {
+      action: status === 'suspended' ? 'ACCOUNT_SUSPENDED' : 'ACCOUNT_ACTIVATED',
+      actor: adminUser?.username || 'admin',
+      resource: `/users/${userId}`,
+      status: 'SUCCESS',
+      userId,
+      details: { previousStatus: targetUser.status, newStatus: status },
+    });
+
+    return res.json({
+      success: true,
+      message: `Status do usuário atualizado para '${status}' com sucesso.`,
+      user: { id: targetUser.id, username: targetUser.username, status },
+    });
+  } catch (err: any) {
+    console.error("[Admin Update Status Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao atualizar status do usuário." });
+  }
+});
+
+// 17. Alterar Papel / Privilégio de Usuário (Admin / Cadet)
+app.patch("/api/admin/users/:id/role", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const userId = req.params.id;
+    const { role } = req.body || {};
+    const adminUser = (req as any).user;
+
+    if (!['cadet', 'admin'].includes(role)) {
+      return res.status(400).json({ success: false, message: "Papel (role) inválido." });
+    }
+
+    const targetUser = userRepoInstance.findById(userId);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: "Usuário não encontrado." });
+    }
+
+    if (targetUser.username === ADMIN_USER && role !== 'admin') {
+      return res.status(400).json({ success: false, message: "O papel do administrador mestre não pode ser alterado." });
+    }
+
+    userRepoInstance.updateRole(userId, role);
+
+    logSecurityEvent(req, {
+      action: 'ROLE_CHANGED',
+      actor: adminUser?.username || 'admin',
+      resource: `/users/${userId}`,
+      status: 'SUCCESS',
+      userId,
+      details: { previousRole: targetUser.role, newRole: role },
+    });
+
+    return res.json({
+      success: true,
+      message: `Papel do usuário atualizado para '${role}' com sucesso.`,
+      user: { id: targetUser.id, username: targetUser.username, role },
+    });
+  } catch (err: any) {
+    console.error("[Admin Update Role Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao alterar privilégios do usuário." });
+  }
+});
+
+// 18. Listagem de Sessões Ativas (Admin)
+app.get("/api/admin/sessions", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || "50"), 10)));
+    const sessions = sessionRepoInstance.listActiveSessions(limit);
+    return res.json({
+      success: true,
+      sessions,
+      total: sessions.length,
+    });
+  } catch (err: any) {
+    console.error("[Admin Sessions Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao listar sessões." });
+  }
+});
+
+// 19. Revogação de Sessão Específica por ID (Admin)
+app.post("/api/admin/sessions/:id/revoke", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const sessionId = req.params.id;
+    const adminUser = (req as any).user;
+    const revoked = sessionRepoInstance.revokeSessionById(sessionId);
+
+    if (!revoked) {
+      return res.status(404).json({ success: false, message: "Sessão não encontrada ou já revogada." });
+    }
+
+    logSecurityEvent(req, {
+      action: 'SESSION_REVOKED',
+      actor: adminUser?.username || 'admin',
+      resource: `/sessions/${sessionId}`,
+      status: 'SUCCESS',
+      details: { sessionId },
+    });
+
+    return res.json({
+      success: true,
+      message: "Sessão revogada com sucesso.",
+    });
+  } catch (err: any) {
+    console.error("[Admin Revoke Session Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao revogar sessão." });
+  }
+});
+
+// 20. Listagem de Administradores
+app.get("/api/admin/admins", requireAdminAuth, (_req: Request, res: Response) => {
+  try {
+    const admins = userRepoInstance.findAdminFiltered({ role: 'admin', limit: 50 });
+    return res.json({
+      success: true,
+      admins: admins.items,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: "Erro ao carregar administradores." });
+  }
+});
+
+// 21. Status e Configurações Gerais do Sistema
+app.get("/api/admin/settings", requireAdminAuth, (_req: Request, res: Response) => {
+  try {
+    const config = getSecurityConfig();
+    return res.json({
+      success: true,
+      settings: {
+        twoFactorActive: config.is2faActive,
+        uptimeSeconds: Math.floor(process.uptime()),
+        nodeEnv: process.env.NODE_ENV || 'development',
+        sessionDurationDays: 30,
+        retentionDays: 30,
+        serverTime: new Date().toISOString(),
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: "Erro ao carregar configurações." });
+  }
+});
+
 // ==========================================
 // 👤 MINHA CONTA & GESTÃO DE PERFIL
 // ==========================================
-const userRepoInstance = new UserRepository(getDb().getRawDb());
-const profileRepoInstance = new ProfileRepository(getDb().getRawDb());
 
 // 1. Obter Perfil do Usuário Autenticado (Protegido contra IDOR)
 app.get("/api/user/profile", requireUserAuth, (req: Request, res: Response) => {

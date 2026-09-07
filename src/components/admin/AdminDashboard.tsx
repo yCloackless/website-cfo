@@ -1,0 +1,1317 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  LayoutDashboard,
+  Users,
+  ShieldAlert,
+  KeyRound,
+  FileText,
+  ShieldCheck,
+  Settings,
+  Search,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Globe,
+  UserCheck,
+  UserX,
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Shield,
+  Activity,
+  Laptop,
+} from 'lucide-react';
+import { AppTheme } from '../../types';
+
+export type AdminTab =
+  | 'dashboard'
+  | 'users'
+  | 'security'
+  | 'sessions'
+  | 'audit'
+  | 'admins'
+  | 'settings';
+
+interface AdminDashboardProps {
+  theme: AppTheme;
+  sessionToken: string | null;
+  onBackToApp: () => void;
+}
+
+interface DashboardStats {
+  totalUsers: number;
+  activeUsers24h: number;
+  newUsers30d: number;
+  suspendedUsers: number;
+  adminCount: number;
+  loginSuccess24h: number;
+  loginFailed24h: number;
+  twoFactorFailed24h: number;
+  anomalousIpsCount: number;
+}
+
+interface UserItem {
+  id: string;
+  email: string;
+  username: string;
+  role: 'admin' | 'cadet';
+  status: 'active' | 'suspended' | 'pending_activation';
+  createdAt: string;
+  updatedAt: string;
+  fullName?: string | null;
+  avatarUrl?: string | null;
+  phone?: string | null;
+}
+
+interface SessionItem {
+  id: string;
+  userId: string;
+  email: string;
+  username: string;
+  role: 'admin' | 'cadet';
+  ip: string | null;
+  userAgent: string | null;
+  expiresAt: string;
+  createdAt: string;
+  isExpired: boolean;
+  isValid: boolean;
+}
+
+interface AuditEventItem {
+  id: string;
+  action: string;
+  actor: string;
+  resource: string;
+  status: 'SUCCESS' | 'FAILED' | 'WARNING';
+  ip?: string | null;
+  userAgent?: string | null;
+  userId?: string | null;
+  detailsJson?: string | null;
+  createdAt: string;
+}
+
+interface AnomalyItem {
+  ip: string;
+  failedAttempts: number;
+}
+
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({
+  theme,
+  sessionToken,
+  onBackToApp,
+}) => {
+  const isDark = theme === 'dark';
+  const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
+
+  // Estado Geral de Autenticação / Autorização do Admin
+  const [isVerifying, setIsVerifying] = useState(true);
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Estados dos Dados
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [anomalies, setAnomalies] = useState<AnomalyItem[]>([]);
+  const [recentSessions, setRecentSessions] = useState<SessionItem[]>([]);
+  const [recentEvents, setRecentEvents] = useState<AuditEventItem[]>([]);
+
+  // Aba Usuários
+  const [users, setUsers] = useState<UserItem[]>([]);
+  const [usersTotal, setUsersTotal] = useState(0);
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersTotalPages, setUsersTotalPages] = useState(1);
+  const [usersSearch, setUsersSearch] = useState('');
+  const [usersRoleFilter, setUsersRoleFilter] = useState<string>('');
+  const [usersStatusFilter, setUsersStatusFilter] = useState<string>('');
+  const [isUsersLoading, setIsUsersLoading] = useState(false);
+
+  // Aba Sessões
+  const [sessions, setSessions] = useState<SessionItem[]>([]);
+  const [isSessionsLoading, setIsSessionsLoading] = useState(false);
+
+  // Aba Auditoria & Segurança
+  const [auditEvents, setAuditEvents] = useState<AuditEventItem[]>([]);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditTotalPages, setAuditTotalPages] = useState(1);
+  const [auditActionFilter, setAuditActionFilter] = useState<string>('');
+  const [auditStatusFilter, setAuditStatusFilter] = useState<string>('');
+  const [auditSearch, setAuditSearch] = useState('');
+  const [isAuditLoading, setIsAuditLoading] = useState(false);
+
+  // Aba Administradores
+  const [adminsList, setAdminsList] = useState<UserItem[]>([]);
+
+  // Feedback de Ações
+  const [actionFeedback, setActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const getHeaders = useCallback(() => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (sessionToken) {
+      headers.Authorization = `Bearer ${sessionToken}`;
+    }
+    return headers;
+  }, [sessionToken]);
+
+  // 1. Verificação de Acesso Server-Side
+  useEffect(() => {
+    let isMounted = true;
+    setIsVerifying(true);
+
+    fetch('/api/admin/verify', { headers: getHeaders() })
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.message || 'Acesso administrativo restrito. Autenticação de comando necessária.');
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (isMounted) {
+          if (data.success && data.verified) {
+            setIsAuthorized(true);
+          } else {
+            setIsAuthorized(false);
+            setAuthError('Sessão não possui privilégios de Administrador.');
+          }
+        }
+      })
+      .catch((err) => {
+        if (isMounted) {
+          setIsAuthorized(false);
+          setAuthError(err.message || 'Falha de autorização administrativa.');
+        }
+      })
+      .finally(() => {
+        if (isMounted) setIsVerifying(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [getHeaders]);
+
+  // Carregar Dados do Dashboard
+  const loadDashboard = useCallback(() => {
+    if (!isAuthorized) return;
+    fetch('/api/admin/dashboard', { headers: getHeaders() })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setStats(data.stats);
+          setAnomalies(data.anomalies || []);
+          setRecentSessions(data.recentSessions || []);
+          setRecentEvents(data.recentEvents || []);
+        }
+      })
+      .catch(() => {});
+  }, [isAuthorized, getHeaders]);
+
+  // Carregar Usuários
+  const loadUsers = useCallback(() => {
+    if (!isAuthorized) return;
+    setIsUsersLoading(true);
+    const params = new URLSearchParams({
+      page: String(usersPage),
+      limit: '15',
+    });
+    if (usersSearch.trim()) params.append('search', usersSearch.trim());
+    if (usersRoleFilter) params.append('role', usersRoleFilter);
+    if (usersStatusFilter) params.append('status', usersStatusFilter);
+
+    fetch(`/api/admin/users?${params.toString()}`, { headers: getHeaders() })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setUsers(data.items || []);
+          setUsersTotal(data.total || 0);
+          setUsersTotalPages(data.totalPages || 1);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setIsUsersLoading(false));
+  }, [isAuthorized, usersPage, usersSearch, usersRoleFilter, usersStatusFilter, getHeaders]);
+
+  // Carregar Sessões
+  const loadSessions = useCallback(() => {
+    if (!isAuthorized) return;
+    setIsSessionsLoading(true);
+    fetch('/api/admin/sessions?limit=50', { headers: getHeaders() })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setSessions(data.sessions || []);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setIsSessionsLoading(false));
+  }, [isAuthorized, getHeaders]);
+
+  // Carregar Eventos de Auditoria
+  const loadAudit = useCallback(() => {
+    if (!isAuthorized) return;
+    setIsAuditLoading(true);
+    const params = new URLSearchParams({
+      page: String(auditPage),
+      limit: '20',
+    });
+    if (auditActionFilter) params.append('action', auditActionFilter);
+    if (auditStatusFilter) params.append('status', auditStatusFilter);
+    if (auditSearch.trim()) params.append('search', auditSearch.trim());
+
+    fetch(`/api/admin/security/events?${params.toString()}`, { headers: getHeaders() })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setAuditEvents(data.items || []);
+          setAuditTotal(data.total || 0);
+          setAuditTotalPages(data.totalPages || 1);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setIsAuditLoading(false));
+  }, [isAuthorized, auditPage, auditActionFilter, auditStatusFilter, auditSearch, getHeaders]);
+
+  // Carregar Administradores
+  const loadAdmins = useCallback(() => {
+    if (!isAuthorized) return;
+    fetch('/api/admin/admins', { headers: getHeaders() })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setAdminsList(data.admins || []);
+        }
+      })
+      .catch(() => {});
+  }, [isAuthorized, getHeaders]);
+
+  // Efeito para recarregar dados quando a aba mudar
+  useEffect(() => {
+    if (!isAuthorized) return;
+    if (activeTab === 'dashboard') loadDashboard();
+    else if (activeTab === 'users') loadUsers();
+    else if (activeTab === 'sessions') loadSessions();
+    else if (activeTab === 'security' || activeTab === 'audit') loadAudit();
+    else if (activeTab === 'admins') loadAdmins();
+  }, [activeTab, isAuthorized, loadDashboard, loadUsers, loadSessions, loadAudit, loadAdmins]);
+
+  // Ações de Usuário (Suspender / Reativar)
+  const handleToggleUserStatus = async (user: UserItem) => {
+    const nextStatus = user.status === 'suspended' ? 'active' : 'suspended';
+    const confirmMsg = nextStatus === 'suspended'
+      ? `Tem certeza que deseja SUSPENDER o usuário @${user.username}? Todas as sessões dele serão revogadas imediatamente.`
+      : `Deseja reativar o acesso de @${user.username}?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/status`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setActionFeedback({ type: 'success', message: data.message });
+        loadUsers();
+        loadDashboard();
+      } else {
+        setActionFeedback({ type: 'error', message: data.message || 'Falha ao alterar status.' });
+      }
+    } catch {
+      setActionFeedback({ type: 'error', message: 'Erro de comunicação ao alterar status.' });
+    }
+  };
+
+  // Ações de Usuário (Promover / Rebaixar Role)
+  const handleToggleUserRole = async (user: UserItem) => {
+    const nextRole = user.role === 'admin' ? 'cadet' : 'admin';
+    const confirmMsg = nextRole === 'admin'
+      ? `Deseja conceder privilégios de ADMINISTRADOR a @${user.username}?`
+      : `Deseja revogar os privilégios administrativos de @${user.username}?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/role`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ role: nextRole }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setActionFeedback({ type: 'success', message: data.message });
+        loadUsers();
+      } else {
+        setActionFeedback({ type: 'error', message: data.message || 'Falha ao alterar papel.' });
+      }
+    } catch {
+      setActionFeedback({ type: 'error', message: 'Erro ao alterar privilégios.' });
+    }
+  };
+
+  // Ações de Sessão (Revogar)
+  const handleRevokeSession = async (sessionId: string) => {
+    if (!window.confirm('Deseja realmente revogar esta sessão imediatamente? O usuário será desconectado.')) return;
+    try {
+      const res = await fetch(`/api/admin/sessions/${sessionId}/revoke`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setActionFeedback({ type: 'success', message: data.message });
+        loadSessions();
+        loadDashboard();
+      } else {
+        setActionFeedback({ type: 'error', message: data.message || 'Falha ao revogar sessão.' });
+      }
+    } catch {
+      setActionFeedback({ type: 'error', message: 'Erro ao revogar sessão.' });
+    }
+  };
+
+  // ============================================================================
+  // TELA DE VERIFICAÇÃO / ACESSO NEGADO (HTTP 403 / ANTI-BYPASS)
+  // ============================================================================
+  if (isVerifying) {
+    return (
+      <div className={`min-h-screen flex flex-col items-center justify-center ${isDark ? 'bg-[#060B14] text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
+        <div className="w-12 h-12 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+        <p className="mt-4 font-mono text-sm tracking-wider text-amber-400 uppercase font-bold">
+          Validando Autoridade Administrativa Server-Side...
+        </p>
+      </div>
+    );
+  }
+
+  if (isAuthorized === false) {
+    return (
+      <div className={`min-h-screen flex flex-col items-center justify-center p-6 ${isDark ? 'bg-[#060B14] text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
+        <div className="max-w-md w-full bg-red-950/20 border border-red-800/60 rounded-2xl p-8 text-center shadow-2xl backdrop-blur-md">
+          <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto mb-4">
+            <ShieldAlert className="w-8 h-8 text-red-500" />
+          </div>
+          <span className="font-mono text-xs font-black uppercase tracking-widest text-red-400 bg-red-950/60 px-2.5 py-1 rounded border border-red-800/40">
+            HTTP 403 • ACESSO NEGADO
+          </span>
+          <h2 className="text-xl font-black mt-4 mb-2 text-white">
+            Área de Comando Restrita
+          </h2>
+          <p className="text-sm text-slate-400 mb-6">
+            {authError || 'Você não possui credenciais administrativas válidas para acessar o painel /admin.'}
+          </p>
+          <button
+            type="button"
+            onClick={onBackToApp}
+            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-semibold text-sm transition-all shadow-lg shadow-blue-600/30 cursor-pointer"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Retornar à Área de Estudos
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================================
+  // PAINEL ADMINISTRATIVO AUTORIZADO
+  // ============================================================================
+  return (
+    <div className={`min-h-screen flex flex-col antialiased ${isDark ? 'bg-[#060B14] text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
+      
+      {/* Top Navbar */}
+      <header className={`sticky top-0 z-30 border-b px-6 py-3 backdrop-blur-md flex items-center justify-between ${
+        isDark ? 'bg-[#0A101D]/90 border-slate-800' : 'bg-white/90 border-slate-200 shadow-xs'
+      }`}>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onBackToApp}
+            className={`p-2 rounded-xl border transition-all cursor-pointer ${
+              isDark ? 'border-slate-800 bg-slate-900/60 text-slate-300 hover:text-white' : 'border-slate-300 bg-slate-100 text-slate-700 hover:text-black'
+            }`}
+            title="Voltar ao Cronograma de Estudos"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+
+          <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center justify-center p-1.5 shadow-xs">
+            <Shield className="w-full h-full text-amber-400" />
+          </div>
+
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-black tracking-tight text-white flex items-center gap-2">
+                Painel Administrativo
+                <span className="text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-bold">
+                  /ADMIN
+                </span>
+              </h1>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Controle Geral do Sistema & Segurança • CFO CBMERJ
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              if (activeTab === 'dashboard') loadDashboard();
+              else if (activeTab === 'users') loadUsers();
+              else if (activeTab === 'sessions') loadSessions();
+              else if (activeTab === 'security' || activeTab === 'audit') loadAudit();
+              else if (activeTab === 'admins') loadAdmins();
+            }}
+            className={`p-2 rounded-xl border transition-all cursor-pointer ${
+              isDark ? 'border-slate-800 bg-slate-900/60 text-slate-300 hover:text-white' : 'border-slate-300 bg-slate-100 text-slate-700 hover:text-black'
+            }`}
+            title="Atualizar dados agora"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={onBackToApp}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-xs cursor-pointer"
+          >
+            Área do Aluno
+          </button>
+        </div>
+      </header>
+
+      {/* Action Feedback Banner */}
+      {actionFeedback && (
+        <div className={`px-6 py-2 flex items-center justify-between text-xs font-medium ${
+          actionFeedback.type === 'success'
+            ? 'bg-emerald-950/80 border-b border-emerald-800 text-emerald-300'
+            : 'bg-red-950/80 border-b border-red-800 text-red-300'
+        }`}>
+          <span>{actionFeedback.message}</span>
+          <button
+            type="button"
+            onClick={() => setActionFeedback(null)}
+            className="p-1 hover:opacity-80 font-bold"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Main Layout: Sidebar + Content */}
+      <div className="flex-1 flex w-full">
+        
+        {/* Sidebar */}
+        <aside className={`w-64 shrink-0 border-r p-4 flex flex-col gap-1 select-none ${
+          isDark ? 'bg-[#080D18] border-slate-800/80' : 'bg-white border-slate-200'
+        }`}>
+          <p className="text-[10px] font-mono uppercase tracking-widest text-slate-500 font-bold px-3 py-1">
+            Menu Operacional
+          </p>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('dashboard')}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === 'dashboard'
+                ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
+            }`}
+          >
+            <LayoutDashboard className="w-4 h-4 text-amber-400" />
+            Dashboard
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('users')}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === 'users'
+                ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
+            }`}
+          >
+            <Users className="w-4 h-4 text-blue-400" />
+            Usuários
+            {stats && (
+              <span className="ml-auto text-[10px] font-mono bg-slate-800 px-1.5 py-0.5 rounded text-slate-400">
+                {stats.totalUsers}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('security')}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === 'security'
+                ? 'bg-red-500/15 text-red-300 border border-red-500/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
+            }`}
+          >
+            <ShieldAlert className="w-4 h-4 text-red-400" />
+            Segurança
+            {anomalies.length > 0 && (
+              <span className="ml-auto text-[10px] font-mono bg-red-500/20 text-red-300 border border-red-500/40 px-1.5 py-0.5 rounded font-bold">
+                {anomalies.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('sessions')}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === 'sessions'
+                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
+            }`}
+          >
+            <KeyRound className="w-4 h-4 text-emerald-400" />
+            Sessões
+            {stats && (
+              <span className="ml-auto text-[10px] font-mono bg-slate-800 px-1.5 py-0.5 rounded text-slate-400">
+                {stats.activeUsers24h}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('audit')}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === 'audit'
+                ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
+            }`}
+          >
+            <FileText className="w-4 h-4 text-purple-400" />
+            Auditoria
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('admins')}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === 'admins'
+                ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4 text-yellow-400" />
+            Administradores
+            {stats && (
+              <span className="ml-auto text-[10px] font-mono bg-slate-800 px-1.5 py-0.5 rounded text-slate-400">
+                {stats.adminCount}
+              </span>
+            )}
+          </button>
+
+          <div className="mt-auto pt-4 border-t border-slate-800/60">
+            <button
+              type="button"
+              onClick={() => setActiveTab('settings')}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === 'settings'
+                  ? 'bg-slate-800 text-white'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+              }`}
+            >
+              <Settings className="w-4 h-4 text-slate-400" />
+              Configurações
+            </button>
+          </div>
+        </aside>
+
+        {/* Content Area */}
+        <main className="flex-1 p-6 overflow-y-auto max-w-7xl mx-auto w-full space-y-6">
+          
+          {/* ================================================================= */}
+          {/* TAB: DASHBOARD                                                    */}
+          {/* ================================================================= */}
+          {activeTab === 'dashboard' && (
+            <div className="space-y-6">
+              {/* Alerta de Anomalia Factual */}
+              {anomalies.length > 0 && (
+                <div className="bg-red-950/40 border border-red-800/70 rounded-2xl p-4 flex items-center gap-3">
+                  <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+                  <div className="flex-1 text-xs">
+                    <p className="font-bold text-red-200">
+                      {anomalies.length} IP(s) com atividade anômala registrada nas últimas 24h
+                    </p>
+                    <p className="text-red-300/80">
+                      Tentativas repetidas de autenticação com falha detectadas:{' '}
+                      {anomalies.map((a) => `${a.ip} (${a.failedAttempts} falhas)`).join(', ')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('security')}
+                    className="text-xs font-semibold px-3 py-1 bg-red-800 hover:bg-red-700 text-white rounded-lg transition-all"
+                  >
+                    Ver Segurança
+                  </button>
+                </div>
+              )}
+
+              {/* Grid de Métricas Principais */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-4 shadow-xs">
+                  <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+                    <span>Total de Usuários</span>
+                    <Users className="w-4 h-4 text-blue-400" />
+                  </div>
+                  <p className="text-2xl font-black text-white">{stats?.totalUsers ?? '—'}</p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Cadastrados na base oficial
+                  </p>
+                </div>
+
+                <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-4 shadow-xs">
+                  <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+                    <span>Usuários Ativos (24h)</span>
+                    <Activity className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <p className="text-2xl font-black text-emerald-400">{stats?.activeUsers24h ?? '—'}</p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Com sessões registradas hoje
+                  </p>
+                </div>
+
+                <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-4 shadow-xs">
+                  <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+                    <span>Logins Bem-Sucedidos</span>
+                    <CheckCircle2 className="w-4 h-4 text-blue-400" />
+                  </div>
+                  <p className="text-2xl font-black text-blue-400">{stats?.loginSuccess24h ?? '—'}</p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Autenticações válidas em 24h
+                  </p>
+                </div>
+
+                <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-4 shadow-xs">
+                  <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
+                    <span>Falhas / Tentativas</span>
+                    <XCircle className="w-4 h-4 text-red-400" />
+                  </div>
+                  <p className="text-2xl font-black text-red-400">{stats?.loginFailed24h ?? '—'}</p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Falhas de login em 24h
+                  </p>
+                </div>
+              </div>
+
+              {/* Linha Dupla: Sessões Recentes & Atividades Recentes */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* Sessões Ativas Relevantes */}
+                <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <KeyRound className="w-4 h-4 text-emerald-400" />
+                      Sessões Recentes em Aberto
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('sessions')}
+                      className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
+                    >
+                      Ver todas
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {recentSessions.length === 0 ? (
+                      <p className="text-xs text-slate-500 py-4 text-center">Nenhuma sessão ativa encontrada.</p>
+                    ) : (
+                      recentSessions.slice(0, 5).map((s) => (
+                        <div key={s.id} className="p-3 bg-slate-900/50 rounded-xl border border-slate-800/60 flex items-center justify-between text-xs">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-white">@{s.username}</span>
+                              <span className="text-[10px] font-mono text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
+                                {s.role}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                              IP: {s.ip || '127.0.0.1'}
+                            </p>
+                          </div>
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            Expira: {new Date(s.expiresAt).toLocaleDateString('pt-BR')}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Atividade de Segurança Recente */}
+                <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-amber-400" />
+                      Últimos Eventos Registrados
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('security')}
+                      className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
+                    >
+                      Ver todos
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {recentEvents.length === 0 ? (
+                      <p className="text-xs text-slate-500 py-4 text-center">Nenhum evento recente.</p>
+                    ) : (
+                      recentEvents.slice(0, 5).map((e) => (
+                        <div key={e.id} className="p-3 bg-slate-900/50 rounded-xl border border-slate-800/60 flex items-center justify-between text-xs">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className={`font-bold font-mono text-[11px] ${
+                                e.status === 'SUCCESS' ? 'text-emerald-400' : 'text-red-400'
+                              }`}>
+                                {e.action}
+                              </span>
+                              <span className="text-slate-400 text-[11px]">
+                                por <strong className="text-slate-200">@{e.actor}</strong>
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                              {e.ip || 'IP não informado'}
+                            </p>
+                          </div>
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            {new Date(e.createdAt).toLocaleTimeString('pt-BR')}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* TAB: USUÁRIOS                                                     */}
+          {/* ================================================================= */}
+          {activeTab === 'users' && (
+            <div className="space-y-4">
+              
+              {/* Barra de Filtros e Busca */}
+              <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-4 flex flex-wrap gap-3 items-center justify-between">
+                <div className="flex-1 min-w-[240px] relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    placeholder="Pesquisar por nome, @username, e-mail ou ID..."
+                    value={usersSearch}
+                    onChange={(e) => {
+                      setUsersSearch(e.target.value);
+                      setUsersPage(1);
+                    }}
+                    className="w-full bg-slate-900/80 border border-slate-700/80 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <select
+                    value={usersRoleFilter}
+                    onChange={(e) => {
+                      setUsersRoleFilter(e.target.value);
+                      setUsersPage(1);
+                    }}
+                    className="bg-slate-900/80 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                  >
+                    <option value="">Todos os Papéis</option>
+                    <option value="cadet">Cadetes (Alunos)</option>
+                    <option value="admin">Administradores</option>
+                  </select>
+
+                  <select
+                    value={usersStatusFilter}
+                    onChange={(e) => {
+                      setUsersStatusFilter(e.target.value);
+                      setUsersPage(1);
+                    }}
+                    className="bg-slate-900/80 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                  >
+                    <option value="">Todos os Status</option>
+                    <option value="active">Ativos</option>
+                    <option value="suspended">Suspensos</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Tabela de Usuários */}
+              <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl overflow-hidden shadow-xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-900/80 text-slate-400 font-mono text-[11px] border-b border-slate-800">
+                      <tr>
+                        <th className="px-4 py-3">Aluno / Usuário</th>
+                        <th className="px-4 py-3">E-mail</th>
+                        <th className="px-4 py-3">Papel</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3">Cadastro</th>
+                        <th className="px-4 py-3 text-right">Ações Administrativas</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {isUsersLoading ? (
+                        <tr>
+                          <td colSpan={6} className="text-center py-8 text-slate-400">
+                            Carregando usuários...
+                          </td>
+                        </tr>
+                      ) : users.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="text-center py-8 text-slate-500">
+                            Nenhum usuário encontrado com os filtros aplicados.
+                          </td>
+                        </tr>
+                      ) : (
+                        users.map((u) => (
+                          <tr key={u.id} className="hover:bg-slate-900/40 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                {u.avatarUrl ? (
+                                  <img
+                                    src={u.avatarUrl}
+                                    alt={u.username}
+                                    className="w-8 h-8 rounded-full object-cover border border-slate-700 shrink-0"
+                                  />
+                                ) : (
+                                  <div className="w-8 h-8 rounded-full bg-blue-600/20 border border-blue-500/30 text-blue-400 flex items-center justify-center font-bold text-xs shrink-0">
+                                    {(u.fullName || u.username).slice(0, 1).toUpperCase()}
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="font-bold text-white">{u.fullName || u.username}</p>
+                                  <p className="text-[11px] font-mono text-blue-400">@{u.username}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 font-mono text-slate-300">
+                              {u.email}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center gap-1 font-mono text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                u.role === 'admin'
+                                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                                  : 'bg-blue-500/10 border-blue-500/30 text-blue-300'
+                              }`}>
+                                {u.role === 'admin' ? 'OFICIAL ADMIN' : 'CADETE'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center gap-1 font-mono text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                u.status === 'active'
+                                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                  : 'bg-red-500/10 border-red-500/30 text-red-400'
+                              }`}>
+                                {u.status === 'active' ? 'ATIVO' : 'SUSPENSO'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 font-mono text-slate-400 text-[11px]">
+                              {new Date(u.createdAt).toLocaleDateString('pt-BR')}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleUserStatus(u)}
+                                  className={`px-2.5 py-1 rounded-lg font-semibold text-[11px] border transition-all cursor-pointer ${
+                                    u.status === 'suspended'
+                                      ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30'
+                                      : 'bg-red-600/20 border-red-500/40 text-red-300 hover:bg-red-600/30'
+                                  }`}
+                                  title={u.status === 'suspended' ? 'Reativar conta' : 'Suspender conta'}
+                                >
+                                  {u.status === 'suspended' ? 'Reativar' : 'Suspender'}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleUserRole(u)}
+                                  className="px-2.5 py-1 rounded-lg font-semibold text-[11px] border border-slate-700 bg-slate-800/80 text-slate-300 hover:text-white transition-all cursor-pointer"
+                                  title="Alternar entre Cadete e Administrador"
+                                >
+                                  {u.role === 'admin' ? 'Tornar Cadete' : 'Promover Admin'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Paginação */}
+                <div className="px-4 py-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                  <span>
+                    Total: <strong className="text-white">{usersTotal}</strong> usuários
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={usersPage <= 1}
+                      onClick={() => setUsersPage((p) => Math.max(1, p - 1))}
+                      className="p-1 rounded bg-slate-800 disabled:opacity-30 cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span>
+                      Página {usersPage} de {usersTotalPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={usersPage >= usersTotalPages}
+                      onClick={() => setUsersPage((p) => Math.min(usersTotalPages, p + 1))}
+                      className="p-1 rounded bg-slate-800 disabled:opacity-30 cursor-pointer"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* TAB: SEGURANÇA & AUDITORIA                                        */}
+          {/* ================================================================= */}
+          {(activeTab === 'security' || activeTab === 'audit') && (
+            <div className="space-y-4">
+              
+              {/* Filtros de Auditoria */}
+              <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-4 flex flex-wrap gap-3 items-center justify-between">
+                <div className="flex-1 min-w-[240px] relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por ator, IP, recurso ou detalhes..."
+                    value={auditSearch}
+                    onChange={(e) => {
+                      setAuditSearch(e.target.value);
+                      setAuditPage(1);
+                    }}
+                    className="w-full bg-slate-900/80 border border-slate-700/80 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <select
+                    value={auditActionFilter}
+                    onChange={(e) => {
+                      setAuditActionFilter(e.target.value);
+                      setAuditPage(1);
+                    }}
+                    className="bg-slate-900/80 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                  >
+                    <option value="">Todas as Ações</option>
+                    <option value="LOGIN_SUCCESS">LOGIN_SUCCESS</option>
+                    <option value="LOGIN_FAILED">LOGIN_FAILED</option>
+                    <option value="2FA_SUCCESS">2FA_SUCCESS</option>
+                    <option value="2FA_FAILED">2FA_FAILED</option>
+                    <option value="ADMIN_LOGIN">ADMIN_LOGIN</option>
+                    <option value="ADMIN_LOGIN_FAILED">ADMIN_LOGIN_FAILED</option>
+                    <option value="ACCOUNT_SUSPENDED">ACCOUNT_SUSPENDED</option>
+                    <option value="SESSION_REVOKED">SESSION_REVOKED</option>
+                  </select>
+
+                  <select
+                    value={auditStatusFilter}
+                    onChange={(e) => {
+                      setAuditStatusFilter(e.target.value);
+                      setAuditPage(1);
+                    }}
+                    className="bg-slate-900/80 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                  >
+                    <option value="">Todos os Status</option>
+                    <option value="SUCCESS">Sucesso</option>
+                    <option value="FAILED">Falha</option>
+                    <option value="WARNING">Aviso</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Tabela de Eventos */}
+              <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl overflow-hidden shadow-xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-900/80 text-slate-400 font-mono text-[11px] border-b border-slate-800">
+                      <tr>
+                        <th className="px-4 py-3">Horário</th>
+                        <th className="px-4 py-3">Ação</th>
+                        <th className="px-4 py-3">Ator / Usuário</th>
+                        <th className="px-4 py-3">IP</th>
+                        <th className="px-4 py-3">Dispositivo / User-Agent</th>
+                        <th className="px-4 py-3">Resultado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
+                      {isAuditLoading ? (
+                        <tr>
+                          <td colSpan={6} className="text-center py-8 text-slate-400">
+                            Carregando registros forenses...
+                          </td>
+                        </tr>
+                      ) : auditEvents.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="text-center py-8 text-slate-500">
+                            Nenhum evento localizado com os filtros informados.
+                          </td>
+                        </tr>
+                      ) : (
+                        auditEvents.map((evt) => (
+                          <tr key={evt.id} className="hover:bg-slate-900/40 transition-colors">
+                            <td className="px-4 py-3 text-slate-400 whitespace-nowrap">
+                              {new Date(evt.createdAt).toLocaleString('pt-BR')}
+                            </td>
+                            <td className="px-4 py-3 font-bold text-white">
+                              {evt.action}
+                            </td>
+                            <td className="px-4 py-3 text-blue-400">
+                              @{evt.actor}
+                            </td>
+                            <td className="px-4 py-3 text-slate-300">
+                              {evt.ip || '—'}
+                            </td>
+                            <td className="px-4 py-3 text-slate-400 max-w-[200px] truncate" title={evt.userAgent || ''}>
+                              {evt.userAgent || '—'}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded-full border ${
+                                evt.status === 'SUCCESS'
+                                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                  : 'bg-red-500/10 border-red-500/30 text-red-400'
+                              }`}>
+                                {evt.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Paginação */}
+                <div className="px-4 py-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                  <span>
+                    Total: <strong className="text-white">{auditTotal}</strong> eventos
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={auditPage <= 1}
+                      onClick={() => setAuditPage((p) => Math.max(1, p - 1))}
+                      className="p-1 rounded bg-slate-800 disabled:opacity-30 cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span>
+                      Página {auditPage} de {auditTotalPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={auditPage >= auditTotalPages}
+                      onClick={() => setAuditPage((p) => Math.min(auditTotalPages, p + 1))}
+                      className="p-1 rounded bg-slate-800 disabled:opacity-30 cursor-pointer"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* TAB: SESSÕES                                                      */}
+          {/* ================================================================= */}
+          {activeTab === 'sessions' && (
+            <div className="space-y-4">
+              <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <KeyRound className="w-4 h-4 text-emerald-400" />
+                    Sessões Ativas Autorizadas
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Listagem de tokens ativos no banco de dados. Revogar uma sessão encerra o acesso do dispositivo imediatamente.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadSessions}
+                  className="px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-800/80 text-xs text-slate-200 hover:text-white"
+                >
+                  Recarregar
+                </button>
+              </div>
+
+              <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl overflow-hidden shadow-xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-900/80 text-slate-400 font-mono text-[11px] border-b border-slate-800">
+                      <tr>
+                        <th className="px-4 py-3">Usuário</th>
+                        <th className="px-4 py-3">Papel</th>
+                        <th className="px-4 py-3">Endereço IP</th>
+                        <th className="px-4 py-3">Dispositivo / User-Agent</th>
+                        <th className="px-4 py-3">Início</th>
+                        <th className="px-4 py-3">Expira em</th>
+                        <th className="px-4 py-3 text-right">Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
+                      {isSessionsLoading ? (
+                        <tr>
+                          <td colSpan={7} className="text-center py-8 text-slate-400">
+                            Carregando sessões ativas...
+                          </td>
+                        </tr>
+                      ) : sessions.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="text-center py-8 text-slate-500">
+                            Nenhuma sessão ativa encontrada.
+                          </td>
+                        </tr>
+                      ) : (
+                        sessions.map((s) => (
+                          <tr key={s.id} className="hover:bg-slate-900/40 transition-colors">
+                            <td className="px-4 py-3">
+                              <span className="font-bold text-white">@{s.username}</span>
+                              <span className="text-slate-400 block text-[10px]">{s.email}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="bg-slate-800 px-2 py-0.5 rounded text-[10px] text-slate-300">
+                                {s.role}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-300">
+                              {s.ip || '127.0.0.1'}
+                            </td>
+                            <td className="px-4 py-3 text-slate-400 max-w-[200px] truncate" title={s.userAgent || ''}>
+                              {s.userAgent || 'Desconhecido'}
+                            </td>
+                            <td className="px-4 py-3 text-slate-400">
+                              {new Date(s.createdAt).toLocaleDateString('pt-BR')}
+                            </td>
+                            <td className="px-4 py-3 text-slate-400">
+                              {new Date(s.expiresAt).toLocaleDateString('pt-BR')}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleRevokeSession(s.id)}
+                                className="px-2.5 py-1 bg-red-950/60 border border-red-800 text-red-300 hover:bg-red-900 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
+                              >
+                                Revogar
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* TAB: ADMINISTRADORES                                              */}
+          {/* ================================================================= */}
+          {activeTab === 'admins' && (
+            <div className="space-y-4">
+              <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-yellow-400" />
+                    Oficiais Administradores do Sistema
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Contas com privilégios irrestritos de comando, auditoria e gestão tática.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {adminsList.map((adm) => (
+                  <div key={adm.id} className="bg-[#0B1220] border border-amber-500/30 rounded-2xl p-5 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 flex items-center justify-center font-black text-sm">
+                        {(adm.fullName || adm.username).slice(0, 1).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="font-bold text-white text-sm">{adm.fullName || adm.username}</p>
+                        <p className="font-mono text-xs text-amber-400 font-semibold">@{adm.username}</p>
+                      </div>
+                    </div>
+                    <div className="border-t border-slate-800 pt-3 text-xs space-y-1 font-mono text-slate-400">
+                      <p>E-mail: <span className="text-slate-200">{adm.email}</span></p>
+                      <p>Status: <span className="text-emerald-400 font-bold">ATIVO</span></p>
+                      <p>Criado em: <span>{new Date(adm.createdAt).toLocaleDateString('pt-BR')}</span></p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* TAB: CONFIGURAÇÕES                                                */}
+          {/* ================================================================= */}
+          {activeTab === 'settings' && (
+            <div className="space-y-6">
+              <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-5 space-y-4">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-blue-400" />
+                  Políticas de Segurança e Retenção do Servidor
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800">
+                    <span className="text-slate-400 block text-[11px]">Autenticação 2FA (Dragão Carmesim)</span>
+                    <span className="text-emerald-400 font-bold font-mono text-sm">ATIVADO PERMANENTE</span>
+                  </div>
+
+                  <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800">
+                    <span className="text-slate-400 block text-[11px]">Duração da Sessão Confiável</span>
+                    <span className="text-white font-bold font-mono text-sm">30 DIAS</span>
+                  </div>
+
+                  <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800">
+                    <span className="text-slate-400 block text-[11px]">Retenção de Backups & Auditoria</span>
+                    <span className="text-white font-bold font-mono text-sm">30 DIAS</span>
+                  </div>
+
+                  <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800">
+                    <span className="text-slate-400 block text-[11px]">Ambiente do Servidor</span>
+                    <span className="text-amber-400 font-bold font-mono text-sm">PRODUÇÃO / RENDER</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </main>
+      </div>
+
+    </div>
+  );
+};

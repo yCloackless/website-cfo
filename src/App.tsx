@@ -68,8 +68,25 @@ import { TacticalSidebar } from './components/TacticalSidebar';
 import { ErrorNotebookTab } from './components/ErrorNotebookTab';
 import { MyAccountModal } from './components/MyAccountModal';
 import { AdminSecurityPanelModal } from './components/AdminSecurityPanelModal';
+import { AdminDashboard } from './components/admin/AdminDashboard';
 
 export default function App() {
+  // 🧭 Roteamento SPA (/admin e área do aluno)
+  const [currentPath, setCurrentPath] = useState<string>(() => window.location.pathname);
+
+  useEffect(() => {
+    const onPopState = () => setCurrentPath(window.location.pathname);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  const navigateTo = useCallback((path: string) => {
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path);
+    }
+    setCurrentPath(path);
+  }, []);
+
   // 🛡️ Security Gate (2FA TOTP Terminal) State
   const [isTerminalUnlocked, setIsTerminalUnlocked] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
@@ -1028,6 +1045,17 @@ export default function App() {
     );
   }
 
+  // 🛡️ Painel Administrativo (/admin)
+  if (currentPath === '/admin' || currentPath.startsWith('/admin')) {
+    return (
+      <AdminDashboard
+        theme={theme}
+        sessionToken={localStorage.getItem('cfo_terminal_session')}
+        onBackToApp={() => navigateTo('/')}
+      />
+    );
+  }
+
   // Se o terminal não estiver desbloqueado (visitante ou deslogado)
   if (!isTerminalUnlocked) {
     if (showLoginModal) {
@@ -1086,7 +1114,7 @@ export default function App() {
         userProfile={userProfile}
         onOpenAccount={() => setIsMyAccountOpen(true)}
         isAdmin={userProfile?.role === 'admin' || localStorage.getItem('cfo_terminal_role') === 'admin'}
-        onOpenAdminSecurity={() => setIsAdminSecurityOpen(true)}
+        onOpenAdminSecurity={() => navigateTo('/admin')}
         hasCalendarAccess={isCalendarLinked}
         calendarEmail={backendCalendar.email || user?.email}
         calendarName={backendCalendar.name || user?.displayName}
