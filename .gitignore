@@ -8,3 +8,9 @@ coverage/
 !.env.example
 /data/
 !/data/notion-seed.json
+*.gz
+*.tar.gz
+*.sha256
+banned-ips.json
+security-config.json
+calendar-session.json

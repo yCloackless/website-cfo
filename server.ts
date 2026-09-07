@@ -20,6 +20,15 @@ import {
   updateCheckinInNotion,
   createStudyInNotion,
 } from "./notionBackend";
+import {
+  createFullBackup,
+  getBackupStatus,
+  loadBackupIndex,
+  verifyBackupIntegrity,
+  restoreBackup,
+  initBackupScheduler,
+} from "./src/services/backupService";
+import { logAuditEvent, readRecentAuditLogs } from "./src/services/auditLogger";
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -40,7 +49,7 @@ app.get("/api/health", (_req: Request, res: Response) => {
 // ============================================================================
 // 🛑 GERENCIAMENTO DE IPs BANIDOS & LISTA NEGRA PERMANENTE
 // ============================================================================
-const BANNED_IPS_FILE = path.join(process.cwd(), "banned-ips.json");
+const BANNED_IPS_FILE = path.join(process.cwd(), "data", "banned-ips.json");
 
 interface BannedIpRecord {
   ip: string;
@@ -51,6 +60,14 @@ interface BannedIpRecord {
 
 function loadBannedIps(): Record<string, BannedIpRecord> {
   try {
+    // Migração de compatibilidade se existia na raiz
+    const legacyPath = path.join(process.cwd(), "banned-ips.json");
+    if (!fs.existsSync(BANNED_IPS_FILE) && fs.existsSync(legacyPath)) {
+      try {
+        fs.copyFileSync(legacyPath, BANNED_IPS_FILE);
+      } catch {}
+    }
+
     if (fs.existsSync(BANNED_IPS_FILE)) {
       const raw = fs.readFileSync(BANNED_IPS_FILE, "utf-8");
       return JSON.parse(raw);
@@ -63,6 +80,8 @@ function loadBannedIps(): Record<string, BannedIpRecord> {
 
 function saveBannedIps(data: Record<string, BannedIpRecord>): void {
   try {
+    const dir = path.dirname(BANNED_IPS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(BANNED_IPS_FILE, JSON.stringify(data, null, 2), "utf-8");
   } catch (err) {
     console.error("Falha ao gravar banned-ips.json:", err);
@@ -73,13 +92,12 @@ function isIpBanned(ip: string): boolean {
   if (!ip) return false;
   const clean = ip.trim().replace(/^::ffff:/, "");
   const banned = loadBannedIps();
-  return Boolean(banned[clean] || banned[ip]);
+  return Boolean(banned[clean]);
 }
 
 function banIp(ip: string, reason: string, geo?: { country?: string; region?: string }): void {
   if (!ip) return;
   const clean = ip.trim().replace(/^::ffff:/, "");
-  if (clean === "127.0.0.1" || clean === "::1" || clean === "localhost") return;
   const banned = loadBannedIps();
   banned[clean] = {
     ip: clean,
@@ -88,6 +106,11 @@ function banIp(ip: string, reason: string, geo?: { country?: string; region?: st
     geo,
   };
   saveBannedIps(banned);
+  logAuditEvent({
+    eventType: 'IP_BANNED',
+    ip: clean,
+    details: { reason, geo },
+  });
   console.error(`🚨 [SEGURANÇA CFO CBMERJ] IP BANIDO PERMANENTEMENTE: ${clean} | Motivo: ${reason}`);
 }
 
@@ -240,11 +263,54 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // 3. Compressão Gzip/Brotli de payloads e assets estáticos
 app.use(compression());
 
-// 4. Segurança de Borda e Cabeçalhos com Helmet
+// 4. Segurança de Borda e Cabeçalhos com Helmet (Defesa em Profundidade)
 app.use(
   helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "'unsafe-eval'",
+          "https://challenges.cloudflare.com",
+          "https://accounts.google.com",
+        ],
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://fonts.googleapis.com",
+        ],
+        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
+        frameSrc: [
+          "'self'",
+          "https://challenges.cloudflare.com",
+          "https://accounts.google.com",
+        ],
+        connectSrc: [
+          "'self'",
+          "https://challenges.cloudflare.com",
+          "https://*.googleapis.com",
+          "https://generativelanguage.googleapis.com",
+          "https://*.google.com",
+          "http://ip-api.com",
+        ],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'self'"],
+      },
+    },
     crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
+    noSniff: true,
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
   })
 );
 
@@ -502,6 +568,14 @@ const CADET_PASSWORD = process.env.CADET_PASSWORD || "cadetecfo2026!";
 const DEFAULT_TOTP_SECRET = "T37NFOFA5PCDA5NRXKDVWVEHZ2F22ZV3";
 const DEFAULT_SESSION_SECRET = "b6708b60d07229c5f49cbc2612e747acae36b92bf8435b11569bc916560ea12f";
 const SECURITY_CONFIG_FILE = path.join(process.cwd(), "data", "security-config.json");
+
+// Verificação de senha em tempo constante (Proteção contra Timing Attacks)
+function safeComparePassword(input: string, expected: string): boolean {
+  if (!input || !expected) return false;
+  const a = crypto.createHash("sha256").update(input).digest();
+  const b = crypto.createHash("sha256").update(expected).digest();
+  return crypto.timingSafeEqual(a, b);
+}
 
 interface SecurityConfig {
   totpSecret: string;
@@ -896,16 +970,32 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
       inputUser === "aluno@cfocbmerj.com";
 
     if (isCadetTarget) {
-      if (password !== CADET_PASSWORD) {
+      if (!safeComparePassword(password, CADET_PASSWORD)) {
+        logAuditEvent({
+          action: "LOGIN_FAILED",
+          actor: inputUser,
+          resource: "/api/auth/check-credentials",
+          status: "FAILED",
+          ip: clientIp,
+          details: { reason: "Credenciais inválidas para cadete" },
+        });
         return res.status(401).json({
           success: false,
           error: "INVALID_CREDENTIALS",
-          message: "Senha de acesso do Cadete incorreta.",
+          message: "Credenciais de acesso inválidas.",
         });
       }
 
       // Cria sessão do cadete (role: cadet, canAccessNotion: false)
       const session = createTerminalSession("cadete", true, "cadet");
+      logAuditEvent({
+        action: "LOGIN_SUCCESS",
+        actor: inputUser,
+        resource: "/api/auth/check-credentials",
+        status: "SUCCESS",
+        ip: clientIp,
+        details: { role: "cadet", method: "direct" },
+      });
       console.log(`[Terminal CFO CBMERJ] Acesso de Cadete autenticado: ${inputUser}`);
       return res.json({
         success: true,
@@ -948,18 +1038,34 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
       ALLOWED_EMAILS.includes(inputUser);
 
     if (!isAuthorized) {
+      logAuditEvent({
+        action: "LOGIN_FAILED",
+        actor: inputUser,
+        resource: "/api/auth/check-credentials",
+        status: "FAILED",
+        ip: clientIp,
+        details: { reason: "Usuário não autorizado" },
+      });
       return res.status(401).json({
         success: false,
         error: "INVALID_CREDENTIALS",
-        message: "Identificador ou e-mail incorreto.",
+        message: "Credenciais de acesso inválidas.",
       });
     }
 
-    if (password !== ADMIN_PASSWORD) {
+    if (!safeComparePassword(password, ADMIN_PASSWORD)) {
+      logAuditEvent({
+        action: "LOGIN_FAILED",
+        actor: inputUser,
+        resource: "/api/auth/check-credentials",
+        status: "FAILED",
+        ip: clientIp,
+        details: { reason: "Senha incorreta" },
+      });
       return res.status(401).json({
         success: false,
         error: "INVALID_CREDENTIALS",
-        message: "Senha de acesso incorreta.",
+        message: "Credenciais de acesso inválidas.",
       });
     }
 
@@ -1035,17 +1141,18 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
       cleanUser === "jb080956@gmail.com" ||
       ALLOWED_EMAILS.includes(cleanUser);
 
-    if (!isAuthorized) {
-      return res.status(401).json({
-        error: "INVALID_CREDENTIALS",
-        message: "Identificador de operador incorreto.",
+    if (!isAuthorized || !safeComparePassword(password, ADMIN_PASSWORD)) {
+      logAuditEvent({
+        action: "LOGIN_FAILED",
+        actor: cleanUser,
+        resource: "/api/auth/verify-2fa",
+        status: "FAILED",
+        ip: clientIp,
+        details: { reason: "Credenciais inválidas na etapa 2FA" },
       });
-    }
-
-    if (password !== ADMIN_PASSWORD) {
       return res.status(401).json({
         error: "INVALID_CREDENTIALS",
-        message: "Chave mestra de acesso incorreta.",
+        message: "Credenciais de acesso inválidas.",
       });
     }
 
@@ -1061,6 +1168,14 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
 
     const isCodeValid = verifyTotpToken(token, config.totpSecret);
     if (!isCodeValid) {
+      logAuditEvent({
+        action: "LOGIN_2FA_FAILED",
+        actor: cleanUser,
+        resource: "/api/auth/verify-2fa",
+        status: "FAILED",
+        ip: clientIp,
+        details: { reason: "Código TOTP inválido ou expirado" },
+      });
       return res.status(401).json({
         error: "INVALID_TOTP",
         message: "Código Authenticator incorreto ou expirado. Verifique o relógio do seu celular.",
@@ -1068,6 +1183,14 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
     }
 
     const session = createTerminalSession(cleanUser, rememberMe !== false, "admin");
+    logAuditEvent({
+      action: "LOGIN_SUCCESS",
+      actor: cleanUser,
+      resource: "/api/auth/verify-2fa",
+      status: "SUCCESS",
+      ip: clientIp,
+      details: { role: "admin", rememberMe: rememberMe !== false },
+    });
     console.log(`[Terminal CFO CBMERJ] Acesso autenticado via 2FA para '${cleanUser}' (30 dias: ${rememberMe !== false})`);
 
     return res.json({
@@ -2605,6 +2728,318 @@ app.post("/api/notion/novo-estudo", async (req: Request, res: Response) => {
   }
 });
 
+// ============================================================================
+// 💾 SISTEMA PROFISSIONAL DE BACKUP E SINCRONIZAÇÃO RESILIENTE
+// ============================================================================
+
+// Middleware de autorização estrita para Operações Administrativas
+function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const adminKey = req.query.adminKey || req.headers["x-admin-key"];
+
+  if (adminKey && safeComparePassword(String(adminKey), ADMIN_PASSWORD)) {
+    return next();
+  }
+
+  const session = verifyTerminalSession(token);
+  if (session.valid && session.role === "admin") {
+    (req as any).user = session;
+    return next();
+  }
+
+  return res.status(403).json({
+    error: "FORBIDDEN",
+    message: "Acesso administrativo restrito. Autenticação de comando necessária.",
+  });
+}
+
+// Middleware de autorização para Usuários Autenticados (Cadete ou Admin)
+function requireUserAuth(req: Request, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const session = verifyTerminalSession(token);
+
+  if (session.valid) {
+    (req as any).user = session;
+    return next();
+  }
+
+  return res.status(401).json({
+    error: "UNAUTHORIZED",
+    message: "Autenticação necessária para sincronização de dados.",
+  });
+}
+
+// 1. Sincronização de Progresso do Usuário (Backup em Nuvem Privada do Aluno/Cadete)
+app.post("/api/user/sync-backup", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { snapshot } = req.body || {};
+
+    if (!snapshot || typeof snapshot !== "object") {
+      return res.status(400).json({
+        error: "INVALID_SNAPSHOT",
+        message: "Dados de backup de estudo inválidos.",
+      });
+    }
+
+    const userBackupDir = path.join(process.cwd(), "data", "user-backups");
+    if (!fs.existsSync(userBackupDir)) {
+      fs.mkdirSync(userBackupDir, { recursive: true });
+    }
+
+    const sanitizedUsername = String(user.username || "cadete").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const userBackupFile = path.join(userBackupDir, `${sanitizedUsername}.json`);
+
+    const dataToSave = {
+      username: user.username,
+      role: user.role,
+      savedAt: new Date().toISOString(),
+      clientIp: getClientIp(req),
+      snapshot,
+    };
+
+    fs.writeFileSync(userBackupFile, JSON.stringify(dataToSave, null, 2), "utf-8");
+
+    logAuditEvent({
+      action: "USER_BACKUP_SYNC",
+      actor: user.username,
+      resource: `/data/user-backups/${sanitizedUsername}.json`,
+      status: "SUCCESS",
+      ip: getClientIp(req),
+      details: { sizeBytes: Buffer.byteLength(JSON.stringify(dataToSave)) },
+    });
+
+    return res.json({
+      success: true,
+      message: "Progresso tático sincronizado e salvo em backup seguro no servidor.",
+      savedAt: dataToSave.savedAt,
+    });
+  } catch (err: any) {
+    console.error("[User Backup] Falha ao salvar backup do usuário:", err);
+    return res.status(500).json({
+      error: "SYNC_ERROR",
+      message: "Falha ao gravar backup de progresso no servidor.",
+    });
+  }
+});
+
+// 2. Restauração de Progresso do Usuário
+app.get("/api/user/restore-backup", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const sanitizedUsername = String(user.username || "cadete").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const userBackupFile = path.join(process.cwd(), "data", "user-backups", `${sanitizedUsername}.json`);
+
+    if (!fs.existsSync(userBackupFile)) {
+      return res.status(404).json({
+        error: "NO_BACKUP_FOUND",
+        message: "Nenhum backup em nuvem encontrado para este operador.",
+      });
+    }
+
+    const raw = fs.readFileSync(userBackupFile, "utf-8");
+    const parsed = JSON.parse(raw);
+
+    logAuditEvent({
+      action: "USER_BACKUP_RESTORE",
+      actor: user.username,
+      resource: `/data/user-backups/${sanitizedUsername}.json`,
+      status: "SUCCESS",
+      ip: getClientIp(req),
+    });
+
+    return res.json({
+      success: true,
+      backup: parsed,
+    });
+  } catch (err: any) {
+    console.error("[User Backup] Falha ao ler backup do usuário:", err);
+    return res.status(500).json({
+      error: "RESTORE_ERROR",
+      message: "Falha ao recuperar backup de progresso do servidor.",
+    });
+  }
+});
+
+// 3. Status Geral do Sistema de Backup do Servidor (Painel de Administração)
+app.get("/api/admin/backup/status", requireAdminAuth, (_req: Request, res: Response) => {
+  try {
+    const status = getBackupStatus();
+    return res.json({
+      success: true,
+      status,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      error: "BACKUP_STATUS_ERROR",
+      message: err?.message || "Falha ao consultar status de backup.",
+    });
+  }
+});
+
+// 4. Listagem de Backups Disponíveis com Verificação de Integridade
+app.get("/api/admin/backup/list", requireAdminAuth, (_req: Request, res: Response) => {
+  try {
+    const backups = loadBackupIndex();
+    return res.json({
+      success: true,
+      backups,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      error: "BACKUP_LIST_ERROR",
+      message: err?.message || "Falha ao listar backups.",
+    });
+  }
+});
+
+// 5. Criação Manual Imediata de Backup Completo
+app.post("/api/admin/backup/create", requireAdminAuth, async (req: Request, res: Response) => {
+  try {
+    const actor = (req as any).user?.username || "admin";
+    const clientIp = getClientIp(req);
+
+    logAuditEvent({
+      action: "BACKUP_CREATE_MANUAL_REQUESTED",
+      actor,
+      resource: "server_data_backup",
+      status: "PENDING",
+      ip: clientIp,
+    });
+
+    const meta = await createFullBackup("manual");
+
+    if (meta && meta.filename) {
+      logAuditEvent({
+        action: "BACKUP_CREATE_SUCCESS",
+        actor,
+        resource: meta.filename,
+        status: "SUCCESS",
+        ip: clientIp,
+        details: {
+          sizeBytes: meta.sizeBytes,
+          sha256: meta.sha256,
+        },
+      });
+
+      return res.json({
+        success: true,
+        message: "Backup completo gerado e verificado com sucesso.",
+        meta,
+      });
+    } else {
+      logAuditEvent({
+        action: "BACKUP_CREATE_FAILED",
+        actor,
+        resource: "server_data_backup",
+        status: "FAILED",
+        ip: clientIp,
+      });
+
+      return res.status(500).json({
+        success: false,
+        error: "BACKUP_FAILED",
+        message: "Falha ao gerar backup.",
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      error: "BACKUP_ERROR",
+      message: err?.message || "Erro inesperado ao gerar backup.",
+    });
+  }
+});
+
+// 6. Restauração Crítica de Backup do Servidor (Requer confirmação explícita)
+app.post("/api/admin/backup/restore", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const { filename, confirm } = req.body || {};
+    const actor = (req as any).user?.username || "admin";
+    const clientIp = getClientIp(req);
+
+    if (!filename) {
+      return res.status(400).json({
+        error: "MISSING_FILENAME",
+        message: "O nome do arquivo de backup (.json.gz) é obrigatório.",
+      });
+    }
+
+    if (confirm !== true && confirm !== "RESTORE_CONFIRMED") {
+      return res.status(400).json({
+        error: "CONFIRMATION_REQUIRED",
+        message: "A restauração de backup sobrescreverá dados do servidor. Envie confirm: 'RESTORE_CONFIRMED' para prosseguir.",
+      });
+    }
+
+    logAuditEvent({
+      action: "BACKUP_RESTORE_REQUESTED",
+      actor,
+      resource: filename,
+      status: "PENDING",
+      ip: clientIp,
+    });
+
+    const result = restoreBackup(String(filename));
+
+    if (result.success) {
+      logAuditEvent({
+        action: "BACKUP_RESTORE_SUCCESS",
+        actor,
+        resource: filename,
+        status: "SUCCESS",
+        ip: clientIp,
+        details: { restoredFiles: result.restoredFiles },
+      });
+
+      return res.json({
+        success: true,
+        message: "Backup restaurado com sucesso no servidor. Dados restabelecidos.",
+        restoredFiles: result.restoredFiles,
+      });
+    } else {
+      logAuditEvent({
+        action: "BACKUP_RESTORE_FAILED",
+        actor,
+        resource: filename,
+        status: "FAILED",
+        ip: clientIp,
+        details: { error: result.error },
+      });
+
+      return res.status(500).json({
+        success: false,
+        error: "RESTORE_FAILED",
+        message: result.error || "Falha na restauração do backup.",
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      error: "RESTORE_ERROR",
+      message: err?.message || "Erro inesperado durante restauração.",
+    });
+  }
+});
+
+// 7. Auditoria de Segurança: Consulta de Trilha de Auditoria (Audit Log)
+app.get("/api/admin/audit-logs", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(200, Math.max(10, Number(req.query.limit) || 50));
+    const logs = readRecentAuditLogs(limit);
+    return res.json({
+      success: true,
+      total: logs.length,
+      logs,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      error: "AUDIT_LOG_ERROR",
+      message: err?.message || "Falha ao ler registros de auditoria.",
+    });
+  }
+});
+
 // Middleware Centralizado de Tratamento de Erros (Evita vazamento de stacktrace)
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   console.error("[Unhandled Server Exception]:", err?.message || err);
@@ -2615,6 +3050,9 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 async function startServer() {
+  // Inicializa o agendador automático diário de backup às 03:00 com retenção de 30 dias
+  initBackupScheduler();
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
