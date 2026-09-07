@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Layers,
   Sparkles,
@@ -22,6 +22,10 @@ import {
   Shuffle,
   Tag,
   Zap,
+  Image as ImageIcon,
+  Upload,
+  Edit3,
+  Maximize2,
 } from 'lucide-react';
 import { AppTheme } from '../types';
 
@@ -30,6 +34,8 @@ export interface Flashcard {
   deckId: string;
   question: string;
   answer: string;
+  questionImage?: string; // Data URL Base64 da imagem da pergunta
+  answerImage?: string; // Data URL Base64 da imagem da resposta
   createdAt: string;
   lastReviewedAt?: string;
   state: 'new' | 'learning' | 'review' | 'mastered';
@@ -51,6 +57,31 @@ interface ErrorNotebookTabProps {
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
+// Compactador automático de imagens para não estourar o localStorage
+function compressImage(base64Str: string, maxWidth = 1000, quality = 0.8): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => resolve(base64Str);
+  });
+}
+
 // Baralhos iniciais de alta retenção para o CFO CBMERJ
 const INITIAL_DECKS: Deck[] = [
   {
@@ -70,7 +101,6 @@ const INITIAL_DECKS: Deck[] = [
 ];
 
 const INITIAL_CARDS: Flashcard[] = [
-  // 10 Cards de Estequiometria
   {
     id: 'c_q_01',
     deckId: 'deck_quimica_estequio',
@@ -127,63 +157,6 @@ const INITIAL_CARDS: Flashcard[] = [
     nextReviewDate: new Date().toISOString().split('T')[0],
   },
   {
-    id: 'c_q_06',
-    deckId: 'deck_quimica_estequio',
-    question: 'Quando aplicar o rendimento no cálculo estequiométrico?',
-    answer: 'No final, sobre o produto teórico esperado.',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_q_07',
-    deckId: 'deck_quimica_estequio',
-    question: 'O que é reagente limitante?',
-    answer: 'O reagente que acaba primeiro e determina a quantidade máxima de produto.',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_q_08',
-    deckId: 'deck_quimica_estequio',
-    question: 'Fórmula de concentração comum (C)?',
-    answer: 'C = m_soluto / V_solução (em g/L).',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_q_09',
-    deckId: 'deck_quimica_estequio',
-    question: 'Fórmula da diluição de soluções?',
-    answer: 'C1 * V1 = C2 * V2.',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_q_10',
-    deckId: 'deck_quimica_estequio',
-    question: 'Qual a pegadinha clássica em estequiometria?',
-    answer: 'Esquecer de balancear a equação química antes de cruzar os dados.',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-
-  // 10 Cards de Cinemática
-  {
     id: 'c_f_01',
     deckId: 'deck_fisica_cinematica',
     question: 'Qual a Equação de Torricelli?',
@@ -210,83 +183,6 @@ const INITIAL_CARDS: Flashcard[] = [
     deckId: 'deck_fisica_cinematica',
     question: 'Qual a aceleração no topo de um lançamento vertical?',
     answer: 'Gravidade (g = 10 m/s² orientada para baixo).',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_f_04',
-    deckId: 'deck_fisica_cinematica',
-    question: 'Como converter km/h para m/s?',
-    answer: 'Dividir o valor por 3,6.',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_f_05',
-    deckId: 'deck_fisica_cinematica',
-    question: 'O que representa a área do gráfico v x t?',
-    answer: 'O deslocamento escalar (Δs).',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_f_06',
-    deckId: 'deck_fisica_cinematica',
-    question: 'Em lançamento oblíquo, qual o movimento no eixo X?',
-    answer: 'Movimento Uniforme (MU com velocidade constante vx).',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_f_07',
-    deckId: 'deck_fisica_cinematica',
-    question: 'Em lançamento oblíquo, qual o movimento no eixo Y?',
-    answer: 'Movimento Uniformemente Variado (MUV sob aceleração g).',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_f_08',
-    deckId: 'deck_fisica_cinematica',
-    question: 'Qual ângulo garante alcance horizontal máximo no chão plano?',
-    answer: '45 graus.',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_f_09',
-    deckId: 'deck_fisica_cinematica',
-    question: 'Fórmula da velocidade ao tocar o solo em queda livre?',
-    answer: 'v = √(2 * g * h).',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_f_10',
-    deckId: 'deck_fisica_cinematica',
-    question: 'O que define um movimento acelerado?',
-    answer: 'Velocidade e aceleração apontam para o mesmo sentido (mesmo sinal).',
     createdAt: '2026-05-01T10:00:00Z',
     state: 'new',
     repetitions: 0,
@@ -325,7 +221,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     return INITIAL_CARDS;
   });
 
-  // Salva no localStorage sempre que houver alteração
+  // Salva no localStorage
   useEffect(() => {
     try {
       localStorage.setItem('cfo_anki_decks', JSON.stringify(decks));
@@ -335,7 +231,9 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   useEffect(() => {
     try {
       localStorage.setItem('cfo_anki_cards', JSON.stringify(cards));
-    } catch {}
+    } catch (err) {
+      console.warn('LocalStorage limit reached for cards:', err);
+    }
   }, [cards]);
 
   // Filtros de Baralhos
@@ -345,8 +243,12 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   // Modais e Estados de Visualização
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isCreateDeckModalOpen, setIsCreateDeckModalOpen] = useState(false);
-  const [isAddCardModalOpen, setIsAddCardModalOpen] = useState(false);
+  const [isCardModalOpen, setIsCardModalOpen] = useState(false);
+  const [editingCardId, setEditingCardId] = useState<string | null>(null);
   const [activeDeckForAdd, setActiveDeckForAdd] = useState<string>('');
+
+  // Modal para expandir imagem em tela cheia
+  const [expandedImage, setExpandedImage] = useState<string | null>(null);
 
   // Modo de Treino (Anki Player)
   const [activeStudyingDeckId, setActiveStudyingDeckId] = useState<string | null>(null);
@@ -368,9 +270,15 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   const [newDeckTitle, setNewDeckTitle] = useState('');
   const [newDeckSubject, setNewDeckSubject] = useState('Geral');
 
-  // Estado do Criador de Card Manual
+  // Estado do Criador/Editor de Card Manual (com fotos e múltiplas linhas)
   const [manualQuestion, setManualQuestion] = useState('');
   const [manualAnswer, setManualAnswer] = useState('');
+  const [manualQuestionImage, setManualQuestionImage] = useState<string | null>(null);
+  const [manualAnswerImage, setManualAnswerImage] = useState<string | null>(null);
+
+  // Refs de arquivo
+  const questionFileInputRef = useRef<HTMLInputElement | null>(null);
+  const answerFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Matérias disponíveis para filtro
   const availableSubjects = useMemo(() => {
@@ -415,6 +323,58 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   }, [decks, searchQuery, selectedSubjectFilter]);
 
   // =========================================================================
+  // 📷 CAPTURA E COLAGEM DE IMAGENS (CLIPBOARD E ARQUIVO)
+  // =========================================================================
+  const processImageFile = async (file: File, target: 'question' | 'answer') => {
+    if (!file.type.startsWith('image/')) {
+      showToast?.('Apenas arquivos de imagem são aceitos.', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const rawBase64 = event.target?.result as string;
+      if (rawBase64) {
+        const compressed = await compressImage(rawBase64);
+        if (target === 'question') {
+          setManualQuestionImage(compressed);
+        } else {
+          setManualAnswerImage(compressed);
+        }
+        showToast?.('Foto anexada com sucesso!', 'success');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handlePasteImage = (e: React.ClipboardEvent, target: 'question' | 'answer') => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        e.preventDefault();
+        const file = items[i].getAsFile();
+        if (file) {
+          processImageFile(file, target);
+          return;
+        }
+      }
+    }
+  };
+
+  const handleFileInputChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    target: 'question' | 'answer'
+  ) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processImageFile(file, target);
+    }
+    e.target.value = '';
+  };
+
+  // =========================================================================
   // 🎮 MODO DE TREINO (PLAYER ESTILO ANKI COM SRS)
   // =========================================================================
   const handleStartStudySession = (deckId: string) => {
@@ -424,7 +384,6 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
       return;
     }
 
-    // Embaralha para revisão ativa
     const shuffled = [...deckCards].sort(() => Math.random() - 0.5);
     setStudyQueue(shuffled);
     setCurrentCardIndex(0);
@@ -437,7 +396,6 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     setIsAnswerRevealed(true);
   }, []);
 
-  // Avaliação Anki: 1 = Difícil/Errei, 2 = Bom, 3 = Fácil
   const handleRateCard = useCallback(
     (rating: 1 | 2 | 3) => {
       if (!studyQueue[currentCardIndex]) return;
@@ -450,28 +408,23 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
       let nextIntervalDays = currentCard.intervalDays;
 
       if (rating === 1) {
-        // Errei / Difícil: repete na sessão
         nextState = 'learning';
         nextRepetitions = 0;
         nextIntervalDays = 0;
       } else if (rating === 2) {
-        // Bom
         nextState = 'review';
         nextRepetitions += 1;
         nextIntervalDays = nextRepetitions === 1 ? 1 : Math.round(nextIntervalDays * 1.5) || 2;
       } else {
-        // Fácil
         nextState = 'mastered';
         nextRepetitions += 1;
         nextIntervalDays = nextRepetitions === 1 ? 3 : Math.round(nextIntervalDays * 2.5) || 4;
       }
 
-      // Calcula próxima data
       const targetDate = new Date();
       targetDate.setDate(targetDate.getDate() + Math.max(1, nextIntervalDays));
       const nextReviewDate = targetDate.toISOString().split('T')[0];
 
-      // Atualiza card no estado global
       setCards((prev) =>
         prev.map((c) =>
           c.id === currentCard.id
@@ -487,12 +440,10 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
         )
       );
 
-      // Se errou (rating 1), re-enfileira no final da sessão para memorização garantida
       if (rating === 1) {
         setStudyQueue((prev) => [...prev, currentCard]);
       }
 
-      // Avança para o próximo card ou finaliza
       if (currentCardIndex + 1 < studyQueue.length) {
         setCurrentCardIndex((prev) => prev + 1);
         setIsAnswerRevealed(false);
@@ -503,7 +454,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     [studyQueue, currentCardIndex]
   );
 
-  // Atalhos de teclado no modo estudo (Espaço / Enter para virar, 1, 2, 3 para classificar)
+  // Atalhos de teclado no modo estudo
   useEffect(() => {
     if (!activeStudyingDeckId || studySessionFinished) return;
 
@@ -538,7 +489,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   }, [activeStudyingDeckId, isAnswerRevealed, studySessionFinished, handleRevealAnswer, handleRateCard]);
 
   // =========================================================================
-  // ⚡ GERADOR DE 20 FLASHCARDS COM IA
+  // ⚡ GERADOR DE 20 FLASHCARDS COM IA (Rigorosamente 1 linha)
   // =========================================================================
   const handleGenerateWithAi = async () => {
     if (!aiTopicInput.trim()) {
@@ -577,7 +528,6 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     let targetDeckId = aiTargetDeckId;
     const topicTitle = aiTopicInput.trim();
 
-    // Se escolheu criar um novo baralho com o nome do tópico
     if (targetDeckId === 'new_deck') {
       const newDeck: Deck = {
         id: `deck_${Date.now()}`,
@@ -598,7 +548,6 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 
     const today = new Date().toISOString().split('T')[0];
 
-    // Converte os cards em Flashcards
     const newCards: Flashcard[] = aiPreviewCards.map((c, idx) => ({
       id: `card_${Date.now()}_${idx}`,
       deckId: targetDeckId,
@@ -640,31 +589,80 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   };
 
   // =========================================================================
-  // ➕ ADICIONAR CARD MANUAL
+  // ➕ SALVAR / EDITAR FLASHCARD MANUAL (COM FOTOS E MÚLTIPLAS LINHAS)
   // =========================================================================
-  const handleAddManualCard = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!manualQuestion.trim() || !manualAnswer.trim() || !activeDeckForAdd) return;
+  const handleOpenAddCardModal = (deckId: string) => {
+    setActiveDeckForAdd(deckId);
+    setEditingCardId(null);
+    setManualQuestion('');
+    setManualAnswer('');
+    setManualQuestionImage(null);
+    setManualAnswerImage(null);
+    setIsCardModalOpen(true);
+  };
 
-    const newCard: Flashcard[] = [
-      {
+  const handleOpenEditCardModal = (card: Flashcard) => {
+    setActiveDeckForAdd(card.deckId);
+    setEditingCardId(card.id);
+    setManualQuestion(card.question);
+    setManualAnswer(card.answer);
+    setManualQuestionImage(card.questionImage || null);
+    setManualAnswerImage(card.answerImage || null);
+    setIsCardModalOpen(true);
+  };
+
+  const handleSaveManualCard = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualQuestion.trim() && !manualQuestionImage) {
+      showToast?.('Informe a pergunta ou cole uma foto.', 'error');
+      return;
+    }
+    if (!manualAnswer.trim() && !manualAnswerImage) {
+      showToast?.('Informe a resposta ou cole uma foto.', 'error');
+      return;
+    }
+
+    if (editingCardId) {
+      // Edição de card existente
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === editingCardId
+            ? {
+                ...c,
+                question: manualQuestion.trim(),
+                answer: manualAnswer.trim(),
+                questionImage: manualQuestionImage || undefined,
+                answerImage: manualAnswerImage || undefined,
+              }
+            : c
+        )
+      );
+      showToast?.('Flashcard atualizado!', 'success');
+    } else {
+      // Criação de novo card
+      const newCard: Flashcard = {
         id: `card_${Date.now()}`,
         deckId: activeDeckForAdd,
         question: manualQuestion.trim(),
         answer: manualAnswer.trim(),
+        questionImage: manualQuestionImage || undefined,
+        answerImage: manualAnswerImage || undefined,
         createdAt: new Date().toISOString(),
         state: 'new',
         repetitions: 0,
         intervalDays: 0,
         nextReviewDate: new Date().toISOString().split('T')[0],
-      },
-    ];
+      };
+      setCards((prev) => [newCard, ...prev]);
+      showToast?.('Flashcard adicionado ao baralho!', 'success');
+    }
 
-    setCards((prev) => [...newCard, ...prev]);
+    setIsCardModalOpen(false);
+    setEditingCardId(null);
     setManualQuestion('');
     setManualAnswer('');
-    setIsAddCardModalOpen(false);
-    showToast?.('Flashcard adicionado ao baralho!', 'success');
+    setManualQuestionImage(null);
+    setManualAnswerImage(null);
   };
 
   // =========================================================================
@@ -689,7 +687,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   const activeInspectingDeck = decks.find((d) => d.id === inspectingDeckId);
 
   // =========================================================================
-  // 📺 RENDERIZAÇÃO: MODO DE TREINO (ANKI PLAYER)
+  // 📺 RENDERIZAÇÃO: MODO DE TREINO (ANKI PLAYER COM FOTOS)
   // =========================================================================
   if (activeStudyingDeckId && activeStudyingDeck) {
     const currentCard = studyQueue[currentCardIndex];
@@ -786,7 +784,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
           <div className="space-y-5">
             <div
               onClick={!isAnswerRevealed ? handleRevealAnswer : undefined}
-              className={`p-8 sm:p-12 rounded-3xl border shadow-2xl transition-all duration-300 min-h-[300px] sm:min-h-[360px] flex flex-col justify-between relative overflow-hidden select-none cursor-pointer ${
+              className={`p-6 sm:p-10 rounded-3xl border shadow-2xl transition-all duration-300 min-h-[340px] flex flex-col justify-between relative overflow-hidden select-none cursor-pointer ${
                 isDark
                   ? 'bg-gradient-to-br from-[#0B1528] via-slate-950 to-black border-slate-800 shadow-black/60'
                   : 'bg-white border-slate-300 shadow-slate-200/80'
@@ -816,35 +814,76 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 
               {/* Corpo da Pergunta / Resposta */}
               <div className="space-y-6 my-auto text-center py-4">
-                {/* Pergunta */}
-                <div className="space-y-2">
+                {/* Pergunta (Texto Multilinha + Foto opcional) */}
+                <div className="space-y-3">
                   <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-blue-500/20 text-blue-400 border border-blue-500/30">
                     Pergunta
                   </span>
-                  <h3
-                    className={`text-lg sm:text-xl font-black leading-snug max-w-xl mx-auto ${
-                      isDark ? 'text-white' : 'text-slate-950'
-                    }`}
-                  >
-                    {currentCard.question}
-                  </h3>
-                </div>
-
-                {/* Resposta Revelada (Post-it Bate e Pronto) */}
-                {isAnswerRevealed && (
-                  <div className="animate-in fade-in zoom-in-95 duration-200 pt-4 border-t border-slate-700/40">
-                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 mb-2">
-                      Resposta Direta
-                    </span>
-                    <p
-                      className={`text-base sm:text-lg font-bold max-w-xl mx-auto px-4 py-3 rounded-2xl border leading-relaxed shadow-lg ${
-                        isDark
-                          ? 'bg-slate-900/90 text-emerald-300 border-emerald-500/30'
-                          : 'bg-emerald-50 text-emerald-950 border-emerald-300'
+                  {currentCard.question && (
+                    <h3
+                      className={`text-base sm:text-lg font-black leading-relaxed max-w-xl mx-auto whitespace-pre-line text-left sm:text-center ${
+                        isDark ? 'text-white' : 'text-slate-950'
                       }`}
                     >
-                      {currentCard.answer}
-                    </p>
+                      {currentCard.question}
+                    </h3>
+                  )}
+
+                  {/* Foto da Pergunta */}
+                  {currentCard.questionImage && (
+                    <div className="pt-2">
+                      <img
+                        src={currentCard.questionImage}
+                        alt="Foto da Pergunta"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedImage(currentCard.questionImage!);
+                        }}
+                        className="max-h-60 sm:max-h-72 mx-auto rounded-2xl border border-slate-700 object-contain shadow-lg hover:opacity-95 transition-opacity"
+                      />
+                      <span className="text-[10px] text-slate-500 block mt-1">
+                        (Clique na imagem para ampliar)
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Resposta Revelada (Texto Multilinha + Foto opcional) */}
+                {isAnswerRevealed && (
+                  <div className="animate-in fade-in zoom-in-95 duration-200 pt-5 border-t border-slate-700/40 space-y-3">
+                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      Resposta
+                    </span>
+
+                    {currentCard.answer && (
+                      <div
+                        className={`text-sm sm:text-base font-bold max-w-xl mx-auto px-4 py-3 rounded-2xl border leading-relaxed shadow-lg whitespace-pre-line text-left sm:text-center ${
+                          isDark
+                            ? 'bg-slate-900/90 text-emerald-300 border-emerald-500/30'
+                            : 'bg-emerald-50 text-emerald-950 border-emerald-300'
+                        }`}
+                      >
+                        {currentCard.answer}
+                      </div>
+                    )}
+
+                    {/* Foto da Resposta */}
+                    {currentCard.answerImage && (
+                      <div className="pt-2">
+                        <img
+                          src={currentCard.answerImage}
+                          alt="Foto da Resposta"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedImage(currentCard.answerImage!);
+                          }}
+                          className="max-h-60 sm:max-h-72 mx-auto rounded-2xl border border-emerald-600/40 object-contain shadow-lg hover:opacity-95 transition-opacity"
+                        />
+                        <span className="text-[10px] text-slate-500 block mt-1">
+                          (Clique na imagem para ampliar)
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -862,7 +901,6 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
             {isAnswerRevealed ? (
               <div className="space-y-2 animate-in slide-in-from-bottom-3 duration-200">
                 <div className="grid grid-cols-3 gap-3">
-                  {/* [1] Errei / Difícil */}
                   <button
                     type="button"
                     onClick={() => handleRateCard(1)}
@@ -874,7 +912,6 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                     </span>
                   </button>
 
-                  {/* [2] Bom */}
                   <button
                     type="button"
                     onClick={() => handleRateCard(2)}
@@ -886,7 +923,6 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                     </span>
                   </button>
 
-                  {/* [3] Fácil */}
                   <button
                     type="button"
                     onClick={() => handleRateCard(3)}
@@ -916,7 +952,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   }
 
   // =========================================================================
-  // 📋 RENDERIZAÇÃO: LISTA DE CARDS DO BARALHO (INSPEÇÃO)
+  // 📋 RENDERIZAÇÃO: LISTA DE CARDS DO BARALHO (INSPEÇÃO COM FOTOS)
   // =========================================================================
   if (inspectingDeckId && activeInspectingDeck) {
     const deckCards = cards.filter((c) => c.deckId === inspectingDeckId);
@@ -953,14 +989,11 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
           <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
-              onClick={() => {
-                setActiveDeckForAdd(activeInspectingDeck.id);
-                setIsAddCardModalOpen(true);
-              }}
+              onClick={() => handleOpenAddCardModal(activeInspectingDeck.id)}
               className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer flex items-center gap-1.5"
             >
               <PlusCircle className="w-3.5 h-3.5" />
-              <span>Adicionar Card</span>
+              <span>Adicionar Card (Texto/Foto)</span>
             </button>
             <button
               type="button"
@@ -983,13 +1016,10 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
             <p className="text-sm font-bold text-slate-400">Nenhum card neste baralho ainda.</p>
             <button
               type="button"
-              onClick={() => {
-                setActiveDeckForAdd(activeInspectingDeck.id);
-                setIsAddCardModalOpen(true);
-              }}
-              className="text-xs text-red-400 font-bold hover:underline"
+              onClick={() => handleOpenAddCardModal(activeInspectingDeck.id)}
+              className="text-xs text-red-400 font-bold hover:underline cursor-pointer"
             >
-              + Adicionar primeiro card manual
+              + Adicionar primeiro card manual com texto ou foto
             </button>
           </div>
         ) : (
@@ -1003,7 +1033,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                     : 'bg-white border-slate-300 shadow-slate-200/50'
                 }`}
               >
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-mono text-slate-500">#{idx + 1}</span>
                     <span
@@ -1019,45 +1049,84 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                     </span>
                   </div>
 
+                  {/* Pergunta */}
                   <div>
                     <span className="text-[10px] uppercase font-bold text-blue-400 block mb-0.5">
-                      P:
+                      P: Pergunta
                     </span>
-                    <p
-                      className={`text-xs font-black ${
-                        isDark ? 'text-white' : 'text-slate-950'
-                      }`}
-                    >
-                      {card.question}
-                    </p>
+                    {card.question && (
+                      <p
+                        className={`text-xs font-black whitespace-pre-line ${
+                          isDark ? 'text-white' : 'text-slate-950'
+                        }`}
+                      >
+                        {card.question}
+                      </p>
+                    )}
+                    {card.questionImage && (
+                      <div className="mt-1.5">
+                        <img
+                          src={card.questionImage}
+                          alt="Foto da Pergunta"
+                          onClick={() => setExpandedImage(card.questionImage!)}
+                          className="max-h-32 rounded-lg border border-slate-700 object-contain cursor-pointer hover:opacity-90"
+                        />
+                      </div>
+                    )}
                   </div>
 
-                  <div className="pt-1 border-t border-slate-800/40">
+                  {/* Resposta */}
+                  <div className="pt-2 border-t border-slate-800/40">
                     <span className="text-[10px] uppercase font-bold text-emerald-400 block mb-0.5">
-                      R:
+                      R: Resposta
                     </span>
-                    <p
-                      className={`text-xs font-semibold ${
-                        isDark ? 'text-emerald-300' : 'text-emerald-800'
-                      }`}
-                    >
-                      {card.answer}
-                    </p>
+                    {card.answer && (
+                      <p
+                        className={`text-xs font-semibold whitespace-pre-line ${
+                          isDark ? 'text-emerald-300' : 'text-emerald-800'
+                        }`}
+                      >
+                        {card.answer}
+                      </p>
+                    )}
+                    {card.answerImage && (
+                      <div className="mt-1.5">
+                        <img
+                          src={card.answerImage}
+                          alt="Foto da Resposta"
+                          onClick={() => setExpandedImage(card.answerImage!)}
+                          className="max-h-32 rounded-lg border border-emerald-700/50 object-contain cursor-pointer hover:opacity-90"
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
 
+                {/* Rodapé do Card na Lista: Editar e Excluir */}
                 <div className="flex items-center justify-between pt-2 border-t border-slate-800/60">
                   <span className="text-[10px] font-mono text-slate-500">
                     Revisões: {card.repetitions}x
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteCard(card.id)}
-                    className="text-slate-500 hover:text-red-400 p-1 text-xs cursor-pointer"
-                    title="Excluir card"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditCardModal(card)}
+                      className="text-slate-400 hover:text-blue-400 text-xs flex items-center gap-1 cursor-pointer"
+                      title="Editar card"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Editar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCard(card.id)}
+                      className="text-slate-400 hover:text-red-400 text-xs flex items-center gap-1 cursor-pointer"
+                      title="Excluir card"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Excluir</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -1103,8 +1172,8 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                   isDark ? 'text-slate-400' : 'text-slate-700 font-medium'
                 }`}
               >
-                Organize seus baralhos por matéria e gere baterias de 20 flashcards "bate e pronto" com IA
-                usando perguntas diretas e respostas no formato post-it para retenção máxima.
+                Organize seus baralhos por matéria, anexe prints e fotos de questões ou resoluções com Ctrl+V,
+                escreva quantas linhas precisar e gere baterias de 20 flashcards "bate e pronto" com IA.
               </p>
             </div>
           </div>
@@ -1279,14 +1348,11 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setActiveDeckForAdd(deck.id);
-                        setIsAddCardModalOpen(true);
-                      }}
+                      onClick={() => handleOpenAddCardModal(deck.id)}
                       className="text-blue-400 hover:text-blue-300 font-semibold cursor-pointer flex items-center gap-1"
                     >
                       <PlusCircle className="w-3 h-3" />
-                      <span>+ Card</span>
+                      <span>+ Card (Texto/Foto)</span>
                     </button>
                   </div>
                 </div>
@@ -1297,7 +1363,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 🔮 MODAL: GERADOR COM IA (PROMPT DO USUÁRIO) */}
+      {/* 🔮 MODAL: GERADOR COM IA (PROMPT DO USUÁRIO - APENAS 1 LINHA) */}
       {/* ========================================================================= */}
       {isAiModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
@@ -1320,14 +1386,14 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                     Gerador Tático de 20 Flashcards
                   </h3>
                   <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                    Prompt focado em revisão bate e pronto (perguntas diretas e respostas post-it)
+                    Prompt oficial de revisão bate e pronto (respostas de no máximo 1 linha tipo post-it)
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsAiModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1"
+                className="text-slate-400 hover:text-white p-1 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1414,7 +1480,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                 {isAiLoading ? (
                   <>
                     <RotateCcw className="w-4 h-4 animate-spin text-blue-200" />
-                    <span>Aplicando prompt tático e gerando 20 flashcards...</span>
+                    <span>Aplicando prompt tático e gerando 20 flashcards (1 linha)...</span>
                   </>
                 ) : (
                   <>
@@ -1429,7 +1495,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                 <div className="space-y-3 pt-3 border-t border-slate-700/60">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-black text-emerald-400">
-                      ✅ {aiPreviewCards.length} Cards Prontos para Uso
+                      ✅ {aiPreviewCards.length} Cards Prontos (Linha Única)
                     </span>
                     <button
                       type="button"
@@ -1485,7 +1551,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
               <button
                 type="button"
                 onClick={() => setIsCreateDeckModalOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-400 hover:text-white cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1541,78 +1607,212 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* ➕ MODAL: ADICIONAR CARD MANUAL */}
+      {/* ➕ MODAL: ADICIONAR / EDITAR CARD MANUAL (COM FOTOS E MÚLTIPLAS LINHAS) */}
       {/* ========================================================================= */}
-      {isAddCardModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      {isCardModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
           <div
-            className={`w-full max-w-md rounded-3xl border p-6 space-y-4 shadow-2xl ${
+            className={`w-full max-w-xl rounded-3xl border p-6 space-y-5 shadow-2xl animate-in zoom-in-95 duration-200 ${
               isDark ? 'bg-[#0B1528] border-slate-800' : 'bg-white border-slate-300'
             }`}
           >
             <div className="flex items-center justify-between border-b pb-3 border-slate-700/60">
-              <h3
-                className={`text-sm font-black uppercase tracking-tight ${
-                  isDark ? 'text-white' : 'text-slate-950'
-                }`}
-              >
-                Adicionar Flashcard Manual
-              </h3>
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-red-600/20 text-red-400 border border-red-500/30">
+                  <Edit3 className="w-4 h-4" />
+                </div>
+                <h3
+                  className={`text-sm font-black uppercase tracking-tight ${
+                    isDark ? 'text-white' : 'text-slate-950'
+                  }`}
+                >
+                  {editingCardId ? 'Editar Flashcard' : 'Novo Flashcard (Texto & Foto)'}
+                </h3>
+              </div>
               <button
                 type="button"
-                onClick={() => setIsAddCardModalOpen(false)}
-                className="text-slate-400 hover:text-white"
+                onClick={() => setIsCardModalOpen(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleAddManualCard} className="space-y-3">
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                  Pergunta (P:)
-                </label>
-                <textarea
-                  rows={2}
-                  required
-                  placeholder="Pergunta direta e objetiva..."
-                  value={manualQuestion}
-                  onChange={(e) => setManualQuestion(e.target.value)}
-                  className={`w-full text-xs rounded-xl p-3 border ${
-                    isDark
-                      ? 'bg-slate-900 border-slate-700 text-white'
-                      : 'bg-white border-slate-300 text-slate-900'
-                  }`}
-                />
+            <form onSubmit={handleSaveManualCard} className="space-y-4">
+              {/* BLOCO DA PERGUNTA */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+                    <span>1. Pergunta (P:)</span>
+                    <span className="text-[10px] text-slate-500 font-normal">
+                      (várias linhas permitidas)
+                    </span>
+                  </label>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      ref={questionFileInputRef}
+                      onChange={(e) => handleFileInputChange(e, 'question')}
+                      accept="image/*"
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => questionFileInputRef.current?.click()}
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-blue-950/80 hover:bg-blue-900 border border-blue-700 text-blue-300 font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <ImageIcon className="w-3 h-3" />
+                      <span>Anexar Foto</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  onPaste={(e) => handlePasteImage(e, 'question')}
+                  className="relative"
+                >
+                  <textarea
+                    rows={3}
+                    placeholder="Digite sua pergunta ou cole um print com Ctrl+V aqui dentro..."
+                    value={manualQuestion}
+                    onChange={(e) => setManualQuestion(e.target.value)}
+                    className={`w-full text-xs rounded-xl p-3 border leading-relaxed transition-colors ${
+                      isDark
+                        ? 'bg-slate-900 border-slate-700 text-white placeholder:text-slate-600 focus:border-blue-500'
+                        : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-blue-600'
+                    }`}
+                  />
+                  <span className="absolute right-3 bottom-2 text-[10px] text-slate-500 pointer-events-none">
+                    Suporta Ctrl+V para colar imagem
+                  </span>
+                </div>
+
+                {/* Preview da Imagem da Pergunta */}
+                {manualQuestionImage && (
+                  <div className="relative inline-block rounded-xl border border-blue-500/40 p-1 bg-black/40">
+                    <img
+                      src={manualQuestionImage}
+                      alt="Preview Pergunta"
+                      className="max-h-36 rounded-lg object-contain"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setManualQuestionImage(null)}
+                      className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white shadow-md hover:bg-red-500 cursor-pointer"
+                      title="Remover foto"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                  Resposta Curta (R: máx 1 linha)
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Resposta post-it, seca e direta..."
-                  value={manualAnswer}
-                  onChange={(e) => setManualAnswer(e.target.value)}
-                  className={`w-full text-xs rounded-xl px-3 py-2.5 border ${
-                    isDark
-                      ? 'bg-slate-900 border-slate-700 text-white'
-                      : 'bg-white border-slate-300 text-slate-900'
-                  }`}
-                />
+              {/* BLOCO DA RESPOSTA */}
+              <div className="space-y-2 pt-2 border-t border-slate-700/40">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                    <span>2. Resposta (R:)</span>
+                    <span className="text-[10px] text-slate-500 font-normal">
+                      (várias linhas permitidas)
+                    </span>
+                  </label>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      ref={answerFileInputRef}
+                      onChange={(e) => handleFileInputChange(e, 'answer')}
+                      accept="image/*"
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => answerFileInputRef.current?.click()}
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <ImageIcon className="w-3 h-3" />
+                      <span>Anexar Foto</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  onPaste={(e) => handlePasteImage(e, 'answer')}
+                  className="relative"
+                >
+                  <textarea
+                    rows={4}
+                    placeholder="Digite a resposta com quantas linhas precisar, bizus, fórmulas ou cole um print da resolução com Ctrl+V..."
+                    value={manualAnswer}
+                    onChange={(e) => setManualAnswer(e.target.value)}
+                    className={`w-full text-xs rounded-xl p-3 border leading-relaxed transition-colors ${
+                      isDark
+                        ? 'bg-slate-900 border-slate-700 text-white placeholder:text-slate-600 focus:border-emerald-500'
+                        : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-emerald-600'
+                    }`}
+                  />
+                  <span className="absolute right-3 bottom-2 text-[10px] text-slate-500 pointer-events-none">
+                    Suporta Ctrl+V para colar imagem
+                  </span>
+                </div>
+
+                {/* Preview da Imagem da Resposta */}
+                {manualAnswerImage && (
+                  <div className="relative inline-block rounded-xl border border-emerald-500/40 p-1 bg-black/40">
+                    <img
+                      src={manualAnswerImage}
+                      alt="Preview Resposta"
+                      className="max-h-36 rounded-lg object-contain"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setManualAnswerImage(null)}
+                      className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white shadow-md hover:bg-red-500 cursor-pointer"
+                      title="Remover foto"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
 
-              <div className="pt-2">
+              <div className="pt-3">
                 <button
                   type="submit"
-                  className="w-full py-2.5 rounded-xl bg-red-700 hover:bg-red-600 text-white font-black text-xs uppercase tracking-wider cursor-pointer"
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-red-700 via-red-800 to-red-900 hover:from-red-600 hover:to-red-800 text-white font-black text-xs uppercase tracking-wider shadow-xl transition-all active:scale-[0.99] cursor-pointer flex items-center justify-center gap-2"
                 >
-                  Salvar Flashcard
+                  <CheckCircle2 className="w-4 h-4 text-red-200" />
+                  <span>{editingCardId ? 'Atualizar Flashcard' : 'Salvar no Baralho'}</span>
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 🔍 LIGHTBOX PARA VISUALIZAR FOTO EM TELA CHEIA */}
+      {/* ========================================================================= */}
+      {expandedImage && (
+        <div
+          onClick={() => setExpandedImage(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 cursor-zoom-out"
+        >
+          <div className="relative max-w-4xl max-h-[90vh] flex flex-col items-center">
+            <button
+              type="button"
+              onClick={() => setExpandedImage(null)}
+              className="absolute -top-10 right-0 text-white hover:text-red-400 p-2 text-sm flex items-center gap-1 font-bold cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+              <span>Fechar</span>
+            </button>
+            <img
+              src={expandedImage}
+              alt="Imagem Expandida"
+              className="max-w-full max-h-[85vh] rounded-2xl border border-slate-700 object-contain shadow-2xl"
+            />
           </div>
         </div>
       )}
