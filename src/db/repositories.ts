@@ -736,6 +736,10 @@ export interface AuditFilterOptions {
   action?: string;
   status?: string;
   actor?: string;
+  actorUserId?: string;
+  resource?: string;
+  targetType?: string;
+  targetId?: string;
   ip?: string;
   search?: string;
   startDate?: string;
@@ -751,65 +755,80 @@ export interface SecurityMetrics {
   anomalousIps: Array<{ ip: string; failedAttempts: number }>;
 }
 
+export function sanitizeAuditPayload(value: any): any {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return value.map(sanitizeAuditPayload);
+  }
+
+  const sensitivePattern = /^(password|currentpassword|newpassword|passwordhash|token|refreshtoken|accesstoken|tokenhash|sessiontoken|secret|totp|totpsecret|totp_secret|recoverycode|backupcode|recoverycodes|recovery_code|cookie|authorization|apikey|secretkey|creditcard)$/i;
+
+  const sanitized: Record<string, any> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (sensitivePattern.test(k.trim())) {
+      continue;
+    }
+    sanitized[k] = sanitizeAuditPayload(v);
+  }
+  return sanitized;
+}
+
 export class AuditRepository {
   constructor(private db: DatabaseSync) {}
 
   public log(data: {
     action: string;
     actor: string;
+    actorUserId?: string | null;
     resource: string;
     status: 'SUCCESS' | 'FAILED' | 'WARNING';
+    targetType?: string | null;
+    targetId?: string | null;
     ip?: string | null;
     userAgent?: string | null;
     userId?: string | null;
+    previousState?: Record<string, any> | null;
+    newState?: Record<string, any> | null;
     details?: Record<string, any> | null;
   }): DbAuditEvent {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
-    // Sanitização rigorosa: nunca permitir senhas, tokens, cookies, códigos TOTP ou segredos
-    let safeDetails: Record<string, any> | null = null;
-    if (data.details && typeof data.details === 'object') {
-      safeDetails = { ...data.details };
-      const sensitiveKeys = [
-        'password',
-        'currentpassword',
-        'newpassword',
-        'token',
-        'refreshtoken',
-        'accesstoken',
-        'secret',
-        'totp',
-        'code',
-        'cookie',
-        'authorization',
-        'totpsecret',
-        'recoverycode',
-        'backupcode',
-      ];
-      for (const key of Object.keys(safeDetails)) {
-        if (sensitiveKeys.includes(key.toLowerCase())) {
-          delete safeDetails[key];
-        }
-      }
+    // Sanitização rigorosa recursiva: nunca permitir senhas, tokens, cookies, códigos TOTP ou segredos
+    const mergedDetails: Record<string, any> = {};
+    if (data.previousState) mergedDetails.previousState = sanitizeAuditPayload(data.previousState);
+    if (data.newState) mergedDetails.newState = sanitizeAuditPayload(data.newState);
+    if (data.details) {
+      const safeDetails = sanitizeAuditPayload(data.details);
+      Object.assign(mergedDetails, safeDetails);
     }
 
-    const detailsJson = safeDetails ? JSON.stringify(safeDetails) : null;
+    const detailsJson = Object.keys(mergedDetails).length > 0 ? JSON.stringify(mergedDetails) : null;
+    const actorUserId = data.actorUserId ?? null;
+    const targetType = data.targetType ?? null;
+    const targetId = data.targetId ?? null;
+    const targetUserId = data.userId ?? (targetType === 'user' ? targetId : null);
 
     this.db
       .prepare(
-        `INSERT INTO audit_events (id, action, actor, resource, status, ip, user_agent, user_id, details_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO audit_events (
+          id, action, actor, actor_user_id, resource, status,
+          target_type, target_id, ip, user_agent, user_id, details_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
         data.action,
         data.actor,
+        actorUserId,
         data.resource,
         data.status,
+        targetType,
+        targetId,
         data.ip ?? null,
         data.userAgent ?? null,
-        data.userId ?? null,
+        targetUserId,
         detailsJson,
         now
       );
@@ -818,11 +837,14 @@ export class AuditRepository {
       id,
       action: data.action,
       actor: data.actor,
+      actorUserId,
       resource: data.resource,
       status: data.status,
+      targetType,
+      targetId,
       ip: data.ip ?? null,
       userAgent: data.userAgent ?? null,
-      userId: data.userId ?? null,
+      userId: targetUserId,
       detailsJson,
       createdAt: now,
     };
@@ -857,15 +879,35 @@ export class AuditRepository {
       params.push(`%${options.actor}%`);
     }
 
+    if (options.actorUserId) {
+      whereClauses.push('actor_user_id = ?');
+      params.push(options.actorUserId);
+    }
+
+    if (options.resource) {
+      whereClauses.push('resource LIKE ?');
+      params.push(`%${options.resource}%`);
+    }
+
+    if (options.targetType) {
+      whereClauses.push('target_type = ?');
+      params.push(options.targetType);
+    }
+
+    if (options.targetId) {
+      whereClauses.push('target_id = ?');
+      params.push(options.targetId);
+    }
+
     if (options.ip) {
       whereClauses.push('ip LIKE ?');
       params.push(`%${options.ip}%`);
     }
 
     if (options.search) {
-      whereClauses.push('(action LIKE ? OR actor LIKE ? OR ip LIKE ? OR user_agent LIKE ? OR resource LIKE ? OR details_json LIKE ?)');
+      whereClauses.push('(action LIKE ? OR actor LIKE ? OR resource LIKE ? OR ip LIKE ? OR user_agent LIKE ? OR target_type LIKE ? OR target_id LIKE ? OR details_json LIKE ?)');
       const searchPattern = `%${options.search}%`;
-      params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
+      params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
     }
 
     if (options.startDate) {
@@ -886,7 +928,8 @@ export class AuditRepository {
 
     const itemsRows: any[] = this.db
       .prepare(
-        `SELECT id, action, actor, resource, status, ip, user_agent, user_id, details_json, created_at
+        `SELECT id, action, actor, actor_user_id, resource, status, target_type, target_id,
+                ip, user_agent, user_id, details_json, created_at
          FROM audit_events
          ${whereSql}
          ORDER BY created_at DESC
@@ -898,8 +941,11 @@ export class AuditRepository {
       id: row.id,
       action: row.action,
       actor: row.actor,
+      actorUserId: row.actor_user_id,
       resource: row.resource,
       status: row.status,
+      targetType: row.target_type,
+      targetId: row.target_id,
       ip: row.ip,
       userAgent: row.user_agent,
       userId: row.user_id,

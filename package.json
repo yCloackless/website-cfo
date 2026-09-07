@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test test/models.test.ts test/auth.test.ts test/profile.test.ts test/audit_security.test.ts test/admin_panel.test.ts test/admin_security_2fa.test.ts test/admin_realtime.test.ts test/admin_users_management.test.ts"
+    "test": "tsx --test test/models.test.ts test/auth.test.ts test/profile.test.ts test/audit_security.test.ts test/admin_panel.test.ts test/admin_security_2fa.test.ts test/admin_realtime.test.ts test/admin_users_management.test.ts test/admin_audit.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

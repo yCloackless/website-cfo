@@ -316,6 +316,32 @@ export const MIGRATIONS: Migration[] = [
       PRAGMA foreign_keys = ON;
     `,
   },
+  {
+    id: 7,
+    name: '007_audit_events_integrity_and_targets',
+    sql: `
+      -- Adiciona colunas para auditoria estruturada
+      ALTER TABLE audit_events ADD COLUMN actor_user_id TEXT;
+      ALTER TABLE audit_events ADD COLUMN target_type TEXT;
+      ALTER TABLE audit_events ADD COLUMN target_id TEXT;
+
+      CREATE INDEX IF NOT EXISTS idx_audit_events_actor_user_id ON audit_events(actor_user_id);
+      CREATE INDEX IF NOT EXISTS idx_audit_events_target ON audit_events(target_type, target_id);
+
+      -- Integridade Append-Only: Impede qualquer UPDATE ou DELETE na tabela audit_events
+      CREATE TRIGGER IF NOT EXISTS prevent_audit_events_update
+      BEFORE UPDATE ON audit_events
+      BEGIN
+        SELECT RAISE(FAIL, 'AUDIT_LOG_IMMUTABLE: Audit logs are append-only and cannot be updated');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS prevent_audit_events_delete
+      BEFORE DELETE ON audit_events
+      BEGIN
+        SELECT RAISE(FAIL, 'AUDIT_LOG_IMMUTABLE: Audit logs are append-only and cannot be deleted');
+      END;
+    `,
+  },
 ];
 
 export class DatabaseService {

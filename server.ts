@@ -750,24 +750,36 @@ function logSecurityEvent(
   event: {
     action: string;
     actor: string;
+    actorUserId?: string | null;
     resource: string;
     status: 'SUCCESS' | 'FAILED' | 'WARNING';
+    targetType?: string | null;
+    targetId?: string | null;
     userId?: string | null;
+    previousState?: Record<string, any> | null;
+    newState?: Record<string, any> | null;
     details?: Record<string, any>;
   }
 ): void {
   try {
     const ip = getClientIp(req);
     const userAgent = (req.headers["user-agent"] as string) || null;
+    const actorUser = (req as any).user;
+    const actorUserId = event.actorUserId ?? (actorUser?.id || null);
 
-    auditRepoInstance.log({
+    const loggedEvent = auditRepoInstance.log({
       action: event.action,
       actor: event.actor,
+      actorUserId,
       resource: event.resource,
       status: event.status,
+      targetType: event.targetType,
+      targetId: event.targetId,
       ip,
       userAgent,
       userId: event.userId,
+      previousState: event.previousState,
+      newState: event.newState,
       details: event.details,
     });
 
@@ -780,28 +792,39 @@ function logSecurityEvent(
       ip,
       userAgent,
       userId: event.userId,
-      details: event.details,
+      details: {
+        ...event.details,
+        ...(event.previousState ? { previousState: event.previousState } : {}),
+        ...(event.newState ? { newState: event.newState } : {}),
+      },
     });
 
     // Transmissão realtime com baixa latência para os administradores conectados
     let realtimeType: AdminRealtimeEventType = 'METRICS_UPDATED';
     if (event.action === 'ADMIN_LOGIN_FAILED') realtimeType = 'ADMIN_LOGIN_FAILED';
     else if (event.action === 'LOGIN_FAILED') realtimeType = 'LOGIN_FAILED';
-    else if (event.action === 'ACCOUNT_SUSPENDED') realtimeType = 'ACCOUNT_SUSPENDED';
+    else if (event.action === 'ACCOUNT_SUSPENDED' || event.action === 'USER_SUSPENDED') realtimeType = 'ACCOUNT_SUSPENDED';
     else if (event.action === 'SESSION_REVOKED') realtimeType = 'SESSION_REVOKED';
     else if (event.action === 'USER_CREATED' || event.action === 'USER_REGISTERED') realtimeType = 'USER_CREATED';
-    else if (event.action === 'USER_UPDATED' || event.action === 'ROLE_CHANGED' || event.action === 'ACCOUNT_ACTIVATED') realtimeType = 'USER_UPDATED';
+    else if (event.action === 'USER_UPDATED' || event.action === 'ROLE_CHANGED' || event.action === 'ACCOUNT_ACTIVATED' || event.action === 'USER_REACTIVATED') realtimeType = 'USER_UPDATED';
     else if (event.action === '2FA_FAILED' || event.status === 'FAILED' || event.action === 'IP_BANNED') realtimeType = 'SECURITY_ALERT';
 
     adminRealtimeHub.publish(realtimeType, {
+      id: loggedEvent.id,
       action: event.action,
       actor: event.actor,
+      actorUserId,
       resource: event.resource,
       status: event.status,
+      targetType: event.targetType,
+      targetId: event.targetId,
       ip,
       userAgent,
       userId: event.userId,
+      createdAt: loggedEvent.createdAt,
       details: event.details,
+      previousState: event.previousState,
+      newState: event.newState,
     });
   } catch (err) {
     console.error("[Security Event Log Error]:", err);
@@ -1684,7 +1707,7 @@ app.post("/api/auth/update-email", requireUserAuth, async (req: Request, res: Re
 // 🛡️ MONITORAMENTO DE AUTENTICAÇÃO E SEGURANÇA (Admin -> Segurança)
 // ============================================================================
 
-// 11. Consulta Paginada e Filtrada de Eventos de Auditoria e Segurança (Restrito a Admin)
+// 11. Consulta Paginada e Filtrada de Eventos de Auditoria e Segurança (Restrito a Admin e Suporte)
 app.get("/api/admin/security/events", requireAdminAuth, (req: Request, res: Response) => {
   try {
     const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
@@ -1692,6 +1715,10 @@ app.get("/api/admin/security/events", requireAdminAuth, (req: Request, res: Resp
     const action = req.query.action ? String(req.query.action).trim() : undefined;
     const status = req.query.status ? String(req.query.status).trim() : undefined;
     const actor = req.query.actor ? String(req.query.actor).trim() : undefined;
+    const actorUserId = req.query.actorUserId ? String(req.query.actorUserId).trim() : undefined;
+    const resource = req.query.resource ? String(req.query.resource).trim() : undefined;
+    const targetType = req.query.targetType ? String(req.query.targetType).trim() : undefined;
+    const targetId = req.query.targetId ? String(req.query.targetId).trim() : undefined;
     const ip = req.query.ip ? String(req.query.ip).trim() : undefined;
     const search = req.query.search ? String(req.query.search).trim() : undefined;
     const startDate = req.query.startDate ? String(req.query.startDate).trim() : undefined;
@@ -1703,6 +1730,10 @@ app.get("/api/admin/security/events", requireAdminAuth, (req: Request, res: Resp
       action,
       status,
       actor,
+      actorUserId,
+      resource,
+      targetType,
+      targetId,
       ip,
       search,
       startDate,
@@ -1712,6 +1743,7 @@ app.get("/api/admin/security/events", requireAdminAuth, (req: Request, res: Resp
     return res.json({
       success: true,
       ...result,
+      logs: result.items,
     });
   } catch (err: any) {
     console.error("[Admin Security Events Error]:", err);
@@ -1969,6 +2001,23 @@ app.get("/api/admin/users/:id", requireAdminAuth, (req: Request, res: Response) 
     const securityEvents = auditRepoInstance.findEventsByUserId(targetUser.id, 25);
 
     // DADOS PROTEGIDOS: Senhas, hashes, totp e recovery codes NUNCA são expostos
+    const adminUser = (req as any).user;
+    logSecurityEvent(req, {
+      action: 'USER_VIEWED',
+      actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.id || null,
+      targetType: 'user',
+      targetId: targetUser.id,
+      userId: targetUser.id,
+      resource: `/users/${targetUser.id}`,
+      status: 'SUCCESS',
+      details: {
+        viewedUsername: targetUser.username,
+        viewedEmail: targetUser.email,
+        viewedRole: targetUser.role,
+      },
+    });
+
     return res.json({
       success: true,
       user: {
@@ -2025,17 +2074,40 @@ app.patch("/api/admin/users/:id/status", requireAdminWriteAuth, requireStepUpAut
       sessionRepoInstance.revokeAllUserSessions(userId);
     }
 
+    const specificAction = status === 'suspended' ? 'USER_SUSPENDED' : 'USER_REACTIVATED';
+    const legacyAction = status === 'suspended' ? 'ACCOUNT_SUSPENDED' : 'ACCOUNT_ACTIVATED';
+
     logSecurityEvent(req, {
-      action: status === 'suspended' ? 'ACCOUNT_SUSPENDED' : 'ACCOUNT_ACTIVATED',
+      action: legacyAction,
       actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.id || null,
+      targetType: 'user',
+      targetId: userId,
       resource: `/users/${userId}`,
       status: 'SUCCESS',
       userId,
+      previousState: { status: previousStatus },
+      newState: { status },
       details: {
         targetUserId: userId,
         targetUsername: targetUser.username,
-        previousState: { status: previousStatus },
-        newState: { status },
+      },
+    });
+
+    logSecurityEvent(req, {
+      action: specificAction,
+      actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.id || null,
+      targetType: 'user',
+      targetId: userId,
+      resource: `/users/${userId}`,
+      status: 'SUCCESS',
+      userId,
+      previousState: { status: previousStatus },
+      newState: { status },
+      details: {
+        targetUserId: userId,
+        targetUsername: targetUser.username,
       },
     });
 
@@ -2076,16 +2148,49 @@ app.patch("/api/admin/users/:id/role", requireAdminWriteAuth, requireStepUpAuth,
     logSecurityEvent(req, {
       action: 'ROLE_CHANGED',
       actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.id || null,
+      targetType: 'user',
+      targetId: userId,
       resource: `/users/${userId}`,
       status: 'SUCCESS',
       userId,
+      previousState: { role: previousRole },
+      newState: { role },
       details: {
         targetUserId: userId,
         targetUsername: targetUser.username,
-        previousState: { role: previousRole },
-        newState: { role },
       },
     });
+
+    if (previousRole !== 'admin' && role === 'admin') {
+      logSecurityEvent(req, {
+        action: 'ADMIN_CREATED',
+        actor: adminUser?.username || 'admin',
+        actorUserId: adminUser?.id || null,
+        targetType: 'user',
+        targetId: userId,
+        resource: `/users/${userId}`,
+        status: 'SUCCESS',
+        userId,
+        previousState: { role: previousRole },
+        newState: { role },
+        details: { targetUsername: targetUser.username },
+      });
+    } else if (previousRole === 'admin' && role !== 'admin') {
+      logSecurityEvent(req, {
+        action: 'ADMIN_REMOVED',
+        actor: adminUser?.username || 'admin',
+        actorUserId: adminUser?.id || null,
+        targetType: 'user',
+        targetId: userId,
+        resource: `/users/${userId}`,
+        status: 'SUCCESS',
+        userId,
+        previousState: { role: previousRole },
+        newState: { role },
+        details: { targetUsername: targetUser.username },
+      });
+    }
 
     return res.json({
       success: true,
@@ -2115,15 +2220,18 @@ app.post("/api/admin/users/:id/revoke-sessions", requireAdminWriteAuth, requireS
     logSecurityEvent(req, {
       action: 'SESSION_REVOKED',
       actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.id || null,
+      targetType: 'user_sessions',
+      targetId: targetUser.id,
       resource: `/users/${targetUser.id}/sessions`,
       status: 'SUCCESS',
       userId: targetUser.id,
+      previousState: { activeSessionsCount: activeSessionsBefore.length },
+      newState: { activeSessionsCount: 0 },
       details: {
         targetUserId: targetUser.id,
         targetUsername: targetUser.username,
         revokedSessionsCount: activeSessionsBefore.length,
-        previousState: { activeSessions: activeSessionsBefore.length },
-        newState: { activeSessions: 0 },
       },
     });
 
@@ -2168,8 +2276,13 @@ app.post("/api/admin/sessions/:id/revoke", requireAdminWriteAuth, requireStepUpA
     logSecurityEvent(req, {
       action: 'SESSION_REVOKED',
       actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.id || null,
+      targetType: 'session',
+      targetId: sessionId,
       resource: `/sessions/${sessionId}`,
       status: 'SUCCESS',
+      previousState: { status: 'active' },
+      newState: { status: 'revoked' },
       details: { sessionId },
     });
 
@@ -2213,6 +2326,48 @@ app.get("/api/admin/settings", requireAdminAuth, (_req: Request, res: Response) 
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: "Erro ao carregar configurações." });
+  }
+});
+
+// 21.1. Atualizar Configurações de Segurança do Sistema (Requer Step-Up e Admin pleno)
+app.patch("/api/admin/settings", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    const { retentionDays, sessionDurationDays, twoFactorEnforced } = req.body || {};
+
+    const previousConfig = {
+      retentionDays: 30,
+      sessionDurationDays: 30,
+      twoFactorActive: getSecurityConfig().is2faActive,
+    };
+
+    const newConfig = {
+      retentionDays: Number(retentionDays) || previousConfig.retentionDays,
+      sessionDurationDays: Number(sessionDurationDays) || previousConfig.sessionDurationDays,
+      twoFactorActive: twoFactorEnforced !== undefined ? Boolean(twoFactorEnforced) : previousConfig.twoFactorActive,
+    };
+
+    logSecurityEvent(req, {
+      action: 'SECURITY_SETTING_CHANGED',
+      actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.id || null,
+      targetType: 'system_settings',
+      targetId: 'global',
+      resource: '/api/admin/settings',
+      status: 'SUCCESS',
+      previousState: previousConfig,
+      newState: newConfig,
+      details: { changedBy: adminUser?.username || 'admin' },
+    });
+
+    return res.json({
+      success: true,
+      message: "Parâmetros de segurança atualizados com sucesso.",
+      settings: newConfig,
+    });
+  } catch (err: any) {
+    console.error("[Admin Settings Update Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao atualizar configurações." });
   }
 });
 
@@ -4131,15 +4286,58 @@ app.post("/api/admin/backup/restore", requireAdminWriteAuth, requireStepUpAuth, 
   }
 });
 
-// 7. Auditoria de Segurança: Consulta de Trilha de Auditoria (Audit Log)
+// Proteção de Integridade: Auditoria é estritamente Append-Only (Imutável via API)
+app.all(["/api/admin/audit-logs", "/api/admin/audit-logs/*"], (req: Request, res: Response, next: NextFunction) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method.toUpperCase())) {
+    return res.status(405).json({
+      error: "METHOD_NOT_ALLOWED",
+      message: "AUDIT_LOG_IMMUTABLE: Trilha de auditoria é estritamente append-only e não permite modificação ou exclusão.",
+    });
+  }
+  next();
+});
+
+// 7. Auditoria de Segurança: Consulta de Trilha de Auditoria (Audit Log com filtros completos)
 app.get("/api/admin/audit-logs", requireAdminAuth, (req: Request, res: Response) => {
   try {
-    const limit = Math.min(200, Math.max(10, Number(req.query.limit) || 50));
-    const logs = readRecentAuditLogs(limit);
+    const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
+    const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || "50"), 10)));
+    const action = req.query.action ? String(req.query.action).trim() : undefined;
+    const status = req.query.status ? String(req.query.status).trim() : undefined;
+    const actor = req.query.actor ? String(req.query.actor).trim() : undefined;
+    const actorUserId = req.query.actorUserId ? String(req.query.actorUserId).trim() : undefined;
+    const resource = req.query.resource ? String(req.query.resource).trim() : undefined;
+    const targetType = req.query.targetType ? String(req.query.targetType).trim() : undefined;
+    const targetId = req.query.targetId ? String(req.query.targetId).trim() : undefined;
+    const ip = req.query.ip ? String(req.query.ip).trim() : undefined;
+    const search = req.query.search ? String(req.query.search).trim() : undefined;
+    const startDate = req.query.startDate ? String(req.query.startDate).trim() : undefined;
+    const endDate = req.query.endDate ? String(req.query.endDate).trim() : undefined;
+
+    const result = auditRepoInstance.findFiltered({
+      page,
+      limit,
+      action,
+      status,
+      actor,
+      actorUserId,
+      resource,
+      targetType,
+      targetId,
+      ip,
+      search,
+      startDate,
+      endDate,
+    });
+
     return res.json({
       success: true,
-      total: logs.length,
-      logs,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+      logs: result.items,
+      items: result.items,
     });
   } catch (err: any) {
     return res.status(500).json({

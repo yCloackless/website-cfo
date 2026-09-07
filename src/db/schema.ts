@@ -153,8 +153,11 @@ export interface DbAuditEvent {
   id: string;
   action: string;
   actor: string;
+  actorUserId?: string | null;
   resource: string;
   status: 'SUCCESS' | 'FAILED' | 'WARNING';
+  targetType?: string | null;
+  targetId?: string | null;
   ip?: string | null;
   userAgent?: string | null;
   userId?: string | null;

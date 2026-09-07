@@ -22,6 +22,7 @@ import {
   Shield,
   Activity,
   Laptop,
+  X,
 } from 'lucide-react';
 import { AppTheme } from '../../types';
 
@@ -121,8 +122,11 @@ interface AuditEventItem {
   id: string;
   action: string;
   actor: string;
+  actorUserId?: string | null;
   resource: string;
   status: 'SUCCESS' | 'FAILED' | 'WARNING';
+  targetType?: string | null;
+  targetId?: string | null;
   ip?: string | null;
   userAgent?: string | null;
   userId?: string | null;
@@ -182,8 +186,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [auditTotalPages, setAuditTotalPages] = useState(1);
   const [auditActionFilter, setAuditActionFilter] = useState<string>('');
   const [auditStatusFilter, setAuditStatusFilter] = useState<string>('');
+  const [auditActorFilter, setAuditActorFilter] = useState<string>('');
+  const [auditResourceFilter, setAuditResourceFilter] = useState<string>('');
+  const [auditStartDate, setAuditStartDate] = useState<string>('');
+  const [auditEndDate, setAuditEndDate] = useState<string>('');
   const [auditSearch, setAuditSearch] = useState('');
   const [isAuditLoading, setIsAuditLoading] = useState(false);
+  const [selectedAuditEvent, setSelectedAuditEvent] = useState<AuditEventItem | null>(null);
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
 
   // Aba Administradores
   const [adminsList, setAdminsList] = useState<UserItem[]>([]);
@@ -478,6 +488,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
     if (auditActionFilter) params.append('action', auditActionFilter);
     if (auditStatusFilter) params.append('status', auditStatusFilter);
+    if (auditActorFilter.trim()) params.append('actor', auditActorFilter.trim());
+    if (auditResourceFilter.trim()) params.append('resource', auditResourceFilter.trim());
+    if (auditStartDate) params.append('startDate', auditStartDate);
+    if (auditEndDate) params.append('endDate', auditEndDate);
     if (auditSearch.trim()) params.append('search', auditSearch.trim());
 
     fetch(`/api/admin/security/events?${params.toString()}`, { headers: getHeaders() })
@@ -491,7 +505,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       })
       .catch(() => {})
       .finally(() => setIsAuditLoading(false));
-  }, [isAuthorized, auditPage, auditActionFilter, auditStatusFilter, auditSearch, getHeaders]);
+  }, [
+    isAuthorized,
+    auditPage,
+    auditActionFilter,
+    auditStatusFilter,
+    auditActorFilter,
+    auditResourceFilter,
+    auditStartDate,
+    auditEndDate,
+    auditSearch,
+    getHeaders,
+  ]);
 
   // Carregar Administradores
   const loadAdmins = useCallback(() => {
@@ -1454,54 +1479,138 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="space-y-4">
               
               {/* Filtros de Auditoria */}
-              <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-4 flex flex-wrap gap-3 items-center justify-between">
-                <div className="flex-1 min-w-[240px] relative">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                  <input
-                    type="text"
-                    placeholder="Buscar por ator, IP, recurso ou detalhes..."
-                    value={auditSearch}
-                    onChange={(e) => {
-                      setAuditSearch(e.target.value);
-                      setAuditPage(1);
-                    }}
-                    className="w-full bg-slate-900/80 border border-slate-700/80 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
-                  />
+              <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-4 space-y-3">
+                <div className="flex flex-wrap gap-3 items-center justify-between">
+                  <div className="flex-1 min-w-[260px] relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    <input
+                      type="text"
+                      placeholder="Buscar por ator, ação, recurso, IP ou detalhes..."
+                      value={auditSearch}
+                      onChange={(e) => {
+                        setAuditSearch(e.target.value);
+                        setAuditPage(1);
+                      }}
+                      className="w-full bg-slate-900/80 border border-slate-700/80 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={auditActionFilter}
+                      onChange={(e) => {
+                        setAuditActionFilter(e.target.value);
+                        setAuditPage(1);
+                      }}
+                      className="bg-slate-900/80 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                    >
+                      <option value="">Todas as Ações</option>
+                      <option value="ADMIN_LOGIN">ADMIN_LOGIN</option>
+                      <option value="ADMIN_LOGIN_FAILED">ADMIN_LOGIN_FAILED</option>
+                      <option value="USER_VIEWED">USER_VIEWED</option>
+                      <option value="USER_SUSPENDED">USER_SUSPENDED</option>
+                      <option value="USER_REACTIVATED">USER_REACTIVATED</option>
+                      <option value="SESSION_REVOKED">SESSION_REVOKED</option>
+                      <option value="ROLE_CHANGED">ROLE_CHANGED</option>
+                      <option value="ADMIN_CREATED">ADMIN_CREATED</option>
+                      <option value="ADMIN_REMOVED">ADMIN_REMOVED</option>
+                      <option value="SECURITY_SETTING_CHANGED">SECURITY_SETTING_CHANGED</option>
+                      <option value="2FA_SUCCESS">2FA_SUCCESS</option>
+                      <option value="2FA_FAILED">2FA_FAILED</option>
+                      <option value="LOGIN_SUCCESS">LOGIN_SUCCESS</option>
+                      <option value="LOGIN_FAILED">LOGIN_FAILED</option>
+                    </select>
+
+                    <select
+                      value={auditStatusFilter}
+                      onChange={(e) => {
+                        setAuditStatusFilter(e.target.value);
+                        setAuditPage(1);
+                      }}
+                      className="bg-slate-900/80 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                    >
+                      <option value="">Todos os Status</option>
+                      <option value="SUCCESS">Sucesso</option>
+                      <option value="FAILED">Falha</option>
+                      <option value="WARNING">Aviso</option>
+                    </select>
+
+                    {(auditSearch || auditActionFilter || auditStatusFilter || auditActorFilter || auditResourceFilter || auditStartDate || auditEndDate) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuditSearch('');
+                          setAuditActionFilter('');
+                          setAuditStatusFilter('');
+                          setAuditActorFilter('');
+                          setAuditResourceFilter('');
+                          setAuditStartDate('');
+                          setAuditEndDate('');
+                          setAuditPage(1);
+                        }}
+                        className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-colors cursor-pointer"
+                      >
+                        Limpar Filtros
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <select
-                    value={auditActionFilter}
-                    onChange={(e) => {
-                      setAuditActionFilter(e.target.value);
-                      setAuditPage(1);
-                    }}
-                    className="bg-slate-900/80 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                  >
-                    <option value="">Todas as Ações</option>
-                    <option value="LOGIN_SUCCESS">LOGIN_SUCCESS</option>
-                    <option value="LOGIN_FAILED">LOGIN_FAILED</option>
-                    <option value="2FA_SUCCESS">2FA_SUCCESS</option>
-                    <option value="2FA_FAILED">2FA_FAILED</option>
-                    <option value="ADMIN_LOGIN">ADMIN_LOGIN</option>
-                    <option value="ADMIN_LOGIN_FAILED">ADMIN_LOGIN_FAILED</option>
-                    <option value="ACCOUNT_SUSPENDED">ACCOUNT_SUSPENDED</option>
-                    <option value="SESSION_REVOKED">SESSION_REVOKED</option>
-                  </select>
+                {/* Filtros Secundários: Ator, Recurso e Intervalo de Datas */}
+                <div className="flex flex-wrap gap-3 items-center pt-2 border-t border-slate-800/60 text-xs">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-[160px]">
+                    <span className="text-slate-400 font-mono text-[11px]">Ator:</span>
+                    <input
+                      type="text"
+                      placeholder="@username ou ID"
+                      value={auditActorFilter}
+                      onChange={(e) => {
+                        setAuditActorFilter(e.target.value);
+                        setAuditPage(1);
+                      }}
+                      className="flex-1 bg-slate-900/60 border border-slate-700/70 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none"
+                    />
+                  </div>
 
-                  <select
-                    value={auditStatusFilter}
-                    onChange={(e) => {
-                      setAuditStatusFilter(e.target.value);
-                      setAuditPage(1);
-                    }}
-                    className="bg-slate-900/80 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                  >
-                    <option value="">Todos os Status</option>
-                    <option value="SUCCESS">Sucesso</option>
-                    <option value="FAILED">Falha</option>
-                    <option value="WARNING">Aviso</option>
-                  </select>
+                  <div className="flex items-center gap-1.5 flex-1 min-w-[160px]">
+                    <span className="text-slate-400 font-mono text-[11px]">Recurso/Alvo:</span>
+                    <input
+                      type="text"
+                      placeholder="user, session, rota..."
+                      value={auditResourceFilter}
+                      onChange={(e) => {
+                        setAuditResourceFilter(e.target.value);
+                        setAuditPage(1);
+                      }}
+                      className="flex-1 bg-slate-900/60 border border-slate-700/70 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400 font-mono text-[11px]">De:</span>
+                    <input
+                      type="date"
+                      value={auditStartDate}
+                      onChange={(e) => {
+                        setAuditStartDate(e.target.value);
+                        setAuditPage(1);
+                      }}
+                      className="bg-slate-900/60 border border-slate-700/70 rounded-lg px-2 py-1 text-xs text-slate-300 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400 font-mono text-[11px]">Até:</span>
+                    <input
+                      type="date"
+                      value={auditEndDate}
+                      onChange={(e) => {
+                        setAuditEndDate(e.target.value);
+                        setAuditPage(1);
+                      }}
+                      className="bg-slate-900/60 border border-slate-700/70 rounded-lg px-2 py-1 text-xs text-slate-300 focus:outline-none"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -1514,21 +1623,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <th className="px-4 py-3">Horário</th>
                         <th className="px-4 py-3">Ação</th>
                         <th className="px-4 py-3">Ator / Usuário</th>
+                        <th className="px-4 py-3">Alvo / Recurso</th>
                         <th className="px-4 py-3">IP</th>
-                        <th className="px-4 py-3">Dispositivo / User-Agent</th>
+                        <th className="px-4 py-3">Dispositivo / Agente</th>
                         <th className="px-4 py-3">Resultado</th>
+                        <th className="px-4 py-3 text-right">Ação</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
                       {isAuditLoading ? (
                         <tr>
-                          <td colSpan={6} className="text-center py-8 text-slate-400">
+                          <td colSpan={8} className="text-center py-8 text-slate-400">
                             Carregando registros forenses...
                           </td>
                         </tr>
                       ) : auditEvents.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="text-center py-8 text-slate-500">
+                          <td colSpan={8} className="text-center py-8 text-slate-500">
                             Nenhum evento localizado com os filtros informados.
                           </td>
                         </tr>
@@ -1544,10 +1655,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <td className="px-4 py-3 text-blue-400">
                               @{evt.actor}
                             </td>
+                            <td className="px-4 py-3 text-slate-300 max-w-[160px] truncate" title={evt.resource}>
+                              {evt.targetType ? `${evt.targetType}:${evt.targetId || ''}` : evt.resource}
+                            </td>
                             <td className="px-4 py-3 text-slate-300">
                               {evt.ip || '—'}
                             </td>
-                            <td className="px-4 py-3 text-slate-400 max-w-[200px] truncate" title={evt.userAgent || ''}>
+                            <td className="px-4 py-3 text-slate-400 max-w-[150px] truncate" title={evt.userAgent || ''}>
                               {evt.userAgent || '—'}
                             </td>
                             <td className="px-4 py-3">
@@ -1558,6 +1672,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               }`}>
                                 {evt.status}
                               </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedAuditEvent(evt);
+                                  setIsAuditModalOpen(true);
+                                }}
+                                className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-mono transition-colors cursor-pointer"
+                              >
+                                Inspecionar
+                              </button>
                             </td>
                           </tr>
                         ))
@@ -2175,6 +2301,155 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODAL: INSPEÇÃO FORENSE DE AUDITORIA & DELTA                          */}
+      {/* ===================================================================== */}
+      {isAuditModalOpen && selectedAuditEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-[#0B1220] border border-blue-500/40 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
+                  <Shield className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>Dossiê Forense de Auditoria</span>
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                      selectedAuditEvent.status === 'SUCCESS'
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                        : 'bg-red-500/10 border-red-500/30 text-red-400'
+                    }`}>
+                      {selectedAuditEvent.status}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 font-mono">ID: {selectedAuditEvent.id}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAuditModalOpen(false);
+                  setSelectedAuditEvent(null);
+                }}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Metadados Principais */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 space-y-1">
+                <div className="text-slate-400 font-mono text-[11px]">Ação Executada</div>
+                <div className="text-sm font-bold text-white">{selectedAuditEvent.action}</div>
+              </div>
+              <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 space-y-1">
+                <div className="text-slate-400 font-mono text-[11px]">Horário do Registro</div>
+                <div className="text-sm text-slate-200">{new Date(selectedAuditEvent.createdAt).toLocaleString('pt-BR')}</div>
+              </div>
+              <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 space-y-1">
+                <div className="text-slate-400 font-mono text-[11px]">Ator Responsável</div>
+                <div className="text-sm text-blue-400 font-mono">@{selectedAuditEvent.actor}</div>
+                {selectedAuditEvent.actorUserId && (
+                  <div className="text-[10px] text-slate-500 font-mono truncate">ID: {selectedAuditEvent.actorUserId}</div>
+                )}
+              </div>
+              <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 space-y-1">
+                <div className="text-slate-400 font-mono text-[11px]">Alvo / Recurso</div>
+                <div className="text-sm text-amber-300 font-mono truncate">
+                  {selectedAuditEvent.targetType ? `${selectedAuditEvent.targetType}:${selectedAuditEvent.targetId || ''}` : selectedAuditEvent.resource}
+                </div>
+                {selectedAuditEvent.userId && (
+                  <div className="text-[10px] text-slate-500 font-mono truncate">Target UserID: {selectedAuditEvent.userId}</div>
+                )}
+              </div>
+              <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 space-y-1">
+                <div className="text-slate-400 font-mono text-[11px]">IP de Origem</div>
+                <div className="text-sm text-slate-300 font-mono">{selectedAuditEvent.ip || 'Não detectado'}</div>
+              </div>
+              <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 space-y-1">
+                <div className="text-slate-400 font-mono text-[11px]">Dispositivo / User-Agent</div>
+                <div className="text-xs text-slate-300 truncate" title={selectedAuditEvent.userAgent || ''}>
+                  {selectedAuditEvent.userAgent || '—'}
+                </div>
+              </div>
+            </div>
+
+            {/* Inspeção de Delta de Estado (previousState vs newState) */}
+            {(() => {
+              let parsed: any = null;
+              try {
+                if (selectedAuditEvent.detailsJson) {
+                  parsed = JSON.parse(selectedAuditEvent.detailsJson);
+                }
+              } catch {}
+
+              const previousState = parsed?.previousState;
+              const newState = parsed?.newState;
+
+              return (
+                <div className="space-y-3 pt-1">
+                  {(previousState || newState) && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3">
+                        <div className="text-[11px] font-mono font-bold text-red-400 mb-1 flex items-center gap-1.5">
+                          <span>Estado Anterior</span>
+                        </div>
+                        <pre className="text-[11px] font-mono text-red-200 overflow-x-auto p-2 bg-black/40 rounded-lg max-h-40">
+                          {previousState ? JSON.stringify(previousState, null, 2) : 'Nenhum'}
+                        </pre>
+                      </div>
+
+                      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3">
+                        <div className="text-[11px] font-mono font-bold text-emerald-400 mb-1 flex items-center gap-1.5">
+                          <span>Estado Posterior</span>
+                        </div>
+                        <pre className="text-[11px] font-mono text-emerald-200 overflow-x-auto p-2 bg-black/40 rounded-lg max-h-40">
+                          {newState ? JSON.stringify(newState, null, 2) : 'Nenhum'}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Metadados e Detalhes Adicionais */}
+                  {parsed && (
+                    <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3">
+                      <div className="text-[11px] font-mono font-bold text-slate-400 mb-1">
+                        Metadados Sanitizados
+                      </div>
+                      <pre className="text-[11px] font-mono text-slate-300 overflow-x-auto p-2 bg-black/40 rounded-lg max-h-40">
+                        {JSON.stringify(parsed, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-3 text-[11px] text-blue-300 flex items-center gap-2">
+              <Shield className="w-4 h-4 shrink-0 text-blue-400" />
+              <span>
+                Registro Imutável (Append-Only): Protegido contra exclusão e edição. Segredos e senhas são estritamente expurgados.
+              </span>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAuditModalOpen(false);
+                  setSelectedAuditEvent(null);
+                }}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}
