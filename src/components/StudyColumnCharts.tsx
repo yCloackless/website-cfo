@@ -450,7 +450,7 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
         {periodMode === 'total' && (
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-amber-400 shrink-0" />
+              <Layers className="w-4 h-4 text-blue-400 shrink-0" />
               <span className="text-xs font-bold text-slate-200">
                 Histórico Total Acumulado (Todas as Semanas &amp; Meses)
               </span>
@@ -510,14 +510,14 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
             isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
           }`}
         >
-          <div className="flex items-center gap-2 text-amber-400">
+          <div className="flex items-center gap-2 text-blue-400">
             <Trophy className="w-4 h-4" />
             <span className="text-[10px] uppercase font-bold tracking-wider">Disciplina Líder</span>
           </div>
           <p className="text-sm font-bold text-slate-100 mt-1 truncate">
             {topSubject ? topSubject.shortName : 'Nenhuma'}
           </p>
-          <span className="text-[10px] text-amber-400 font-semibold">
+          <span className="text-[10px] text-blue-400 font-semibold">
             {topSubject ? `${topSubject.hours}h (${topSubject.percentage}%)` : 'Sem registros'}
           </span>
         </div>
@@ -614,7 +614,7 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
                           </p>
                           <div className="flex items-center justify-between gap-4 font-semibold">
                             <span className="text-slate-400">Carga Total:</span>
-                            <span className="text-amber-400 text-sm font-bold">{data.totalHours}h</span>
+                            <span className="text-blue-400 text-sm font-bold">{data.totalHours}h</span>
                           </div>
                           <div className="flex items-center justify-between gap-4">
                             <span className="text-slate-400">Sessões:</span>
@@ -729,7 +729,7 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
                             <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800 text-[11px]">
                               <div>
                                 <span className="text-slate-400 block">Tempo Total:</span>
-                                <span className="text-amber-400 font-bold text-sm">
+                                <span className="text-blue-400 font-bold text-sm">
                                   {data.hours}h ({data.minutes} min)
                                 </span>
                               </div>

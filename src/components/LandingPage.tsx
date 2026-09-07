@@ -148,8 +148,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                 backgroundSize: '40px 40px',
               }}
             />
-            <div className="absolute top-1/4 right-0 w-80 h-80 bg-fire-500/25 rounded-full blur-3xl pointer-events-none"></div>
-            <div className="absolute bottom-10 right-12 font-mono text-[10px] tracking-[0.3em] uppercase text-amber-200/30 hidden xl:block">
+            <div className="absolute top-1/4 right-0 w-80 h-80 bg-blue-500/25 rounded-full blur-3xl pointer-events-none"></div>
+            <div className="absolute bottom-10 right-12 font-mono text-[10px] tracking-[0.3em] uppercase text-blue-200/40 hidden xl:block">
               CADETE BOMBEIRO MILITAR • ABMDOM (CBMERJ)
             </div>
           </div>
@@ -212,7 +212,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
           {/* HEADLINE PRINCIPAL */}
           <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold tracking-tight text-white max-w-4xl leading-[1.08] font-display">
             Sua aprovação começa com{' '}
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-300 via-white to-orange-300 underline decoration-blue-500/40 decoration-4 underline-offset-8">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-300 via-white to-sky-300 underline decoration-blue-500/40 decoration-4 underline-offset-8">
               direção.
             </span>
           </h1>

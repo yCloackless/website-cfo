@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { X, Calendar, Clock, BookOpen, FileText, CheckCircle2, Sparkles, ExternalLink } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Calendar, Clock, BookOpen, FileText, CheckCircle2, Sparkles, AlertCircle } from 'lucide-react';
 import { Subject, StudyEntry } from '../types';
 import { formatBRDate, formatBRDateShort, addDays } from '../utils/dateUtils';
+import { CFO_INCIDENCE_DATA } from '../data/cfoIncidenceData';
 
 interface StudyDetailModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface StudyDetailModalProps {
   dayInfo: { index: number; name: string; dateStr: string } | null;
   existingEntry: StudyEntry | null;
   hasGoogleCalendar: boolean;
+  initialDurationMinutes?: number;
   onSave: (data: {
     completed: boolean;
     topic: string;
@@ -27,6 +29,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
   dayInfo,
   existingEntry,
   hasGoogleCalendar,
+  initialDurationMinutes,
   onSave,
   isSaving,
 }) => {
@@ -36,12 +39,25 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
   const [notes, setNotes] = useState('');
   const [syncWithCalendar, setSyncWithCalendar] = useState(hasGoogleCalendar);
 
+  // Mapeia o assunto oficial e suas submatérias mais recorrentes no CFO CBMERJ
+  const incidenceSubject = useMemo(() => {
+    if (!subject) return null;
+    const lowerName = subject.name.toLowerCase();
+    return (
+      CFO_INCIDENCE_DATA.subjects.find(
+        (s) =>
+          s.id === subject.id ||
+          lowerName.includes(s.shortName.toLowerCase()) ||
+          lowerName.includes(s.name.toLowerCase())
+      ) || null
+    );
+  }, [subject]);
+
   useEffect(() => {
     if (existingEntry) {
       setCompleted(existingEntry.completed);
       setTopic(existingEntry.topic || '');
-      const mins = existingEntry.durationMinutes || 60;
-      // Round to nearest integer hour (e.g. 60m -> 1h, 120m -> 2h, 195m -> 3h)
+      const mins = initialDurationMinutes || existingEntry.durationMinutes || 60;
       const hours = Math.max(1, Math.round(mins / 60));
       setDurationHours(hours);
       setNotes(existingEntry.notes || '');
@@ -49,11 +65,13 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
     } else {
       setCompleted(true);
       setTopic('');
-      setDurationHours(1);
+      const mins = initialDurationMinutes || 60;
+      const hours = Math.max(1, Math.round(mins / 60));
+      setDurationHours(hours);
       setNotes('');
       setSyncWithCalendar(hasGoogleCalendar);
     }
-  }, [existingEntry, hasGoogleCalendar, isOpen]);
+  }, [existingEntry, hasGoogleCalendar, isOpen, initialDurationMinutes]);
 
   if (!isOpen || !subject || !dayInfo) return null;
 
@@ -80,23 +98,23 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
       <div 
-        className="bg-[#111218] rounded-2xl max-w-lg w-full shadow-2xl border border-slate-800 overflow-hidden flex flex-col max-h-[90vh] text-slate-100"
+        className="bg-[#0B1528] rounded-2xl max-w-lg w-full shadow-2xl border border-blue-900/50 overflow-hidden flex flex-col max-h-[92vh] text-slate-100 animate-in fade-in zoom-in-95 slide-in-from-bottom-5 duration-300"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-[#0D0E13]">
+        <div className="px-6 py-4 border-b border-blue-900/40 flex items-center justify-between bg-[#070D18]">
           <div className="flex items-center gap-3">
             <div
               className="w-2.5 h-10 rounded-full"
-              style={{ backgroundColor: subject.color }}
+              style={{ backgroundColor: subject.color || '#0056D2' }}
             />
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">
                 {subject.category} • {dayInfo.name} ({formatBRDateShort(dayInfo.dateStr)})
               </span>
-              <h2 className="text-base font-semibold text-slate-100">
+              <h2 className="text-base font-bold text-slate-100">
                 {subject.name}
               </h2>
             </div>
@@ -110,10 +128,10 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
         </div>
 
         {/* Content Form */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5">
+        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 scrollbar-thin">
           {/* Status Selection */}
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-2">
+            <label className="block text-xs font-semibold text-slate-300 mb-2">
               Status do Estudo neste Dia:
             </label>
             <div className="grid grid-cols-2 gap-3">
@@ -122,11 +140,11 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
                 onClick={() => setCompleted(true)}
                 className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all ${
                   completed
-                    ? 'bg-red-950/40 border-red-500 text-red-400 shadow-md shadow-red-950/30'
-                    : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:bg-slate-800/60'
+                    ? 'bg-blue-950/60 border-blue-500 text-blue-300 shadow-md shadow-blue-950/40'
+                    : 'bg-[#0F1D38]/50 border-blue-900/40 text-slate-400 hover:bg-[#0F1D38]'
                 }`}
               >
-                <CheckCircle2 className={`w-4 h-4 ${completed ? 'text-red-400' : 'text-slate-500'}`} />
+                <CheckCircle2 className={`w-4 h-4 ${completed ? 'text-blue-400' : 'text-slate-500'}`} />
                 <span>Estudado / Concluído</span>
               </button>
 
@@ -136,7 +154,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
                 className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-medium transition-all ${
                   !completed
                     ? 'bg-slate-800 border-slate-700 text-slate-100 font-bold'
-                    : 'bg-slate-900/60 border-slate-800 text-slate-500 hover:bg-slate-800/60'
+                    : 'bg-[#0F1D38]/50 border-blue-900/40 text-slate-500 hover:bg-[#0F1D38]'
                 }`}
               >
                 <span>Pendente / Não Estudado</span>
@@ -144,34 +162,69 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Topic Studied */}
+          {/* Topic Studied & Submatérias selector */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
-                <BookOpen className="w-3.5 h-3.5 text-slate-400" />
+              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5 text-blue-400" />
                 Nome do Conteúdo / Tópico Estudado:
               </label>
-              <span className="text-[10px] text-amber-400 font-medium">
-                (Necessário para agendar no Google Calendar)
+              <span className="text-[10px] text-blue-400 font-semibold">
+                (Sincroniza na Google Agenda)
               </span>
             </div>
             <input
               type="text"
-              placeholder="Ex: Termologia e Calorimetria, Crase, Geometria..."
+              placeholder="Ex: Cartografia, Era Vargas, Termologia, Crase..."
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-slate-900/80 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 transition-colors"
+              className="w-full px-3.5 py-2.5 bg-[#0F1D38] border border-blue-900/60 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:bg-[#132345] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
             />
+
+            {/* Submatérias mais recorrentes no CFO CBMERJ */}
+            {incidenceSubject && incidenceSubject.microTopics && incidenceSubject.microTopics.length > 0 && (
+              <div className="mt-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-blue-300 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                    Submatérias Frequentes da Banca (clique para preencher):
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {incidenceSubject.microTopics.length} submaterias
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1 scrollbar-thin p-2 bg-[#070D18] rounded-xl border border-blue-900/40">
+                  {incidenceSubject.microTopics.map((m) => {
+                    const isSelected = topic === m.name;
+                    return (
+                      <button
+                        key={m.name}
+                        type="button"
+                        onClick={() => setTopic(m.name)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all text-left border cursor-pointer ${
+                          isSelected
+                            ? 'bg-[#0056D2] text-white border-blue-400 font-bold shadow-sm scale-[1.02]'
+                            : 'bg-[#0B1528] text-slate-300 border-blue-900/50 hover:border-blue-500/60 hover:text-white hover:bg-[#0F1D38]'
+                        }`}
+                      >
+                        <span>{m.name}</span>
+                        <span className="ml-1.5 text-[9px] opacity-75 font-mono">({m.questions}q)</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Duration in Hours (Whole Hours Only) */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-red-400" />
+              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-blue-400" />
                 Carga Horária Estudada (Horas Inteiras):
               </label>
-              <span className="text-xs font-bold text-amber-400">
+              <span className="text-xs font-bold text-blue-400">
                 {durationHours} {durationHours === 1 ? 'hora' : 'horas'} ({durationHours}h)
               </span>
             </div>
@@ -188,7 +241,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
                     const parsed = parseInt(e.target.value, 10);
                     setDurationHours(isNaN(parsed) || parsed < 1 ? 1 : parsed);
                   }}
-                  className="w-24 px-3 py-2 bg-slate-900/80 border border-slate-800 rounded-xl text-xs font-bold text-slate-100 focus:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 text-center"
+                  className="w-24 px-3 py-2 bg-[#0F1D38] border border-blue-900/60 rounded-xl text-xs font-bold text-slate-100 focus:bg-[#132345] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-center"
                 />
                 <span className="text-xs text-slate-400 font-semibold">h</span>
               </div>
@@ -200,10 +253,10 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
                     key={hrs}
                     type="button"
                     onClick={() => setDurationHours(hrs)}
-                    className={`px-2.5 py-1 text-xs rounded-lg border transition-all ${
+                    className={`px-2.5 py-1 text-xs rounded-lg border transition-all cursor-pointer ${
                       durationHours === hrs
-                        ? 'bg-red-600 text-white border-red-600 font-bold shadow-xs scale-105'
-                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                        ? 'bg-[#0056D2] text-white border-blue-400 font-bold shadow-xs scale-105'
+                        : 'bg-[#0F1D38] border-blue-900/40 text-slate-400 hover:bg-[#132345] hover:text-slate-200'
                     }`}
                   >
                     {hrs}h
@@ -211,15 +264,15 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
                 ))}
               </div>
             </div>
-            <p className="text-[10px] text-slate-500 mt-1">
+            <p className="text-[10px] text-slate-400 mt-1">
               Horas inteiras de estudo (sem decimais). Ex: 2h, 3h, 5h.
             </p>
           </div>
 
           {/* Notes */}
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
-              <FileText className="w-3.5 h-3.5 text-slate-400" />
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+              <FileText className="w-3.5 h-3.5 text-blue-400" />
               Anotações / Pontos de Dificuldade:
             </label>
             <textarea
@@ -227,17 +280,17 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
               placeholder="Ex: Acertos de questões 15/20. Revisar fórmulas de calor específico."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="w-full px-3.5 py-2 bg-slate-900/80 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 transition-colors"
+              className="w-full px-3.5 py-2 bg-[#0F1D38] border border-blue-900/60 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:bg-[#132345] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
             />
           </div>
 
           {/* Google Calendar & Spaced Review Preview Card */}
-          <div className="bg-slate-900/70 rounded-xl p-3.5 border border-slate-800 space-y-2.5">
+          <div className="bg-[#070D18] rounded-xl p-3.5 border border-blue-900/40 space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-red-500" />
+                <Calendar className="w-4 h-4 text-blue-400" />
                 <span className="text-xs font-bold text-slate-200">
-                  Google Agenda & Revisões Inteligentes
+                  Google Agenda &amp; Revisões Inteligentes
                 </span>
               </div>
               {hasGoogleCalendar ? (
@@ -248,7 +301,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
                     onChange={(e) => setSyncWithCalendar(e.target.checked)}
                     className="sr-only peer"
                   />
-                  <div className="w-8 h-4.5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-red-600"></div>
+                  <div className="w-8 h-4.5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-[#0056D2]"></div>
                   <span className="ml-1.5 text-[11px] font-semibold text-slate-300">
                     Sincronizar
                   </span>
@@ -261,17 +314,17 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
             </div>
 
             {syncWithCalendar && !topic.trim() && (
-              <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-start gap-1.5">
-                <span className="font-bold">⚠️</span>
+              <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/30 text-[11px] text-blue-300 flex items-start gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
                 <span>
-                  O evento <strong>só será colocado na Google Agenda quando você preencher o nome do conteúdo</strong> acima. Deixar sem nome salva apenas no cronograma local.
+                  O evento <strong>só será agendado quando você selecionar ou digitar a submatéria</strong> acima. Deixar sem nome salva apenas no cronograma local.
                 </span>
               </div>
             )}
 
             <div className="text-[11px] text-slate-400 space-y-1">
               <p className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
                 <span>Registro do Estudo: <strong className="text-slate-200">{dateFormatted}</strong></span>
               </p>
               <p className="flex items-center gap-1.5">
@@ -279,11 +332,11 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
                 <span>1ª Revisão (+24h / Próx Dia): <strong className="text-slate-200">{rev1dDate}</strong></span>
               </p>
               <p className="flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3 text-amber-400" />
+                <Sparkles className="w-3 h-3 text-blue-400" />
                 <span>2ª Revisão (+1 semana / 7D): <strong className="text-slate-200">{rev7dDate}</strong></span>
               </p>
               <p className="flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3 text-yellow-400" />
+                <Sparkles className="w-3 h-3 text-indigo-400" />
                 <span>3ª Revisão (+1 mês / 30D): <strong className="text-slate-200">{rev30dDate}</strong></span>
               </p>
               <p className="flex items-center gap-1.5">
@@ -303,25 +356,25 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
+          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-blue-900/40">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 rounded-xl transition-colors"
+              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 rounded-xl transition-colors cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={isSaving}
-              className="px-5 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 active:scale-[0.98] rounded-xl shadow-md shadow-red-950/60 transition-all flex items-center gap-1.5 disabled:opacity-50"
+              className="px-6 py-2.5 text-xs font-extrabold text-white bg-[#0056D2] hover:bg-[#0047B3] active:scale-[0.98] rounded-xl shadow-md shadow-blue-950/60 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {isSaving ? (
                 <span>Salvando...</span>
               ) : (
                 <>
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Salvar Estudo</span>
+                  <CheckCircle2 className="w-4 h-4 text-sky-300" />
+                  <span>Salvar Estudo &amp; Sincronizar</span>
                 </>
               )}
             </button>

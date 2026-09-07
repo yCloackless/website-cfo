@@ -235,6 +235,7 @@ export default function App() {
     dayIndex: number;
     dateStr: string;
   } | null>(null);
+  const [initialStudyDurationMinutes, setInitialStudyDurationMinutes] = useState<number | null>(null);
   const [isSavingStudy, setIsSavingStudy] = useState(false);
 
   const [isRevisionsModalOpen, setIsRevisionsModalOpen] = useState(false);
@@ -415,7 +416,31 @@ export default function App() {
 
   // Handle cell click (open detailed edit modal)
   const handleCellClick = (subject: Subject, dayIndex: number, dateStr: string) => {
+    setInitialStudyDurationMinutes(null);
     setSelectedCell({ subject, dayIndex, dateStr });
+    setIsStudyModalOpen(true);
+  };
+
+  // Open detailed study modal directly from Timer with pre-filled subject and time
+  const handleOpenStudyDetailFromTimer = (subjectId: string, durationMinutes: number) => {
+    const subject = subjects.find((s) => s.id === subjectId) || subjects[0];
+    if (!subject) return;
+
+    const todayISO = toISODate(new Date());
+    const matchedDay = weekDays.find((d) => d.dateStr === todayISO);
+    const dayIndex = matchedDay
+      ? matchedDay.index
+      : new Date().getDay() === 0
+      ? 6
+      : new Date().getDay() - 1;
+    const dateStr = matchedDay ? matchedDay.dateStr : todayISO;
+
+    setInitialStudyDurationMinutes(durationMinutes);
+    setSelectedCell({
+      subject,
+      dayIndex,
+      dateStr,
+    });
     setIsStudyModalOpen(true);
   };
 
@@ -1244,6 +1269,7 @@ export default function App() {
             theme={theme}
             subjects={subjects}
             onLogStudySession={handleLogTimerStudySession}
+            onOpenStudyModal={handleOpenStudyDetailFromTimer}
             weeklyGoalHours={weeklyGoalHours}
           />
         )}
@@ -1331,7 +1357,10 @@ export default function App() {
       {/* Modals */}
       <StudyDetailModal
         isOpen={isStudyModalOpen}
-        onClose={() => setIsStudyModalOpen(false)}
+        onClose={() => {
+          setIsStudyModalOpen(false);
+          setInitialStudyDurationMinutes(null);
+        }}
         subject={selectedCell?.subject || null}
         dayInfo={
           selectedCell
@@ -1350,6 +1379,7 @@ export default function App() {
             : null
         }
         hasGoogleCalendar={Boolean(user && accessToken)}
+        initialDurationMinutes={initialStudyDurationMinutes || undefined}
         onSave={handleSaveStudyDetail}
         isSaving={isSavingStudy}
       />

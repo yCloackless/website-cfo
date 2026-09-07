@@ -310,7 +310,7 @@ export async function syncStudySessionAndRevisions(
       summary: `🎯 [Revisão 7D • CFO CBMERJ] ${subject.name}${topicLabel}`,
       description: `Revisão de 1 semana (Curva do Esquecimento de Ebbinghaus).\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado originalmente em: ${studiedDateFormatted}\n\nObjetivo: Revisar pontos-chave, resolver questões de fixação e flashcards.`,
       dateStr: addDays(entry.dateStr, 7),
-      colorId: '6', // Tangerine / Orange
+      colorId: '9', // Blueberry / Royal Blue
       tag: '7d',
     });
 

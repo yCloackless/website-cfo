@@ -29,7 +29,7 @@ export const DEFAULT_CFO_SUBJECTS: Subject[] = [
     id: 'quimica',
     name: 'Química Geral & Orgânica',
     category: 'Exatas & Biológicas',
-    color: '#f97316', // orange
+    color: '#0284c7', // sky blue
   },
   {
     id: 'biologia',

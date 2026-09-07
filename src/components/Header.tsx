@@ -161,15 +161,15 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={() => onSelectTab('highyield')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === 'highyield'
-                  ? 'bg-[#EA580C] text-white shadow-sm'
+                  ? 'bg-[#0056D2] text-white shadow-sm'
                   : isDark
-                  ? 'text-slate-400 hover:text-orange-400'
-                  : 'text-slate-600 hover:text-orange-600'
+                  ? 'text-slate-400 hover:text-blue-400'
+                  : 'text-slate-600 hover:text-blue-600'
               }`}
             >
-              <Target className="w-3.5 h-3.5 text-amber-400" />
+              <Target className="w-3.5 h-3.5 text-blue-400" />
               <span>Mais Caem</span>
-              <span className="px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-amber-400 text-slate-950 uppercase">
+              <span className="px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-blue-600 text-white uppercase">
                 Raio-X
               </span>
             </button>
@@ -185,7 +185,7 @@ export const Header: React.FC<HeaderProps> = ({
                   : 'text-slate-600 hover:text-indigo-600'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <Sparkles className="w-3.5 h-3.5 text-blue-400" />
               <span>IA</span>
             </button>
           </div>
@@ -198,15 +198,15 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={onOpenRevisions}
               className={`relative inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors border shadow-2xs cursor-pointer ${
                 isDark
-                  ? 'bg-[#0B1528] hover:bg-[#0F1D38] text-amber-400 border-slate-800 hover:border-amber-500/40'
-                  : 'bg-white hover:bg-slate-50 text-amber-600 border-slate-200 hover:border-amber-300'
+                  ? 'bg-[#0B1528] hover:bg-[#0F1D38] text-blue-400 border-slate-800 hover:border-blue-500/40'
+                  : 'bg-white hover:bg-slate-50 text-blue-600 border-slate-200 hover:border-blue-300'
               }`}
               title="Gerenciador de revisões de 1 semana e mensais"
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <Sparkles className="w-3.5 h-3.5 text-blue-400" />
               <span className="hidden sm:inline">Revisões</span>
               {pendingRevisionsCount > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#FF6B00] text-white animate-pulse">
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#0056D2] text-white animate-pulse">
                   {pendingRevisionsCount}
                 </span>
               )}
@@ -258,7 +258,7 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={onToggleTheme}
               className={`p-1.5 rounded-lg text-xs font-medium transition-colors border flex items-center gap-1.5 ${
                 isDark
-                  ? 'text-amber-400 bg-slate-900 hover:bg-slate-800 border-slate-800'
+                  ? 'text-sky-400 bg-slate-900 hover:bg-slate-800 border-slate-800'
                   : 'text-slate-700 bg-slate-100 hover:bg-slate-200 border-slate-200'
               }`}
               title={isDark ? 'Alternar para Modo Claro' : 'Alternar para Modo Escuro'}
@@ -266,7 +266,7 @@ export const Header: React.FC<HeaderProps> = ({
             >
               {isDark ? (
                 <>
-                  <Sun className="w-4 h-4 text-amber-400" />
+                  <Sun className="w-4 h-4 text-sky-400" />
                   <span className="hidden xl:inline text-[11px] font-semibold text-slate-300">Claro</span>
                 </>
               ) : (

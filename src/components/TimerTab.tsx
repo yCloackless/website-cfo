@@ -21,6 +21,7 @@ interface TimerTabProps {
   theme: AppTheme;
   subjects: Subject[];
   onLogStudySession?: (subjectId: string, minutes: number, notes?: string) => void;
+  onOpenStudyModal?: (subjectId: string, durationMinutes: number) => void;
   weeklyGoalHours?: number;
 }
 
@@ -37,6 +38,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   theme,
   subjects,
   onLogStudySession,
+  onOpenStudyModal,
   weeklyGoalHours = 25,
 }) => {
   const isDark = theme === 'dark';
@@ -250,7 +252,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
               <span>Nuvem Conectada</span>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
               <CloudOff className="w-3.5 h-3.5" />
               <span>Modo Local</span>
             </div>
@@ -272,7 +274,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
           style={{
             background: isRunning
               ? 'radial-gradient(circle at 50% 40%, rgba(0, 86, 210, 0.4) 0%, transparent 65%)'
-              : 'radial-gradient(circle at 50% 40%, rgba(255, 107, 0, 0.15) 0%, transparent 65%)',
+              : 'radial-gradient(circle at 50% 40%, rgba(0, 86, 210, 0.15) 0%, transparent 65%)',
           }}
         />
 
@@ -317,7 +319,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
               isRunning
                 ? 'text-white'
                 : isPaused
-                ? 'text-amber-300'
+                ? 'text-sky-300'
                 : isDark
                 ? 'text-slate-300'
                 : 'text-slate-800'
@@ -337,7 +339,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
                 isRunning
                   ? 'bg-blue-500 animate-ping'
                   : isPaused
-                  ? 'bg-amber-500'
+                  ? 'bg-blue-400'
                   : 'bg-slate-500'
               }`}
             />
@@ -366,7 +368,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
             <button
               onClick={handlePause}
               disabled={isSyncing}
-              className="inline-flex items-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-sm tracking-wider uppercase shadow-[0_10px_30px_rgba(234,88,12,0.4)] hover:shadow-[0_15px_35px_rgba(234,88,12,0.6)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer disabled:opacity-50"
+              className="inline-flex items-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-blue-700 via-indigo-600 to-blue-800 hover:from-blue-600 hover:to-indigo-500 text-white font-bold text-sm tracking-wider uppercase shadow-[0_10px_30px_rgba(30,58,138,0.5)] hover:shadow-[0_15px_35px_rgba(30,58,138,0.7)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer disabled:opacity-50"
             >
               <Pause className="w-5 h-5 fill-current" />
               <span>PAUSAR CRONÔMETRO</span>
@@ -386,15 +388,24 @@ export const TimerTab: React.FC<TimerTabProps> = ({
             <span>ZERAR</span>
           </button>
 
-          {displayMs >= 60000 && (
-            <button
-              onClick={handleSaveToSchedule}
-              className="inline-flex items-center gap-2 px-6 py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider shadow-md hover:shadow-emerald-900/40 transition-all cursor-pointer transform hover:-translate-y-0.5"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>REGISTRAR NO CRONOGRAMA</span>
-            </button>
-          )}
+          {/* Botão de Finalizar e Abrir Modal com Submatérias */}
+          <button
+            onClick={async () => {
+              if (isRunning) {
+                await handlePause();
+              }
+              const mins = Math.max(1, Math.round(displayMs / 60000));
+              if (onOpenStudyModal && activeSubject) {
+                onOpenStudyModal(activeSubject.id, mins);
+              } else {
+                handleSaveToSchedule();
+              }
+            }}
+            className="inline-flex items-center gap-2.5 px-7 py-4 rounded-2xl bg-[#0056D2] hover:bg-[#0047B3] text-white text-xs font-extrabold uppercase tracking-wider shadow-[0_10px_25px_rgba(0,86,210,0.5)] hover:shadow-[0_15px_35px_rgba(0,86,210,0.7)] transition-all cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
+          >
+            <CheckCircle2 className="w-4 h-4 text-sky-300" />
+            <span>CONCLUIR &amp; REGISTRAR NO CRONOGRAMA →</span>
+          </button>
         </div>
 
         {/* Dica de produtividade */}

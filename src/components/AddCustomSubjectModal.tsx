@@ -14,8 +14,8 @@ interface AddCustomSubjectModalProps {
 
 const PRESET_COLORS = [
   '#ef4444', // Red
-  '#f97316', // Orange
-  '#f59e0b', // Amber
+  '#2563eb', // Royal Blue
+  '#0284c7', // Sky Blue
   '#10b981', // Emerald
   '#06b6d4', // Cyan
   '#3b82f6', // Blue
