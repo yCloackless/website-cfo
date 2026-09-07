@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo } from 'react';
 import { User } from 'firebase/auth';
 import {
   Flame,
@@ -50,9 +50,9 @@ import { getMondayOfWeek, getWeekDaysList, isTodayDate, formatBRDate, toISODate 
 
 import { Header } from './components/Header';
 import { HorizontalWeeklyTable } from './components/HorizontalWeeklyTable';
-import { AIBalanceTab } from './components/AIBalanceTab';
-import { BizuarioTab } from './components/BizuarioTab';
-import { HighYieldTab } from './components/HighYieldTab';
+const AIBalanceTab = lazy(() => import('./components/AIBalanceTab').then(({ AIBalanceTab }) => ({ default: AIBalanceTab })));
+const BizuarioTab = lazy(() => import('./components/BizuarioTab').then(({ BizuarioTab }) => ({ default: BizuarioTab })));
+const HighYieldTab = lazy(() => import('./components/HighYieldTab').then(({ HighYieldTab }) => ({ default: HighYieldTab })));
 import { StudyDetailModal } from './components/StudyDetailModal';
 import { SmartRevisionsModal } from './components/SmartRevisionsModal';
 import { AddCustomSubjectModal } from './components/AddCustomSubjectModal';
@@ -60,15 +60,15 @@ import { CycleHistoryModal } from './components/CycleHistoryModal';
 import { WeeklyGoalModal } from './components/WeeklyGoalModal';
 import { SecurityGate } from './components/SecurityGate';
 import { LandingPage } from './components/LandingPage';
-import { TimerTab } from './components/TimerTab';
-import { NotionAgendaTab } from './components/NotionAgendaTab';
+const TimerTab = lazy(() => import('./components/TimerTab').then(({ TimerTab }) => ({ default: TimerTab })));
+const NotionAgendaTab = lazy(() => import('./components/NotionAgendaTab').then(({ NotionAgendaTab }) => ({ default: NotionAgendaTab })));
 import { CookieConsent } from './components/CookieConsent';
-import { TacticalSimulations } from './components/TacticalSimulations';
+const TacticalSimulations = lazy(() => import('./components/TacticalSimulations').then(({ TacticalSimulations }) => ({ default: TacticalSimulations })));
 import { TacticalSidebar } from './components/TacticalSidebar';
-import { ErrorNotebookTab } from './components/ErrorNotebookTab';
+const ErrorNotebookTab = lazy(() => import('./components/ErrorNotebookTab').then(({ ErrorNotebookTab }) => ({ default: ErrorNotebookTab })));
 import { MyAccountModal } from './components/MyAccountModal';
 import { AdminSecurityPanelModal } from './components/AdminSecurityPanelModal';
-import { AdminDashboard } from './components/admin/AdminDashboard';
+const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard').then(({ AdminDashboard }) => ({ default: AdminDashboard })));
 
 export default function App() {
   // 🧭 Roteamento SPA (/admin e área do aluno)
@@ -1088,11 +1088,13 @@ export default function App() {
   // 🛡️ Painel Administrativo (/admin)
   if (currentPath === '/admin' || currentPath.startsWith('/admin')) {
     return (
+      <Suspense fallback={null}>
       <AdminDashboard
         theme={theme}
         sessionToken={localStorage.getItem('cfo_terminal_session')}
         onBackToApp={() => navigateTo('/')}
       />
+      </Suspense>
     );
   }
 
@@ -1596,6 +1598,7 @@ export default function App() {
         )}
 
         {/* Render Tab: Agenda Mensal Contínua & Revisões Notion (Restrito ao Admin) */}
+        <Suspense fallback={null}>
         {activeTab === 'calendar' && canAccessNotion && (
           <NotionAgendaTab
             theme={theme}
@@ -1671,6 +1674,8 @@ export default function App() {
             showToast={showToast}
           />
         )}
+
+        </Suspense>
 
         {/* Footer */}
         <footer
@@ -1797,4 +1802,3 @@ export default function App() {
     </div>
   );
 }
-

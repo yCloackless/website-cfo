@@ -5,7 +5,20 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    build: { outDir: 'dist/public', sourcemap: false },
+    build: {
+      outDir: 'dist/public',
+      sourcemap: false,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            firebase: ['firebase/app', 'firebase/auth'],
+            motion: ['motion/react'],
+            recharts: ['recharts'],
+            katex: ['katex'],
+          },
+        },
+      },
+    },
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
