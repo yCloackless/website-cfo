@@ -978,7 +978,7 @@ export default function App() {
                         : 'border-slate-300 bg-slate-100 hover:bg-slate-200/80 text-slate-800'
                     }`}
                   >
-                    <Target className="w-3.5 h-3.5 text-[#FF6B00]" />
+                    <Target className="w-3.5 h-3.5 text-[#0056D2]" />
                     <span>Definir Meta</span>
                   </button>
                 </div>
@@ -995,7 +995,7 @@ export default function App() {
                     className={`h-full rounded-full transition-all duration-700 ${
                       goalProgress.isMet
                         ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
-                        : 'bg-gradient-to-r from-[#0056D2] via-blue-500 to-[#FF6B00]'
+                        : 'bg-gradient-to-r from-[#0056D2] via-blue-500 to-sky-400'
                     }`}
                     style={{ width: `${goalProgress.percentage}%` }}
                   />
@@ -1004,7 +1004,7 @@ export default function App() {
                   <span className={isDark ? 'text-slate-500' : 'text-slate-400'}>
                     0h (Início da semana)
                   </span>
-                  <span className="font-bold text-red-500">
+                  <span className="font-bold text-[#0056D2] dark:text-sky-400">
                     {goalProgress.percentage}% da meta alcançada
                   </span>
                   <span className={isDark ? 'text-slate-500' : 'text-slate-400'}>
@@ -1130,8 +1130,8 @@ export default function App() {
                 <div
                   className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
                     isDark
-                      ? 'bg-red-950/40 text-red-400 border-red-800/40'
-                      : 'bg-red-50 text-red-600 border-red-200'
+                      ? 'bg-blue-950/40 text-blue-400 border-blue-800/40'
+                      : 'bg-blue-50 text-blue-600 border-blue-200'
                   }`}
                 >
                   <BookOpen className="w-5 h-5" />
@@ -1170,8 +1170,8 @@ export default function App() {
                 <div
                   className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
                     isDark
-                      ? 'bg-amber-950/40 text-amber-400 border-amber-800/40'
-                      : 'bg-amber-50 text-amber-600 border-amber-200'
+                      ? 'bg-blue-950/40 text-blue-400 border-blue-800/40'
+                      : 'bg-blue-50 text-blue-600 border-blue-200'
                   }`}
                 >
                   <Sparkles className="w-5 h-5" />
@@ -1187,7 +1187,7 @@ export default function App() {
                 }`}
               >
                 <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-red-600 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-md shadow-red-950/40">
+                  <div className="w-8 h-8 rounded-lg bg-[#0056D2] text-white flex items-center justify-center shrink-0 mt-0.5 shadow-md shadow-blue-950/40">
                     <Calendar className="w-4 h-4" />
                   </div>
                   <div>
@@ -1210,7 +1210,7 @@ export default function App() {
                 <button
                   onClick={handleSignIn}
                   disabled={isSigningIn}
-                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 shadow-md shadow-red-950/40 transition-colors shrink-0"
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-[#0056D2] hover:bg-[#0047B3] shadow-md shadow-blue-950/40 transition-colors shrink-0 cursor-pointer"
                 >
                   <Calendar className="w-3.5 h-3.5" />
                   <span>Conectar Google Agenda</span>

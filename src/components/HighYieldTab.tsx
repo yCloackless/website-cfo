@@ -489,7 +489,7 @@ export const HighYieldTab: React.FC<HighYieldTabProps> = ({
                   <div className="lg:col-span-6 space-y-3">
                     <div className="flex items-center justify-between pb-2 border-b border-slate-800/60">
                       <div className="flex items-center gap-2">
-                        <BarChart3 className="w-4 h-4 text-red-500" />
+                        <BarChart3 className="w-4 h-4 text-[#0056D2]" />
                         <h4
                           className={`text-xs font-bold uppercase tracking-wider ${
                             isDark ? 'text-slate-200' : 'text-slate-800'
@@ -520,7 +520,7 @@ export const HighYieldTab: React.FC<HighYieldTabProps> = ({
                                 <span
                                   className={`w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center ${
                                     macro.rank <= 3
-                                      ? 'bg-red-600 text-white'
+                                      ? 'bg-[#0056D2] text-white'
                                       : isDark
                                       ? 'bg-slate-800 text-slate-400'
                                       : 'bg-slate-200 text-slate-700'
@@ -534,7 +534,7 @@ export const HighYieldTab: React.FC<HighYieldTabProps> = ({
                               </span>
 
                               <div className="flex items-center gap-2">
-                                <span className="text-[11px] font-bold text-red-500">
+                                <span className="text-[11px] font-bold text-[#0056D2] dark:text-sky-400">
                                   {macro.questions} {macro.questions === 1 ? 'questão' : 'questões'}
                                 </span>
                                 <span className="text-[10px] text-slate-500">
@@ -679,7 +679,7 @@ export const HighYieldTab: React.FC<HighYieldTabProps> = ({
                                 <span
                                   className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
                                     isHighPriority
-                                      ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                                      ? 'bg-blue-500/20 text-[#0056D2] dark:text-sky-400 border-blue-500/30'
                                       : isMediumPriority
                                       ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
                                       : 'bg-slate-800 text-slate-300 border-slate-700'
@@ -757,7 +757,7 @@ export const HighYieldTab: React.FC<HighYieldTabProps> = ({
                                         <span
                                           className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${
                                             isHighPriority
-                                              ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                                              ? 'bg-blue-600/20 text-[#0056D2] dark:text-sky-400 border-blue-500/40'
                                               : isMediumPriority
                                               ? 'bg-blue-500/15 text-blue-400 border-blue-500/30'
                                               : 'bg-blue-500/15 text-blue-400 border-blue-500/30'
@@ -824,7 +824,7 @@ export const HighYieldTab: React.FC<HighYieldTabProps> = ({
                                             : 'bg-white border-slate-200 shadow-xs'
                                         }`}
                                       >
-                                        <div className="flex items-center gap-1.5 font-bold text-red-400 mb-1">
+                                        <div className="flex items-center gap-1.5 font-bold text-[#0056D2] dark:text-sky-400 mb-1">
                                           <AlertTriangle className="w-3.5 h-3.5" />
                                           <span>Pegadinhas da Banca:</span>
                                         </div>

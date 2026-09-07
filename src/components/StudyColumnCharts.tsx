@@ -735,7 +735,7 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
                               </div>
                               <div>
                                 <span className="text-slate-400 block">% do Período:</span>
-                                <span className="text-red-400 font-bold text-sm">
+                                <span className="text-[#0056D2] dark:text-sky-400 font-bold text-sm">
                                   {data.percentage}%
                                 </span>
                               </div>
@@ -840,7 +840,7 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
                 </p>
                 <span
                   className={`text-[10px] font-bold ${
-                    item.hours > 0 ? 'text-amber-400' : 'text-slate-600'
+                    item.hours > 0 ? 'text-[#0056D2] dark:text-sky-400' : 'text-slate-600'
                   }`}
                 >
                   {item.percentage}%

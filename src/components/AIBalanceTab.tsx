@@ -62,7 +62,7 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
         }`}
       >
         <div className="flex items-start gap-3.5">
-          <div className="w-11 h-11 rounded-xl bg-linear-to-tr from-amber-500 to-red-600 flex items-center justify-center text-white shadow-lg shadow-amber-500/20 shrink-0">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-[#0056D2] to-sky-400 flex items-center justify-center text-white shadow-lg shadow-blue-500/20 shrink-0">
             <Sparkles className="w-6 h-6" />
           </div>
           <div>
@@ -74,14 +74,14 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
               >
                 Inteligência Artificial de Equilíbrio Semanal
               </h2>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-red-500/10 text-red-500 border border-red-500/20">
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-500/10 text-[#0056D2] dark:text-sky-400 border border-blue-500/20">
                 CFO CBMERJ
               </span>
               <span
                 className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${
                   analysisSource === 'gemini'
                     ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                    : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                    : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
                 }`}
               >
                 {analysisSource === 'gemini'
@@ -127,7 +127,7 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
             } disabled:opacity-50`}
             title="Recalcular análise pedagógica com a IA agora"
           >
-            <RotateCcw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-amber-500' : ''}`} />
+            <RotateCcw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-[#0056D2]' : ''}`} />
             <span>{isLoading ? 'Analisando...' : 'Reanalisar com IA'}</span>
           </button>
         </div>
@@ -153,11 +153,11 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
           <div>
             <div className="flex items-center justify-between gap-3 mb-4">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-[#0056D2] dark:text-sky-400 border border-blue-500/20 flex items-center justify-center">
                   <Trophy className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wider font-bold text-amber-500">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-[#0056D2] dark:text-sky-400">
                     Maior Carga Horária na Semana
                   </p>
                   <h3
@@ -170,7 +170,7 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
                 </div>
               </div>
 
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-[#0056D2] dark:text-sky-400 border border-blue-500/30">
                 {analysis?.topStudiedSubject?.status || 'Foco Líder'}
               </span>
             </div>
@@ -189,7 +189,7 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
                 >
                   Tempo Dedicado
                 </p>
-                <p className="text-xl font-bold text-amber-500 mt-0.5">
+                <p className="text-xl font-bold text-[#0056D2] dark:text-sky-400 mt-0.5">
                   {Math.max(1, Math.round(analysis?.topStudiedSubject?.hours || (topSubjectMinutes / 60)))}h
                 </p>
               </div>
@@ -227,7 +227,7 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
                 >
                   % do Estudo Semanal
                 </p>
-                <p className="text-xl font-bold text-red-500 mt-0.5">
+                <p className="text-xl font-bold text-[#0056D2] dark:text-sky-400 mt-0.5">
                   {topPercentage}%
                 </p>
               </div>
@@ -238,10 +238,10 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
               className={`p-3.5 rounded-xl border text-xs leading-relaxed ${
                 isDark
                   ? 'bg-slate-900/40 border-slate-800/80 text-slate-300'
-                  : 'bg-amber-50/50 border-amber-200 text-slate-700'
+                  : 'bg-blue-50/50 border-blue-200 text-slate-700'
               }`}
             >
-              <div className="flex items-center gap-1.5 font-bold text-amber-400 mb-1">
+              <div className="flex items-center gap-1.5 font-bold text-[#0056D2] dark:text-sky-400 mb-1">
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Diagnóstico Pedagógico da IA:</span>
               </div>
@@ -288,11 +288,11 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
         >
           <div>
             <div className="flex items-center gap-2.5 mb-3">
-              <div className="w-9 h-9 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 flex items-center justify-center">
+              <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-[#0056D2] dark:text-sky-400 border border-blue-500/20 flex items-center justify-center">
                 <TrendingUp className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider font-bold text-red-500">
+                <p className="text-[10px] uppercase tracking-wider font-bold text-[#0056D2] dark:text-sky-400">
                   Termômetro de Equilíbrio
                 </p>
                 <h3
@@ -317,12 +317,12 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
                 className={`text-xs mt-1 ${
                   (analysis?.equilibriumScore ?? 75) >= 70
                     ? 'text-emerald-400 font-semibold'
-                    : 'text-amber-400 font-semibold'
+                    : 'text-[#0056D2] dark:text-sky-400 font-semibold'
                 }`}
               >
                 {(analysis?.equilibriumScore ?? 75) >= 70
                   ? '✅ Boa distribuição de matérias'
-                  : '⚠️ Necessário rebalancear próxima semana'}
+                  : 'ℹ️ Necessário rebalancear próxima semana'}
               </p>
 
               {/* Progress bar */}
@@ -332,7 +332,7 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
                 }`}
               >
                 <div
-                  className="h-full bg-linear-to-r from-red-600 via-amber-500 to-emerald-500 transition-all duration-500"
+                  className="h-full bg-gradient-to-r from-[#0056D2] via-blue-500 to-sky-400 transition-all duration-500"
                   style={{ width: `${analysis?.equilibriumScore ?? 75}%` }}
                 />
               </div>
@@ -353,7 +353,7 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
 
           <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
             <span>Matérias atendidas nesta semana:</span>
-            <strong className="text-red-400">
+            <strong className="text-[#0056D2] dark:text-sky-400">
               {summary.subjectsStudied.length} de {summary.allSubjects.length}
             </strong>
           </div>
@@ -368,7 +368,7 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 mb-4 border-b border-slate-800/80">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-red-600/10 text-red-500 border border-red-600/20 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-[#0056D2] dark:text-sky-400 border border-blue-500/20 flex items-center justify-center">
               <Target className="w-5 h-5" />
             </div>
             <div>
@@ -388,7 +388,7 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
               </p>
             </div>
           </div>
-          <span className="text-[11px] font-bold text-red-400 uppercase tracking-wider">
+          <span className="text-[11px] font-bold text-[#0056D2] dark:text-sky-400 uppercase tracking-wider">
             Recomendação Tática
           </span>
         </div>
@@ -405,8 +405,8 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
                   className={`p-4 rounded-xl border flex flex-col justify-between transition-all hover:scale-[1.01] ${
                     isHigh
                       ? isDark
-                        ? 'bg-red-950/20 border-red-800/60 ring-1 ring-red-800/40'
-                        : 'bg-red-50/60 border-red-300'
+                        ? 'bg-blue-950/20 border-blue-800/60 ring-1 ring-blue-800/40'
+                        : 'bg-blue-50/60 border-blue-300'
                       : isDark
                       ? 'bg-slate-900/60 border-slate-800'
                       : 'bg-slate-50 border-slate-200'
@@ -420,15 +420,15 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
                       <span
                         className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
                           isHigh
-                            ? 'bg-red-600 text-white'
-                            : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                            ? 'bg-[#0056D2] text-white'
+                            : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
                         }`}
                       >
                         {isHigh ? 'Alta Prioridade' : 'Equilibrar'}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1 text-xs font-semibold text-red-400 mb-2">
+                    <div className="flex items-center gap-1 text-xs font-semibold text-[#0056D2] dark:text-sky-400 mb-2">
                       <Clock className="w-3.5 h-3.5" />
                       <span>Meta sugerida: <strong>{p.recommendedHours}h</strong> na semana</span>
                     </div>
@@ -450,7 +450,7 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
                       <ul className="space-y-1">
                         {p.topicsSuggested.slice(0, 2).map((top, tIdx) => (
                           <li key={tIdx} className="text-slate-400 flex items-start gap-1">
-                            <span className="text-red-500">•</span>
+                            <span className="text-[#0056D2] dark:text-sky-400">•</span>
                             <span className="truncate">{top}</span>
                           </li>
                         ))}
@@ -514,7 +514,7 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
               }`}
             >
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-red-500 mb-1 truncate">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[#0056D2] dark:text-sky-400 mb-1 truncate">
                   {plan.day.split('-')[0]}
                 </p>
                 <p
@@ -535,7 +535,7 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
 
               <div className="mt-3 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-500 font-semibold">
                 <span>Meta:</span>
-                <span className="text-amber-400">{Math.max(1, Math.round((plan.suggestedMinutes || 60) / 60))}h</span>
+                <span className="text-[#0056D2] dark:text-sky-400 font-bold">{Math.max(1, Math.round((plan.suggestedMinutes || 60) / 60))}h</span>
               </div>
             </div>
           ))}
@@ -547,15 +547,15 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
         <div
           className={`p-4 rounded-xl border flex items-start gap-3 shadow-lg ${
             isDark
-              ? 'bg-gradient-to-r from-red-950/30 via-slate-900 to-amber-950/20 border-slate-800 text-slate-200'
-              : 'bg-gradient-to-r from-red-50 via-white to-amber-50 border-red-200 text-slate-800'
+              ? 'bg-gradient-to-r from-blue-950/40 via-slate-900 to-blue-900/20 border-blue-900/50 text-slate-200'
+              : 'bg-gradient-to-r from-blue-50 via-white to-sky-50 border-blue-200 text-slate-800'
           }`}
         >
-          <div className="w-8 h-8 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center shrink-0 shadow-md">
+          <div className="w-8 h-8 rounded-lg bg-[#0056D2] text-white flex items-center justify-center shrink-0 shadow-md shadow-blue-900/30">
             <Zap className="w-4 h-4" />
           </div>
           <div>
-            <h4 className="text-xs font-bold uppercase tracking-wider text-amber-500 mb-0.5">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-[#0056D2] dark:text-sky-400 mb-0.5">
               Dica Tática do CFO CBMERJ (Gerada pela IA)
             </h4>
             <p className="text-xs leading-relaxed">
