@@ -74,7 +74,6 @@ export class AuthService {
         username: adminUsername,
         passwordHash: hash,
         role: 'admin',
-        mustChangePassword: false,
         status: 'active',
       });
       this.auditRepo.log({
