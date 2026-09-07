@@ -620,20 +620,71 @@ app.post("/api/timer/reset", (_req: Request, res: Response) => {
 // 🛡️ AUTENTICAÇÃO E SECURITY GATE (Dragão Carmesim - 2FA TOTP)
 // ============================================================================
 
+// 2.8. Rota de Verificação Prévia de Credenciais (Passo 1 do Login)
+app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: Response) => {
+  try {
+    const { username, email, password } = req.body || {};
+    const inputUser = (email || username || "").trim().toLowerCase();
+
+    if (!inputUser || !password) {
+      return res.status(400).json({
+        success: false,
+        error: "MISSING_FIELDS",
+        message: "E-mail e senha são obrigatórios.",
+      });
+    }
+
+    const isAuthorized =
+      inputUser === ADMIN_USER.toLowerCase() ||
+      inputUser === "jb080956@gmail.com" ||
+      ALLOWED_EMAILS.includes(inputUser);
+
+    if (!isAuthorized) {
+      return res.status(401).json({
+        success: false,
+        error: "INVALID_CREDENTIALS",
+        message: "Identificador ou e-mail incorreto.",
+      });
+    }
+
+    if (password !== ADMIN_PASSWORD) {
+      return res.status(401).json({
+        success: false,
+        error: "INVALID_CREDENTIALS",
+        message: "Senha de acesso incorreta.",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Credenciais válidas. Prossiga para o código Authenticator.",
+      requireTotp: true,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: "AUTH_ERROR", message: err?.message });
+  }
+});
+
 // 3. Rota de Validação de Código Authenticator (com authLimiter anti-força bruta)
 app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response) => {
   try {
-    const { username, password, token, rememberMe } = req.body || {};
+    const { username, email, password, token, rememberMe } = req.body || {};
+    const inputUser = (username || email || "").trim().toLowerCase();
 
-    if (!username || !password) {
+    if (!inputUser || !password) {
       return res.status(400).json({
         error: "MISSING_FIELDS",
         message: "Usuário e senha são obrigatórios.",
       });
     }
 
-    const cleanUser = username.trim().toLowerCase();
-    if (cleanUser !== ADMIN_USER.toLowerCase() && cleanUser !== "jb080956@gmail.com") {
+    const cleanUser = inputUser;
+    const isAuthorized =
+      cleanUser === ADMIN_USER.toLowerCase() ||
+      cleanUser === "jb080956@gmail.com" ||
+      ALLOWED_EMAILS.includes(cleanUser);
+
+    if (!isAuthorized) {
       return res.status(401).json({
         error: "INVALID_CREDENTIALS",
         message: "Identificador de operador incorreto.",
