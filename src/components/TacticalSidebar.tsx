@@ -11,6 +11,7 @@ import {
   ChevronRight,
   PanelLeftClose,
   PanelLeftOpen,
+  Layers,
 } from 'lucide-react';
 import { AppTheme } from '../types';
 
@@ -21,7 +22,8 @@ export type TabType =
   | 'highyield'
   | 'ai'
   | 'calendar'
-  | 'simulations';
+  | 'simulations'
+  | 'flashcards';
 
 interface TacticalSidebarProps {
   activeTab: TabType;
@@ -105,6 +107,17 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
       label: 'Simulados',
       icon: Crosshair,
       description: 'Central de simulados',
+    },
+    {
+      id: 'flashcards',
+      label: 'Caderno de Erros',
+      icon: Layers,
+      badge: 'Anki',
+      badgeClass: {
+        dark: 'bg-indigo-950/80 text-indigo-300 border-indigo-800/60',
+        light: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+      },
+      description: 'Flashcards nível Anki',
     },
   ];
 

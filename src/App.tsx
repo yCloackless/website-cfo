@@ -65,6 +65,7 @@ import { NotionAgendaTab } from './components/NotionAgendaTab';
 import { CookieConsent } from './components/CookieConsent';
 import { TacticalSimulations } from './components/TacticalSimulations';
 import { TacticalSidebar } from './components/TacticalSidebar';
+import { ErrorNotebookTab } from './components/ErrorNotebookTab';
 
 export default function App() {
   // 🛡️ Security Gate (2FA TOTP Terminal) State
@@ -194,8 +195,8 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
 
-  // Active Tab ('table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations')
-  const [activeTab, setActiveTab] = useState<'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations'>('table');
+  // Active Tab ('table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations' | 'flashcards')
+  const [activeTab, setActiveTab] = useState<'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations' | 'flashcards'>('table');
 
   // Preset topic for creating a Bizu from HighYield tab
   const [presetTopicForBizu, setPresetTopicForBizu] = useState<{
@@ -1498,6 +1499,14 @@ export default function App() {
         {/* Render Tab: Central de Inteligência & Simulados */}
         {activeTab === 'simulations' && (
           <TacticalSimulations
+            theme={theme}
+            showToast={showToast}
+          />
+        )}
+
+        {/* Render Tab: Caderno de Erros & Flashcards (Anki Style) */}
+        {activeTab === 'flashcards' && (
+          <ErrorNotebookTab
             theme={theme}
             showToast={showToast}
           />
