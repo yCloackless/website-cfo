@@ -22,6 +22,7 @@ const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
 Object.assign(env, { NODE_ENV: 'production', PORT: String(port), APP_URL: `http://127.0.0.1:${port}`,
   ADMIN_PASSWORD: crypto.randomBytes(24).toString('hex'), CADET_PASSWORD: crypto.randomBytes(24).toString('hex'),
   SESSION_SECRET: crypto.randomBytes(32).toString('hex'), TOTP_SECRET: generateSecret(),
+  ADMIN_REQUIRE_2FA: 'true',
   TURNSTILE_SECRET_KEY: 'audit-placeholder-no-external-calls' });
 const missingEmail = spawnSync(process.execPath, [path.join(root, 'dist/server.cjs')], { cwd, env, encoding: 'utf8', timeout: 6000 });
 Object.assign(env, { RESEND_API_KEY: 're_synthetic_provider_fixture', EMAIL_FROM: 'audit@example.invalid' });

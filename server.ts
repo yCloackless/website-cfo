@@ -629,9 +629,9 @@ function getSecurityConfig(): SecurityConfig {
         saveSecurityConfig(parsed);
       }
 
-      let is2faActive = parsed.is2faActive !== undefined ? Boolean(parsed.is2faActive) : false;
-      if (process.env.ADMIN_REQUIRE_2FA !== undefined) {
-        is2faActive = process.env.ADMIN_REQUIRE_2FA === 'true';
+      let is2faActive = false;
+      if (process.env.ADMIN_REQUIRE_2FA === 'true') {
+        is2faActive = true;
       }
 
       return {
@@ -645,7 +645,7 @@ function getSecurityConfig(): SecurityConfig {
     console.warn("Falha ao ler security-config.json:", e);
   }
 
-  const is2faActive = process.env.ADMIN_REQUIRE_2FA !== 'false';
+  const is2faActive = process.env.ADMIN_REQUIRE_2FA === 'true';
 
   const newConfig: SecurityConfig = {
     totpSecret: process.env.TOTP_SECRET || generateSecret(),
@@ -1154,35 +1154,35 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
     }
 
     const config = getSecurityConfig();
-    if (!config.is2faActive) {
-      const session = createTerminalSession(dbUser.username, req.body.rememberMe !== false, dbUser.role);
-      logSecurityEvent(req, {
-        action: 'LOGIN_SUCCESS',
-        actor: dbUser.username,
-        resource: '/api/auth/check-credentials',
-        status: 'SUCCESS',
-      });
-      logSecurityEvent(req, {
-        action: 'ADMIN_LOGIN',
-        actor: dbUser.username,
-        resource: '/api/auth/check-credentials',
-        status: 'SUCCESS',
-        details: { role: 'admin', method: 'PASSWORD_DIRECT', rememberMe: req.body.rememberMe !== false },
-      });
+    if (config.is2faActive) {
       return res.json({
         success: true,
-        directLogin: true,
-        ...session,
-        username: dbUser.username,
-        role: dbUser.role,
-        canAccessNotion: true,
+        message: "Credenciais válidas. Prossiga para o código Authenticator.",
+        requireTotp: true,
       });
     }
 
+    const session = createTerminalSession(dbUser.username, req.body.rememberMe !== false, dbUser.role);
+    logSecurityEvent(req, {
+      action: 'LOGIN_SUCCESS',
+      actor: dbUser.username,
+      resource: '/api/auth/check-credentials',
+      status: 'SUCCESS',
+    });
+    logSecurityEvent(req, {
+      action: 'ADMIN_LOGIN',
+      actor: dbUser.username,
+      resource: '/api/auth/check-credentials',
+      status: 'SUCCESS',
+      details: { role: 'admin', method: 'PASSWORD_DIRECT', rememberMe: req.body.rememberMe !== false },
+    });
     return res.json({
       success: true,
-      message: "Credenciais válidas. Prossiga para o código Authenticator.",
-      requireTotp: true,
+      directLogin: true,
+      ...session,
+      username: dbUser.username,
+      role: dbUser.role,
+      canAccessNotion: true,
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: "AUTH_ERROR", message: err?.message });
