@@ -46,7 +46,7 @@ import {
   saveClientTokenToBackend,
 } from './services/calendarService';
 import { buildWeeklyStudySummary, fetchAIStudyAnalysis } from './services/aiService';
-import { getMondayOfWeek, getWeekDaysList, isTodayDate, formatBRDate } from './utils/dateUtils';
+import { getMondayOfWeek, getWeekDaysList, isTodayDate, formatBRDate, toISODate } from './utils/dateUtils';
 
 import { Header } from './components/Header';
 import { HorizontalWeeklyTable } from './components/HorizontalWeeklyTable';
@@ -653,20 +653,29 @@ export default function App() {
   const handleLogTimerStudySession = useCallback(
     (subjectId: string, minutes: number, notes?: string) => {
       if (!currentCycle) return;
-      const today = new Date().toISOString().split('T')[0];
-      const cellKey = `${subjectId}_${today}`;
+      const todayISO = toISODate(new Date());
+      const matchedDay = weekDays.find((d) => d.dateStr === todayISO);
+      const dayIndex = matchedDay
+        ? matchedDay.index
+        : new Date().getDay() === 0
+        ? 6
+        : new Date().getDay() - 1;
+      const dateStr = matchedDay ? matchedDay.dateStr : todayISO;
+      const cellKey = `${subjectId}_${dayIndex}`;
       const existing = currentCycle.entries[cellKey];
 
       const newEntry: StudyEntry = {
         id: existing?.id || `study_${Date.now()}`,
         subjectId,
-        date: today,
+        dayIndex,
+        dateStr,
         durationMinutes: (existing?.durationMinutes || 0) + minutes,
         completed: true,
+        completedAt: existing?.completedAt || new Date().toISOString(),
+        topic: existing?.topic || 'Sessão via Cronômetro de Foco',
         notes: notes || existing?.notes || 'Sessão registrada via Cronômetro de Foco',
-        questionsDone: existing?.questionsDone || 0,
-        questionsCorrect: existing?.questionsCorrect || 0,
-        updatedAt: new Date().toISOString(),
+        googleCalendarSynced: existing?.googleCalendarSynced || false,
+        revisionScheduled: existing?.revisionScheduled || false,
       };
 
       const updatedCycle: WeeklyCycle = {
@@ -682,7 +691,7 @@ export default function App() {
       saveActiveCycle(updatedCycle);
       showToast(`Sessão de ${minutes} min registrada no cronograma de hoje!`, 'success');
     },
-    [currentCycle, showToast]
+    [currentCycle, weekDays, showToast]
   );
 
   // Delete/remove subject handler (supports removing default subjects like Química or custom ones)
