@@ -59,11 +59,13 @@ import { AddCustomSubjectModal } from './components/AddCustomSubjectModal';
 import { CycleHistoryModal } from './components/CycleHistoryModal';
 import { WeeklyGoalModal } from './components/WeeklyGoalModal';
 import { SecurityGate } from './components/SecurityGate';
+import { LandingPage } from './components/LandingPage';
 
 export default function App() {
   // 🛡️ Security Gate (2FA TOTP Terminal) State
   const [isTerminalUnlocked, setIsTerminalUnlocked] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   // Validação automática de sessão 2FA persistente (30 dias)
   useEffect(() => {
@@ -130,6 +132,7 @@ export default function App() {
     localStorage.removeItem('cfo_terminal_expires_at');
     localStorage.removeItem('cfo_terminal_user');
     setIsTerminalUnlocked(false);
+    setShowLoginModal(false);
   }, []);
 
   // Theme state ('dark' | 'light')
@@ -765,11 +768,26 @@ export default function App() {
     );
   }
 
+  // Se o terminal não estiver desbloqueado (visitante ou deslogado)
   if (!isTerminalUnlocked) {
+    if (showLoginModal) {
+      return (
+        <SecurityGate
+          onAuthenticated={() => {
+            setIsTerminalUnlocked(true);
+            setShowLoginModal(false);
+          }}
+          onBackToLanding={() => {
+            setShowLoginModal(false);
+          }}
+        />
+      );
+    }
+
     return (
-      <SecurityGate
-        onAuthenticated={() => {
-          setIsTerminalUnlocked(true);
+      <LandingPage
+        onOpenLogin={() => {
+          setShowLoginModal(true);
         }}
       />
     );

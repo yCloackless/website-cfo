@@ -2,9 +2,10 @@ import React, { useState, useRef } from 'react';
 
 interface SecurityGateProps {
   onAuthenticated: (token: string, expiresAt: number, is2faActive: boolean) => void;
+  onBackToLanding?: () => void;
 }
 
-export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated }) => {
+export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onBackToLanding }) => {
   const [step, setStep] = useState<'credentials' | 'totp'>('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -157,7 +158,27 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated }) =
             />
 
             {/* Card Inner Body Container */}
-            <div className="px-8 sm:px-11 pt-8 pb-10 flex flex-col items-center">
+            <div className="px-8 sm:px-11 pt-8 pb-10 flex flex-col items-center relative">
+              {onBackToLanding && (
+                <button
+                  type="button"
+                  onClick={onBackToLanding}
+                  className="absolute top-5 left-5 flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-[#164491] transition-colors cursor-pointer group"
+                  title="Voltar à página inicial"
+                >
+                  <svg
+                    className="w-4 h-4 transition-transform group-hover:-translate-x-0.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                  <span>Início</span>
+                </button>
+              )}
+
               {/* BEGIN: BrandHeader */}
               <header className="flex flex-col items-center text-center w-full" data-purpose="brand-presentation">
                 {/* Blue Phoenix Emblem */}
