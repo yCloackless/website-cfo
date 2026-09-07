@@ -192,7 +192,8 @@ async function getIpGeoLocation(
 
 // Verificação do Token do Cloudflare Turnstile
 async function verifyTurnstileToken(token?: string, remoteip?: string): Promise<boolean> {
-  const secretKey = process.env.TURNSTILE_SECRET_KEY || "1x0000000000000000000000000000000AA";
+  const secretKey =
+    process.env.TURNSTILE_SECRET_KEY || "0x4AAAAAAEq86v_Nx6LNd3-DPNOuhECnjek";
   if (!token) return false;
 
   // Chave de teste oficial da Cloudflare que sempre passa em desenvolvimento
@@ -822,7 +823,8 @@ app.post("/api/timer/reset", (_req: Request, res: Response) => {
 app.get("/api/auth/security-status", (req: Request, res: Response) => {
   const clientIp = getClientIp(req);
   const isAdm = isAdminIp(clientIp);
-  const siteKey = process.env.TURNSTILE_SITE_KEY || "1x00000000000000000000AA";
+  const siteKey =
+    process.env.TURNSTILE_SITE_KEY || "0x4AAAAAAEq86txU4BLgFVmp";
 
   return res.json({
     clientIp,
