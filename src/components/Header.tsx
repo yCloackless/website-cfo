@@ -14,13 +14,15 @@ import {
   BookOpen,
   Target,
   Lock,
-  Crosshair,
   PanelLeft,
+  User as UserIcon,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
 interface HeaderProps {
   user: User | null;
+  userProfile?: { fullName?: string; username?: string; avatarUrl?: string | null } | null;
+  onOpenAccount?: () => void;
   hasCalendarAccess?: boolean;
   calendarEmail?: string | null;
   calendarName?: string | null;
@@ -45,6 +47,8 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   user,
+  userProfile = null,
+  onOpenAccount,
   hasCalendarAccess = false,
   calendarEmail = null,
   calendarName = null,
@@ -300,6 +304,36 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               )}
             </div>
+
+            {/* Minha Conta / Perfil do Aluno */}
+            {onOpenAccount && (
+              <button
+                type="button"
+                id="btn-open-account"
+                onClick={onOpenAccount}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
+                  isDark
+                    ? 'bg-[#0B1528] border-slate-800 hover:border-blue-500/60 text-slate-200'
+                    : 'bg-slate-100 border-slate-200 hover:border-blue-500 text-slate-800'
+                }`}
+                title="Minha Conta & Perfil do Aluno"
+              >
+                {userProfile?.avatarUrl ? (
+                  <img
+                    src={userProfile.avatarUrl}
+                    alt="Foto do Aluno"
+                    className="w-4 h-4 rounded-full object-cover border border-blue-500 shrink-0"
+                  />
+                ) : (
+                  <div className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[9px] font-black shrink-0">
+                    {(userProfile?.username || userProfile?.fullName || 'A').slice(0, 1).toUpperCase()}
+                  </div>
+                )}
+                <span className="hidden sm:inline font-mono text-[11px] text-blue-400 font-semibold">
+                  @{userProfile?.username || 'perfil'}
+                </span>
+              </button>
+            )}
 
             {/* Lock Terminal 2FA Button */}
             {onLockTerminal && (

@@ -326,16 +326,30 @@ export class AuthService {
   }
 
   /**
-   * Authenticated email update with server-side unique validation.
+   * Authenticated email update with server-side unique validation and password verification.
    */
-  public updateEmail(
+  public async updateEmail(
     userId: string,
     newEmail: string,
+    currentPassword?: string,
     ip?: string
-  ): { success: boolean; message: string } {
+  ): Promise<{ success: boolean; message: string }> {
     const cleanEmail = (newEmail || '').toLowerCase().trim();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
+    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
       return { success: false, message: 'Informe um endereço de e-mail válido.' };
+    }
+
+    const user = this.userRepo.findById(userId);
+    if (!user) return { success: false, message: 'Usuário não encontrado.' };
+
+    if (currentPassword !== undefined) {
+      if (!currentPassword) {
+        return { success: false, message: 'A senha atual é obrigatória para confirmar a alteração do e-mail.' };
+      }
+      const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!isMatch) {
+        return { success: false, message: 'A senha atual informada está incorreta.' };
+      }
     }
 
     const existing = this.userRepo.findByEmail(cleanEmail);
@@ -346,7 +360,7 @@ export class AuthService {
     this.userRepo.updateEmail(userId, cleanEmail);
     this.auditRepo.log({
       action: 'EMAIL_UPDATED',
-      actor: userId,
+      actor: user.username,
       resource: `/users/${userId}`,
       status: 'SUCCESS',
       ip,

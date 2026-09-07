@@ -66,6 +66,7 @@ import { CookieConsent } from './components/CookieConsent';
 import { TacticalSimulations } from './components/TacticalSimulations';
 import { TacticalSidebar } from './components/TacticalSidebar';
 import { ErrorNotebookTab } from './components/ErrorNotebookTab';
+import { MyAccountModal } from './components/MyAccountModal';
 
 export default function App() {
   // 🛡️ Security Gate (2FA TOTP Terminal) State
@@ -76,6 +77,16 @@ export default function App() {
     const saved = localStorage.getItem('cfo_can_access_notion');
     return saved === null ? true : saved === 'true';
   });
+
+  // 👤 Minha Conta & Perfil do Aluno
+  const [isMyAccountOpen, setIsMyAccountOpen] = useState(false);
+  const [userProfile, setUserProfile] = useState<{
+    id?: string;
+    fullName?: string;
+    username?: string;
+    email?: string;
+    avatarUrl?: string | null;
+  } | null>(null);
 
   // 🧭 Estado do Menu Lateral de Abas Táticas (expandido, recolhido ou oculto)
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
@@ -184,12 +195,34 @@ export default function App() {
     };
   }, []);
 
+  // Carrega perfil autenticado do aluno
+  useEffect(() => {
+    if (!isTerminalUnlocked) return;
+    const token = localStorage.getItem('cfo_terminal_session');
+    if (!token) return;
+    let isMounted = true;
+    fetch('/api/user/profile', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (isMounted && data.success && data.user) {
+          setUserProfile(data.user);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, [isTerminalUnlocked]);
+
   const handleLockTerminal = useCallback(() => {
     localStorage.removeItem('cfo_terminal_session');
     localStorage.removeItem('cfo_terminal_expires_at');
     localStorage.removeItem('cfo_terminal_user');
     localStorage.removeItem('cfo_terminal_role');
     localStorage.removeItem('cfo_can_access_notion');
+    setUserProfile(null);
     setCanAccessNotion(true);
     setIsTerminalUnlocked(false);
     setShowLoginModal(false);
@@ -1045,6 +1078,8 @@ export default function App() {
       {/* Top Header with Tab Selector and Theme Toggle */}
       <Header
         user={user}
+        userProfile={userProfile}
+        onOpenAccount={() => setIsMyAccountOpen(true)}
         hasCalendarAccess={isCalendarLinked}
         calendarEmail={backendCalendar.email || user?.email}
         calendarName={backendCalendar.name || user?.displayName}
@@ -1641,6 +1676,15 @@ export default function App() {
         currentGoalHours={weeklyGoalHours}
         onSaveGoal={handleSaveGoalHours}
         theme={theme}
+      />
+
+      {/* Modal Minha Conta & Perfil do Aluno */}
+      <MyAccountModal
+        isOpen={isMyAccountOpen}
+        onClose={() => setIsMyAccountOpen(false)}
+        theme={theme}
+        sessionToken={localStorage.getItem('cfo_terminal_session')}
+        onProfileUpdated={(updated) => setUserProfile(updated)}
       />
 
       {/* Banner LGPD de Cookies de Sessão */}

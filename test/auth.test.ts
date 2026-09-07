@@ -165,12 +165,16 @@ test('5. Alteração de Senha e E-mail Autenticada', async () => {
   const okChange = await authService.changePassword(userId, 'cadetecfo2026!', 'NovaSenhaSegura123!');
   assert.equal(okChange.success, true);
 
-  // 5.3 Alteração de e-mail com sucesso
-  const emailChange = authService.updateEmail(userId, 'cadete.novo@cbmerj.com');
+  // 5.3 Alteração de e-mail com senha incorreta falha
+  const badPassEmailChange = await authService.updateEmail(userId, 'cadete.novo@cbmerj.com', 'senha_errada');
+  assert.equal(badPassEmailChange.success, false);
+
+  // 5.4 Alteração de e-mail com sucesso e verificação de senha
+  const emailChange = await authService.updateEmail(userId, 'cadete.novo@cbmerj.com', 'NovaSenhaSegura123!');
   assert.equal(emailChange.success, true);
 
-  // 5.4 Não permite duplicar e-mail existente
-  const dupEmailChange = authService.updateEmail(userId, 'admin@cbmerj.com');
+  // 5.5 Não permite duplicar e-mail existente
+  const dupEmailChange = await authService.updateEmail(userId, 'admin@cbmerj.com', 'NovaSenhaSegura123!');
   assert.equal(dupEmailChange.success, false);
 
   // 5.5 Login com o novo e-mail e nova senha

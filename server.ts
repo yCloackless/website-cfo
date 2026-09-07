@@ -47,6 +47,8 @@ import {
 import { logAuditEvent, readRecentAuditLogs } from "./src/services/auditLogger";
 import { AuthService } from "./src/db/authService";
 import { getDb } from "./src/db/database";
+import { UserRepository, ProfileRepository } from "./src/db/repositories";
+import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -1440,20 +1442,172 @@ app.post("/api/auth/change-password", requireUserAuth, async (req: Request, res:
   }
 });
 
-// 10. Rota de Atualização de E-mail (Autenticada com validação server-side de unicidade)
-app.post("/api/auth/update-email", requireUserAuth, (req: Request, res: Response) => {
+// 10. Rota de Atualização de E-mail (Autenticada com verificação adequada de senha e unicidade server-side)
+app.post("/api/auth/update-email", requireUserAuth, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { newEmail } = req.body || {};
+    const { newEmail, currentPassword } = req.body || {};
     const clientIp = getClientIp(req);
 
-    const result = authServiceInstance.updateEmail(user.userId || user.username, newEmail, clientIp);
+    if (!currentPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "A confirmação da senha atual é obrigatória para autorizar a alteração de e-mail.",
+      });
+    }
+
+    const result = await authServiceInstance.updateEmail(user.userId || user.username, newEmail, currentPassword, clientIp);
     if (!result.success) {
       return res.status(400).json(result);
     }
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ success: false, message: "Erro ao atualizar e-mail." });
+  }
+});
+
+// ==========================================
+// 👤 MINHA CONTA & GESTÃO DE PERFIL
+// ==========================================
+const userRepoInstance = new UserRepository(getDb().getRawDb());
+const profileRepoInstance = new ProfileRepository(getDb().getRawDb());
+
+// 1. Obter Perfil do Usuário Autenticado (Protegido contra IDOR)
+app.get("/api/user/profile", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const sessionUser = (req as any).user;
+    const user = userRepoInstance.findById(sessionUser.userId) || userRepoInstance.findByUsername(sessionUser.username);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Usuário não encontrado." });
+    }
+
+    const profile = profileRepoInstance.findByUserId(user.id);
+
+    return res.json({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        fullName: profile?.fullName || user.username,
+        phone: profile?.phone || "",
+        targetExam: profile?.targetExam || "CFO CBMERJ 2026",
+        bio: profile?.bio || "",
+        avatarUrl: profile?.avatarUrl || null,
+        createdAt: user.createdAt,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: "Erro ao carregar perfil." });
+  }
+});
+
+// 2. Atualizar Dados do Perfil (Nome, Username, Telefone, Bio) - Protegido contra IDOR e Mass Assignment
+app.patch("/api/user/profile", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const sessionUser = (req as any).user;
+    const user = userRepoInstance.findById(sessionUser.userId) || userRepoInstance.findByUsername(sessionUser.username);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Usuário não encontrado." });
+    }
+
+    // Apenas campos explicitamente permitidos
+    const { fullName, username, phone, targetExam, bio } = req.body || {};
+
+    // Validação e normalização de username se enviado
+    if (username && typeof username === "string") {
+      const cleanUsername = username.toLowerCase().trim().replace(/[^a-z0-9_.-]/g, "");
+      if (cleanUsername.length < 3 || cleanUsername.length > 30) {
+        return res.status(400).json({
+          success: false,
+          message: "O nome de usuário deve conter entre 3 e 30 caracteres válidos (letras, números, '.', '-' ou '_').",
+        });
+      }
+
+      // Se alterou o username, valida unicidade
+      if (cleanUsername !== user.username) {
+        const existing = userRepoInstance.findByUsername(cleanUsername);
+        if (existing && existing.id !== user.id) {
+          return res.status(400).json({
+            success: false,
+            message: "Este nome de usuário já está em uso por outro operador.",
+          });
+        }
+        userRepoInstance.updateUsername(user.id, cleanUsername);
+      }
+    }
+
+    // Atualiza dados cadastrais do perfil
+    const updatedProfile = profileRepoInstance.createOrUpdate({
+      userId: user.id,
+      fullName: typeof fullName === "string" ? fullName.trim() : (profileRepoInstance.findByUserId(user.id)?.fullName || user.username),
+      phone: typeof phone === "string" ? phone.trim() : undefined,
+      targetExam: typeof targetExam === "string" ? targetExam.trim() : undefined,
+      bio: typeof bio === "string" ? bio.trim() : undefined,
+    });
+
+    const refreshedUser = userRepoInstance.findById(user.id)!;
+
+    return res.json({
+      success: true,
+      message: "Perfil atualizado com sucesso!",
+      user: {
+        id: refreshedUser.id,
+        email: refreshedUser.email,
+        username: refreshedUser.username,
+        role: refreshedUser.role,
+        fullName: updatedProfile.fullName,
+        phone: updatedProfile.phone || "",
+        targetExam: updatedProfile.targetExam || "",
+        bio: updatedProfile.bio || "",
+        avatarUrl: updatedProfile.avatarUrl || null,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: "Erro ao atualizar dados do perfil." });
+  }
+});
+
+// 3. Upload e Atualização Segura de Foto de Perfil (Validação Real de Magic Bytes e Ownership)
+app.post("/api/user/avatar", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const sessionUser = (req as any).user;
+    const user = userRepoInstance.findById(sessionUser.userId) || userRepoInstance.findByUsername(sessionUser.username);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Usuário não encontrado." });
+    }
+
+    const { imageBase64 } = req.body || {};
+    if (!imageBase64 || typeof imageBase64 !== "string") {
+      return res.status(400).json({ success: false, message: "Arquivo de imagem ausente ou inválido." });
+    }
+
+    // Extrai os dados binários puros
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+    const buffer = Buffer.from(base64Data, "base64");
+
+    // Validação server-side estrita de magic bytes e tamanho (rejeita executáveis, scripts e MIME adulterado)
+    const validation = validateImageBuffer(buffer);
+    if (!validation.valid || !validation.extension) {
+      return res.status(400).json({
+        success: false,
+        message: validation.error || "Formato de arquivo inválido. Apenas imagens reais JPG, PNG ou WEBP são permitidas.",
+      });
+    }
+
+    // Grava imagem com nome seguro e incriptografado
+    const avatarUrl = saveUserAvatar(user.id, buffer, validation.extension);
+    profileRepoInstance.updateAvatar(user.id, avatarUrl);
+
+    return res.json({
+      success: true,
+      message: "Foto de perfil atualizada com sucesso!",
+      avatarUrl,
+    });
+  } catch (err: any) {
+    console.error("[Avatar Upload Error]:", err);
+    return res.status(500).json({ success: false, message: "Falha ao processar e salvar foto de perfil." });
   }
 });
 

@@ -85,6 +85,13 @@ export class UserRepository {
       .run(newEmail.toLowerCase().trim(), now, userId);
   }
 
+  public updateUsername(userId: string, newUsername: string): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare('UPDATE users SET username = ?, updated_at = ? WHERE id = ?')
+      .run(newUsername.toLowerCase().trim(), now, userId);
+  }
+
   private mapUser(row: any): DbUser {
     return {
       id: row.id,
@@ -108,29 +115,53 @@ export class ProfileRepository {
     phone?: string | null;
     targetExam?: string | null;
     bio?: string | null;
+    avatarUrl?: string | null;
   }): DbProfile {
     const existing = this.findByUserId(data.userId);
     const now = new Date().toISOString();
 
     if (existing) {
+      const fullName = data.fullName !== undefined ? data.fullName : existing.fullName;
+      const phone = data.phone !== undefined ? data.phone : existing.phone;
+      const targetExam = data.targetExam !== undefined ? data.targetExam : existing.targetExam;
+      const bio = data.bio !== undefined ? data.bio : existing.bio;
+      const avatarUrl = data.avatarUrl !== undefined ? data.avatarUrl : existing.avatarUrl;
+
       this.db
         .prepare(
-          `UPDATE profiles SET full_name = ?, phone = ?, target_exam = ?, bio = ?, updated_at = ?
+          `UPDATE profiles SET full_name = ?, phone = ?, target_exam = ?, bio = ?, avatar_url = ?, updated_at = ?
            WHERE user_id = ?`
         )
-        .run(data.fullName, data.phone ?? null, data.targetExam ?? null, data.bio ?? null, now, data.userId);
+        .run(fullName, phone ?? null, targetExam ?? null, bio ?? null, avatarUrl ?? null, now, data.userId);
       return this.findByUserId(data.userId)!;
     }
 
     const id = crypto.randomUUID();
     this.db
       .prepare(
-        `INSERT INTO profiles (id, user_id, full_name, phone, target_exam, bio, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO profiles (id, user_id, full_name, phone, target_exam, bio, avatar_url, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, data.userId, data.fullName, data.phone ?? null, data.targetExam ?? null, data.bio ?? null, now, now);
+      .run(id, data.userId, data.fullName, data.phone ?? null, data.targetExam ?? null, data.bio ?? null, data.avatarUrl ?? null, now, now);
 
     return this.findByUserId(data.userId)!;
+  }
+
+  public updateAvatar(userId: string, avatarUrl: string | null): void {
+    const now = new Date().toISOString();
+    const existing = this.findByUserId(userId);
+    if (!existing) {
+      this.createOrUpdate({
+        userId,
+        fullName: 'Operador Cadete',
+        avatarUrl,
+      });
+      return;
+    }
+
+    this.db
+      .prepare('UPDATE profiles SET avatar_url = ?, updated_at = ? WHERE user_id = ?')
+      .run(avatarUrl, now, userId);
   }
 
   public findByUserId(userId: string): DbProfile | null {
@@ -143,6 +174,7 @@ export class ProfileRepository {
       phone: row.phone,
       targetExam: row.target_exam,
       bio: row.bio,
+      avatarUrl: row.avatar_url,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

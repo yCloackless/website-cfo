@@ -24,6 +24,7 @@ export interface DbProfile {
   phone?: string | null;
   targetExam?: string | null;
   bio?: string | null;
+  avatarUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }

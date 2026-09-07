@@ -15,3 +15,5 @@ banned-ips.json
 security-config.json
 calendar-session.json
 .agents/
+public/avatars/*
+!public/avatars/.gitkeep

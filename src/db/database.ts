@@ -234,6 +234,13 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
     `,
   },
+  {
+    id: 3,
+    name: '003_profile_avatar_and_username_update',
+    sql: `
+      ALTER TABLE profiles ADD COLUMN avatar_url TEXT;
+    `,
+  },
 ];
 
 export class DatabaseService {
