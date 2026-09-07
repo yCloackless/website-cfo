@@ -114,7 +114,8 @@ function saveBannedIps(data: Record<string, BannedIpRecord>): void {
   }
 }
 
-// Limpeza preventiva de banimentos acidentais ao iniciar
+// Garante que banned-ips.json começa vazio a cada inicialização
+// (ban automático por geolocalização foi removido; IPs nunca são banidos automaticamente)
 saveBannedIps({});
 
 function isIpBanned(ip: string): boolean {
@@ -1319,7 +1320,7 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
       });
     }
 
-    // 2. Geo-fencing Estrito para a Conta Admin (Apenas Rio de Janeiro / Brasil)
+    // 2. Geo-fencing: Conta Admin só é acessível a partir do Brasil
     const isAdminTarget =
       inputUser === ADMIN_USER.toLowerCase() ||
       inputUser === "jb080956@gmail.com";
@@ -1327,16 +1328,19 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
     if (isAdminTarget && !isAdmIp) {
       const geo = await getIpGeoLocation(clientIp, req);
       if (geo.country && geo.country !== "BR" && geo.country !== "UNKNOWN") {
-        banIp(
-          clientIp,
-          `Tentativa de invasão da conta Admin fora do Brasil [País: ${geo.country}]`,
-          { country: geo.country, region: geo.region }
-        );
+        // Registra evento de segurança sem banir o IP permanentemente
+        logSecurityEvent(req, {
+          action: "ADMIN_LOGIN_FAILED",
+          actor: inputUser,
+          resource: "/api/auth/check-credentials",
+          status: "FAILED",
+          details: { reason: `Acesso fora do Brasil bloqueado [País: ${geo.country}]`, geo },
+        });
 
         return res.status(403).json({
           success: false,
-          error: "IP_BANNED_UNAUTHORIZED_GEO",
-          message: "ACESSO BLOQUEADO: Conexões fora do território nacional são restritas.",
+          error: "GEO_BLOCKED",
+          message: "ACESSO BLOQUEADO: Conexões fora do território nacional são restritas para esta conta.",
         });
       }
     }
@@ -1415,7 +1419,7 @@ app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Res
 
     const cleanUser = inputUser;
 
-    // 2. Geo-fencing Estrito para a Conta Admin (Apenas RJ)
+    // 2. Geo-fencing: Conta Admin só pode ser acessada a partir do Brasil
     const isAdminTarget =
       cleanUser === ADMIN_USER.toLowerCase() ||
       cleanUser === "jb080956@gmail.com";
@@ -1423,15 +1427,18 @@ app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Res
     if (isAdminTarget && !isAdmIp) {
       const geo = await getIpGeoLocation(clientIp, req);
       if (geo.country && geo.country !== "BR" && geo.country !== "UNKNOWN") {
-        banIp(
-          clientIp,
-          `Tentativa de validação 2FA fora do Brasil [País: ${geo.country}]`,
-          { country: geo.country, region: geo.region }
-        );
+        // Registra evento de segurança sem banir o IP permanentemente
+        logSecurityEvent(req, {
+          action: "ADMIN_LOGIN_FAILED",
+          actor: cleanUser,
+          resource: "/api/auth/verify-2fa",
+          status: "FAILED",
+          details: { reason: `Acesso 2FA fora do Brasil bloqueado [País: ${geo.country}]`, geo },
+        });
 
         return res.status(403).json({
-          error: "IP_BANNED_UNAUTHORIZED_GEO",
-          message: "ACESSO BLOQUEADO: Conexões fora do território nacional são restritas.",
+          error: "GEO_BLOCKED",
+          message: "ACESSO BLOQUEADO: Conexões fora do território nacional são restritas para esta conta.",
         });
       }
     }
