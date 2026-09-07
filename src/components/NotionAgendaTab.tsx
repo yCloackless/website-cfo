@@ -17,8 +17,10 @@ import {
   SlidersHorizontal,
   Calendar,
   X,
+  Layers,
 } from "lucide-react";
 import { AppTheme, NotionRevisionItem, RevisionCycleKey } from "../types";
+import { NotionCalendar } from "./NotionCalendar";
 import {
   fetchNotionRevisoes,
   checkinRevision,
@@ -56,6 +58,9 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
   const [notionStatus, setNotionStatus] = useState<{ isConfigured: boolean; hasApiKey?: boolean }>({
     isConfigured: false,
   });
+
+  // Modo de Visualização (Calendário Tático vs Tabela Oficial)
+  const [viewMode, setViewMode] = useState<"CALENDAR" | "TABLE">("CALENDAR");
 
   // Filtros
   const [searchQuery, setSearchQuery] = useState("");
@@ -388,11 +393,46 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
             <span className="text-xl font-extrabold text-emerald-300 mt-0.5 block">{stats.concluidas} dominadas</span>
           </div>
         </div>
+
+        {/* Seletor de Modo de Visualização: Calendário Tático vs Tabela Oficial */}
+        <div className="flex items-center justify-between border-t border-slate-800/80 mt-4 pt-3.5 flex-wrap gap-2">
+          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-black/60 border border-slate-800">
+            <button
+              type="button"
+              onClick={() => setViewMode("CALENDAR")}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+                viewMode === "CALENDAR"
+                  ? "bg-green-600 text-black shadow-sm"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Calendário Tático ("Os Verdinhos")</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("TABLE")}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+                viewMode === "TABLE"
+                  ? "bg-[#0056D2] text-white shadow-sm"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Tabela Oficial ("📕 Revisões")</span>
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* 2. Seção Tática: "Matérias que você tem para revisar agora" */}
-      {dueItems.length > 0 && (
-        <div
+      {/* Renderização Condicional: Calendário Tático vs Tabela Oficial */}
+      {viewMode === "CALENDAR" ? (
+        <NotionCalendar theme={theme} showToast={showToast} />
+      ) : (
+        <>
+          {/* 2. Seção Tática: "Matérias que você tem para revisar agora" */}
+          {dueItems.length > 0 && (
+            <div
           className={`p-5 rounded-2xl border backdrop-blur-md shadow-xl transition-all ${
             isDark ? "bg-[#0f172a]/90 border-rose-900/40 shadow-rose-950/10" : "bg-white border-rose-200 shadow-rose-100"
           }`}
@@ -801,6 +841,8 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
           </table>
         </div>
       </div>
+      </>
+      )}
 
       {/* 4. Modal de Criação de Novo Estudo */}
       {isNewModalOpen && (
