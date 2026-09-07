@@ -16,6 +16,8 @@ import {
 } from './repositories';
 import { DbUser, DbSession, UserRole } from './schema';
 
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
+
 export interface AuthConfig {
   sessionDurationDays?: number;
 }
@@ -52,18 +54,15 @@ export class AuthService {
    * Uses environment variables or secure hashed defaults.
    */
   public async ensureDefaultAccounts(): Promise<void> {
-    const isProd = process.env.NODE_ENV === 'production';
-    if (isProd && (!process.env.ADMIN_PASSWORD || !process.env.CADET_PASSWORD)) {
-      throw new Error('CONFIG_ERROR: Em produção, ADMIN_PASSWORD e CADET_PASSWORD devem ser configurados explicitamente via variáveis de ambiente.');
-    }
-
     const adminEmail = (process.env.ADMIN_USER_EMAIL || 'admin@cbmerj.com').toLowerCase().trim();
     const adminUsername = (process.env.ADMIN_USER || 'admin').toLowerCase().trim();
-    const adminPass = process.env.ADMIN_PASSWORD || 'cfocbmerj2026!';
+    const adminPass = process.env.ADMIN_PASSWORD;
+    const adminHash = process.env.ADMIN_PASSWORD_HASH;
 
     let admin = this.userRepo.findByEmail(adminEmail) || this.userRepo.findByUsername(adminUsername);
     if (!admin) {
-      const hash = await bcrypt.hash(adminPass, 10);
+      if (!adminHash && !adminPass) throw new Error('ADMIN_PASSWORD_HASH or ADMIN_PASSWORD required to provision admin');
+      const hash = adminHash || await bcrypt.hash(adminPass!, 10);
       admin = this.userRepo.create({
         email: adminEmail,
         username: adminUsername,
@@ -81,11 +80,12 @@ export class AuthService {
 
     const cadetEmail = (process.env.CADET_USER_EMAIL || 'cadete@cbmerj.com').toLowerCase().trim();
     const cadetUsername = (process.env.CADET_USER || 'cadete').toLowerCase().trim();
-    const cadetPass = process.env.CADET_PASSWORD || 'cadetecfo2026!';
+    const cadetPass = process.env.CADET_PASSWORD;
+    const cadetHash = process.env.CADET_PASSWORD_HASH;
 
     let cadet = this.userRepo.findByEmail(cadetEmail) || this.userRepo.findByUsername(cadetUsername);
-    if (!cadet) {
-      const hash = await bcrypt.hash(cadetPass, 10);
+    if (!cadet && (cadetHash || cadetPass)) {
+      const hash = cadetHash || await bcrypt.hash(cadetPass!, 10);
       cadet = this.userRepo.create({
         email: cadetEmail,
         username: cadetUsername,
@@ -99,18 +99,16 @@ export class AuthService {
         status: 'SUCCESS',
         details: { email: cadetEmail, role: 'cadet' },
       });
-    } else if (process.env.NODE_ENV === 'test') {
-      const hash = await bcrypt.hash(cadetPass, 10);
-      this.userRepo.updatePasswordHash(cadet.id, hash);
     }
 
     const supportEmail = (process.env.SUPPORT_USER_EMAIL || 'suporte@cbmerj.com').toLowerCase().trim();
     const supportUsername = (process.env.SUPPORT_USER || 'suporte').toLowerCase().trim();
-    const supportPass = process.env.SUPPORT_PASSWORD || 'suportecfo2026!';
+    const supportPass = process.env.SUPPORT_PASSWORD;
+    const supportHash = process.env.SUPPORT_PASSWORD_HASH;
 
     let support = this.userRepo.findByEmail(supportEmail) || this.userRepo.findByUsername(supportUsername);
-    if (!support) {
-      const hash = await bcrypt.hash(supportPass, 10);
+    if (!support && (supportHash || supportPass)) {
+      const hash = supportHash || await bcrypt.hash(supportPass!, 10);
       support = this.userRepo.create({
         email: supportEmail,
         username: supportUsername,
@@ -130,6 +128,14 @@ export class AuthService {
   /**
    * Universal Login: accepts e-mail or username.
    */
+  public async verifyCredentials(identifier: string, password: string): Promise<DbUser | null> {
+    if (typeof identifier !== 'string' || typeof password !== 'string') return null;
+    const clean = identifier.trim().toLowerCase();
+    const user = this.userRepo.findByEmail(clean) || this.userRepo.findByUsername(clean);
+    const matches = await bcrypt.compare(password, user?.passwordHash || DUMMY_PASSWORD_HASH);
+    return matches && user?.status === 'active' ? user : null;
+  }
+
   public async login(
     identifier: string,
     password: string,
@@ -143,7 +149,7 @@ export class AuthService {
     const user = this.userRepo.findByEmail(cleanId) || this.userRepo.findByUsername(cleanId);
     if (!user) {
       // Timing attack protection: perform dummy bcrypt check to prevent user enumeration
-      await bcrypt.compare(password, '$2b$10$abcdef1234567890abcdef1234567890abcdef1234567890abcdef');
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
       this.auditRepo.log({
         action: 'LOGIN_FAILED',
         actor: cleanId,
@@ -350,6 +356,7 @@ export class AuthService {
 
     const newHash = await bcrypt.hash(newPass, 10);
     this.userRepo.updatePasswordHash(userId, newHash);
+    this.sessionRepo.revokeAllUserSessions(userId);
     this.auditRepo.log({
       action: 'PASSWORD_CHANGED',
       actor: user.username,

@@ -59,7 +59,7 @@ test('1. Usuário comum (cadete) recebe 403 Forbidden em todos os endpoints de /
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       username: 'cadete',
-      password: process.env.CADET_PASSWORD || 'cadetecfo2026!',
+      password: process.env.CADET_PASSWORD || 'fixture-cadet-password-2026',
     }),
   });
   assert.equal(cadetLoginRes.status, 200);
@@ -145,7 +145,7 @@ test('3. Tentativa de forjar role=admin no cliente é bloqueada por validação 
 // ============================================================================
 test('4. Administrador autenticado acessa dashboard, métricas e listagens com dados reais', async () => {
   // Obter sessão válida de admin através do authService
-  const adminLogin = await authService.login('admin@cbmerj.com', 'cfocbmerj2026!');
+  const adminLogin = await authService.login('admin@cbmerj.com', 'fixture-admin-password-2026');
   assert.equal(adminLogin.success, true);
   const adminToken = adminLogin.token!;
   assert.ok(adminToken);
@@ -205,7 +205,7 @@ test('4. Administrador autenticado acessa dashboard, métricas e listagens com d
 // 5. GESTÃO DE USUÁRIOS: BUSCA, SUSPENSÃO E REATIVAÇÃO
 // ============================================================================
 test('5. Gestão de Usuários: Busca, suspensão e reativação de conta com bloqueio imediato', async () => {
-  const adminLogin = await authService.login('admin@cbmerj.com', 'cfocbmerj2026!');
+  const adminLogin = await authService.login('admin@cbmerj.com', 'fixture-admin-password-2026');
   const adminToken = adminLogin.token!;
   const adminHeaders = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
 
@@ -216,7 +216,7 @@ test('5. Gestão de Usuários: Busca, suspensão e reativação de conta com blo
   const stepUpRes = await fetch(`${baseUrl}/api/admin/step-up`, {
     method: 'POST',
     headers: adminHeaders,
-    body: JSON.stringify({ password: 'cfocbmerj2026!' }),
+    body: JSON.stringify({ password: 'fixture-admin-password-2026' }),
   });
   assert.equal(stepUpRes.status, 200);
   const stepUpData = await stepUpRes.json();
@@ -253,7 +253,7 @@ test('5. Gestão de Usuários: Busca, suspensão e reativação de conta com blo
   assert.equal(suspendData.user.status, 'suspended');
 
   // 5.4 Cadete suspenso tenta logar -> bloqueado!
-  const loginSuspendedRes = await authService.login('cadete', process.env.CADET_PASSWORD || 'cadetecfo2026!');
+  const loginSuspendedRes = await authService.login('cadete', process.env.CADET_PASSWORD || 'fixture-cadet-password-2026');
   assert.equal(loginSuspendedRes.success, false, 'Usuário suspenso NÃO pode conseguir logar');
   assert.ok(
     loginSuspendedRes.message?.toLowerCase().includes('suspenso') ||
@@ -272,7 +272,7 @@ test('5. Gestão de Usuários: Busca, suspensão e reativação de conta com blo
   assert.equal(reactivateData.user.status, 'active');
 
   // 5.6 Cadete reativado consegue logar normalmente
-  const loginActiveRes = await authService.login('cadete', process.env.CADET_PASSWORD || 'cadetecfo2026!');
+  const loginActiveRes = await authService.login('cadete', process.env.CADET_PASSWORD || 'fixture-cadet-password-2026');
   assert.equal(loginActiveRes.success, true, 'Usuário reativado deve conseguir logar');
 });
 
@@ -280,7 +280,7 @@ test('5. Gestão de Usuários: Busca, suspensão e reativação de conta com blo
 // 6. GESTÃO DE SESSÕES: REVOGAÇÃO POR ID
 // ============================================================================
 test('6. Gestão de Sessões: Listagem e revogação imediata de sessão específica', async () => {
-  const adminLogin = await authService.login('admin@cbmerj.com', 'cfocbmerj2026!');
+  const adminLogin = await authService.login('admin@cbmerj.com', 'fixture-admin-password-2026');
   const adminToken = adminLogin.token!;
   const adminHeaders = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
 
@@ -288,7 +288,7 @@ test('6. Gestão de Sessões: Listagem e revogação imediata de sessão especí
   const stepUpRes = await fetch(`${baseUrl}/api/admin/step-up`, {
     method: 'POST',
     headers: adminHeaders,
-    body: JSON.stringify({ password: 'cfocbmerj2026!' }),
+    body: JSON.stringify({ password: 'fixture-admin-password-2026' }),
   });
   assert.equal(stepUpRes.status, 200);
   const stepUpData = await stepUpRes.json();

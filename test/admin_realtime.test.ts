@@ -46,13 +46,13 @@ test.before(async () => {
   baseUrl = `http://127.0.0.1:${port}`;
 
   // Autentica admin padrão
-  const adminLogin = await authService.login('admin@cbmerj.com', 'cfocbmerj2026!');
+  const adminLogin = await authService.login('admin@cbmerj.com', 'fixture-admin-password-2026');
   assert.equal(adminLogin.success, true);
   adminToken = adminLogin.token!;
   assert.ok(adminToken);
 
   // Autentica cadete padrão
-  const cadetLogin = await authService.login('cadete@cbmerj.com', 'cadetecfo2026!');
+  const cadetLogin = await authService.login('cadete@cbmerj.com', 'fixture-cadet-password-2026');
   assert.equal(cadetLogin.success, true);
   cadetToken = cadetLogin.token!;
   assert.ok(cadetToken);

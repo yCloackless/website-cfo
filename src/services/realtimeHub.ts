@@ -31,6 +31,7 @@ interface RealtimeClient {
   res: Response;
   adminUsername: string;
   connectedAt: string;
+  isAuthorized?: () => boolean;
 }
 
 export class AdminRealtimeHub extends EventEmitter {
@@ -70,7 +71,7 @@ export class AdminRealtimeHub extends EventEmitter {
   /**
    * Registra um novo cliente SSE administrativo autenticado.
    */
-  public addClient(res: Response, adminUsername: string, lastEventId?: string): string {
+  public addClient(res: Response, adminUsername: string, lastEventId?: string, isAuthorized?: () => boolean): string {
     const clientId = crypto.randomUUID();
     const now = new Date().toISOString();
 
@@ -79,6 +80,7 @@ export class AdminRealtimeHub extends EventEmitter {
       res,
       adminUsername,
       connectedAt: now,
+      isAuthorized,
     };
 
     this.clients.set(clientId, client);
@@ -170,6 +172,11 @@ export class AdminRealtimeHub extends EventEmitter {
   private broadcastRaw(data: string): void {
     for (const [clientId, client] of this.clients.entries()) {
       try {
+        if (client.isAuthorized && !client.isAuthorized()) {
+          client.res.end();
+          this.clients.delete(clientId);
+          continue;
+        }
         client.res.write(data);
       } catch {
         this.clients.delete(clientId);

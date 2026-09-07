@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import { isIP } from 'node:net';
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
@@ -24,6 +25,8 @@ if (!process.env.CADET_PASSWORD_HASH && !process.env.CADET_PASSWORD) missingVars
 if (!process.env.TOTP_SECRET) missingVars.push('TOTP_SECRET');
 if (!process.env.SESSION_SECRET) missingVars.push('SESSION_SECRET');
 if (!process.env.TURNSTILE_SECRET_KEY) missingVars.push('TURNSTILE_SECRET_KEY');
+if (!process.env.RESEND_API_KEY) missingVars.push('RESEND_API_KEY');
+if (!process.env.EMAIL_FROM) missingVars.push('EMAIL_FROM');
 
 if (missingVars.length > 0) {
   if (process.env.NODE_ENV === 'production') {
@@ -60,7 +63,7 @@ const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // 1. Confiar no Proxy reverso do Render para captura precisa de IP
-app.set("trust proxy", 1);
+app.set("trust proxy", process.env.TRUSTED_PROXIES ? process.env.TRUSTED_PROXIES.split(",").map(value => value.trim()) : false);
 
 // 2. Rota de Health Check ultraleve para UptimeRobot / anti-sleep do Render
 app.get("/api/health", (_req: Request, res: Response) => {
@@ -152,10 +155,16 @@ function banIp(ip: string, reason: string, geo?: { country?: string; region?: st
 }
 
 // Helper confiável para capturar IP real do cliente via infraestrutura (nunca aceita req.body.ip)
+function isTrustedEdge(req: Request): boolean {
+  const trust = req.app?.get('trust proxy fn');
+  return process.env.TRUST_CLOUDFLARE_HEADERS === 'true' && typeof trust === 'function' &&
+    !!req.socket?.remoteAddress && trust(req.socket.remoteAddress, 0);
+}
+
 export function getClientIp(req: Request): string {
   // 1. Cloudflare edge IP verificado
   const cfIp = req.headers["cf-connecting-ip"];
-  if (typeof cfIp === "string" && cfIp.trim()) {
+  if (isTrustedEdge(req) && typeof cfIp === "string" && isIP(cfIp.trim())) {
     return cfIp.trim().replace(/^::ffff:/, "");
   }
 
@@ -205,7 +214,7 @@ async function getIpGeoLocation(
   }
 
   // 1. Cabeçalhos diretos da Cloudflare (quando sob proxy Cloudflare)
-  const cfCountry = req.headers["cf-ipcountry"];
+  const cfCountry = isTrustedEdge(req) ? req.headers["cf-ipcountry"] : undefined;
   const cfRegion = req.headers["cf-region"] || req.headers["cf-region-code"];
   if (typeof cfCountry === "string" && cfCountry) {
     const country = cfCountry.toUpperCase();
@@ -253,7 +262,7 @@ async function getIpGeoLocation(
 // Verificação do Token do Cloudflare Turnstile
 async function verifyTurnstileToken(token?: string, remoteip?: string): Promise<boolean> {
   const secretKey =
-    process.env.TURNSTILE_SECRET_KEY || "0x4AAAAAAEq86v_Nx6LNd3-DPNOuhECnjek";
+    process.env.TURNSTILE_SECRET_KEY || "";
   if (!secretKey) return false;
   if (!token) return false;
 
@@ -399,7 +408,7 @@ app.use(
       }
 
       console.warn(`[CORS] Origin rejeitada: ${origin}`);
-      return callback(new Error('CORS: Origin não autorizada'), false);
+      return callback(Object.assign(new Error('CORS: Origin não autorizada'), { status: 403 }), false);
     },
     credentials: true,
   })
@@ -432,6 +441,7 @@ const twoFactorLimiter = rateLimit({
 });
 
 app.use(express.json({ limit: "10mb" }));
+app.use('/avatars', express.static(path.join(process.cwd(), 'data', 'avatars'), { dotfiles: 'deny', index: false }));
 
 // Google OAuth 2.0 Credentials & Storage Configuration
 let defaultClientId = "";
@@ -449,47 +459,8 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || defaultClientId;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const CALENDAR_SESSION_FILE = path.join(process.cwd(), "data", "calendar-session.json");
 
-// Whitelist de e-mails autorizados (Uso exclusivo e proteção de custos de IA)
-const ALLOWED_EMAILS = [
-  "jb080956@gmail.com",
-  ...(process.env.ALLOWED_EMAILS ? process.env.ALLOWED_EMAILS.split(",") : []),
-]
-  .map((e) => e.trim().toLowerCase())
-  .filter(Boolean);
-
-// Whitelist opcional de IPs autorizados (configurável via ALLOWED_IPS no .env / Render)
-const ALLOWED_IPS = (process.env.ALLOWED_IPS ? process.env.ALLOWED_IPS.split(",") : [])
-  .map((ip) => ip.trim())
-  .filter(Boolean);
-
-function isRequestAuthorized(req: Request, userEmail?: string): boolean {
-  // 1. Se localhost / loopback em desenvolvimento
-  const host = req.get("host") || "";
-  if (host.startsWith("localhost") || host.startsWith("127.0.0.1")) {
-    return true;
-  }
-
-  // 2. Se IP estiver na whitelist configurada
-  if (ALLOWED_IPS.length > 0) {
-    const clientIp = getClientIp(req);
-    if (ALLOWED_IPS.includes(clientIp) || clientIp === "127.0.0.1" || clientIp === "::1") {
-      return true;
-    }
-  }
-
-  // 3. Se e-mail fornecido estiver na whitelist
-  if (userEmail && ALLOWED_EMAILS.includes(userEmail.toLowerCase().trim())) {
-    return true;
-  }
-
-  // 4. Se houver sessão salva com e-mail autorizado
-  const session = readCalendarSession();
-  if (session?.email && ALLOWED_EMAILS.includes(session.email.toLowerCase().trim())) {
-    return true;
-  }
-
-  return false;
-}
+// Google Calendar is a shared administrative integration.
+const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
 
 interface CalendarSession {
   access_token: string;
@@ -634,30 +605,13 @@ function getGeminiClient(): GoogleGenAI | null {
 // 🛡️ TERMINAL DE ACESSO RESTRITO (2FA TOTP)
 // ==========================================
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "cfocbmerj2026!";
-const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || (ADMIN_PASSWORD ? bcrypt.hashSync(ADMIN_PASSWORD, 10) : "");
-const CADET_USER = process.env.CADET_USER || "cadete";
-const CADET_PASSWORD = process.env.CADET_PASSWORD || "cadetecfo2026!";
-const CADET_PASSWORD_HASH = process.env.CADET_PASSWORD_HASH || (CADET_PASSWORD ? bcrypt.hashSync(CADET_PASSWORD, 10) : "");
-const DEFAULT_TOTP_SECRET = "T37NFOFA5PCDA5NRXKDVWVEHZ2F22ZV3";
-const DEFAULT_SESSION_SECRET = "b6708b60d07229c5f49cbc2612e747acae36b92bf8435b11569bc916560ea12f";
-const CONFIGURED_TOTP_SECRET = process.env.TOTP_SECRET || "";
-const CONFIGURED_SESSION_SECRET = process.env.SESSION_SECRET || "";
+const CONFIGURED_TOTP_SECRET = process.env.TOTP_SECRET || generateSecret();
+const CONFIGURED_SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const SECURITY_CONFIG_FILE = path.join(process.cwd(), "data", "security-config.json");
 
-// Verificação de senha via bcrypt (tempo constante nativo, resistente a timing attacks)
-async function safeComparePassword(input: string, hashOrPlain: string): Promise<boolean> {
-  if (!input || !hashOrPlain) return false;
-  try {
-    if (hashOrPlain.startsWith("$2a$") || hashOrPlain.startsWith("$2b$") || hashOrPlain.startsWith("$2y$")) {
-      return await bcrypt.compare(input, hashOrPlain);
-    }
-    const a = crypto.createHash("sha256").update(input).digest();
-    const b = crypto.createHash("sha256").update(hashOrPlain).digest();
-    return crypto.timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
+async function safeComparePassword(input: string, hash: string): Promise<boolean> {
+  if (!input || !hash || !hash.startsWith('$2')) return false;
+  try { return await bcrypt.compare(input, hash); } catch { return false; }
 }
 
 interface SecurityConfig {
@@ -673,8 +627,8 @@ function getSecurityConfig(): SecurityConfig {
       const raw = fs.readFileSync(SECURITY_CONFIG_FILE, "utf-8");
       const parsed = JSON.parse(raw);
       return {
-        totpSecret: CONFIGURED_TOTP_SECRET || parsed.totpSecret || DEFAULT_TOTP_SECRET,
-        sessionSecret: CONFIGURED_SESSION_SECRET || parsed.sessionSecret || DEFAULT_SESSION_SECRET,
+        totpSecret: CONFIGURED_TOTP_SECRET || parsed.totpSecret,
+        sessionSecret: CONFIGURED_SESSION_SECRET || parsed.sessionSecret,
         is2faActive: Boolean(parsed.is2faActive),
         createdAt: parsed.createdAt || new Date().toISOString(),
       };
@@ -684,8 +638,8 @@ function getSecurityConfig(): SecurityConfig {
   }
 
   const newConfig: SecurityConfig = {
-    totpSecret: CONFIGURED_TOTP_SECRET || DEFAULT_TOTP_SECRET,
-    sessionSecret: CONFIGURED_SESSION_SECRET || DEFAULT_SESSION_SECRET,
+    totpSecret: CONFIGURED_TOTP_SECRET,
+    sessionSecret: CONFIGURED_SESSION_SECRET,
     is2faActive: true,
     createdAt: new Date().toISOString(),
   };
@@ -704,52 +658,11 @@ function saveSecurityConfig(config: SecurityConfig): void {
   }
 }
 
-function createTerminalSession(
-  username: string,
-  rememberMe: boolean,
-  role: string = "admin"
-): { token: string; expiresAt: number; role: string; canAccessNotion: boolean } {
-  const config = getSecurityConfig();
-  const durationMs = rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
-  const expiresAt = Date.now() + durationMs;
-  const canAccessNotion = role === "admin";
-  const payload = {
-    u: username,
-    role,
-    canAccessNotion,
-    exp: expiresAt,
-    r: rememberMe ? 1 : 0,
-    iat: Date.now(),
-  };
-  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const signature = crypto.createHmac("sha256", config.sessionSecret).update(payloadB64).digest("base64url");
-  const rawToken = `${payloadB64}.${signature}`;
-
-  try {
-    const rawDb = getDb().getRawDb();
-    let targetUser = userRepoInstance.findByUsername(username) || userRepoInstance.findByEmail(username);
-    if (!targetUser) {
-      targetUser = userRepoInstance.findByUsername(ADMIN_USER);
-    }
-    if (targetUser) {
-      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-      const nowIso = new Date().toISOString();
-      const expiresAtIso = new Date(expiresAt).toISOString();
-      rawDb.prepare(
-        `INSERT INTO sessions (id, user_id, token_hash, role, ip, user_agent, expires_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(crypto.randomUUID(), targetUser.id, tokenHash, role, null, null, expiresAtIso, nowIso);
-    }
-  } catch (err) {
-    console.warn("Falha ao registrar sessão persistente no banco:", err);
-  }
-
-  return {
-    token: rawToken,
-    expiresAt,
-    role,
-    canAccessNotion,
-  };
+function createTerminalSession(username: string, rememberMe: boolean, role: string = 'admin') {
+  const user = userRepoInstance.findByUsername(username) || userRepoInstance.findByEmail(username);
+  if (!user || user.status !== 'active' || user.role !== role) throw new Error('SESSION_USER_INVALID');
+  const created = sessionRepoInstance.createSession({ userId: user.id, role: user.role, expiresInDays: rememberMe ? 30 : 1 });
+  return { token: created.rawToken, expiresAt: Date.parse(created.session.expiresAt), role: user.role, canAccessNotion: user.role === 'admin' };
 }
 
 const authServiceInstance = new AuthService(getDb());
@@ -858,7 +771,7 @@ function verifyTerminalSession(token?: string | null): {
   // 1. Verificação primária na nova base de sessões do banco de dados
   const dbCheck = authServiceInstance.validateToken(token);
   if (dbCheck.valid && dbCheck.user && dbCheck.session) {
-    const role = dbCheck.session.role;
+    const role = dbCheck.user.role;
     const canAccessNotion = role === "admin";
     const expiresAt = new Date(dbCheck.session.expiresAt).getTime();
     return {
@@ -871,45 +784,7 @@ function verifyTerminalSession(token?: string | null): {
     };
   }
 
-  // 1.1 Se o token existe no banco mas foi revogado, rejeitar terminantemente (sem fallback)
-  try {
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    const revokedRow = getDb().getRawDb().prepare(
-      `SELECT 1 FROM sessions WHERE token_hash = ? AND revoked_at IS NOT NULL LIMIT 1`
-    ).get(tokenHash);
-    if (revokedRow) {
-      return { valid: false };
-    }
-  } catch {}
-
-  // 2. Fallback de compatibilidade para sessões HMAC assinadas
-  const parts = token.split(".");
-  if (parts.length !== 2) return { valid: false };
-
-  const [payloadB64, signature] = parts;
-  const config = getSecurityConfig();
-  // Comparação de assinatura em tempo constante (proteção contra timing attacks)
-  const expectedSig = crypto.createHmac("sha256", config.sessionSecret).update(payloadB64).digest("base64url");
-  if (expectedSig.length !== signature.length) return { valid: false };
-  const sigBufA = Buffer.from(signature, 'utf-8');
-  const sigBufB = Buffer.from(expectedSig, 'utf-8');
-  if (sigBufA.length !== sigBufB.length || !crypto.timingSafeEqual(sigBufA, sigBufB)) return { valid: false };
-
-  try {
-    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf-8"));
-    if (!payload.exp || Date.now() > payload.exp) return { valid: false };
-    const role = payload.role || (payload.u === ADMIN_USER ? "admin" : "cadet");
-    const canAccessNotion = payload.canAccessNotion !== undefined ? Boolean(payload.canAccessNotion) : role === "admin";
-    return {
-      valid: true,
-      username: payload.u,
-      role,
-      canAccessNotion,
-      expiresAt: payload.exp,
-    };
-  } catch {
-    return { valid: false };
-  }
+  return { valid: false };
 }
 
 // ==========================================
@@ -967,7 +842,7 @@ function requireStepUpAuth(req: Request, res: Response, next: NextFunction) {
   const token = typeof stepUpHeader === "string" ? stepUpHeader.trim() : null;
 
   const result = verifyStepUpToken(token);
-  if (!result.valid) {
+  if (!result.valid || result.userId !== (req as any).user?.userId) {
     return res.status(403).json({
       error: "STEP_UP_REQUIRED",
       message: "Esta ação administrativa crítica exige confirmação recente de identidade (Step-Up 2FA/Senha).",
@@ -1065,45 +940,6 @@ app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
   }
 });
 
-// 2.5. Rota de Primeiro Passo de Login (Apenas E-mail/Identificador, sem senha)
-app.post("/api/auth/initial-login", (req: Request, res: Response) => {
-  try {
-    const { email } = req.body || {};
-    const cleanEmail = (email || "").trim().toLowerCase();
-
-    if (!cleanEmail) {
-      return res.status(400).json({
-        success: false,
-        error: "MISSING_EMAIL",
-        message: "Informe seu e-mail de acesso.",
-      });
-    }
-
-    const isAuthorized =
-      cleanEmail === "jb080956@gmail.com" ||
-      cleanEmail === "admin" ||
-      ALLOWED_EMAILS.includes(cleanEmail) ||
-      cleanEmail.includes("@");
-
-    if (!isAuthorized) {
-      return res.status(401).json({
-        success: false,
-        error: "UNAUTHORIZED_EMAIL",
-        message: "E-mail não autorizado para acesso.",
-      });
-    }
-
-    return res.json({
-      success: true,
-      email: cleanEmail,
-      requireTotp: true,
-      message: "Credencial validada. Prossiga para o código de autenticação.",
-    });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: "INITIAL_LOGIN_ERROR", message: err?.message });
-  }
-});
-
 // ============================================================================
 // ⏱️ CLOUD TIMER (Sincronizado entre PC e Celular via Servidor)
 // ============================================================================
@@ -1117,9 +953,13 @@ interface TimerState {
   updatedAt: string;
 }
 
-const TIMER_STATE_FILE = path.join(process.cwd(), "data", "timer-state.json");
+app.use('/api/timer', requireUserAuth);
+function timerStateFile(userId: string): string {
+  return path.join(process.cwd(), 'data', 'timer-' + crypto.createHash('sha256').update(userId).digest('hex') + '.json');
+}
 
-function readTimerState(): TimerState {
+function readTimerState(userId: string): TimerState {
+  const TIMER_STATE_FILE = timerStateFile(userId);
   try {
     if (fs.existsSync(TIMER_STATE_FILE)) {
       const raw = fs.readFileSync(TIMER_STATE_FILE, "utf-8");
@@ -1136,7 +976,8 @@ function readTimerState(): TimerState {
   };
 }
 
-function saveTimerState(state: TimerState): void {
+function saveTimerState(userId: string, state: TimerState): void {
+  const TIMER_STATE_FILE = timerStateFile(userId);
   try {
     const dir = path.dirname(TIMER_STATE_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -1147,8 +988,8 @@ function saveTimerState(state: TimerState): void {
 }
 
 // 1. Status do Cronômetro (Calculado no servidor para sincronização multidispositivo)
-app.get("/api/timer/status", (_req: Request, res: Response) => {
-  const state = readTimerState();
+app.get("/api/timer/status", (req: Request, res: Response) => {
+  const state = readTimerState((req as any).user.userId);
   const now = Date.now();
   let totalElapsedMs = state.accumulatedTime;
 
@@ -1166,7 +1007,7 @@ app.get("/api/timer/status", (_req: Request, res: Response) => {
 // 2. Iniciar Cronômetro
 app.post("/api/timer/start", (req: Request, res: Response) => {
   const { subjectId, subjectName } = req.body || {};
-  const state = readTimerState();
+  const state = readTimerState((req as any).user.userId);
   const now = Date.now();
 
   if (state.status !== "RUNNING") {
@@ -1177,7 +1018,7 @@ app.post("/api/timer/start", (req: Request, res: Response) => {
   if (subjectName) state.activeSubjectName = subjectName;
   state.updatedAt = new Date().toISOString();
 
-  saveTimerState(state);
+  saveTimerState((req as any).user.userId, state);
 
   const totalElapsedMs = state.accumulatedTime + (state.startTime ? Math.max(0, now - state.startTime) : 0);
   return res.json({
@@ -1189,8 +1030,8 @@ app.post("/api/timer/start", (req: Request, res: Response) => {
 });
 
 // 3. Pausar Cronômetro
-app.post("/api/timer/pause", (_req: Request, res: Response) => {
-  const state = readTimerState();
+app.post("/api/timer/pause", (req: Request, res: Response) => {
+  const state = readTimerState((req as any).user.userId);
   const now = Date.now();
 
   if (state.status === "RUNNING" && state.startTime) {
@@ -1199,7 +1040,7 @@ app.post("/api/timer/pause", (_req: Request, res: Response) => {
     state.startTime = null;
     state.status = "PAUSED";
     state.updatedAt = new Date().toISOString();
-    saveTimerState(state);
+    saveTimerState((req as any).user.userId, state);
   }
 
   return res.json({
@@ -1211,14 +1052,14 @@ app.post("/api/timer/pause", (_req: Request, res: Response) => {
 });
 
 // 4. Resetar Cronômetro
-app.post("/api/timer/reset", (_req: Request, res: Response) => {
+app.post("/api/timer/reset", (req: Request, res: Response) => {
   const state: TimerState = {
     status: "STOPPED",
     accumulatedTime: 0,
     startTime: null,
     updatedAt: new Date().toISOString(),
   };
-  saveTimerState(state);
+  saveTimerState((req as any).user.userId, state);
   return res.json({
     success: true,
     ...state,
@@ -1275,55 +1116,20 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
       }
     }
 
-    // 1.5. Verificação de Conta de Aluno / Cadete (Sem acesso ao Notion, login direto)
-    const isCadetTarget =
-      inputUser === CADET_USER.toLowerCase() ||
-      inputUser === "cadete@cfo.cbmerj" ||
-      inputUser === "aluno" ||
-      inputUser === "aluno@cfocbmerj.com";
-
-    if (isCadetTarget) {
-      if (!(await safeComparePassword(password, CADET_PASSWORD_HASH))) {
-        logSecurityEvent(req, {
-          action: "LOGIN_FAILED",
-          actor: inputUser,
-          resource: "/api/auth/check-credentials",
-          status: "FAILED",
-          details: { reason: "Credenciais inválidas para cadete" },
-        });
-        return res.status(401).json({
-          success: false,
-          error: "INVALID_CREDENTIALS",
-          message: "Credenciais de acesso inválidas.",
-        });
-      }
-
-      // Cria sessão do cadete (role: cadet, canAccessNotion: false)
-      const session = createTerminalSession("cadete", true, "cadet");
-      logSecurityEvent(req, {
-        action: "LOGIN_SUCCESS",
-        actor: inputUser,
-        resource: "/api/auth/check-credentials",
-        status: "SUCCESS",
-        details: { role: "cadet", method: "direct" },
-      });
-      console.log(`[Terminal CFO CBMERJ] Acesso de Cadete autenticado: ${inputUser}`);
-      return res.json({
-        success: true,
-        directLogin: true,
-        token: session.token,
-        expiresAt: session.expiresAt,
-        username: "cadete",
-        role: "cadet",
-        canAccessNotion: false,
-        message: "Acesso concedido. Bem-vindo ao Terminal, Cadete!",
-      });
+    const dbUser = await authServiceInstance.verifyCredentials(inputUser, password);
+    if (!dbUser) {
+      logSecurityEvent(req, { action: 'LOGIN_FAILED', actor: inputUser, resource: '/api/auth/check-credentials', status: 'FAILED' });
+      return res.status(401).json({ success: false, error: 'INVALID_CREDENTIALS', message: 'Credenciais de acesso inválidas.' });
+    }
+    if (dbUser.role !== 'admin') {
+      const session = createTerminalSession(dbUser.username, req.body.rememberMe === true, dbUser.role);
+      logSecurityEvent(req, { action: 'LOGIN_SUCCESS', actor: dbUser.username, resource: '/api/auth/check-credentials', status: 'SUCCESS' });
+      return res.json({ success: true, directLogin: true, ...session, username: dbUser.username });
     }
 
     // 2. Geo-fencing: Conta Admin só é acessível a partir do Brasil
     const isAdminTarget =
-      inputUser === ADMIN_USER.toLowerCase() ||
-      inputUser === "jb080956@gmail.com";
+      dbUser.role === 'admin';
 
     if (isAdminTarget && !isAdmIp) {
       const geo = await getIpGeoLocation(clientIp, req);
@@ -1343,41 +1149,6 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
           message: "ACESSO BLOQUEADO: Conexões fora do território nacional são restritas para esta conta.",
         });
       }
-    }
-
-    const isAuthorized =
-      inputUser === ADMIN_USER.toLowerCase() ||
-      inputUser === "jb080956@gmail.com" ||
-      ALLOWED_EMAILS.includes(inputUser);
-
-    if (!isAuthorized) {
-      logSecurityEvent(req, {
-        action: isAdminTarget ? "ADMIN_LOGIN_FAILED" : "LOGIN_FAILED",
-        actor: inputUser,
-        resource: "/api/auth/check-credentials",
-        status: "FAILED",
-        details: { reason: "Usuário não autorizado ou inexistente" },
-      });
-      return res.status(401).json({
-        success: false,
-        error: "INVALID_CREDENTIALS",
-        message: "Credenciais de acesso inválidas.",
-      });
-    }
-
-    if (!(await safeComparePassword(password, ADMIN_PASSWORD_HASH))) {
-      logSecurityEvent(req, {
-        action: isAdminTarget ? "ADMIN_LOGIN_FAILED" : "LOGIN_FAILED",
-        actor: inputUser,
-        resource: "/api/auth/check-credentials",
-        status: "FAILED",
-        details: { reason: "Senha incorreta" },
-      });
-      return res.status(401).json({
-        success: false,
-        error: "INVALID_CREDENTIALS",
-        message: "Credenciais de acesso inválidas.",
-      });
     }
 
     return res.json({
@@ -1417,7 +1188,12 @@ app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Res
       }
     }
 
-    const cleanUser = inputUser;
+    const dbUser = await authServiceInstance.verifyCredentials(inputUser, password);
+    if (!dbUser || dbUser.role !== 'admin') {
+      logSecurityEvent(req, { action: 'ADMIN_LOGIN_FAILED', actor: inputUser, resource: '/api/auth/verify-2fa', status: 'FAILED' });
+      return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Credenciais de acesso inválidas.' });
+    }
+    const cleanUser = dbUser.username;
 
     // 2. Geo-fencing: Conta Admin só pode ser acessada a partir do Brasil
     const isAdminTarget =
@@ -1441,25 +1217,6 @@ app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Res
           message: "ACESSO BLOQUEADO: Conexões fora do território nacional são restritas para esta conta.",
         });
       }
-    }
-
-    const isAuthorized =
-      cleanUser === ADMIN_USER.toLowerCase() ||
-      cleanUser === "jb080956@gmail.com" ||
-      ALLOWED_EMAILS.includes(cleanUser);
-
-    if (!isAuthorized || !(await safeComparePassword(password, ADMIN_PASSWORD_HASH))) {
-      logSecurityEvent(req, {
-        action: "ADMIN_LOGIN_FAILED",
-        actor: cleanUser,
-        resource: "/api/auth/verify-2fa",
-        status: "FAILED",
-        details: { reason: "Credenciais inválidas na etapa 2FA" },
-      });
-      return res.status(401).json({
-        error: "INVALID_CREDENTIALS",
-        message: "Credenciais de acesso inválidas.",
-      });
     }
 
     const config = getSecurityConfig();
@@ -1497,12 +1254,7 @@ app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Res
       }
       authMethod = "TOTP";
     } else if (recoveryCode) {
-      // Localiza o usuário admin para validar o hash do código de recuperação
-      let targetUser = userRepoInstance.findByUsername(cleanUser) || userRepoInstance.findByEmail(cleanUser);
-      if (!targetUser) {
-        targetUser = userRepoInstance.findByUsername(ADMIN_USER);
-      }
-      const userId = targetUser ? targetUser.id : "admin-default-id";
+      const userId = dbUser.id;
 
       const isRecoveryValid = recoveryCodeRepoInstance.verifyAndConsumeCode(userId, String(recoveryCode));
       if (!isRecoveryValid) {
@@ -1562,7 +1314,7 @@ app.post("/api/auth/activate-2fa", async (req: Request, res: Response) => {
     const sessionToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : req.body?.sessionToken;
     const sessionResult = verifyTerminalSession(sessionToken);
 
-    if (!sessionResult.valid) {
+    if (!sessionResult.valid || sessionResult.role !== "admin") {
       return res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida para ativação do 2FA." });
     }
 
@@ -1828,7 +1580,11 @@ app.get("/api/admin/realtime/stream", requireAdminAuth, (req: Request, res: Resp
     res.flushHeaders();
   }
 
-  const clientId = adminRealtimeHub.addClient(res, adminUser?.username || "admin", lastEventId);
+  const streamToken = req.headers.authorization?.slice(7) || '';
+  const clientId = adminRealtimeHub.addClient(res, adminUser.username, lastEventId, () => {
+    const session = verifyTerminalSession(streamToken);
+    return session.valid && (session.role === 'admin' || session.role === 'support');
+  });
 
   req.on("close", () => {
     adminRealtimeHub.removeClient(clientId);
@@ -1858,16 +1614,9 @@ app.post("/api/admin/step-up", requireAdminAuth, twoFactorLimiter, async (req: R
       }
     }
 
-    // 2. Verificação por Senha Administrativa
-    if (!isAuthorized && password) {
-      if (await safeComparePassword(String(password), ADMIN_PASSWORD_HASH)) {
-        isAuthorized = true;
-      } else if (adminUser.userId) {
-        const dbUser = userRepoInstance.findById(adminUser.userId);
-        if (dbUser && (await safeComparePassword(String(password), dbUser.passwordHash))) {
-          isAuthorized = true;
-        }
-      }
+    if (!isAuthorized && password && adminUser.userId) {
+      const dbUser = userRepoInstance.findById(adminUser.userId);
+      isAuthorized = !!dbUser && await safeComparePassword(String(password), dbUser.passwordHash);
     }
 
     if (!isAuthorized) {
@@ -2685,6 +2434,7 @@ async function postGoogleCalendarEvent(
 }
 
 // 1. Google Calendar Connection Status endpoint
+app.use("/api/calendar", requireAdminWriteAuth);
 app.get("/api/calendar/status", async (_req: Request, res: Response) => {
   try {
     const session = readCalendarSession();
@@ -2725,261 +2475,59 @@ app.get("/api/calendar/status", async (_req: Request, res: Response) => {
   }
 });
 
-// 2. Generate Google OAuth Offline Authorization URL
-app.get("/api/calendar/auth-url", (req: Request, res: Response) => {
-  if (!GOOGLE_CLIENT_ID) {
-    return res.status(400).json({
-      error: "MISSING_CLIENT_ID",
-      message: "GOOGLE_CLIENT_ID não está configurado no backend.",
-    });
-  }
-
-  const clientOrigin = (req.query.origin as string) || "";
-  const host = req.get("host") || `localhost:${PORT}`;
-  const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
-  const redirectUri =
-    process.env.REDIRECT_URI ||
-    (process.env.RENDER_EXTERNAL_URL
-      ? `${process.env.RENDER_EXTERNAL_URL}/api/auth/google/callback`
-      : host.includes("127.0.0.1")
-      ? `http://127.0.0.1:${PORT}/api/auth/google/callback`
-      : host.includes("localhost")
-      ? `http://localhost:${PORT}/api/auth/google/callback`
-      : `${protocol}://${host}/api/auth/google/callback`);
-
-  console.log("===> [OAuth] Gerando auth-url com redirectUri:", redirectUri);
-
-  const statePayload = Buffer.from(
-    JSON.stringify({
-      origin: clientOrigin || `${protocol}://${host}`,
-      ts: Date.now(),
-    })
-  ).toString("base64url");
-
-  const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-  authUrl.searchParams.set("client_id", GOOGLE_CLIENT_ID);
-  authUrl.searchParams.set("redirect_uri", redirectUri);
-  authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("state", statePayload);
-  authUrl.searchParams.set(
-    "scope",
-    "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile"
-  );
-  authUrl.searchParams.set("access_type", "offline");
-  authUrl.searchParams.set("prompt", "consent"); // Garante a emissão de refresh_token
-
-  return res.json({ url: authUrl.toString(), redirectUri });
+const calendarOAuthStates = new Map<string, { origin: string; token: string; expiresAt: number }>();
+const calendarRedirectUri = process.env.REDIRECT_URI || new URL('/api/auth/google/callback', APP_URL).href;
+app.get('/api/calendar/auth-url', (req: Request, res: Response) => {
+  if (!GOOGLE_CLIENT_ID) return res.status(400).json({ error: 'MISSING_CLIENT_ID' });
+  const origin = extractOrigin(String(req.query.origin || APP_URL));
+  if (!origin || !normalizedAllowedOrigins.has(origin)) return res.status(403).json({ error: 'INVALID_ORIGIN' });
+  for (const [key, value] of calendarOAuthStates) if (value.expiresAt < Date.now()) calendarOAuthStates.delete(key);
+  const state = crypto.randomBytes(32).toString('hex');
+  calendarOAuthStates.set(state, { origin, token: req.headers.authorization!.slice(7), expiresAt: Date.now() + 600000 });
+  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  url.search = new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, redirect_uri: calendarRedirectUri,
+    response_type: 'code', state, scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+    access_type: 'offline', prompt: 'consent' }).toString();
+  return res.json({ url: url.href, redirectUri: calendarRedirectUri });
 });
 
-// 3. Google OAuth Callback
-app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
+app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
+  const state = typeof req.query.state === 'string' ? req.query.state : '';
+  const pending = calendarOAuthStates.get(state);
+  calendarOAuthStates.delete(state);
+  const session = pending ? verifyTerminalSession(pending.token) : null;
+  if (!pending || pending.expiresAt < Date.now() || !session?.valid || session.role !== 'admin') {
+    return res.status(403).json({ error: 'INVALID_OAUTH_STATE' });
+  }
+  if (req.query.error || typeof req.query.code !== 'string') return res.status(400).send('Autorização Google cancelada ou inválida.');
   try {
-    const { code, error, state } = req.query;
-
-    let targetOrigin = "";
-    try {
-      if (typeof state === "string") {
-        const parsed = JSON.parse(Buffer.from(state, "base64url").toString("utf-8"));
-        if (parsed.origin) targetOrigin = parsed.origin;
-      }
-    } catch (_) {}
-
-    if (error) {
-      return res.send(`
-        <!DOCTYPE html>
-        <html>
-        <body style="font-family: system-ui; background: #0f172a; color: #f8fafc; padding: 40px; text-align: center;">
-          <h2 style="color: #ef4444;">Autorização Cancelada</h2>
-          <p>${error}</p>
-          <script>setTimeout(() => window.close(), 1500);</script>
-        </body>
-        </html>
-      `);
-    }
-
-    if (!code || typeof code !== "string") {
-      return res.status(400).send("Código de autorização ausente.");
-    }
-
-    const host = req.get("host") || `localhost:${PORT}`;
-    const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
-    const redirectUri =
-      process.env.REDIRECT_URI ||
-      (process.env.RENDER_EXTERNAL_URL
-        ? `${process.env.RENDER_EXTERNAL_URL}/api/auth/google/callback`
-        : host.includes("127.0.0.1")
-        ? `http://127.0.0.1:${PORT}/api/auth/google/callback`
-        : host.includes("localhost")
-        ? `http://localhost:${PORT}/api/auth/google/callback`
-        : `${protocol}://${host}/api/auth/google/callback`);
-
-    // Troca o código pelo token com refresh_token
-    const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        code,
-        client_id: GOOGLE_CLIENT_ID,
-        client_secret: GOOGLE_CLIENT_SECRET,
-        redirect_uri: redirectUri,
-        grant_type: "authorization_code",
-      }),
-    });
-
-    if (!tokenResp.ok) {
-      const errBody = await tokenResp.text();
-      console.error("Erro na troca de código OAuth do Google:", errBody);
-      return res.status(400).send(`
-        <!DOCTYPE html>
-        <html>
-        <body style="font-family: system-ui; background: #0f172a; color: #f8fafc; padding: 40px; text-align: center;">
-          <h2 style="color: #ef4444;">Erro ao Autenticar com o Google</h2>
-          <p>Não foi possível obter o token de acesso. Verifique se o GOOGLE_CLIENT_SECRET está configurado corretamente no arquivo .env.</p>
-          <pre style="background: #1e293b; padding: 15px; border-radius: 8px; text-align: left; max-width: 600px; margin: 20px auto; overflow: auto; font-size: 12px;">${errBody}</pre>
-          <button onclick="window.close()" style="background: #dc2626; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">Fechar Janela</button>
-        </body>
-        </html>
-      `);
-    }
-
-    const tokenData = (await tokenResp.json()) as any;
-    const existingSession = readCalendarSession();
-
-    // Obter dados do perfil do usuário
-    let email = "";
-    let name = "";
-    try {
-      const userResp = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-        headers: { Authorization: `Bearer ${tokenData.access_token}` },
-      });
-      if (userResp.ok) {
-        const userInfo = (await userResp.json()) as any;
-        email = userInfo.email || "";
-        name = userInfo.name || "";
-      }
-    } catch {}
-
-    // 🔒 Blindagem de Segurança (Whitelist): apenas jb080956@gmail.com ou IP autorizado
-    const clientIp = getClientIp(req);
-    const isAuthorized = isRequestAuthorized(req, email);
-    if (!isAuthorized) {
-      console.warn(`[Bloqueio de Segurança] Acesso negado para e-mail '${email}' e IP '${clientIp}'`);
-      return res.status(403).send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Acesso Negado</title>
-          <meta charset="utf-8" />
-        </head>
-        <body style="font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; background: #090d16; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
-          <div style="text-align: center; padding: 36px; background: #111827; border: 1px solid #ef4444; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); max-width: 440px; margin: 20px;">
-            <div style="width: 56px; height: 56px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 28px;">
-              🚫
-            </div>
-            <h2 style="color: #ef4444; margin: 0 0 8px; font-size: 20px; font-weight: 700;">Acesso Não Autorizado</h2>
-            <p style="color: #94a3b8; font-size: 14px; margin: 0 0 20px; line-height: 1.5;">
-              O e-mail <strong>${email || "não autenticado"}</strong> não possui autorização para utilizar este sistema.<br />
-              Este cronograma é de uso exclusivo e privado de <strong>jb080956@gmail.com</strong>.
-            </p>
-            <div style="color: #64748b; font-size: 11px; margin-bottom: 16px;">IP: ${clientIp}</div>
-            <button onclick="window.close()" style="background: #dc2626; color: white; border: none; padding: 10px 24px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">Fechar Janela</button>
-          </div>
-        </body>
-        </html>
-      `);
-    }
-
-    const session: CalendarSession = {
-      access_token: tokenData.access_token,
-      refresh_token: tokenData.refresh_token || existingSession?.refresh_token,
-      expiry_date: Date.now() + (tokenData.expires_in || 3600) * 1000,
-      email: email || existingSession?.email,
-      name: name || existingSession?.name,
-      scope: tokenData.scope,
-      updatedAt: new Date().toISOString(),
-    };
-
-    saveCalendarSession(session);
-    console.log(`Google Calendar conectado com sucesso para ${session.name ? `${session.name} (${session.email})` : session.email || "usuário"} (Refresh Token permanente: ${!!session.refresh_token})`);
-
-    return res.send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Google Agenda Conectado</title>
-        <meta charset="utf-8" />
-      </head>
-      <body style="font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; background: #090d16; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
-        <div style="text-align: center; padding: 32px; background: #111827; border: 1px solid #1f2937; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); max-width: 440px; margin: 20px;">
-          <div style="width: 56px; height: 56px; background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 28px;">
-            ✅
-          </div>
-          <h2 style="color: #22c55e; margin: 0 0 8px; font-size: 20px; font-weight: 700;">Google Agenda Conectado!</h2>
-          <p style="color: #94a3b8; font-size: 14px; margin: 0 0 16px; line-height: 1.5;">
-            Conta de <strong>${session.name || session.email || "Aluno"}</strong> vinculada permanentemente ao cronograma!
-          </p>
-          <p style="color: #64748b; font-size: 12px; margin-bottom: 20px;">Esta janela será fechada automaticamente em instantes.</p>
-          <button id="closeBtn" onclick="doClose()" style="background: #0056D2; color: white; border: none; padding: 10px 24px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer;">
-            Concluir & Fechar Janela
-          </button>
-        </div>
-        <script>
-          const sessionStatus = {
-            connected: true,
-            permanent: true,
-            email: ${JSON.stringify(session.email || '')},
-            name: ${JSON.stringify(session.name || '')}
-          };
-          const authPayload = {
-            type: 'GOOGLE_CALENDAR_CONNECTED',
-            success: true,
-            email: ${JSON.stringify(session.email || '')},
-            name: ${JSON.stringify(session.name || '')},
-            ts: Date.now()
-          };
-
-          // 1. Atualiza imediatamente o localStorage compartilhado (notifica todas as abas e sincroniza o estado instantaneamente)
-          try {
-            localStorage.setItem('cfo_calendar_status', JSON.stringify(sessionStatus));
-            localStorage.setItem('cfo_calendar_auth_success', JSON.stringify(authPayload));
-          } catch(e) {}
-
-          // 2. Notifica a aba principal via BroadcastChannel
-          try {
-            if (typeof BroadcastChannel !== 'undefined') {
-              const channel = new BroadcastChannel('cfo_google_calendar_auth');
-              channel.postMessage(authPayload);
-              setTimeout(() => {
-                try { channel.close(); } catch(e) {}
-              }, 2000);
-            }
-          } catch(e) {}
-
-          // 3. PostMessage caso o opener ainda esteja acessível
-          try {
-            if (window.opener && !window.opener.closed) {
-              window.opener.postMessage(authPayload, '*');
-            }
-          } catch(e) {}
-
-          function doClose() {
-            try {
-              window.close();
-            } catch(e) {}
-          }
-
-          // Fecha automaticamente e rapidamente a janela pop-up
-          setTimeout(doClose, 250);
-        </script>
-      </body>
-      </html>
-    `);
-  } catch (error: any) {
-    console.error("Erro no callback OAuth do Google:", error);
-    return res.status(500).send("Erro interno ao processar autenticação do Google.");
-  }
+    const tokenResp = await fetch('https://oauth2.googleapis.com/token', { method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ code: req.query.code, client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: calendarRedirectUri, grant_type: 'authorization_code' }), signal: AbortSignal.timeout(10000) });
+    if (!tokenResp.ok) return res.status(400).send('Não foi possível autorizar o Google Calendar.');
+    const tokenData = await tokenResp.json() as any;
+    const profileResp = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: 'Bearer ' + tokenData.access_token }, signal: AbortSignal.timeout(10000) });
+    if (!profileResp.ok) return res.status(400).send('Não foi possível verificar a conta Google.');
+    const profile = await profileResp.json() as any;
+    const email = String(profile.email || '').toLowerCase();
+    if (!email || (ALLOWED_EMAILS.length && !ALLOWED_EMAILS.includes(email))) return res.status(403).send('Conta Google não autorizada.');
+    const existing = readCalendarSession();
+    saveCalendarSession({ access_token: tokenData.access_token, refresh_token: tokenData.refresh_token || (existing?.email === email ? existing.refresh_token : undefined),
+      expiry_date: Date.now() + (tokenData.expires_in || 3600) * 1000, email, name: String(profile.name || ''), scope: tokenData.scope, updatedAt: new Date().toISOString() });
+    const payload = JSON.stringify({ type: 'GOOGLE_CALENDAR_CONNECTED', success: true, connected: true, email, name: String(profile.name || '') }).replace(/</g, '\\u003c');
+    const origin = JSON.stringify(pending.origin).replace(/</g, '\\u003c');
+    return res.send(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><title>Google Agenda conectado</title><body><h1>Google Agenda conectado</h1><p>Você pode fechar esta janela.</p><script>
+      const payload = ${payload};
+      localStorage.setItem('cfo_calendar_status', JSON.stringify(payload));
+      localStorage.setItem('cfo_calendar_auth_success', JSON.stringify(payload));
+      if (window.opener) window.opener.postMessage(payload, ${origin});
+      if (typeof BroadcastChannel !== 'undefined') { const channel = new BroadcastChannel('cfo_google_calendar_auth'); channel.postMessage(payload); channel.close(); }
+      setTimeout(() => window.close(), 250);
+    </script></body></html>`);
+  } catch { return res.status(502).send('Falha ao conectar com o Google Calendar.'); }
 });
-
 
 // 4. Save client token on backend (backup store com whitelist)
 app.post("/api/calendar/save-token", async (req: Request, res: Response) => {
@@ -2990,7 +2538,7 @@ app.post("/api/calendar/save-token", async (req: Request, res: Response) => {
     }
 
     // 🔒 Blindagem de Segurança (Whitelist)
-    if (email && !ALLOWED_EMAILS.includes(email.toLowerCase())) {
+    if (email && ALLOWED_EMAILS.length > 0 && !ALLOWED_EMAILS.includes(email.toLowerCase())) {
       return res.status(403).json({
         error: "UNAUTHORIZED_EMAIL",
         message: `O e-mail ${email} não possui autorização de acesso a este cronograma.`,
@@ -3023,7 +2571,7 @@ app.post("/api/calendar/disconnect", (_req: Request, res: Response) => {
 // 6. Verify Google Calendar Token endpoint (compatibilidade legada)
 app.post("/api/calendar/verify-token", async (req: Request, res: Response) => {
   try {
-    const authHeader = req.headers.authorization;
+    const authHeader = req.headers["x-google-access-token"] ? "Bearer " + req.headers["x-google-access-token"] : undefined;
     const clientToken =
       req.body?.token || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null);
 
@@ -3060,7 +2608,7 @@ app.post("/api/calendar/verify-token", async (req: Request, res: Response) => {
 // 7. Create single Calendar Event endpoint (com auto-refresh de token)
 app.post("/api/calendar/create-event", async (req: Request, res: Response) => {
   try {
-    const authHeader = req.headers.authorization;
+    const authHeader = req.headers["x-google-access-token"] ? "Bearer " + req.headers["x-google-access-token"] : undefined;
     const clientToken =
       authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : req.body?.token;
 
@@ -3114,7 +2662,7 @@ app.post("/api/calendar/create-event", async (req: Request, res: Response) => {
 // 8. Batch Sync Study Session & Spaced Revisions endpoint (com auto-refresh de token)
 app.post("/api/calendar/batch-sync", async (req: Request, res: Response) => {
   try {
-    const authHeader = req.headers.authorization;
+    const authHeader = req.headers["x-google-access-token"] ? "Bearer " + req.headers["x-google-access-token"] : undefined;
     const clientToken =
       authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : req.body?.token;
 
@@ -3197,19 +2745,8 @@ app.post("/api/calendar/batch-sync", async (req: Request, res: Response) => {
   }
 });
 
-// 🔒 Blindagem das Rotas de Inteligência Artificial (Gemini API)
-app.use("/api/ai", (req: Request, res: Response, next) => {
-  const userEmail = (req.headers["x-user-email"] as string) || req.body?.userEmail;
-  if (!isRequestAuthorized(req, userEmail)) {
-    const clientIp = getClientIp(req);
-    console.warn(`[Bloqueio IA] Acesso não autorizado em ${req.path} | IP: ${clientIp}`);
-    return res.status(403).json({
-      error: "UNAUTHORIZED",
-      message: "Acesso restrito ao usuário autorizado (jb080956@gmail.com).",
-    });
-  }
-  next();
-});
+// AI identity is derived solely from the authenticated server session.
+app.use('/api/ai', requireUserAuth);
 
 // AI Study Analysis Endpoint
 app.post("/api/ai/study-analysis", async (req: Request, res: Response) => {
@@ -3929,7 +3466,7 @@ app.use("/api/notion", (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith("Bearer ")
     ? authHeader.slice(7)
-    : (req.query.token as string) || (req.headers["x-terminal-session"] as string);
+    : (req.headers["x-terminal-session"] as string);
 
   // Valida a sessão e permissão da conta
   const session = verifyTerminalSession(token);
@@ -4428,8 +3965,10 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = path.join(process.cwd(), "dist", "public");
     app.use(express.static(distPath));
+    app.use('/api', (_req, res) => res.status(404).json({ error: 'NOT_FOUND' }));
+    app.get(['/server.cjs', '/server.cjs.map'], (_req, res) => res.sendStatus(404));
     app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
@@ -4440,7 +3979,7 @@ async function startServer() {
   });
 }
 
-const isTestEnv = process.env.NODE_ENV === "test" || process.argv.some((a) => a.includes("test"));
+const isTestEnv = process.env.NODE_ENV === "test";
 if (!isTestEnv) {
   startServer();
 }

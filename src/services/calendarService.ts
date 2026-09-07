@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 import { addDays, formatBRDate } from '../utils/dateUtils';
 import { Subject, StudyEntry } from '../types';
 
@@ -34,7 +35,7 @@ export interface BackendCalendarStatus {
  */
 export async function getBackendCalendarStatus(): Promise<BackendCalendarStatus> {
   try {
-    const res = await fetch('/api/calendar/status');
+    const res = await apiFetch('/api/calendar/status');
     if (res.ok) {
       return await res.json();
     }
@@ -97,7 +98,7 @@ export async function initiateGoogleCalendarAuth(): Promise<{ success: boolean; 
 
   try {
     const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-    const res = await fetch(`/api/calendar/auth-url?origin=${encodeURIComponent(currentOrigin)}`);
+    const res = await apiFetch(`/api/calendar/auth-url?origin=${encodeURIComponent(currentOrigin)}`);
     if (!res.ok) {
       popup.close();
       const err = await res.json().catch(() => ({}));
@@ -208,7 +209,7 @@ export async function initiateGoogleCalendarAuth(): Promise<{ success: boolean; 
  */
 export async function disconnectBackendCalendar(): Promise<boolean> {
   try {
-    const res = await fetch('/api/calendar/disconnect', { method: 'POST' });
+    const res = await apiFetch('/api/calendar/disconnect', { method: 'POST' });
     return res.ok;
   } catch {
     return false;
@@ -225,7 +226,7 @@ export async function saveClientTokenToBackend(
   name?: string
 ): Promise<boolean> {
   try {
-    const res = await fetch('/api/calendar/save-token', {
+    const res = await apiFetch('/api/calendar/save-token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, expiresIn: expiresInSeconds, email, name }),
@@ -252,7 +253,7 @@ export async function createGoogleCalendarEvent(
       headers['Authorization'] = `Bearer ${accessToken}`;
     }
 
-    const backendResp = await fetch('/api/calendar/create-event', {
+    const backendResp = await apiFetch('/api/calendar/create-event', {
       method: 'POST',
       headers,
       body: JSON.stringify({ event: payload }),
@@ -279,7 +280,7 @@ export async function createGoogleCalendarEvent(
     const timeMin = `${payload.dateStr}T00:00:00Z`;
     const nextDay = addDays(payload.dateStr, 1);
     const timeMax = `${nextDay}T23:59:59Z`;
-    const searchResp = await fetch(
+    const searchResp = await apiFetch(
       `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(
         timeMin
       )}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true`,
@@ -320,7 +321,7 @@ export async function createGoogleCalendarEvent(
     },
   };
 
-  const response = await fetch(
+  const response = await apiFetch(
     'https://www.googleapis.com/calendar/v3/calendars/primary/events',
     {
       method: 'POST',
@@ -445,7 +446,7 @@ export async function syncStudySessionAndRevisions(
       headers['Authorization'] = `Bearer ${accessToken}`;
     }
 
-    const batchResp = await fetch('/api/calendar/batch-sync', {
+    const batchResp = await apiFetch('/api/calendar/batch-sync', {
       method: 'POST',
       headers,
       body: JSON.stringify({

@@ -1,3 +1,4 @@
+import { apiFetch } from '../services/apiFetch';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, RotateCcw, Cloud, CloudOff, Timer, Sparkles } from 'lucide-react';
 
@@ -30,7 +31,7 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
   const fetchTimerStatus = useCallback(async () => {
     try {
       setIsSyncing(true);
-      const res = await fetch('/api/timer/status');
+      const res = await apiFetch('/api/timer/status');
       if (!res.ok) throw new Error('Falha ao obter status');
       const data = await res.json();
 
@@ -97,7 +98,7 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
   const handleStart = async () => {
     try {
       setIsSyncing(true);
-      const res = await fetch('/api/timer/start', {
+      const res = await apiFetch('/api/timer/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -116,7 +117,7 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
   const handlePause = async () => {
     try {
       setIsSyncing(true);
-      const res = await fetch('/api/timer/pause', {
+      const res = await apiFetch('/api/timer/pause', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -142,7 +143,7 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
 
     try {
       setIsSyncing(true);
-      const res = await fetch('/api/timer/reset', {
+      const res = await apiFetch('/api/timer/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });

@@ -208,6 +208,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
           email: cleanUser,
           password,
           turnstileToken,
+          rememberMe,
         }),
       });
 

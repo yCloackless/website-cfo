@@ -230,7 +230,7 @@ test('4. Anti-IDOR & Ownership: Isolamento Rigoroso de Dados entre Usuários', a
 
   // Remove o arquivo de teste criado no disco
   try {
-    const diskPath = path.join(process.cwd(), 'public', avatarUrlA.replace(/^\//, ''));
+    const diskPath = path.join(process.cwd(), 'data', avatarUrlA.replace(/^\//, ''));
     if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath);
   } catch {}
 

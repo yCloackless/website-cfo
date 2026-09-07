@@ -58,17 +58,17 @@ test.before(async () => {
   baseUrl = `http://127.0.0.1:${port}`;
 
   // 1. Login como Administrador pleno
-  const adminLogin = await authService.login('admin@cbmerj.com', 'cfocbmerj2026!');
+  const adminLogin = await authService.login('admin@cbmerj.com', 'fixture-admin-password-2026');
   assert.equal(adminLogin.success, true);
   adminToken = adminLogin.token!;
 
   // 2. Login como Suporte somente leitura
-  const supportLogin = await authService.login('suporte@cbmerj.com', 'suportecfo2026!');
+  const supportLogin = await authService.login('suporte@cbmerj.com', 'fixture-support-password-2026');
   assert.equal(supportLogin.success, true);
   supportToken = supportLogin.token!;
 
   // 3. Login como Cadete comum
-  const cadetLogin = await authService.login('cadete@cbmerj.com', 'cadetecfo2026!');
+  const cadetLogin = await authService.login('cadete@cbmerj.com', 'fixture-cadet-password-2026');
   assert.equal(cadetLogin.success, true);
   cadetToken = cadetLogin.token!;
 
@@ -79,7 +79,7 @@ test.before(async () => {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${adminToken}`,
     },
-    body: JSON.stringify({ password: 'cfocbmerj2026!' }),
+    body: JSON.stringify({ password: 'fixture-admin-password-2026' }),
   });
   const stepUpData = await stepUpRes.json();
   assert.equal(stepUpRes.status, 200);

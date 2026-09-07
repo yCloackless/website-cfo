@@ -1,3 +1,4 @@
+import { apiFetch } from '../services/apiFetch';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Search,
@@ -191,7 +192,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
 
     setIsGeneratingAI(true);
     try {
-      const resp = await fetch('/api/ai/bizu-notes', {
+      const resp = await apiFetch('/api/ai/bizu-notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -258,7 +259,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
 
     setIsGeneratingAI(true);
     try {
-      const resp = await fetch('/api/ai/bizu-notes', {
+      const resp = await apiFetch('/api/ai/bizu-notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -335,7 +336,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
 
     setIsGeneratingAI(true);
     try {
-      const resp = await fetch('/api/ai/bizu-notes', {
+      const resp = await apiFetch('/api/ai/bizu-notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

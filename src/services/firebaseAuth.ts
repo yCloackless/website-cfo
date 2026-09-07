@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
@@ -89,7 +90,7 @@ export const verifyTokenWithBackend = async (
   token: string
 ): Promise<{ valid: boolean; expiresIn?: number; email?: string }> => {
   try {
-    const resp = await fetch('/api/calendar/verify-token', {
+    const resp = await apiFetch('/api/calendar/verify-token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),

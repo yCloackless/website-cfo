@@ -14,6 +14,8 @@ const files = ['models', 'auth', 'profile', 'audit_security', 'admin_panel',
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|HOME|USERPROFILE|COMSPEC|PATHEXT)$/i.test(key)));
 env.NODE_ENV = 'test';
+Object.assign(env, { ADMIN_PASSWORD: 'fixture-admin-password-2026', CADET_PASSWORD: 'fixture-cadet-password-2026',
+  SUPPORT_PASSWORD: 'fixture-support-password-2026', TOTP_SECRET: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' });
 const results = [];
 for (const name of files) {
   const cwd = mkdtempSync(path.join(reportDir, `${name}-`));

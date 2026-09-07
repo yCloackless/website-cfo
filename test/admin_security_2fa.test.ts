@@ -37,16 +37,16 @@ let auditRepo: AuditRepository;
 const ADMIN_CREDENTIALS = {
   username: 'admin',
   email: 'admin@cbmerj.com',
-  password: 'cfocbmerj2026!',
+  password: 'fixture-admin-password-2026',
 };
 
 const CADET_CREDENTIALS = {
   username: 'cadete',
-  password: 'cadetecfo2026!',
+  password: 'fixture-cadet-password-2026',
 };
 
 // Segredo TOTP padrão configurado no servidor
-const TEST_TOTP_SECRET = process.env.TOTP_SECRET || 'T37NFOFA5PCDA5NRXKDVWVEHZ2F22ZV3';
+const TEST_TOTP_SECRET = process.env.TOTP_SECRET || 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
 
 test.before(async () => {
   const db = getDb();
@@ -266,7 +266,7 @@ test('7. Sessão Revogada: Sessão revogada no banco é invalidada imediatamente
 // 8. OPERAÇÃO CRÍTICA SEM STEP-UP: ROTAS SENSÍVEIS EXIGEM STEP-UP TOKEN (403)
 // ============================================================================
 test('8. Operação Crítica sem Step-Up: Alteração de papel/status sem step-up retorna 403 STEP_UP_REQUIRED', async () => {
-  const adminLogin = await authService.login('admin@cbmerj.com', 'cfocbmerj2026!');
+  const adminLogin = await authService.login('admin@cbmerj.com', 'fixture-admin-password-2026');
   const adminHeaders = {
     Authorization: `Bearer ${adminLogin.token}`,
     'Content-Type': 'application/json',
@@ -305,7 +305,7 @@ test('8. Operação Crítica sem Step-Up: Alteração de papel/status sem step-u
 // 9. OPERAÇÃO CRÍTICA COM STEP-UP VÁLIDO: CONFIRMAÇÃO DE IDENTIDADE AUTORIZA AÇÃO
 // ============================================================================
 test('9. Operação Crítica com Step-Up Válido: Confirmação via /api/admin/step-up autoriza operação crítica', async () => {
-  const adminLogin = await authService.login('admin@cbmerj.com', 'cfocbmerj2026!');
+  const adminLogin = await authService.login('admin@cbmerj.com', 'fixture-admin-password-2026');
   const adminHeaders = {
     Authorization: `Bearer ${adminLogin.token}`,
     'Content-Type': 'application/json',

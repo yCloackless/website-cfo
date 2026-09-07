@@ -18,13 +18,17 @@ function record(name, pass, evidence) {
 fs.mkdirSync('data');
 const dbPath = path.join(cwd, 'data/binary.sqlite');
 let db = new DatabaseSync(dbPath);
-db.exec('CREATE TABLE binary_fixture (content BLOB)');
-db.prepare('INSERT INTO binary_fixture VALUES (?)').run(Buffer.from(Array.from({ length: 256 }, (_, i) => i)));
-db.close();
-const original = fs.readFileSync(dbPath);
+db.exec('PRAGMA journal_mode=WAL; CREATE TABLE binary_fixture (content BLOB)');
+const original = Buffer.from(Array.from({ length: 256 }, (_, i) => i));
+db.prepare('INSERT INTO binary_fixture VALUES (?)').run(original);
+fs.writeFileSync(path.join(cwd, 'data/binary-fixture.bin'), original);
 const backup = await createFullBackup('manual');
+db.close();
 await restoreBackup(backup.filename);
-record('SQLite backup roundtrip preserves bytes', original.equals(fs.readFileSync(dbPath)), 'Closed database with binary fixture; comparison before/after actual backup+restore');
+db = new DatabaseSync(dbPath);
+record('SQLite backup preserves binary data and WAL', original.equals(Buffer.from(db.prepare('SELECT content FROM binary_fixture').get().content)) && db.prepare('PRAGMA integrity_check').get().integrity_check === 'ok', 'Online WAL snapshot restored; binary payload identical and integrity_check ok');
+db.close();
+record('binary file roundtrip preserves bytes', original.equals(fs.readFileSync(path.join(cwd, 'data/binary-fixture.bin'))), 'All 256 byte values preserved');
 
 const upgradePath = path.join(cwd, 'upgrade.sqlite');
 db = new DatabaseSync(upgradePath);

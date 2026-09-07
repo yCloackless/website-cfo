@@ -5,8 +5,8 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import net from 'node:net';
-import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { spawn, spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { generateSync, generateSecret } from 'otplib';
 
@@ -23,7 +23,20 @@ Object.assign(env, { NODE_ENV: 'production', PORT: String(port), APP_URL: `http:
   ADMIN_PASSWORD: crypto.randomBytes(24).toString('hex'), CADET_PASSWORD: crypto.randomBytes(24).toString('hex'),
   SESSION_SECRET: crypto.randomBytes(32).toString('hex'), TOTP_SECRET: generateSecret(),
   TURNSTILE_SECRET_KEY: 'audit-placeholder-no-external-calls' });
-const child = spawn(process.execPath, [path.join(root, 'dist/server.cjs')], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+const missingEmail = spawnSync(process.execPath, [path.join(root, 'dist/server.cjs')], { cwd, env, encoding: 'utf8', timeout: 6000 });
+Object.assign(env, { RESEND_API_KEY: 're_synthetic_provider_fixture', EMAIL_FROM: 'audit@example.invalid' });
+const mockPath = path.join(cwd, 'mock-email.mjs');
+fs.writeFileSync(mockPath, `import fs from 'node:fs';
+const original = globalThis.fetch;
+globalThis.fetch = async (input, init) => {
+  const url = new URL(typeof input === 'string' ? input : input.url || String(input));
+  if (url.origin === 'https://api.resend.com') {
+    fs.writeFileSync('email-fixture.json', init.body);
+    return new Response(JSON.stringify({ id: 'synthetic-delivery' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+  throw new Error('External network disabled in production audit');
+};`);
+const child = spawn(process.execPath, ['--import', pathToFileURL(mockPath).href, path.join(root, 'dist/server.cjs')], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
 let serverLog = '';
 child.stdout.on('data', data => { serverLog += data; });
 child.stderr.on('data', data => { serverLog += data; });
@@ -50,7 +63,7 @@ try {
   if (!ready) throw new Error('Production process did not become healthy');
   db = new DatabaseSync(path.join(cwd, 'data/cfo_app.sqlite'));
   db.exec('PRAGMA busy_timeout=5000');
-  record('production startup without Resend configuration', false, 'Started without RESEND_API_KEY or EMAIL_FROM');
+  record('production rejects missing email configuration', missingEmail.status !== 0 && missingEmail.status !== null && missingEmail.stderr.includes('RESEND_API_KEY'), 'Startup must fail closed without email configuration');
   record('migrations and database integrity', db.prepare('PRAGMA integrity_check').get().integrity_check === 'ok',
     `${db.prepare('SELECT count(*) AS n FROM _migrations').get().n} migrations; fresh database integrity_check`);
   const page = await request('/');
@@ -58,7 +71,7 @@ try {
   record('security headers', !!page.res.headers.get('content-security-policy') && page.res.headers.get('x-content-type-options') === 'nosniff', 'CSP, HSTS and nosniff inspected');
   for (const asset of ['/server.cjs', '/server.cjs.map']) {
     const response = await request(asset);
-    record(`private build artifact ${asset}`, !response.res.ok || response.text === page.text,
+    record(`private build artifact ${asset}`, [403, 404].includes(response.res.status),
       `HTTP ${response.res.status}; ${response.text.length} characters; accessible=${response.res.ok && response.text !== page.text}`);
   }
   const cors = await request('/api/user/profile', undefined, undefined, 'GET', { Origin: 'https://attacker.invalid' });
@@ -111,13 +124,13 @@ try {
   record('SSE terminates after revocation', afterRevoke.done === true, `done=${afterRevoke.done === true}; received LOGIN_FAILED=${streamed.includes('LOGIN_FAILED')}`);
   streamAbort.abort();
   const recovery = await request('/api/auth/forgot-password', { email: 'cadete@cbmerj.com' });
-  record('production recovery hides code', !('debugCode' in recovery.data), `HTTP ${recovery.res.status}; no outbound email configured`);
-  const user = db.prepare("SELECT id FROM users WHERE username='cadete'").get();
-  const resetCode = String(crypto.randomInt(100000, 1000000));
-  db.prepare('UPDATE password_resets SET code_hash=? WHERE user_id=? AND is_used=0').run(crypto.createHash('sha256').update(resetCode).digest('hex'), user.id);
+  record('production recovery hides code', !('debugCode' in recovery.data), `HTTP ${recovery.res.status}; provider transport mocked`);
+  const email = JSON.parse(fs.readFileSync(path.join(cwd, 'email-fixture.json'), 'utf8'));
+  const resetCode = email.text.match(/\b\d{6}\b/)?.[0];
+  record('recovery delivers to configured provider', !!resetCode && email.to.includes('cadete@cbmerj.com'), 'Resend request captured locally; no real email sent');
   const newPassword = crypto.randomBytes(24).toString('hex');
   const reset = await request('/api/auth/reset-password', { email: 'cadete@cbmerj.com', code: resetCode, newPassword });
-  record('password reset API', reset.data.success === true, `HTTP ${reset.res.status}; code fixture injected into disposable database`);
+  record('password reset API', reset.data.success === true, `HTTP ${reset.res.status}; code obtained from mocked email delivery`);
   const afterReset = await request('/api/auth/check-credentials', { username: 'cadete', password: newPassword });
   record('login with reset password', afterReset.res.ok && !!afterReset.data.token, `HTTP ${afterReset.res.status}`);
   const oldLogin = await request('/api/auth/check-credentials', { username: 'cadete', password: env.CADET_PASSWORD });

@@ -33,7 +33,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
-import { DatabaseService } from '../src/db/database';
+import { DatabaseService, getDb } from '../src/db/database';
 import { AuditRepository, UserRepository } from '../src/db/repositories';
 import { AuthService } from '../src/db/authService';
 import { getClientIp, app } from '../server';
@@ -84,7 +84,18 @@ test('1. IP: Determinação confiável via infraestrutura e rejeição de req.bo
     ip: '127.0.0.1',
     socket: { remoteAddress: '127.0.0.1' },
   } as any;
-  assert.equal(getClientIp(cfReq), '203.0.113.195', 'Deve priorizar cf-connecting-ip em borda Cloudflare');
+  assert.equal(getClientIp(cfReq), '127.0.0.1', 'Header Cloudflare vindo de peer não confiável deve ser ignorado');
+  const previousTrust = process.env.TRUST_CLOUDFLARE_HEADERS;
+  process.env.TRUST_CLOUDFLARE_HEADERS = 'true';
+  try {
+    cfReq.app = { get: () => (peer: string) => peer === '127.0.0.1' };
+    assert.equal(getClientIp(cfReq), '203.0.113.195', 'Borda explicitamente confiável pode fornecer IP');
+    cfReq.socket.remoteAddress = '198.51.100.99';
+    assert.equal(getClientIp(cfReq), '127.0.0.1', 'Mesmo com opt-in, peer fora da allowlist não pode forjar IP');
+  } finally {
+    if (previousTrust === undefined) delete process.env.TRUST_CLOUDFLARE_HEADERS;
+    else process.env.TRUST_CLOUDFLARE_HEADERS = previousTrust;
+  }
 
   // 1.3 Normalização de IPv6 mapeado (::ffff:x.x.x.x)
   const ipv6MappedReq = {
@@ -147,7 +158,7 @@ test('3. Autenticação: Login correto, login errado e usuário inexistente', as
   await authService.ensureDefaultAccounts();
 
   // 3.1 Login com credencial correta
-  const successLogin = await authService.login('cadete', 'cadetecfo2026!', { ip: '200.100.50.25' });
+  const successLogin = await authService.login('cadete', 'fixture-cadet-password-2026', { ip: '200.100.50.25' });
   assert.equal(successLogin.success, true);
   assert.ok(successLogin.token);
 
@@ -244,6 +255,7 @@ test('4. 2FA: Registro de 2FA_SUCCESS e 2FA_FAILED', () => {
 // 5. CONTROLE DE ACESSO RESTRICTO (ANTI-BYPASS)
 // ============================================================================
 test('5. Restrição de Acesso: Usuário comum (cadete) e não-autenticado recebem 403/401 ao acessar logs', async () => {
+  await new AuthService(getDb()).ensureDefaultAccounts();
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
   const port = (server.address() as any).port;
@@ -262,7 +274,7 @@ test('5. Restrição de Acesso: Usuário comum (cadete) e não-autenticado receb
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         username: 'cadete',
-        password: process.env.CADET_PASSWORD || 'cadetecfo2026!',
+        password: process.env.CADET_PASSWORD || 'fixture-cadet-password-2026',
       }),
     });
     assert.equal(cadetLoginRes.status, 200);

@@ -2,6 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
 import crypto from 'crypto';
+import os from 'node:os';
+import { DatabaseSync, backup } from 'node:sqlite';
+import { isDatabaseOpen } from '../db/database';
 
 export interface BackupMetadata {
   id: string;
@@ -25,6 +28,36 @@ export interface BackupStatus {
 const BACKUP_DIR = path.join(process.cwd(), 'data', 'backups');
 const BACKUP_INDEX_FILE = path.join(BACKUP_DIR, 'backup-index.json');
 const DATA_DIR = path.join(process.cwd(), 'data');
+
+function backupPath(filename: string): string {
+  if (path.basename(filename) !== filename || !/^backup_[\w.-]+\.json\.gz$/.test(filename)) throw new Error('INVALID_BACKUP_NAME');
+  return path.join(BACKUP_DIR, filename);
+}
+
+function dataPath(name: string): string {
+  if (!/^(?:(?:user-backups|avatars)\/)?[\w.-]+$/.test(name) || name.includes('..') || /-(?:wal|shm)$/.test(name)) throw new Error('INVALID_BACKUP_PATH');
+  const target = path.resolve(DATA_DIR, name);
+  if (!target.startsWith(path.resolve(DATA_DIR) + path.sep)) throw new Error('INVALID_BACKUP_PATH');
+  if (fs.existsSync(target) && fs.lstatSync(target).isSymbolicLink()) throw new Error('INVALID_BACKUP_PATH');
+  const parent = path.dirname(target);
+  if (fs.existsSync(parent) && fs.lstatSync(parent).isSymbolicLink()) throw new Error('INVALID_BACKUP_PATH');
+  return target;
+}
+
+async function snapshotFile(file: string): Promise<string> {
+  if (!/\.(sqlite|db)$/.test(file)) return fs.readFileSync(file).toString('base64');
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'cfo-sqlite-backup-'));
+  const snapshot = path.join(temporary, 'snapshot.sqlite');
+  const source = new DatabaseSync(file, { readOnly: true });
+  try {
+    await backup(source, snapshot);
+    return fs.readFileSync(snapshot).toString('base64');
+  } finally {
+    source.close();
+    if (fs.existsSync(snapshot)) fs.unlinkSync(snapshot);
+    fs.rmdirSync(temporary);
+  }
+}
 
 // Garantir que a pasta de backups exista
 function ensureBackupDir(): void {
@@ -65,13 +98,13 @@ function saveBackupIndex(list: BackupMetadata[]): void {
  */
 export async function createFullBackup(type: 'manual' | 'scheduled' = 'manual'): Promise<BackupMetadata> {
   ensureBackupDir();
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-') + '-' + crypto.randomBytes(6).toString('hex');
   const backupId = `backup_${timestamp}`;
   const filename = `${backupId}.json.gz`;
-  const filePath = path.join(BACKUP_DIR, filename);
+  const filePath = backupPath(filename);
 
   const filesToBackup = fs.readdirSync(DATA_DIR).filter((f) => {
-    return f !== 'backups' && !f.endsWith('.tmp');
+    return f !== 'backups' && !f.endsWith('.tmp') && !/-(wal|shm)$/.test(f);
   });
 
   const snapshot: Record<string, any> = {
@@ -79,7 +112,8 @@ export async function createFullBackup(type: 'manual' | 'scheduled' = 'manual'):
       id: backupId,
       createdAt: new Date().toISOString(),
       type,
-      version: '1.0.0',
+      version: '2.0.0',
+      encoding: 'base64',
     },
     files: {},
   };
@@ -87,18 +121,19 @@ export async function createFullBackup(type: 'manual' | 'scheduled' = 'manual'):
   for (const file of filesToBackup) {
     const fullPath = path.join(DATA_DIR, file);
     try {
-      const stat = fs.statSync(fullPath);
+      const stat = fs.lstatSync(fullPath);
+      if (stat.isSymbolicLink()) throw new Error('SYMLINK_NOT_ALLOWED');
       if (stat.isFile()) {
-        snapshot.files[file] = fs.readFileSync(fullPath, 'utf-8');
-      } else if (stat.isDirectory() && file === 'user-backups') {
+        snapshot.files[file] = await snapshotFile(fullPath);
+      } else if (stat.isDirectory() && (file === 'user-backups' || file === 'avatars')) {
         const userFiles = fs.readdirSync(fullPath);
-        snapshot.userBackups = {};
         for (const uf of userFiles) {
-          snapshot.userBackups[uf] = fs.readFileSync(path.join(fullPath, uf), 'utf-8');
+          const relative = `${file}/${uf}`;
+          snapshot.files[relative] = await snapshotFile(dataPath(relative));
         }
       }
     } catch (e) {
-      console.warn(`[Backup] Não foi possível ler arquivo ${file}:`, e);
+      throw new Error(`BACKUP_READ_FAILED: ${file}`);
     }
   }
 
@@ -141,7 +176,7 @@ export async function createFullBackup(type: 'manual' | 'scheduled' = 'manual'):
  */
 export function verifyBackupIntegrity(filename: string): { valid: boolean; calculatedSha256: string; expectedSha256?: string } {
   ensureBackupDir();
-  const filePath = path.join(BACKUP_DIR, filename);
+  const filePath = backupPath(filename);
   if (!fs.existsSync(filePath)) {
     return { valid: false, calculatedSha256: '' };
   }
@@ -164,8 +199,10 @@ export function verifyBackupIntegrity(filename: string): { valid: boolean; calcu
  * Restaura com segurança um backup prévio
  */
 export async function restoreBackup(filename: string): Promise<{ success: boolean; message: string }> {
+  // Replacing files under live SQLite connections is unsafe. Restore is an offline operation.
+  if (isDatabaseOpen()) throw Object.assign(new Error('RESTORE_REQUIRES_OFFLINE_MAINTENANCE'), { status: 409 });
   ensureBackupDir();
-  const filePath = path.join(BACKUP_DIR, filename);
+  const filePath = backupPath(filename);
   if (!fs.existsSync(filePath)) {
     throw new Error(`Arquivo de backup ${filename} não foi encontrado.`);
   }
@@ -181,25 +218,32 @@ export async function restoreBackup(filename: string): Promise<{ success: boolea
   const decompressed = zlib.gunzipSync(compressed).toString('utf-8');
   const snapshot = JSON.parse(decompressed);
 
-  if (!snapshot.files || typeof snapshot.files !== 'object') {
+  if (!snapshot.files || typeof snapshot.files !== 'object' || snapshot.metadata?.version !== '2.0.0' || snapshot.metadata?.encoding !== 'base64') {
     throw new Error(`Estrutura de dados corrompida dentro do backup.`);
   }
+
+  // Validate every path and payload before touching destination files. Legacy text snapshots
+  // cannot safely recover SQLite and must be handled separately by an operator.
+  const files = Object.entries(snapshot.files).map(([name, value]) => {
+    const target = dataPath(name);
+    if (typeof value !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) throw new Error('INVALID_BACKUP_PAYLOAD');
+    const content = Buffer.from(value, 'base64');
+    return { target, content };
+  });
 
   // 3. Backup de segurança antes do restore (Salvaguarda de contingência)
   await createFullBackup('manual');
 
   // 4. Restauração dos arquivos
-  for (const [fname, content] of Object.entries(snapshot.files)) {
-    const target = path.join(DATA_DIR, fname);
-    fs.writeFileSync(target, content as string, 'utf-8');
-  }
-
-  if (snapshot.userBackups && typeof snapshot.userBackups === 'object') {
-    const userDir = path.join(DATA_DIR, 'user-backups');
-    if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true });
-    for (const [uf, content] of Object.entries(snapshot.userBackups)) {
-      fs.writeFileSync(path.join(userDir, uf), content as string, 'utf-8');
+  for (const { target, content } of files) {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    // No connection may be open; remove stale SQLite sidecars before replacing its main file.
+    if (/\.(sqlite|db)$/.test(target)) {
+      for (const suffix of ['-wal', '-shm']) if (fs.existsSync(target + suffix)) fs.unlinkSync(target + suffix);
     }
+    const staged = target + '.tmp';
+    fs.writeFileSync(staged, content);
+    fs.renameSync(staged, target);
   }
 
   console.info(`[Backup] 🔄 Restauração do backup ${filename} concluída com sucesso!`);
@@ -250,9 +294,7 @@ export function getBackupStatus(): BackupStatus {
   next.setDate(next.getDate() + 1);
   next.setHours(3, 0, 0, 0);
 
-  const destination = process.env.BACKUP_S3_BUCKET
-    ? `S3 Compatible (${process.env.BACKUP_S3_BUCKET}) + Local (/app/data/backups)`
-    : 'Local Protegido (/app/data/backups)';
+  const destination = 'Local (/app/data/backups); cópia externa deve ser configurada pelo operador';
 
   return {
     lastBackup: last,

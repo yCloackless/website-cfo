@@ -164,7 +164,7 @@ export async function sendPasswordResetEmail(
       // Em produção sem API key: falha ruidosa (startup deveria ter abortado)
       return { sent: false, error: 'RESEND_API_KEY não configurada em produção.' };
     }
-    console.warn(`[Email DEV] Código de recuperação para ${toEmail}: ${code}`);
+    console.warn('[Email DEV] Envio não configurado; código disponível somente na resposta de desenvolvimento.');
     return { sent: false, debugCode: code };
   }
 
@@ -179,7 +179,7 @@ export async function sendPasswordResetEmail(
     });
 
     if (error) {
-      console.error('[Email] Falha ao enviar via Resend:', error);
+      console.error('[Email] Falha ao enviar via Resend.');
       // Em dev, ainda retorna debugCode para não travar o fluxo de testes
       return {
         sent: false,
@@ -188,10 +188,10 @@ export async function sendPasswordResetEmail(
       };
     }
 
-    console.log(`[Email] Código de recuperação enviado para ${toEmail}`);
+    console.log('[Email] Solicitação aceita pelo provedor.');
     return { sent: true };
   } catch (err: any) {
-    console.error('[Email] Exceção ao enviar via Resend:', err?.message);
+    console.error('[Email] Falha de comunicação com o provedor.');
     return {
       sent: false,
       error: err?.message,

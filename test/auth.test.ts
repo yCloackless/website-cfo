@@ -44,19 +44,19 @@ test('1. Criação e Login com e-mail ou username', async () => {
   await authService.ensureDefaultAccounts();
 
   // 1.1 Login com e-mail válido (admin)
-  const loginEmail = await authService.login('admin@cbmerj.com', 'cfocbmerj2026!');
+  const loginEmail = await authService.login('admin@cbmerj.com', 'fixture-admin-password-2026');
   assert.equal(loginEmail.success, true);
   assert.ok(loginEmail.token);
   assert.equal(loginEmail.user?.role, 'admin');
 
   // 1.2 Login com username válido (cadete)
-  const loginUser = await authService.login('cadete', 'cadetecfo2026!');
+  const loginUser = await authService.login('cadete', 'fixture-cadet-password-2026');
   assert.equal(loginUser.success, true);
   assert.ok(loginUser.token);
   assert.equal(loginUser.user?.role, 'cadet');
 
   // 1.3 Login case-insensitive
-  const loginUpper = await authService.login('CADETE@CBMERJ.COM', 'cadetecfo2026!');
+  const loginUpper = await authService.login('CADETE@CBMERJ.COM', 'fixture-cadet-password-2026');
   assert.equal(loginUpper.success, true);
 
   cleanup();
@@ -83,7 +83,7 @@ test('3. Validação de Sessão, Expiração e Logout', async () => {
   const { authService, cleanup } = createTempAuth();
   await authService.ensureDefaultAccounts();
 
-  const loginRes = await authService.login('cadete', 'cadetecfo2026!');
+  const loginRes = await authService.login('cadete', 'fixture-cadet-password-2026');
   assert.ok(loginRes.token);
 
   // 3.1 Token recém-criado deve ser válido
@@ -132,7 +132,7 @@ test('4. Recuperação de Senha: código de 6 dígitos, expiração e código in
   assert.equal(loginNew.success, true);
 
   // 4.6 Login com a senha antiga deve falhar
-  const loginOld = await authService.login('cadete', 'cadetecfo2026!');
+  const loginOld = await authService.login('cadete', 'fixture-cadet-password-2026');
   assert.equal(loginOld.success, false);
 
   // 4.7 Teste de expiração de código
@@ -154,7 +154,7 @@ test('5. Alteração de Senha e E-mail Autenticada', async () => {
   const { authService, cleanup } = createTempAuth();
   await authService.ensureDefaultAccounts();
 
-  const loginRes = await authService.login('cadete', 'cadetecfo2026!');
+  const loginRes = await authService.login('cadete', 'fixture-cadet-password-2026');
   const userId = loginRes.user!.id;
 
   // 5.1 Alteração de senha com senha atual incorreta
@@ -162,7 +162,7 @@ test('5. Alteração de Senha e E-mail Autenticada', async () => {
   assert.equal(failChange.success, false);
 
   // 5.2 Alteração com sucesso
-  const okChange = await authService.changePassword(userId, 'cadetecfo2026!', 'NovaSenhaSegura123!');
+  const okChange = await authService.changePassword(userId, 'fixture-cadet-password-2026', 'NovaSenhaSegura123!');
   assert.equal(okChange.success, true);
 
   // 5.3 Alteração de e-mail com senha incorreta falha

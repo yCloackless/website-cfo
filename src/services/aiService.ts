@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 import { Subject, WeeklyCycle, StudyEntry, AIAnalysisResult } from '../types';
 
 export interface WeeklyStudySummary {
@@ -121,7 +122,7 @@ export async function fetchAIStudyAnalysis(
   summary: WeeklyStudySummary
 ): Promise<{ source: string; data: AIAnalysisResult }> {
   try {
-    const response = await fetch('/api/ai/study-analysis', {
+    const response = await apiFetch('/api/ai/study-analysis', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

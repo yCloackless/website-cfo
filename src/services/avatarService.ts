@@ -60,10 +60,10 @@ export function validateImageBuffer(buffer: Buffer): ImageValidationResult {
 
 /**
  * Saves validated avatar image for a user.
- * Generates an unguessable unique filename in public/avatars/.
+ * Generates an unguessable unique filename in persistent data/avatars/.
  */
 export function saveUserAvatar(userId: string, buffer: Buffer, extension: string): string {
-  const uploadDir = path.join(process.cwd(), 'public', 'avatars');
+  const uploadDir = path.join(process.cwd(), 'data', 'avatars');
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
   }

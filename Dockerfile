@@ -12,7 +12,7 @@ RUN npm ci
 COPY tsconfig.json vite.config.ts index.html ./
 COPY public ./public
 COPY src ./src
-COPY server.ts ./
+COPY server.ts notionBackend.ts ./
 
 # Gerar build de produção (Vite bundle + dist/server.cjs)
 RUN npm run build

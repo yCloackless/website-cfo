@@ -388,17 +388,21 @@ export class DatabaseService {
 
     for (const migration of MIGRATIONS) {
       if (!appliedIds.has(migration.id)) {
-        // Run migration in a transaction
+        // PRAGMA foreign_keys must be changed OUTSIDE the transaction used to rebuild tables.
+        if (migration.id === 6) this.db.exec('PRAGMA foreign_keys = OFF;');
         this.db.exec('BEGIN TRANSACTION;');
         try {
           this.db.exec(migration.sql);
           this.db
             .prepare('INSERT INTO _migrations (id, name, applied_at) VALUES (?, ?, ?)')
             .run(migration.id, migration.name, new Date().toISOString());
+          if (this.db.prepare('PRAGMA foreign_key_check').all().length) throw new Error('Foreign key integrity check failed');
           this.db.exec('COMMIT;');
         } catch (err) {
           this.db.exec('ROLLBACK;');
           throw new Error(`Falha ao aplicar migration ${migration.name}: ${(err as Error).message}`);
+        } finally {
+          if (migration.id === 6) this.db.exec('PRAGMA foreign_keys = ON;');
         }
       }
     }
@@ -415,6 +419,7 @@ export class DatabaseService {
 
 // Singleton export for backend usage
 let instance: DatabaseService | null = null;
+export function isDatabaseOpen(): boolean { return instance !== null; }
 export function getDb(customPath?: string): DatabaseService {
   if (!instance || customPath) {
     const service = new DatabaseService(customPath);

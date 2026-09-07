@@ -33,13 +33,13 @@ let auditRepo: AuditRepository;
 
 const ADMIN_CREDENTIALS = {
   username: 'admin',
-  password: 'cfocbmerj2026!',
+  password: 'fixture-admin-password-2026',
 };
 
 const CADET_CREDENTIALS = {
   username: 'cadete',
   email: 'cadete@cbmerj.com',
-  password: 'cadetecfo2026!',
+  password: 'fixture-cadet-password-2026',
 };
 
 test.before(async () => {
@@ -218,7 +218,7 @@ test('FASE 11: 4. Revogação de Sessão no Logout (/api/auth/logout)', async ()
 
 test('FASE 11: 5. Perfil de Usuário (/api/user/profile) com Token Válido vs Revogado', async () => {
   // Login como cadete para obter sessão legítima
-  const cadetLogin = await authService.login('cadete', 'cadetecfo2026!');
+  const cadetLogin = await authService.login('cadete', 'fixture-cadet-password-2026');
   assert.ok(cadetLogin.success && cadetLogin.token);
   const cadetToken = cadetLogin.token;
 
@@ -250,7 +250,7 @@ test('FASE 11: 5. Perfil de Usuário (/api/user/profile) com Token Válido vs Re
 });
 
 test('FASE 11: 6. Estado Forbidden (403): Usuário comum tentando acessar endpoints admin', async () => {
-  const cadetLogin = await authService.login('cadete', 'cadetecfo2026!');
+  const cadetLogin = await authService.login('cadete', 'fixture-cadet-password-2026');
   assert.ok(cadetLogin.success && cadetLogin.token);
 
   // Tenta acessar rota restrita de verificação do admin (/api/admin/verify)

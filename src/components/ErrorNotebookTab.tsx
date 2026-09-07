@@ -1,3 +1,4 @@
+import { apiFetch } from '../services/apiFetch';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Layers,
@@ -507,7 +508,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     setAiPreviewCards([]);
 
     try {
-      const response = await fetch('/api/ai/flashcards', {
+      const response = await apiFetch('/api/ai/flashcards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subjectOrTopic: aiTopicInput.trim() }),

@@ -1035,7 +1035,7 @@ export class PasswordResetRepository {
   public createResetCode(userId: string, expiresInMinutes: number = 15): { code: string; record: DbPasswordReset } {
     const id = crypto.randomUUID();
     // 6-digit numeric recovery code
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = crypto.randomInt(100000, 1000000).toString();
     const codeHash = crypto.createHash('sha256').update(code).digest('hex');
 
     const now = new Date();
