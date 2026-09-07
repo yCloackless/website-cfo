@@ -184,29 +184,40 @@ export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
 
-  // Backend Google Calendar connection status (permanent session)
+  // Backend Google Calendar connection status (permanent session) com cache síncrono local
   const [backendCalendar, setBackendCalendar] = useState<{
     connected: boolean;
     permanent: boolean;
     email: string | null;
     name: string | null;
-  }>({
-    connected: false,
-    permanent: false,
-    email: null,
-    name: null,
+  }>(() => {
+    try {
+      const saved = localStorage.getItem('cfo_calendar_status');
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return {
+      connected: false,
+      permanent: false,
+      email: null,
+      name: null,
+    };
   });
 
   const refreshCalendarStatus = useCallback(async () => {
     const status = await getBackendCalendarStatus();
-    setBackendCalendar({
+    const newStatus = {
       connected: status.connected,
       permanent: status.permanent,
       email: status.email,
       name: status.name,
-    });
+    };
+    setBackendCalendar(newStatus);
+    try {
+      localStorage.setItem('cfo_calendar_status', JSON.stringify(newStatus));
+    } catch (_) {}
     return status;
   }, []);
+
 
 
   // Data state
@@ -336,12 +347,61 @@ export default function App() {
     // 5. Check backend Google Calendar permanent session status
     refreshCalendarStatus();
 
+    // BroadcastChannel para captura instantânea do login no popup
+    let authChannel: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        authChannel = new BroadcastChannel('cfo_google_calendar_auth');
+        authChannel.onmessage = (event) => {
+          if (event.data?.type === 'GOOGLE_CALENDAR_CONNECTED') {
+            const newStatus = {
+              connected: true,
+              permanent: true,
+              email: event.data.email || null,
+              name: event.data.name || null,
+            };
+            setBackendCalendar(newStatus);
+            try {
+              localStorage.setItem('cfo_calendar_status', JSON.stringify(newStatus));
+            } catch (_) {}
+            refreshCalendarStatus();
+          }
+        };
+      }
+    } catch (_) {}
+
+    // Storage event para captura instantânea caso o popup rode em outra aba ou janela
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'cfo_calendar_status' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed && typeof parsed.connected === 'boolean') {
+            setBackendCalendar(parsed);
+          }
+        } catch (_) {}
+      }
+      if (e.key === 'cfo_calendar_auth_success') {
+        refreshCalendarStatus();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
     // Listen for OAuth callback messages if completed in popup
     const handleAuthMessage = (event: MessageEvent) => {
       if (event.data?.type === 'GOOGLE_CALENDAR_CONNECTED') {
+        const newStatus = {
+          connected: true,
+          permanent: true,
+          email: event.data.email || null,
+          name: event.data.name || null,
+        };
+        setBackendCalendar(newStatus);
+        try {
+          localStorage.setItem('cfo_calendar_status', JSON.stringify(newStatus));
+        } catch (_) {}
         refreshCalendarStatus();
         showToast(
-          `Google Agenda conectado permanentemente com sucesso! (${event.data.email || 'Conta vinculada'})`,
+          `Google Agenda conectado permanentemente com sucesso! (${event.data.name || event.data.email || 'Conta vinculada'})`,
           'success'
         );
       }
@@ -351,7 +411,12 @@ export default function App() {
     return () => {
       unsubscribe();
       window.removeEventListener('message', handleAuthMessage);
+      window.removeEventListener('storage', handleStorageChange);
+      if (authChannel) {
+        authChannel.close();
+      }
     };
+
   }, [isTerminalUnlocked, showToast, refreshCalendarStatus]);
 
   // Trigger automated AI analysis whenever cycle entries change or subjects load
@@ -366,6 +431,12 @@ export default function App() {
 
   // Google Sign In Handler (Inicia OAuth 2.0 offline do backend)
   const handleSignIn = async () => {
+    // Previne tentativas repetidas ou duplo login
+    if (backendCalendar.connected || (user && accessToken)) {
+      showToast('O Google Agenda já está conectado permanentemente!', 'info');
+      return;
+    }
+
     try {
       setIsSigningIn(true);
 
@@ -373,6 +444,17 @@ export default function App() {
       try {
         const authResult = await initiateGoogleCalendarAuth();
         if (authResult.success) {
+          const newStatus = {
+            connected: true,
+            permanent: true,
+            email: authResult.email || backendCalendar.email,
+            name: authResult.name || backendCalendar.name,
+          };
+          setBackendCalendar(newStatus);
+          try {
+            localStorage.setItem('cfo_calendar_status', JSON.stringify(newStatus));
+          } catch (_) {}
+
           await refreshCalendarStatus();
           const welcomeName = authResult.name?.split(' ')[0] || authResult.email?.split('@')[0] || 'você';
           showToast(
@@ -410,8 +492,12 @@ export default function App() {
     setUser(null);
     setAccessToken(null);
     setBackendCalendar({ connected: false, permanent: false, email: null, name: null });
+    try {
+      localStorage.removeItem('cfo_calendar_status');
+    } catch (_) {}
     showToast('Desconectado do Google Agenda.', 'info');
   };
+
 
 
   // Week days calculation
@@ -871,6 +957,9 @@ export default function App() {
     );
   }
 
+  // Flag global consolidada de conexão do Google Calendar (persistente backend ou Firebase)
+  const isCalendarLinked = Boolean(backendCalendar.connected || (user && accessToken));
+
   return (
     <div
       className={`min-h-screen flex flex-col antialiased selection:bg-[#0056D2] selection:text-white transition-colors duration-200 ${
@@ -880,10 +969,11 @@ export default function App() {
       {/* Top Header with Tab Selector and Theme Toggle */}
       <Header
         user={user}
-        hasCalendarAccess={backendCalendar.connected || Boolean(user && accessToken)}
+        hasCalendarAccess={isCalendarLinked}
         calendarEmail={backendCalendar.email || user?.email}
         calendarName={backendCalendar.name || user?.displayName}
         isPermanentCalendar={backendCalendar.permanent}
+
         onSignIn={handleSignIn}
         onSignOut={handleSignOut}
         isSigningIn={isSigningIn}
@@ -1187,8 +1277,9 @@ export default function App() {
               </div>
             </div>
 
-            {/* Integration Callout (if not yet signed in) */}
-            {!user && (
+            {/* Integration Callout (Oculto permanentemente após vincular o Google Calendar) */}
+            {!isCalendarLinked && (
+
               <div
                 className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl ${
                   isDark ? 'bg-[#111218] border-slate-800' : 'bg-white border-slate-200 shadow-slate-100'
@@ -1273,8 +1364,9 @@ export default function App() {
                 onCellClick={handleCellClick}
                 onQuickToggle={handleQuickToggle}
                 onDeleteCustomSubject={handleDeleteCustomSubject}
-                hasGoogleCalendar={Boolean(user && accessToken)}
+                hasGoogleCalendar={isCalendarLinked}
                 theme={theme}
+
               />
             </section>
           </>
@@ -1403,7 +1495,7 @@ export default function App() {
             ? currentCycle.entries[`${selectedCell.subject.id}_${selectedCell.dayIndex}`] || null
             : null
         }
-        hasGoogleCalendar={Boolean(user && accessToken)}
+        hasGoogleCalendar={isCalendarLinked}
         initialDurationMinutes={initialStudyDurationMinutes || undefined}
         onSave={handleSaveStudyDetail}
         isSaving={isSavingStudy}
@@ -1415,7 +1507,8 @@ export default function App() {
         revisions={revisions}
         onToggleRevisionDone={handleToggleRevisionDone}
         onSyncRevisionToCalendar={handleSyncRevisionToCalendar}
-        hasGoogleCalendar={Boolean(user && accessToken)}
+        hasGoogleCalendar={isCalendarLinked}
+
       />
 
       <AddCustomSubjectModal

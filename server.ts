@@ -1141,25 +1141,35 @@ app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
           </button>
         </div>
         <script>
+          const sessionStatus = {
+            connected: true,
+            permanent: true,
+            email: ${JSON.stringify(session.email || '')},
+            name: ${JSON.stringify(session.name || '')}
+          };
           const authPayload = {
             type: 'GOOGLE_CALENDAR_CONNECTED',
             success: true,
             email: ${JSON.stringify(session.email || '')},
-            name: ${JSON.stringify(session.name || '')}
+            name: ${JSON.stringify(session.name || '')},
+            ts: Date.now()
           };
 
-          // 1. Notifica a aba principal via BroadcastChannel (funciona mesmo quando o browser anula o window.opener)
+          // 1. Atualiza imediatamente o localStorage compartilhado (notifica todas as abas e sincroniza o estado instantaneamente)
+          try {
+            localStorage.setItem('cfo_calendar_status', JSON.stringify(sessionStatus));
+            localStorage.setItem('cfo_calendar_auth_success', JSON.stringify(authPayload));
+          } catch(e) {}
+
+          // 2. Notifica a aba principal via BroadcastChannel
           try {
             if (typeof BroadcastChannel !== 'undefined') {
               const channel = new BroadcastChannel('cfo_google_calendar_auth');
               channel.postMessage(authPayload);
-              channel.close();
+              setTimeout(() => {
+                try { channel.close(); } catch(e) {}
+              }, 2000);
             }
-          } catch(e) {}
-
-          // 2. Notifica via localStorage
-          try {
-            localStorage.setItem('cfo_calendar_auth_success', JSON.stringify(authPayload));
           } catch(e) {}
 
           // 3. PostMessage caso o opener ainda esteja acessível
@@ -1173,19 +1183,10 @@ app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
             try {
               window.close();
             } catch(e) {}
-            // Se o navegador impedir o window.close() do pop-up, redireciona apenas para a página original do usuário (nunca abre nova cópia do app)
-            setTimeout(() => {
-              if (!window.closed) {
-                const target = ${JSON.stringify(targetOrigin || '')};
-                if (target && window.location.href !== target) {
-                  window.location.replace(target);
-                }
-              }
-            }, 600);
           }
 
-          // Fecha automaticamente
-          setTimeout(doClose, 800);
+          // Fecha automaticamente e rapidamente a janela pop-up
+          setTimeout(doClose, 250);
         </script>
       </body>
       </html>

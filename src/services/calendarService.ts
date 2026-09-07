@@ -56,34 +56,101 @@ export async function getBackendCalendarStatus(): Promise<BackendCalendarStatus>
  * Inicia o fluxo OAuth 2.0 com acesso offline (Refresh Token) abrindo uma janela pop-up segura.
  */
 export async function initiateGoogleCalendarAuth(): Promise<{ success: boolean; email?: string; name?: string }> {
-  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-  const res = await fetch(`/api/calendar/auth-url?origin=${encodeURIComponent(currentOrigin)}`);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || 'Falha ao obter URL de autenticação com o Google');
-  }
-  const { url } = await res.json();
-
-  return new Promise((resolve, reject) => {
-    const width = 520;
-    const height = 680;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
-
-    const popup = window.open(
-      url,
-      'GoogleCalendarOAuth',
-      `width=${width},height=${height},left=${left},top=${top},status=no,menubar=no,toolbar=no,scrollbars=yes`
-    );
-
-    if (!popup) {
-      reject(new Error('Abertura de pop-up bloqueada. Por favor, permita pop-ups para conectar ao Google Agenda.'));
-      return;
+  // Previne duplo login se já estiver ativamente conectado
+  try {
+    const initialStatus = await getBackendCalendarStatus();
+    if (initialStatus.connected) {
+      return { success: true, email: initialStatus.email || undefined, name: initialStatus.name || undefined };
     }
+  } catch (_) {}
 
+  const width = 520;
+  const height = 680;
+  const left = window.screenX + (window.outerWidth - width) / 2;
+  const top = window.screenY + (window.outerHeight - height) / 2;
+
+  // Abrir o pop-up imediatamente no clique para garantir zero bloqueio de navegador
+  const popup = window.open(
+    'about:blank',
+    'GoogleCalendarOAuth',
+    `width=${width},height=${height},left=${left},top=${top},status=no,menubar=no,toolbar=no,scrollbars=yes`
+  );
+
+  if (!popup) {
+    throw new Error('Abertura de pop-up bloqueada. Por favor, permita pop-ups para conectar ao Google Agenda.');
+  }
+
+  try {
+    popup.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Conectando ao Google...</title><meta charset="utf-8"></head>
+        <body style="font-family:system-ui,-apple-system,sans-serif;background:#090d16;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+          <div style="text-align:center;">
+            <div style="font-size:26px;margin-bottom:12px;">⏳</div>
+            <div style="font-size:14px;color:#94a3b8;font-weight:600;">Iniciando conexão segura com o Google Agenda...</div>
+          </div>
+        </body>
+      </html>
+    `);
+  } catch (_) {}
+
+  try {
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+    const res = await fetch(`/api/calendar/auth-url?origin=${encodeURIComponent(currentOrigin)}`);
+    if (!res.ok) {
+      popup.close();
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Falha ao obter URL de autenticação com o Google');
+    }
+    const { url } = await res.json();
+    popup.location.href = url;
+  } catch (err) {
+    try {
+      popup.close();
+    } catch (_) {}
+    throw err;
+  }
+
+  return new Promise((resolve) => {
     let resolved = false;
 
-    // 1. BroadcastChannel para comunicação direta entre janelas (funciona com COOP/opener nulo)
+    const finish = (success: boolean, email?: string, name?: string) => {
+      if (resolved) return;
+      resolved = true;
+      clearInterval(timer);
+      window.removeEventListener('message', handleMessage);
+      window.removeEventListener('storage', handleStorage);
+      if (channel) {
+        channel.close();
+      }
+      try {
+        if (popup && !popup.closed) {
+          popup.close();
+        }
+      } catch (_) {}
+
+      // Atualiza o cache local imediatamente para a UI reagir em 0ms
+      if (success) {
+        try {
+          const current = localStorage.getItem('cfo_calendar_status');
+          const parsed = current ? JSON.parse(current) : {};
+          localStorage.setItem(
+            'cfo_calendar_status',
+            JSON.stringify({
+              connected: true,
+              permanent: true,
+              email: email || parsed.email || null,
+              name: name || parsed.name || null,
+            })
+          );
+        } catch (_) {}
+      }
+
+      resolve({ success, email, name });
+    };
+
+    // 1. BroadcastChannel para comunicação direta entre janelas
     let channel: BroadcastChannel | null = null;
     try {
       if (typeof BroadcastChannel !== 'undefined') {
@@ -96,9 +163,9 @@ export async function initiateGoogleCalendarAuth(): Promise<{ success: boolean; 
       }
     } catch (_) {}
 
-    // 2. Storage event (fallback via localStorage)
+    // 2. Storage event (fallback e sincronização instantânea inter-abas)
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === 'cfo_calendar_auth_success' && e.newValue) {
+      if ((e.key === 'cfo_calendar_auth_success' || e.key === 'cfo_calendar_status') && e.newValue) {
         try {
           const payload = JSON.parse(e.newValue);
           finish(true, payload.email, payload.name);
@@ -117,38 +184,21 @@ export async function initiateGoogleCalendarAuth(): Promise<{ success: boolean; 
     };
     window.addEventListener('message', handleMessage);
 
-    const finish = (success: boolean, email?: string, name?: string) => {
-      if (resolved) return;
-      resolved = true;
-      clearInterval(timer);
-      window.removeEventListener('message', handleMessage);
-      window.removeEventListener('storage', handleStorage);
-      if (channel) {
-        channel.close();
-      }
-      try {
-        if (popup && !popup.closed) {
-          popup.close();
-        }
-      } catch (_) {}
-      resolve({ success, email, name });
-    };
-
-    // 4. Polling inteligente: checa ativamente no backend a cada 800ms
+    // 4. Polling de altíssima velocidade (200ms) para captura sem delay
     const timer = setInterval(async () => {
+      if (popup.closed) {
+        const status = await getBackendCalendarStatus();
+        finish(status.connected, status.email || undefined, status.name || undefined);
+        return;
+      }
+
       try {
         const status = await getBackendCalendarStatus();
         if (status.connected) {
           finish(true, status.email || undefined, status.name || undefined);
-          return;
         }
       } catch (_) {}
-
-      if (popup.closed) {
-        const status = await getBackendCalendarStatus();
-        finish(status.connected, status.email || undefined, status.name || undefined);
-      }
-    }, 800);
+    }, 200);
   });
 }
 
