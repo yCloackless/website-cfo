@@ -156,6 +156,8 @@ export interface DbAuditEvent {
   resource: string;
   status: 'SUCCESS' | 'FAILED' | 'WARNING';
   ip?: string | null;
+  userAgent?: string | null;
+  userId?: string | null;
   detailsJson?: string | null;
   createdAt: string;
 }

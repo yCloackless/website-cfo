@@ -241,6 +241,17 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE profiles ADD COLUMN avatar_url TEXT;
     `,
   },
+  {
+    id: 4,
+    name: '004_audit_events_security_monitoring',
+    sql: `
+      ALTER TABLE audit_events ADD COLUMN user_id TEXT;
+      ALTER TABLE audit_events ADD COLUMN user_agent TEXT;
+      CREATE INDEX IF NOT EXISTS idx_audit_events_status ON audit_events(status);
+      CREATE INDEX IF NOT EXISTS idx_audit_events_ip ON audit_events(ip);
+      CREATE INDEX IF NOT EXISTS idx_audit_events_user_id ON audit_events(user_id);
+    `,
+  },
 ];
 
 export class DatabaseService {

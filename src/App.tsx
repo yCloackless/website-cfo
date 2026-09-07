@@ -67,6 +67,7 @@ import { TacticalSimulations } from './components/TacticalSimulations';
 import { TacticalSidebar } from './components/TacticalSidebar';
 import { ErrorNotebookTab } from './components/ErrorNotebookTab';
 import { MyAccountModal } from './components/MyAccountModal';
+import { AdminSecurityPanelModal } from './components/AdminSecurityPanelModal';
 
 export default function App() {
   // 🛡️ Security Gate (2FA TOTP Terminal) State
@@ -86,7 +87,11 @@ export default function App() {
     username?: string;
     email?: string;
     avatarUrl?: string | null;
+    role?: string;
   } | null>(null);
+
+  // 🛡️ Monitoramento de Segurança e Auditoria (Admin)
+  const [isAdminSecurityOpen, setIsAdminSecurityOpen] = useState(false);
 
   // 🧭 Estado do Menu Lateral de Abas Táticas (expandido, recolhido ou oculto)
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
@@ -1080,6 +1085,8 @@ export default function App() {
         user={user}
         userProfile={userProfile}
         onOpenAccount={() => setIsMyAccountOpen(true)}
+        isAdmin={userProfile?.role === 'admin' || localStorage.getItem('cfo_terminal_role') === 'admin'}
+        onOpenAdminSecurity={() => setIsAdminSecurityOpen(true)}
         hasCalendarAccess={isCalendarLinked}
         calendarEmail={backendCalendar.email || user?.email}
         calendarName={backendCalendar.name || user?.displayName}
@@ -1685,6 +1692,14 @@ export default function App() {
         theme={theme}
         sessionToken={localStorage.getItem('cfo_terminal_session')}
         onProfileUpdated={(updated) => setUserProfile(updated)}
+      />
+
+      {/* Modal de Monitoramento de Segurança e Auditoria (Admin) */}
+      <AdminSecurityPanelModal
+        isOpen={isAdminSecurityOpen}
+        onClose={() => setIsAdminSecurityOpen(false)}
+        theme={theme}
+        sessionToken={localStorage.getItem('cfo_terminal_session')}
       />
 
       {/* Banner LGPD de Cookies de Sessão */}

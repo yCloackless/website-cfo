@@ -16,13 +16,16 @@ import {
   Lock,
   PanelLeft,
   User as UserIcon,
+  Shield,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
 interface HeaderProps {
   user: User | null;
-  userProfile?: { fullName?: string; username?: string; avatarUrl?: string | null } | null;
+  userProfile?: { fullName?: string; username?: string; avatarUrl?: string | null; role?: string } | null;
   onOpenAccount?: () => void;
+  isAdmin?: boolean;
+  onOpenAdminSecurity?: () => void;
   hasCalendarAccess?: boolean;
   calendarEmail?: string | null;
   calendarName?: string | null;
@@ -49,6 +52,8 @@ export const Header: React.FC<HeaderProps> = ({
   user,
   userProfile = null,
   onOpenAccount,
+  isAdmin = false,
+  onOpenAdminSecurity,
   hasCalendarAccess = false,
   calendarEmail = null,
   calendarName = null,
@@ -331,6 +336,26 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
                 <span className="hidden sm:inline font-mono text-[11px] text-blue-400 font-semibold">
                   @{userProfile?.username || 'perfil'}
+                </span>
+              </button>
+            )}
+
+            {/* Painel de Monitoramento e Segurança (Admin) */}
+            {(isAdmin || userProfile?.role === 'admin') && onOpenAdminSecurity && (
+              <button
+                type="button"
+                id="btn-admin-security"
+                onClick={onOpenAdminSecurity}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
+                  isDark
+                    ? 'bg-amber-500/10 border-amber-500/40 hover:border-amber-400 text-amber-300'
+                    : 'bg-amber-50 border-amber-200 hover:border-amber-400 text-amber-800'
+                }`}
+                title="Painel de Monitoramento de Segurança e Auditoria (Admin)"
+              >
+                <Shield className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline font-mono text-[11px] font-bold">
+                  Segurança
                 </span>
               </button>
             )}

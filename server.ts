@@ -47,7 +47,7 @@ import {
 import { logAuditEvent, readRecentAuditLogs } from "./src/services/auditLogger";
 import { AuthService } from "./src/db/authService";
 import { getDb } from "./src/db/database";
-import { UserRepository, ProfileRepository } from "./src/db/repositories";
+import { UserRepository, ProfileRepository, AuditRepository } from "./src/db/repositories";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
 
 const app = express();
@@ -130,29 +130,30 @@ function banIp(ip: string, reason: string, geo?: { country?: string; region?: st
   };
   saveBannedIps(banned);
   logAuditEvent({
-    eventType: 'IP_BANNED',
+    eventType: 'ACCOUNT_SUSPENDED',
+    action: 'ACCOUNT_SUSPENDED',
     ip: clean,
     details: { reason, geo },
   });
   console.error(`🚨 [SEGURANÇA CFO CBMERJ] IP BANIDO PERMANENTEMENTE: ${clean} | Motivo: ${reason}`);
 }
 
-// Helper para capturar IP real do cliente
-function getClientIp(req: Request): string {
+// Helper confiável para capturar IP real do cliente via infraestrutura (nunca aceita req.body.ip)
+export function getClientIp(req: Request): string {
+  // 1. Cloudflare edge IP verificado
   const cfIp = req.headers["cf-connecting-ip"];
-  if (typeof cfIp === "string" && cfIp.trim()) return cfIp.trim().replace(/^::ffff:/, "");
-
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string" && forwarded.trim()) {
-    const first = forwarded.split(",")[0].trim().replace(/^::ffff:/, "");
-    if (first) return first;
+  if (typeof cfIp === "string" && cfIp.trim()) {
+    return cfIp.trim().replace(/^::ffff:/, "");
   }
 
-  const realIp = req.headers["x-real-ip"];
-  if (typeof realIp === "string" && realIp.trim()) return realIp.trim().replace(/^::ffff:/, "");
+  // 2. Express req.ip (respeita 'trust proxy' configurado para 1 hop confiável)
+  if (req.ip && typeof req.ip === "string" && req.ip.trim()) {
+    return req.ip.replace(/^::ffff:/, "").trim();
+  }
 
+  // 3. Socket remoto direto
   const remote = req.socket?.remoteAddress || "";
-  return remote.replace(/^::ffff:/, "").trim();
+  return remote.replace(/^::ffff:/, "").trim() || "127.0.0.1";
 }
 
 // Valida se o IP é o do Admin (Bypass de Turnstile)
@@ -723,6 +724,49 @@ function createTerminalSession(
 }
 
 const authServiceInstance = new AuthService(getDb());
+const auditRepoInstance = new AuditRepository(getDb().getRawDb());
+
+function logSecurityEvent(
+  req: Request,
+  event: {
+    action: string;
+    actor: string;
+    resource: string;
+    status: 'SUCCESS' | 'FAILED' | 'WARNING';
+    userId?: string | null;
+    details?: Record<string, any>;
+  }
+): void {
+  try {
+    const ip = getClientIp(req);
+    const userAgent = (req.headers["user-agent"] as string) || null;
+
+    auditRepoInstance.log({
+      action: event.action,
+      actor: event.actor,
+      resource: event.resource,
+      status: event.status,
+      ip,
+      userAgent,
+      userId: event.userId,
+      details: event.details,
+    });
+
+    logAuditEvent({
+      eventType: event.action,
+      action: event.action,
+      actor: event.actor,
+      resource: event.resource,
+      status: event.status,
+      ip,
+      userAgent,
+      userId: event.userId,
+      details: event.details,
+    });
+  } catch (err) {
+    console.error("[Security Event Log Error]:", err);
+  }
+}
 
 function verifyTerminalSession(token?: string | null): {
   valid: boolean;
@@ -1088,12 +1132,11 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
 
     if (isCadetTarget) {
       if (!(await safeComparePassword(password, CADET_PASSWORD_HASH))) {
-        logAuditEvent({
+        logSecurityEvent(req, {
           action: "LOGIN_FAILED",
           actor: inputUser,
           resource: "/api/auth/check-credentials",
           status: "FAILED",
-          ip: clientIp,
           details: { reason: "Credenciais inválidas para cadete" },
         });
         return res.status(401).json({
@@ -1105,12 +1148,11 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
 
       // Cria sessão do cadete (role: cadet, canAccessNotion: false)
       const session = createTerminalSession("cadete", true, "cadet");
-      logAuditEvent({
+      logSecurityEvent(req, {
         action: "LOGIN_SUCCESS",
         actor: inputUser,
         resource: "/api/auth/check-credentials",
         status: "SUCCESS",
-        ip: clientIp,
         details: { role: "cadet", method: "direct" },
       });
       console.log(`[Terminal CFO CBMERJ] Acesso de Cadete autenticado: ${inputUser}`);
@@ -1154,13 +1196,12 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
       ALLOWED_EMAILS.includes(inputUser);
 
     if (!isAuthorized) {
-      logAuditEvent({
-        action: "LOGIN_FAILED",
+      logSecurityEvent(req, {
+        action: isAdminTarget ? "ADMIN_LOGIN_FAILED" : "LOGIN_FAILED",
         actor: inputUser,
         resource: "/api/auth/check-credentials",
         status: "FAILED",
-        ip: clientIp,
-        details: { reason: "Usuário não autorizado" },
+        details: { reason: "Usuário não autorizado ou inexistente" },
       });
       return res.status(401).json({
         success: false,
@@ -1170,12 +1211,11 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
     }
 
     if (!(await safeComparePassword(password, ADMIN_PASSWORD_HASH))) {
-      logAuditEvent({
-        action: "LOGIN_FAILED",
+      logSecurityEvent(req, {
+        action: isAdminTarget ? "ADMIN_LOGIN_FAILED" : "LOGIN_FAILED",
         actor: inputUser,
         resource: "/api/auth/check-credentials",
         status: "FAILED",
-        ip: clientIp,
         details: { reason: "Senha incorreta" },
       });
       return res.status(401).json({
@@ -1258,12 +1298,11 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
       ALLOWED_EMAILS.includes(cleanUser);
 
     if (!isAuthorized || !(await safeComparePassword(password, ADMIN_PASSWORD_HASH))) {
-      logAuditEvent({
-        action: "LOGIN_FAILED",
+      logSecurityEvent(req, {
+        action: "ADMIN_LOGIN_FAILED",
         actor: cleanUser,
         resource: "/api/auth/verify-2fa",
         status: "FAILED",
-        ip: clientIp,
         details: { reason: "Credenciais inválidas na etapa 2FA" },
       });
       return res.status(401).json({
@@ -1284,12 +1323,11 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
 
     const isCodeValid = verifyTotpToken(token, config.totpSecret);
     if (!isCodeValid) {
-      logAuditEvent({
-        action: "LOGIN_2FA_FAILED",
+      logSecurityEvent(req, {
+        action: "2FA_FAILED",
         actor: cleanUser,
         resource: "/api/auth/verify-2fa",
         status: "FAILED",
-        ip: clientIp,
         details: { reason: "Código TOTP inválido ou expirado" },
       });
       return res.status(401).json({
@@ -1299,12 +1337,17 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
     }
 
     const session = createTerminalSession(cleanUser, rememberMe !== false, "admin");
-    logAuditEvent({
-      action: "LOGIN_SUCCESS",
+    logSecurityEvent(req, {
+      action: "2FA_SUCCESS",
       actor: cleanUser,
       resource: "/api/auth/verify-2fa",
       status: "SUCCESS",
-      ip: clientIp,
+    });
+    logSecurityEvent(req, {
+      action: "ADMIN_LOGIN",
+      actor: cleanUser,
+      resource: "/api/auth/verify-2fa",
+      status: "SUCCESS",
       details: { role: "admin", rememberMe: rememberMe !== false },
     });
     console.log(`[Terminal CFO CBMERJ] Acesso autenticado via 2FA para '${cleanUser}' (30 dias: ${rememberMe !== false})`);
@@ -1394,6 +1437,12 @@ app.post("/api/auth/logout", (req: Request, res: Response) => {
   const token = req.body?.token || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null);
   if (token) {
     authServiceInstance.logout(token, getClientIp(req));
+    logSecurityEvent(req, {
+      action: "LOGOUT",
+      actor: "authenticated_session",
+      resource: "/api/auth/logout",
+      status: "SUCCESS",
+    });
   }
   return res.json({ success: true, message: "Sessão encerrada com sucesso." });
 });
@@ -1404,6 +1453,13 @@ app.post("/api/auth/forgot-password", authLimiter, (req: Request, res: Response)
     const { email } = req.body || {};
     const clientIp = getClientIp(req);
     const result = authServiceInstance.requestPasswordReset(email, clientIp);
+    logSecurityEvent(req, {
+      action: "PASSWORD_RESET_REQUEST",
+      actor: (email || "").trim().toLowerCase() || "unknown",
+      resource: "/api/auth/forgot-password",
+      status: "SUCCESS",
+      details: { email },
+    });
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ success: false, message: "Erro ao processar solicitação de recuperação." });
@@ -1416,6 +1472,13 @@ app.post("/api/auth/reset-password", authLimiter, async (req: Request, res: Resp
     const { email, code, newPassword } = req.body || {};
     const clientIp = getClientIp(req);
     const result = await authServiceInstance.confirmPasswordReset(email, code, newPassword, clientIp);
+    logSecurityEvent(req, {
+      action: "PASSWORD_CHANGED",
+      actor: (email || "").trim().toLowerCase() || "unknown",
+      resource: "/api/auth/reset-password",
+      status: result.success ? "SUCCESS" : "FAILED",
+      details: { method: "RESET_CODE", reason: result.message },
+    });
     if (!result.success) {
       return res.status(400).json(result);
     }
@@ -1433,6 +1496,14 @@ app.post("/api/auth/change-password", requireUserAuth, async (req: Request, res:
     const clientIp = getClientIp(req);
 
     const result = await authServiceInstance.changePassword(user.userId || user.username, currentPassword, newPassword, clientIp);
+    logSecurityEvent(req, {
+      action: "PASSWORD_CHANGED",
+      actor: user.username || user.userId,
+      resource: "/api/auth/change-password",
+      status: result.success ? "SUCCESS" : "FAILED",
+      userId: user.userId,
+      details: { method: "AUTHENTICATED_CHANGE", reason: result.message },
+    });
     if (!result.success) {
       return res.status(400).json(result);
     }
@@ -1457,12 +1528,73 @@ app.post("/api/auth/update-email", requireUserAuth, async (req: Request, res: Re
     }
 
     const result = await authServiceInstance.updateEmail(user.userId || user.username, newEmail, currentPassword, clientIp);
+    logSecurityEvent(req, {
+      action: "EMAIL_VERIFIED",
+      actor: user.username || user.userId,
+      resource: "/api/auth/update-email",
+      status: result.success ? "SUCCESS" : "FAILED",
+      userId: user.userId,
+      details: { newEmail, reason: result.message },
+    });
     if (!result.success) {
       return res.status(400).json(result);
     }
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ success: false, message: "Erro ao atualizar e-mail." });
+  }
+});
+
+// ============================================================================
+// 🛡️ MONITORAMENTO DE AUTENTICAÇÃO E SEGURANÇA (Admin -> Segurança)
+// ============================================================================
+
+// 11. Consulta Paginada e Filtrada de Eventos de Auditoria e Segurança (Restrito a Admin)
+app.get("/api/admin/security/events", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || "20"), 10)));
+    const action = req.query.action ? String(req.query.action).trim() : undefined;
+    const status = req.query.status ? String(req.query.status).trim() : undefined;
+    const actor = req.query.actor ? String(req.query.actor).trim() : undefined;
+    const ip = req.query.ip ? String(req.query.ip).trim() : undefined;
+    const search = req.query.search ? String(req.query.search).trim() : undefined;
+    const startDate = req.query.startDate ? String(req.query.startDate).trim() : undefined;
+    const endDate = req.query.endDate ? String(req.query.endDate).trim() : undefined;
+
+    const result = auditRepoInstance.findFiltered({
+      page,
+      limit,
+      action,
+      status,
+      actor,
+      ip,
+      search,
+      startDate,
+      endDate,
+    });
+
+    return res.json({
+      success: true,
+      ...result,
+    });
+  } catch (err: any) {
+    console.error("[Admin Security Events Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao buscar eventos de segurança." });
+  }
+});
+
+// 12. Métricas de Segurança e Detecção de Anomalias em Tempo Real (Restrito a Admin)
+app.get("/api/admin/security/metrics", requireAdminAuth, (_req: Request, res: Response) => {
+  try {
+    const metrics = auditRepoInstance.getSecurityMetrics();
+    return res.json({
+      success: true,
+      metrics,
+    });
+  } catch (err: any) {
+    console.error("[Admin Security Metrics Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao carregar métricas de segurança." });
   }
 });
 
@@ -3405,4 +3537,9 @@ async function startServer() {
   });
 }
 
-startServer();
+const isTestEnv = process.env.NODE_ENV === "test" || process.argv.some((a) => a.includes("test"));
+if (!isTestEnv) {
+  startServer();
+}
+
+export { app };

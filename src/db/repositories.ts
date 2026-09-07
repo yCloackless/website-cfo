@@ -598,6 +598,27 @@ export class RefundRepository {
   }
 }
 
+export interface AuditFilterOptions {
+  page?: number;
+  limit?: number;
+  action?: string;
+  status?: string;
+  actor?: string;
+  ip?: string;
+  search?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface SecurityMetrics {
+  totalEvents24h: number;
+  loginSuccess24h: number;
+  loginFailed24h: number;
+  twoFactorFailed24h: number;
+  accountSuspended24h: number;
+  anomalousIps: Array<{ ip: string; failedAttempts: number }>;
+}
+
 export class AuditRepository {
   constructor(private db: DatabaseSync) {}
 
@@ -607,18 +628,59 @@ export class AuditRepository {
     resource: string;
     status: 'SUCCESS' | 'FAILED' | 'WARNING';
     ip?: string | null;
+    userAgent?: string | null;
+    userId?: string | null;
     details?: Record<string, any> | null;
   }): DbAuditEvent {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    const detailsJson = data.details ? JSON.stringify(data.details) : null;
+
+    // Sanitização rigorosa: nunca permitir senhas, tokens, cookies, códigos TOTP ou segredos
+    let safeDetails: Record<string, any> | null = null;
+    if (data.details && typeof data.details === 'object') {
+      safeDetails = { ...data.details };
+      const sensitiveKeys = [
+        'password',
+        'currentpassword',
+        'newpassword',
+        'token',
+        'refreshtoken',
+        'accesstoken',
+        'secret',
+        'totp',
+        'code',
+        'cookie',
+        'authorization',
+        'totpsecret',
+        'recoverycode',
+        'backupcode',
+      ];
+      for (const key of Object.keys(safeDetails)) {
+        if (sensitiveKeys.includes(key.toLowerCase())) {
+          delete safeDetails[key];
+        }
+      }
+    }
+
+    const detailsJson = safeDetails ? JSON.stringify(safeDetails) : null;
 
     this.db
       .prepare(
-        `INSERT INTO audit_events (id, action, actor, resource, status, ip, details_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO audit_events (id, action, actor, resource, status, ip, user_agent, user_id, details_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, data.action, data.actor, data.resource, data.status, data.ip ?? null, detailsJson, now);
+      .run(
+        id,
+        data.action,
+        data.actor,
+        data.resource,
+        data.status,
+        data.ip ?? null,
+        data.userAgent ?? null,
+        data.userId ?? null,
+        detailsJson,
+        now
+      );
 
     return {
       id,
@@ -627,8 +689,139 @@ export class AuditRepository {
       resource: data.resource,
       status: data.status,
       ip: data.ip ?? null,
+      userAgent: data.userAgent ?? null,
+      userId: data.userId ?? null,
       detailsJson,
       createdAt: now,
+    };
+  }
+
+  public findFiltered(options: AuditFilterOptions = {}): {
+    items: DbAuditEvent[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  } {
+    const page = Math.max(1, Number(options.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(options.limit) || 20));
+    const offset = (page - 1) * limit;
+
+    const whereClauses: string[] = [];
+    const params: any[] = [];
+
+    if (options.action) {
+      whereClauses.push('action = ?');
+      params.push(options.action);
+    }
+
+    if (options.status) {
+      whereClauses.push('status = ?');
+      params.push(options.status);
+    }
+
+    if (options.actor) {
+      whereClauses.push('actor LIKE ?');
+      params.push(`%${options.actor}%`);
+    }
+
+    if (options.ip) {
+      whereClauses.push('ip LIKE ?');
+      params.push(`%${options.ip}%`);
+    }
+
+    if (options.search) {
+      whereClauses.push('(action LIKE ? OR actor LIKE ? OR ip LIKE ? OR user_agent LIKE ? OR resource LIKE ? OR details_json LIKE ?)');
+      const searchPattern = `%${options.search}%`;
+      params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
+    }
+
+    if (options.startDate) {
+      whereClauses.push('created_at >= ?');
+      params.push(options.startDate);
+    }
+
+    if (options.endDate) {
+      whereClauses.push('created_at <= ?');
+      params.push(options.endDate);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const countRow: any = this.db.prepare(`SELECT COUNT(*) as total FROM audit_events ${whereSql}`).get(...params);
+    const total = Number(countRow?.total || 0);
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    const itemsRows: any[] = this.db
+      .prepare(
+        `SELECT id, action, actor, resource, status, ip, user_agent, user_id, details_json, created_at
+         FROM audit_events
+         ${whereSql}
+         ORDER BY created_at DESC
+         LIMIT ? OFFSET ?`
+      )
+      .all(...params, limit, offset);
+
+    const items: DbAuditEvent[] = itemsRows.map((row) => ({
+      id: row.id,
+      action: row.action,
+      actor: row.actor,
+      resource: row.resource,
+      status: row.status,
+      ip: row.ip,
+      userAgent: row.user_agent,
+      userId: row.user_id,
+      detailsJson: row.details_json,
+      createdAt: row.created_at,
+    }));
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages,
+    };
+  }
+
+  public getSecurityMetrics(): SecurityMetrics {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    const countsRow: any = this.db
+      .prepare(
+        `SELECT
+          COUNT(*) as totalEvents24h,
+          SUM(CASE WHEN action IN ('LOGIN_SUCCESS', 'ADMIN_LOGIN') THEN 1 ELSE 0 END) as loginSuccess24h,
+          SUM(CASE WHEN action IN ('LOGIN_FAILED', 'ADMIN_LOGIN_FAILED') THEN 1 ELSE 0 END) as loginFailed24h,
+          SUM(CASE WHEN action = '2FA_FAILED' THEN 1 ELSE 0 END) as twoFactorFailed24h,
+          SUM(CASE WHEN action IN ('ACCOUNT_SUSPENDED', 'IP_BANNED') THEN 1 ELSE 0 END) as accountSuspended24h
+         FROM audit_events
+         WHERE created_at >= ?`
+      )
+      .get(oneDayAgo);
+
+    const anomalyRows: any[] = this.db
+      .prepare(
+        `SELECT ip, COUNT(*) as failedAttempts
+         FROM audit_events
+         WHERE created_at >= ? AND status = 'FAILED' AND ip IS NOT NULL
+         GROUP BY ip
+         HAVING failedAttempts >= 3
+         ORDER BY failedAttempts DESC
+         LIMIT 5`
+      )
+      .all(oneDayAgo);
+
+    return {
+      totalEvents24h: Number(countsRow?.totalEvents24h || 0),
+      loginSuccess24h: Number(countsRow?.loginSuccess24h || 0),
+      loginFailed24h: Number(countsRow?.loginFailed24h || 0),
+      twoFactorFailed24h: Number(countsRow?.twoFactorFailed24h || 0),
+      accountSuspended24h: Number(countsRow?.accountSuspended24h || 0),
+      anomalousIps: anomalyRows.map((r) => ({
+        ip: r.ip,
+        failedAttempts: Number(r.failedAttempts),
+      })),
     };
   }
 }

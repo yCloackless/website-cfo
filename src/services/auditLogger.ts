@@ -10,6 +10,8 @@ export interface AuditEntry {
   resource?: string;
   status?: string;
   ip: string;
+  userAgent?: string | null;
+  userId?: string | null;
   details?: Record<string, any>;
 }
 
@@ -34,15 +36,32 @@ export function logAuditEvent(entry: Omit<AuditEntry, 'timestamp'>): void {
       resource: entry.resource,
       status: entry.status,
       ip: entry.ip,
-      details: entry.details,
+      userAgent: entry.userAgent || null,
+      userId: entry.userId || null,
+      details: entry.details ? { ...entry.details } : undefined,
     };
 
     // Sanitiza qualquer menção acidental a senhas ou segredos
     if (fullEntry.details) {
-      delete fullEntry.details.password;
-      delete fullEntry.details.token;
-      delete fullEntry.details.secret;
-      delete fullEntry.details.authorization;
+      const sensitiveKeys = [
+        'password',
+        'currentpassword',
+        'newpassword',
+        'token',
+        'secret',
+        'totp',
+        'code',
+        'cookie',
+        'authorization',
+        'totpsecret',
+        'recoverycode',
+        'backupcode',
+      ];
+      for (const key of Object.keys(fullEntry.details)) {
+        if (sensitiveKeys.includes(key.toLowerCase())) {
+          delete fullEntry.details[key];
+        }
+      }
     }
 
     const line = JSON.stringify(fullEntry) + '\n';
