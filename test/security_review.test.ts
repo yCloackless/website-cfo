@@ -202,11 +202,11 @@ test('🔒 FASE 12: SECURITY REVIEW & DEFENSIVE AUDIT', async (t) => {
     assert.equal(pngResult.extension, 'png');
   });
 
-  await t.test('7. Proteção contra enumeração de e-mail na recuperação de senha', () => {
+  await t.test('7. Proteção contra enumeração de e-mail na recuperação de senha', async () => {
     // E-mail existente
-    const resultExisting = authService.requestPasswordReset('cadete@cbmerj.com');
+    const resultExisting = await authService.requestPasswordReset('cadete@cbmerj.com');
     // E-mail inexistente
-    const resultNonExisting = authService.requestPasswordReset('naoexiste@cbmerj.com');
+    const resultNonExisting = await authService.requestPasswordReset('naoexiste@cbmerj.com');
 
     assert.equal(resultExisting.success, true);
     assert.equal(resultNonExisting.success, true);

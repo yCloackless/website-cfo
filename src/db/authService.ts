@@ -7,6 +7,7 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { DatabaseService, getDb } from './database';
+import { sendPasswordResetEmail } from '../services/emailService';
 import {
   UserRepository,
   SessionRepository,
@@ -229,8 +230,12 @@ export class AuthService {
   /**
    * Password Recovery: Step 1 - Request code.
    * Generates a 6-digit code with 15-minute expiration.
+   * Sends the code via email (Resend). Never returns the code in production.
    */
-  public requestPasswordReset(email: string, ip?: string): { success: boolean; message: string; debugCode?: string } {
+  public async requestPasswordReset(
+    email: string,
+    ip?: string
+  ): Promise<{ success: boolean; message: string; debugCode?: string }> {
     const cleanEmail = (email || '').toLowerCase().trim();
     if (!cleanEmail) {
       return { success: false, message: 'Informe um e-mail válido.' };
@@ -238,7 +243,7 @@ export class AuthService {
 
     const user = this.userRepo.findByEmail(cleanEmail);
     if (!user) {
-      // Do not disclose whether email exists
+      // Não revelar se o e-mail existe (anti-enumeração)
       return {
         success: true,
         message: 'Se este e-mail estiver cadastrado, você receberá um código de recuperação.',
@@ -256,16 +261,17 @@ export class AuthService {
       details: { email: cleanEmail },
     });
 
-    // In development/testing, or when email service is logged, return debugCode
-    const isDev = process.env.NODE_ENV !== 'production';
-    if (isDev && process.env.NODE_ENV === 'test') {
-      // Retido apenas em ambiente de teste automatizado
-    }
+    // Envia o código por e-mail via Resend
+    const emailResult = await sendPasswordResetEmail(cleanEmail, user.username, code);
 
+    const isProd = process.env.NODE_ENV === 'production';
+
+    // Em produção: nunca retornar o código na API — apenas o e-mail entrega
+    // Em dev/teste: retornar debugCode se o envio falhou (sem API key configurada)
     return {
       success: true,
       message: 'Se este e-mail estiver cadastrado, você receberá um código de recuperação.',
-      debugCode: isDev ? code : undefined,
+      debugCode: isProd ? undefined : (emailResult.debugCode ?? (emailResult.sent ? undefined : code)),
     };
   }
 

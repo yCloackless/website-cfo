@@ -1638,11 +1638,11 @@ app.post("/api/auth/logout", (req: Request, res: Response) => {
 });
 
 // 7. Rota de Solicitação de Recuperação de Senha (Código de 6 dígitos enviado com validade de 15min)
-app.post("/api/auth/forgot-password", authLimiter, (req: Request, res: Response) => {
+app.post("/api/auth/forgot-password", authLimiter, async (req: Request, res: Response) => {
   try {
     const { email } = req.body || {};
     const clientIp = getClientIp(req);
-    const result = authServiceInstance.requestPasswordReset(email, clientIp);
+    const result = await authServiceInstance.requestPasswordReset(email, clientIp);
     logSecurityEvent(req, {
       action: "PASSWORD_RESET_REQUEST",
       actor: (email || "").trim().toLowerCase() || "unknown",

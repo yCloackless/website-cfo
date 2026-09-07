@@ -109,10 +109,10 @@ test('4. Recuperação de Senha: código de 6 dígitos, expiração e código in
   await authService.ensureDefaultAccounts();
 
   // 4.1 Solicita recuperação
-  const reqRes = authService.requestPasswordReset('cadete@cbmerj.com');
+  const reqRes = await authService.requestPasswordReset('cadete@cbmerj.com');
   assert.equal(reqRes.success, true);
   assert.ok(reqRes.debugCode);
-  assert.equal(reqRes.debugCode.length, 6);
+  assert.equal(reqRes.debugCode!.length, 6);
 
   // 4.2 Tenta recuperar com código incorreto
   const badCodeRes = await authService.confirmPasswordReset('cadete@cbmerj.com', '000000', 'NovaSenhaForte2026!');
