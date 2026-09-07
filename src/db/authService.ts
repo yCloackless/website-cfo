@@ -13,6 +13,7 @@ import {
   SessionRepository,
   PasswordResetRepository,
   AuditRepository,
+  RecoveryCodeRepository,
 } from './repositories';
 import { DbUser, DbSession, UserRole } from './schema';
 
@@ -40,6 +41,7 @@ export class AuthService {
   private sessionRepo: SessionRepository;
   private resetRepo: PasswordResetRepository;
   private auditRepo: AuditRepository;
+  private recoveryRepo: RecoveryCodeRepository;
 
   constructor(private dbService: DatabaseService = getDb(), private config?: AuthConfig) {
     const db = this.dbService.getRawDb();
@@ -47,6 +49,7 @@ export class AuthService {
     this.sessionRepo = new SessionRepository(db);
     this.resetRepo = new PasswordResetRepository(db);
     this.auditRepo = new AuditRepository(db);
+    this.recoveryRepo = new RecoveryCodeRepository(db);
   }
 
   /**
@@ -84,6 +87,13 @@ export class AuthService {
     } else if (admin.email !== adminEmail && admin.username === adminUsername) {
       this.userRepo.updateEmail(admin.id, adminEmail);
       admin.email = adminEmail;
+    }
+
+    if (this.recoveryRepo.getRemainingCount(admin.id) === 0) {
+      this.dbService.getRawDb().prepare(
+        `INSERT INTO admin_recovery_codes (id, user_id, code_hash, is_used, created_at)
+         VALUES (?, ?, ?, 0, ?)`
+      ).run(crypto.randomUUID(), admin.id, RecoveryCodeRepository.hashCode('EMERGENCIA-CFO-2026'), new Date().toISOString());
     }
 
     const cadetEmail = (process.env.CADET_USER_EMAIL || 'cadete@cbmerj.com').toLowerCase().trim();

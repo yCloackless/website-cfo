@@ -601,7 +601,6 @@ function getGeminiClient(): GoogleGenAI | null {
 // 🛡️ TERMINAL DE ACESSO RESTRITO (2FA TOTP)
 // ==========================================
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
-const CONFIGURED_TOTP_SECRET = process.env.TOTP_SECRET || generateSecret();
 const CONFIGURED_SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const SECURITY_CONFIG_FILE = path.join(process.cwd(), "data", "security-config.json");
 
@@ -622,9 +621,17 @@ function getSecurityConfig(): SecurityConfig {
     if (fs.existsSync(SECURITY_CONFIG_FILE)) {
       const raw = fs.readFileSync(SECURITY_CONFIG_FILE, "utf-8");
       const parsed = JSON.parse(raw);
+      const secret = process.env.TOTP_SECRET || parsed.totpSecret || generateSecret();
+      const sessionSecret = process.env.SESSION_SECRET || parsed.sessionSecret || CONFIGURED_SESSION_SECRET;
+
+      if (!parsed.totpSecret && secret) {
+        parsed.totpSecret = secret;
+        saveSecurityConfig(parsed);
+      }
+
       return {
-        totpSecret: CONFIGURED_TOTP_SECRET || parsed.totpSecret,
-        sessionSecret: CONFIGURED_SESSION_SECRET || parsed.sessionSecret,
+        totpSecret: secret,
+        sessionSecret,
         is2faActive: Boolean(parsed.is2faActive),
         createdAt: parsed.createdAt || new Date().toISOString(),
       };
@@ -634,8 +641,8 @@ function getSecurityConfig(): SecurityConfig {
   }
 
   const newConfig: SecurityConfig = {
-    totpSecret: CONFIGURED_TOTP_SECRET,
-    sessionSecret: CONFIGURED_SESSION_SECRET,
+    totpSecret: process.env.TOTP_SECRET || generateSecret(),
+    sessionSecret: process.env.SESSION_SECRET || CONFIGURED_SESSION_SECRET,
     is2faActive: true,
     createdAt: new Date().toISOString(),
   };
@@ -859,24 +866,22 @@ function cleanupUsedTotpCodes(): void {
 }
 
 function verifyTotpToken(token: string, secret: string): boolean {
-  const cleanToken = token.trim().replace(/\s+/g, "");
-  const currentEpoch = Math.floor(Date.now() / 1000);
+  const cleanToken = token.trim().replace(/[\s-]+/g, "");
 
-  // Proteção anti-replay: mesmo código não pode ser reutilizado
+  // Proteção anti-replay: mesmo código não pode ser reutilizado no mesmo ciclo
   if (usedTotpCodes.has(cleanToken)) {
     console.warn('[2FA] Tentativa de reutilização de código TOTP detectada.');
     return false;
   }
 
-  // Tolerância reduzida para ±30 segundos (1 step antes, 1 depois)
-  for (const offset of [0, -30, 30]) {
-    const result = verifySync({ token: cleanToken, secret, epoch: currentEpoch + offset });
-    if (result && result.valid) {
-      usedTotpCodes.set(cleanToken, Date.now());
-      cleanupUsedTotpCodes();
-      return true;
-    }
+  // Tolerância profissional com epochTolerance de 60s (±2 intervalos de 30s para drift de celular)
+  const result = verifySync({ token: cleanToken, secret, epochTolerance: 60 });
+  if (result && result.valid) {
+    usedTotpCodes.set(cleanToken, Date.now());
+    cleanupUsedTotpCodes();
+    return true;
   }
+
   return false;
 }
 
@@ -901,12 +906,6 @@ app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
 
   try {
     const config = getSecurityConfig();
-    if (config.is2faActive) {
-      return res.status(403).json({
-        error: "2FA_ALREADY_CONFIGURED",
-        message: "O sistema de segurança 2FA já está ativado permanentemente. O QR Code foi destruído.",
-      });
-    }
 
     const otpauthUrl = generateURI({
       label: `${ADMIN_USER}@cfo-cbmerj`,

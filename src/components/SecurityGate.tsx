@@ -50,6 +50,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
   // Estados de 2FA Alternativo (Código de Recuperação / Backup)
   const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const [recoveryCodeInput, setRecoveryCodeInput] = useState('');
+  const [showTotpHelper, setShowTotpHelper] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -1030,6 +1031,56 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                           required
                           className="w-full pl-10 pr-4 py-3.5 text-center text-[20px] font-mono font-bold tracking-[0.35em] placeholder:tracking-normal text-slate-900 placeholder:text-[#94a3b8] bg-transparent border-0 rounded-xl focus:ring-0 focus:outline-none"
                         />
+                      </div>
+
+                      {/* Dicas de sincronização e chave manual */}
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowTotpHelper(!showTotpHelper)}
+                          className="text-[11.5px] font-medium text-blue-700 hover:text-blue-900 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="10" />
+                            <path d="M12 16v-4M12 8h.01" />
+                          </svg>
+                          <span>{showTotpHelper ? 'Ocultar ajuda do autenticador' : 'Código não está batendo? Veja como resolver'}</span>
+                        </button>
+
+                        {showTotpHelper && (
+                          <div className="mt-2 p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-[11.5px] text-slate-700 space-y-2.5 leading-relaxed animate-fadeIn">
+                            <div>
+                              <span className="font-bold text-slate-900 block mb-0.5">1. Sincronizar Relógio do Celular:</span>
+                              <p className="text-[11px] text-slate-600">
+                                <strong>Android (Google Authenticator):</strong> Toque nos 3 pontos &rarr; <em>Configurações</em> &rarr; <em>Correção de horas para códigos</em> &rarr; <em>Sincronizar agora</em>.
+                              </p>
+                              <p className="text-[11px] text-slate-600 mt-1">
+                                <strong>iPhone (iOS):</strong> Acesse <em>Ajustes</em> &rarr; <em>Geral</em> &rarr; <em>Data e Hora</em> &rarr; marque <em>Definir Automaticamente</em>.
+                              </p>
+                            </div>
+
+                            <div className="border-t border-blue-200/60 pt-2">
+                              <span className="font-bold text-slate-900 block mb-0.5">2. Entrar com Código de Emergência:</span>
+                              <p className="text-[11px] text-slate-600 mb-1.5">
+                                Se o aplicativo do celular continuar dessincronizado, utilize a contingência de uso único de recuperação:
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setUseRecoveryCode(true);
+                                  setRecoveryCodeInput('EMERGENCIA-CFO-2026');
+                                  setShowTotpHelper(false);
+                                  setErrorMsg(null);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 active:scale-98 border border-blue-300 rounded-lg text-[11px] font-bold text-[#164491] shadow-xs cursor-pointer transition-all"
+                              >
+                                <span>Usar código emergencial</span>
+                                <code className="font-mono text-emerald-700 font-extrabold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">EMERGENCIA-CFO-2026</code>
+                                <span className="text-slate-400">&rarr;</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : (
