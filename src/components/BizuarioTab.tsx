@@ -623,16 +623,26 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
 
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Export Bizus as JSON
+  // Export Bizus as JSON (Blob nativo com suporte a grandes volumes e mobile)
   const handleExportBizus = () => {
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(bizuItems, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', `bizuario_cfocbmerj_${new Date().toISOString().slice(0, 10)}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    showToast('Backup do Bizuário exportado com sucesso!', 'success');
+    try {
+      const jsonContent = JSON.stringify(bizuItems || [], null, 2);
+      const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.href = url;
+      downloadAnchor.download = `bizuario_cfocbmerj_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      setTimeout(() => {
+        downloadAnchor.remove();
+        URL.revokeObjectURL(url);
+      }, 1000);
+      showToast('Backup do Bizuário exportado com sucesso!', 'success');
+    } catch (err) {
+      console.error('[Bizuário] Erro ao exportar backup:', err);
+      showToast('Falha ao exportar backup.', 'error');
+    }
   };
 
   // Import Bizus from JSON

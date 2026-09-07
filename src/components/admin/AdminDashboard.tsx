@@ -1949,13 +1949,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          const blob = new Blob([newRecoveryCodes.join('\n')], { type: 'text/plain' });
+                          const blob = new Blob([newRecoveryCodes.join('\n')], { type: 'text/plain;charset=utf-8' });
                           const url = URL.createObjectURL(blob);
                           const a = document.createElement('a');
                           a.href = url;
                           a.download = `cfo-admin-recovery-codes-${new Date().toISOString().slice(0, 10)}.txt`;
+                          document.body.appendChild(a);
                           a.click();
-                          URL.revokeObjectURL(url);
+                          setTimeout(() => {
+                            a.remove();
+                            URL.revokeObjectURL(url);
+                          }, 1000);
                         }}
                         className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold cursor-pointer"
                       >
