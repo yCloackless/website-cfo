@@ -64,12 +64,52 @@ import { TimerTab } from './components/TimerTab';
 import { NotionAgendaTab } from './components/NotionAgendaTab';
 import { CookieConsent } from './components/CookieConsent';
 import { TacticalSimulations } from './components/TacticalSimulations';
+import { TacticalSidebar } from './components/TacticalSidebar';
 
 export default function App() {
   // 🛡️ Security Gate (2FA TOTP Terminal) State
   const [isTerminalUnlocked, setIsTerminalUnlocked] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [showLoginModal, setShowLoginModal] = useState(false);
+
+  // 🧭 Estado do Menu Lateral de Abas Táticas (expandido, recolhido ou oculto)
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('cfo_sidebar_open');
+      return saved !== null ? JSON.parse(saved) : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('cfo_sidebar_collapsed');
+      return saved !== null ? JSON.parse(saved) : false;
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleSidebar = useCallback(() => {
+    setIsSidebarOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('cfo_sidebar_open', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleToggleCollapse = useCallback(() => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('cfo_sidebar_collapsed', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   // Validação automática de sessão 2FA persistente (30 dias)
   useEffect(() => {
@@ -996,10 +1036,24 @@ export default function App() {
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         onLockTerminal={handleLockTerminal}
+        isSidebarOpen={isSidebarOpen}
+        onToggleSidebar={handleToggleSidebar}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      {/* App Body: Collapsible Tactical Sidebar + Main Content */}
+      <div className="flex-1 flex w-full relative overflow-x-hidden">
+        <TacticalSidebar
+          activeTab={activeTab}
+          onSelectTab={setActiveTab}
+          theme={theme}
+          isOpen={isSidebarOpen}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={handleToggleCollapse}
+          pendingRevisionsCount={pendingRevisionsCount}
+        />
+
+        {/* Main Content Area */}
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 min-w-0">
         
         {/* Render Tab 1: Cronograma Semanal */}
         {activeTab === 'table' && (
@@ -1460,6 +1514,7 @@ export default function App() {
         </footer>
 
       </main>
+      </div>
 
       {/* Floating Toast Notification */}
       {toastMessage && (

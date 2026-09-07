@@ -15,6 +15,7 @@ import {
   Target,
   Lock,
   Crosshair,
+  PanelLeft,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
@@ -35,9 +36,11 @@ interface HeaderProps {
   pendingRevisionsCount: number;
   theme: AppTheme;
   onToggleTheme: () => void;
-  activeTab: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations';
-  onSelectTab: (tab: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations') => void;
+  activeTab?: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations';
+  onSelectTab?: (tab: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations') => void;
   onLockTerminal?: () => void;
+  isSidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -60,6 +63,8 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   onSelectTab,
   onLockTerminal,
+  isSidebarOpen = true,
+  onToggleSidebar,
 }) => {
   const isDark = theme === 'dark';
 
@@ -71,12 +76,29 @@ export const Header: React.FC<HeaderProps> = ({
           : 'bg-white/95 border-slate-200 text-slate-900 shadow-slate-200/50'
       }`}
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5">
+        <div className="flex items-center justify-between gap-4">
           
-          {/* Brand & Cycle Info with Official Blue Phoenix Logo */}
-          <div className="flex items-center space-x-3">
-            <div className="w-11 h-11 rounded-xl bg-[#0B1528] border border-blue-500/30 flex items-center justify-center p-1 shadow-md shrink-0">
+          {/* Brand & Toggle Sidebar Button */}
+          <div className="flex items-center gap-3 shrink-0">
+            {onToggleSidebar && (
+              <button
+                type="button"
+                id="btn-toggle-sidebar"
+                onClick={onToggleSidebar}
+                className={`p-2 rounded-xl border transition-all cursor-pointer ${
+                  isDark
+                    ? 'border-slate-800 bg-[#0B1528] text-slate-300 hover:text-white hover:border-blue-500/50'
+                    : 'border-slate-300 bg-slate-100 text-slate-700 hover:text-black hover:border-blue-500'
+                }`}
+                title={isSidebarOpen ? 'Recolher / Ocultar Abas' : 'Expandir Abas Laterais'}
+                aria-label="Alternar abas laterais"
+              >
+                <PanelLeft className="w-4 h-4 text-[#0056D2]" />
+              </button>
+            )}
+
+            <div className="w-10 h-10 rounded-xl bg-[#0B1528] border border-blue-500/30 flex items-center justify-center p-1 shadow-md shrink-0">
               <img
                 src="/phoenix-logo-cropped.png"
                 alt="Logo Fênix RUMO ao CFO"
@@ -84,19 +106,19 @@ export const Header: React.FC<HeaderProps> = ({
               />
             </div>
             <div>
-              <p className="text-[10.5px] uppercase tracking-[0.25em] text-blue-400 font-bold">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-blue-500 font-extrabold">
                 RUMO AO CFO
               </p>
               <div className="flex items-baseline gap-2">
                 <h1
-                  className={`text-xl font-extrabold tracking-tight ${
-                    isDark ? 'text-white' : 'text-slate-900'
+                  className={`text-lg font-black tracking-tight ${
+                    isDark ? 'text-white' : 'text-slate-950'
                   }`}
                 >
                   Área de Alunos
                 </h1>
                 <span
-                  className={`italic text-xs font-normal ${
+                  className={`italic text-xs font-normal hidden md:inline ${
                     isDark ? 'text-slate-400' : 'text-slate-500'
                   }`}
                 >
@@ -106,143 +128,8 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Navigation Tabs (Table, Timer, Bizuario, Mais Caem, IA) */}
-          <div
-            className={`flex items-center p-1 rounded-xl border ${
-              isDark
-                ? 'bg-[#0B1528] border-slate-800'
-                : 'bg-slate-100 border-slate-200'
-            }`}
-          >
-            <button
-              id="tab-cronograma"
-              onClick={() => onSelectTab('table')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'table'
-                  ? 'bg-[#0056D2] text-white shadow-sm'
-                  : isDark
-                  ? 'text-slate-400 hover:text-slate-200'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              <span>Cronograma</span>
-            </button>
-
-            <button
-              id="tab-agenda-notion"
-              onClick={() => onSelectTab('calendar')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'calendar'
-                  ? 'bg-[#0056D2] text-white shadow-sm'
-                  : isDark
-                  ? 'text-slate-400 hover:text-blue-400'
-                  : 'text-slate-600 hover:text-blue-600'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Agenda</span>
-              <span
-                className={`px-1 py-0.2 rounded text-[8.5px] font-bold uppercase border ${
-                  isDark
-                    ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-                    : 'bg-blue-100 text-blue-900 border-blue-300'
-                }`}
-              >
-                Notion
-              </span>
-            </button>
-
-            <button
-              id="tab-cronometro"
-              onClick={() => onSelectTab('timer')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'timer'
-                  ? 'bg-[#0056D2] text-white shadow-sm'
-                  : isDark
-                  ? 'text-slate-400 hover:text-blue-400'
-                  : 'text-slate-600 hover:text-blue-600'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5" />
-              <span>Cronômetro</span>
-            </button>
-
-            <button
-              id="tab-bizuario"
-              onClick={() => onSelectTab('bizuario')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'bizuario'
-                  ? 'bg-[#0056D2] text-white shadow-sm'
-                  : isDark
-                  ? 'text-slate-400 hover:text-blue-400'
-                  : 'text-slate-600 hover:text-blue-600'
-              }`}
-            >
-              <BookOpen className="w-3.5 h-3.5" />
-              <span>Bizuário</span>
-            </button>
-
-            <button
-              id="tab-mais-caem"
-              onClick={() => onSelectTab('highyield')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'highyield'
-                  ? 'bg-[#0056D2] text-white shadow-sm'
-                  : isDark
-                  ? 'text-slate-400 hover:text-blue-400'
-                  : 'text-slate-600 hover:text-blue-600'
-              }`}
-            >
-              <Target className="w-3.5 h-3.5 text-blue-400" />
-              <span>Mais Caem</span>
-              <span className="px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-blue-600 text-white uppercase">
-                Raio-X
-              </span>
-            </button>
-
-            <button
-              id="tab-ia-equilibrio"
-              onClick={() => onSelectTab('ai')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'ai'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : isDark
-                  ? 'text-slate-400 hover:text-indigo-400'
-                  : 'text-slate-600 hover:text-indigo-600'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-              <span>IA</span>
-            </button>
-
-            <button
-              id="tab-simulados"
-              onClick={() => onSelectTab('simulations')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'simulations'
-                  ? 'bg-gradient-to-r from-red-700 to-red-900 text-white shadow-sm shadow-red-950/60'
-                  : isDark
-                  ? 'text-slate-400 hover:text-red-400'
-                  : 'text-slate-600 hover:text-red-600'
-              }`}
-            >
-              <Crosshair className="w-3.5 h-3.5 text-red-400" />
-              <span>Simulados</span>
-              <span
-                className={`px-1 py-0.2 rounded text-[8px] font-extrabold uppercase border ${
-                  isDark
-                    ? 'bg-red-600/30 text-red-300 border-red-500/40'
-                    : 'bg-red-100 text-red-900 border-red-300'
-                }`}
-              >
-                UERJ
-              </span>
-            </button>
-          </div>
-
-          {/* Action buttons & Utilities (Uncluttered, CloudTimer moved to its dedicated tab) */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Action buttons & Utilities - Aligned to the right with generous spacing */}
+          <div className="ml-auto flex items-center gap-2 sm:gap-2.5 flex-nowrap shrink-0">
             {/* Smart Revisions Button */}
             <button
               id="btn-revisoes-inteligentes"
