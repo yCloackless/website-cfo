@@ -47,7 +47,7 @@ import {
 import { logAuditEvent, readRecentAuditLogs } from "./src/services/auditLogger";
 import { AuthService } from "./src/db/authService";
 import { getDb } from "./src/db/database";
-import { UserRepository, ProfileRepository, AuditRepository, SessionRepository } from "./src/db/repositories";
+import { UserRepository, ProfileRepository, AuditRepository, SessionRepository, RecoveryCodeRepository } from "./src/db/repositories";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
 
 const app = express();
@@ -423,6 +423,14 @@ const authLimiter = rateLimit({
   message: { error: "TOO_MANY_LOGIN_ATTEMPTS", message: "Muitas tentativas de autenticação. Acesso bloqueado por 15 minutos." },
 });
 
+const twoFactorLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "TOO_MANY_2FA_ATTEMPTS", message: "Muitas tentativas de 2FA. Acesso bloqueado por 15 minutos." },
+});
+
 app.use(express.json({ limit: "10mb" }));
 
 // Google OAuth 2.0 Credentials & Storage Configuration
@@ -728,6 +736,7 @@ const auditRepoInstance = new AuditRepository(getDb().getRawDb());
 const userRepoInstance = new UserRepository(getDb().getRawDb());
 const profileRepoInstance = new ProfileRepository(getDb().getRawDb());
 const sessionRepoInstance = new SessionRepository(getDb().getRawDb());
+const recoveryCodeRepoInstance = new RecoveryCodeRepository(getDb().getRawDb());
 
 function logSecurityEvent(
   req: Request,
@@ -825,6 +834,72 @@ function verifyTerminalSession(token?: string | null): {
   } catch {
     return { valid: false };
   }
+}
+
+// ==========================================
+// 🛡️ STEP-UP AUTHENTICATION (Tokens Assinados de Curta Duração - 5 Minutos)
+// ==========================================
+function createStepUpToken(username: string, userId?: string): { token: string; expiresIn: number } {
+  const config = getSecurityConfig();
+  const expiresIn = 5 * 60; // 5 minutos (300 segundos)
+  const expiresAt = Date.now() + expiresIn * 1000;
+  const payload = {
+    u: username,
+    userId: userId || null,
+    purpose: "admin_step_up",
+    exp: expiresAt,
+    iat: Date.now(),
+  };
+  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", config.sessionSecret).update(`stepup:${payloadB64}`).digest("base64url");
+  return {
+    token: `${payloadB64}.${signature}`,
+    expiresIn,
+  };
+}
+
+function verifyStepUpToken(token?: string | null): { valid: boolean; username?: string; userId?: string } {
+  if (!token || typeof token !== "string") return { valid: false };
+  const parts = token.split(".");
+  if (parts.length !== 2) return { valid: false };
+
+  const [payloadB64, signature] = parts;
+  const config = getSecurityConfig();
+  const expectedSig = crypto.createHmac("sha256", config.sessionSecret).update(`stepup:${payloadB64}`).digest("base64url");
+
+  if (expectedSig.length !== signature.length) return { valid: false };
+  const sigBufA = Buffer.from(signature, "utf-8");
+  const sigBufB = Buffer.from(expectedSig, "utf-8");
+  if (!crypto.timingSafeEqual(sigBufA, sigBufB)) return { valid: false };
+
+  try {
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf-8"));
+    if (payload.purpose !== "admin_step_up") return { valid: false };
+    if (!payload.exp || Date.now() > payload.exp) return { valid: false };
+    return {
+      valid: true,
+      username: payload.u,
+      userId: payload.userId,
+    };
+  } catch {
+    return { valid: false };
+  }
+}
+
+function requireStepUpAuth(req: Request, res: Response, next: NextFunction) {
+  const stepUpHeader = req.headers["x-admin-step-up-token"] || req.headers["x-step-up-token"];
+  const token = typeof stepUpHeader === "string" ? stepUpHeader.trim() : null;
+
+  const result = verifyStepUpToken(token);
+  if (!result.valid) {
+    return res.status(403).json({
+      error: "STEP_UP_REQUIRED",
+      message: "Esta ação administrativa crítica exige confirmação recente de identidade (Step-Up 2FA/Senha).",
+    });
+  }
+
+  (req as any).stepUp = result;
+  return next();
 }
 
 // Cache de códigos TOTP já usados para proteção anti-replay
@@ -1238,10 +1313,10 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
   }
 });
 
-// 3. Rota de Validação de Código Authenticator (com authLimiter anti-força bruta)
-app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response) => {
+// 3. Rota de Validação de Código Authenticator / Recovery Code (com twoFactorLimiter anti-força bruta)
+app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Response) => {
   try {
-    const { username, email, password, token, rememberMe, turnstileToken } = req.body || {};
+    const { username, email, password, token, recoveryCode, rememberMe, turnstileToken } = req.body || {};
     const inputUser = (username || email || "").trim().toLowerCase();
     const clientIp = getClientIp(req);
     const isAdmIp = isAdminIp(clientIp);
@@ -1288,13 +1363,6 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
       }
     }
 
-    if (!inputUser || !password) {
-      return res.status(400).json({
-        error: "MISSING_FIELDS",
-        message: "Usuário e senha são obrigatórios.",
-      });
-    }
-
     const isAuthorized =
       cleanUser === ADMIN_USER.toLowerCase() ||
       cleanUser === "jb080956@gmail.com" ||
@@ -1315,28 +1383,62 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
     }
 
     const config = getSecurityConfig();
+    let authMethod = "TOTP";
 
-    // Código Authenticator de 6 dígitos é 100% obrigatório
-    if (!token || token.trim().length !== 6) {
+    // Validação de 2FA: TOTP ou Recovery Code de uso único
+    if (!token && !recoveryCode) {
       return res.status(400).json({
-        error: "TOTP_REQUIRED",
-        message: "Código Google Authenticator de 6 dígitos é obrigatório.",
+        error: "2FA_REQUIRED",
+        message: "Código Google Authenticator de 6 dígitos ou Recovery Code é obrigatório.",
       });
     }
 
-    const isCodeValid = verifyTotpToken(token, config.totpSecret);
-    if (!isCodeValid) {
-      logSecurityEvent(req, {
-        action: "2FA_FAILED",
-        actor: cleanUser,
-        resource: "/api/auth/verify-2fa",
-        status: "FAILED",
-        details: { reason: "Código TOTP inválido ou expirado" },
-      });
-      return res.status(401).json({
-        error: "INVALID_TOTP",
-        message: "Código Authenticator incorreto ou expirado. Verifique o relógio do seu celular.",
-      });
+    if (token) {
+      if (typeof token !== "string" || token.trim().length !== 6) {
+        return res.status(400).json({
+          error: "TOTP_REQUIRED",
+          message: "Código Google Authenticator de 6 dígitos é obrigatório.",
+        });
+      }
+
+      const isCodeValid = verifyTotpToken(token, config.totpSecret);
+      if (!isCodeValid) {
+        logSecurityEvent(req, {
+          action: "2FA_FAILED",
+          actor: cleanUser,
+          resource: "/api/auth/verify-2fa",
+          status: "FAILED",
+          details: { reason: "Código TOTP inválido ou expirado" },
+        });
+        return res.status(401).json({
+          error: "INVALID_TOTP",
+          message: "Código Authenticator incorreto ou expirado. Verifique o relógio do seu celular.",
+        });
+      }
+      authMethod = "TOTP";
+    } else if (recoveryCode) {
+      // Localiza o usuário admin para validar o hash do código de recuperação
+      let targetUser = userRepoInstance.findByUsername(cleanUser) || userRepoInstance.findByEmail(cleanUser);
+      if (!targetUser) {
+        targetUser = userRepoInstance.findByUsername(ADMIN_USER);
+      }
+      const userId = targetUser ? targetUser.id : "admin-default-id";
+
+      const isRecoveryValid = recoveryCodeRepoInstance.verifyAndConsumeCode(userId, String(recoveryCode));
+      if (!isRecoveryValid) {
+        logSecurityEvent(req, {
+          action: "2FA_FAILED",
+          actor: cleanUser,
+          resource: "/api/auth/verify-2fa",
+          status: "FAILED",
+          details: { reason: "Recovery code inválido ou já utilizado" },
+        });
+        return res.status(401).json({
+          error: "INVALID_RECOVERY_CODE",
+          message: "Código de recuperação inválido ou já utilizado.",
+        });
+      }
+      authMethod = "RECOVERY_CODE";
     }
 
     const session = createTerminalSession(cleanUser, rememberMe !== false, "admin");
@@ -1345,15 +1447,16 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
       actor: cleanUser,
       resource: "/api/auth/verify-2fa",
       status: "SUCCESS",
+      details: { method: authMethod },
     });
     logSecurityEvent(req, {
       action: "ADMIN_LOGIN",
       actor: cleanUser,
       resource: "/api/auth/verify-2fa",
       status: "SUCCESS",
-      details: { role: "admin", rememberMe: rememberMe !== false },
+      details: { role: "admin", rememberMe: rememberMe !== false, method: authMethod },
     });
-    console.log(`[Terminal CFO CBMERJ] Acesso autenticado via 2FA para '${cleanUser}' (30 dias: ${rememberMe !== false})`);
+    console.log(`[Terminal CFO CBMERJ] Acesso autenticado via 2FA (${authMethod}) para '${cleanUser}' (30 dias: ${rememberMe !== false})`);
 
     return res.json({
       success: true,
@@ -1365,6 +1468,7 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
       rememberMe: rememberMe !== false,
       is2faActive: true,
       expiresInDays: rememberMe !== false ? 30 : 1,
+      authMethod,
     });
   } catch (err: any) {
     return res.status(500).json({ error: "AUTH_ERROR", message: err?.message });
@@ -1615,6 +1719,127 @@ app.get("/api/admin/verify", requireAdminAuth, (req: Request, res: Response) => 
   });
 });
 
+// 13.1. Elevação de Privilégios / Confirmação de Identidade (Step-Up Authentication - 5 minutos)
+app.post("/api/admin/step-up", requireAdminAuth, twoFactorLimiter, async (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    const { password, totpCode } = req.body || {};
+    const config = getSecurityConfig();
+
+    if (!password && !totpCode) {
+      return res.status(400).json({
+        error: "MISSING_CREDENTIAL",
+        message: "Informe a senha do administrador ou o código TOTP para confirmar a operação.",
+      });
+    }
+
+    let isAuthorized = false;
+
+    // 1. Verificação por Código TOTP
+    if (totpCode) {
+      if (verifyTotpToken(String(totpCode), config.totpSecret)) {
+        isAuthorized = true;
+      }
+    }
+
+    // 2. Verificação por Senha Administrativa
+    if (!isAuthorized && password) {
+      if (await safeComparePassword(String(password), ADMIN_PASSWORD_HASH)) {
+        isAuthorized = true;
+      } else if (adminUser.userId) {
+        const dbUser = userRepoInstance.findById(adminUser.userId);
+        if (dbUser && (await safeComparePassword(String(password), dbUser.passwordHash))) {
+          isAuthorized = true;
+        }
+      }
+    }
+
+    if (!isAuthorized) {
+      logSecurityEvent(req, {
+        action: "2FA_FAILED",
+        actor: adminUser.username || "admin",
+        resource: "/api/admin/step-up",
+        status: "FAILED",
+        details: { reason: "Credencial incorreta na confirmação de Step-Up" },
+      });
+      return res.status(401).json({
+        error: "INVALID_STEP_UP_CREDENTIALS",
+        message: "Credencial de confirmação incorreta. Acesso sensível negado.",
+      });
+    }
+
+    const { token: stepUpToken, expiresIn } = createStepUpToken(adminUser.username, adminUser.userId);
+
+    logSecurityEvent(req, {
+      action: "2FA_SUCCESS",
+      actor: adminUser.username || "admin",
+      resource: "/api/admin/step-up",
+      status: "SUCCESS",
+      details: { stepUp: true, expiresIn },
+    });
+
+    return res.json({
+      success: true,
+      stepUpToken,
+      expiresIn,
+      message: "Confirmação de identidade realizada com sucesso.",
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: "STEP_UP_ERROR", message: err?.message });
+  }
+});
+
+// 13.2. Geração de Novos Códigos de Recuperação (Requer Step-Up prévio)
+app.post("/api/admin/2fa/generate-recovery-codes", requireAdminAuth, requireStepUpAuth, (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    let targetUser = adminUser.userId ? userRepoInstance.findById(adminUser.userId) : null;
+    if (!targetUser) {
+      targetUser = userRepoInstance.findByUsername(adminUser.username) || userRepoInstance.findByUsername(ADMIN_USER);
+    }
+    const userId = targetUser ? targetUser.id : (adminUser.userId || "admin-default-id");
+
+    const { rawCodes, count } = recoveryCodeRepoInstance.generateCodesForUser(userId, 8);
+
+    logSecurityEvent(req, {
+      action: "RECOVERY_CODES_GENERATED",
+      actor: adminUser.username || "admin",
+      resource: "/api/admin/2fa/generate-recovery-codes",
+      status: "SUCCESS",
+      details: { count },
+    });
+
+    return res.json({
+      success: true,
+      codes: rawCodes,
+      count,
+      message: "Novos códigos de recuperação gerados com sucesso. Guarde-os em local seguro!",
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: "RECOVERY_CODES_ERROR", message: err?.message });
+  }
+});
+
+// 13.3. Consulta de Quantidade de Recovery Codes Restantes
+app.get("/api/admin/2fa/recovery-codes-count", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    let targetUser = adminUser.userId ? userRepoInstance.findById(adminUser.userId) : null;
+    if (!targetUser) {
+      targetUser = userRepoInstance.findByUsername(adminUser.username) || userRepoInstance.findByUsername(ADMIN_USER);
+    }
+    const userId = targetUser ? targetUser.id : (adminUser.userId || "admin-default-id");
+    const remainingCount = recoveryCodeRepoInstance.getRemainingCount(userId);
+
+    return res.json({
+      success: true,
+      remainingCount,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: "RECOVERY_COUNT_ERROR", message: err?.message });
+  }
+});
+
 // 14. Dashboard Administrativo (Métricas Consolidadas em Tempo Real)
 app.get("/api/admin/dashboard", requireAdminAuth, (_req: Request, res: Response) => {
   try {
@@ -1673,8 +1898,8 @@ app.get("/api/admin/users", requireAdminAuth, (req: Request, res: Response) => {
   }
 });
 
-// 16. Alterar Status de Conta de Usuário (Suspender ou Reativar)
-app.patch("/api/admin/users/:id/status", requireAdminAuth, (req: Request, res: Response) => {
+// 16. Alterar Status de Conta de Usuário (Suspender ou Reativar - Requer Step-Up)
+app.patch("/api/admin/users/:id/status", requireAdminAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const userId = req.params.id;
     const { status } = req.body || {};
@@ -1721,8 +1946,8 @@ app.patch("/api/admin/users/:id/status", requireAdminAuth, (req: Request, res: R
   }
 });
 
-// 17. Alterar Papel / Privilégio de Usuário (Admin / Cadet)
-app.patch("/api/admin/users/:id/role", requireAdminAuth, (req: Request, res: Response) => {
+// 17. Alterar Papel / Privilégio de Usuário (Admin / Cadet - Requer Step-Up)
+app.patch("/api/admin/users/:id/role", requireAdminAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const userId = req.params.id;
     const { role } = req.body || {};
@@ -1779,8 +2004,8 @@ app.get("/api/admin/sessions", requireAdminAuth, (req: Request, res: Response) =
   }
 });
 
-// 19. Revogação de Sessão Específica por ID (Admin)
-app.post("/api/admin/sessions/:id/revoke", requireAdminAuth, (req: Request, res: Response) => {
+// 19. Revogação de Sessão Específica por ID (Admin - Requer Step-Up)
+app.post("/api/admin/sessions/:id/revoke", requireAdminAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const sessionId = req.params.id;
     const adminUser = (req as any).user;
@@ -3665,8 +3890,8 @@ app.post("/api/admin/backup/create", requireAdminAuth, async (req: Request, res:
   }
 });
 
-// 6. Restauração Crítica de Backup do Servidor (Requer confirmação explícita)
-app.post("/api/admin/backup/restore", requireAdminAuth, async (req: Request, res: Response) => {
+// 6. Restauração Crítica de Backup do Servidor (Requer confirmação explícita e Step-Up)
+app.post("/api/admin/backup/restore", requireAdminAuth, requireStepUpAuth, async (req: Request, res: Response) => {
   try {
     const { filename, confirm } = req.body || {};
     const actor = (req as any).user?.username || "admin";

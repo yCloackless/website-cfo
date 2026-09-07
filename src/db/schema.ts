@@ -184,3 +184,12 @@ export interface DbSession {
   createdAt: string;
 }
 
+export interface DbRecoveryCode {
+  id: string;
+  userId: string;
+  codeHash: string; // SHA-256 hash seguro do código de recuperação
+  isUsed: boolean;
+  usedAt?: string | null;
+  createdAt: string;
+}
+

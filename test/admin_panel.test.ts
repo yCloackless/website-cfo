@@ -212,7 +212,22 @@ test('5. Gestão de Usuários: Busca, suspensão e reativação de conta com blo
   const cadetUser = userRepo.findByUsername('cadete');
   assert.ok(cadetUser, 'Cadete deve existir no banco');
 
-  // 5.1 Busca por username
+  // Obter Step-Up token para autorizar alterações críticas
+  const stepUpRes = await fetch(`${baseUrl}/api/admin/step-up`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({ password: 'cfocbmerj2026!' }),
+  });
+  assert.equal(stepUpRes.status, 200);
+  const stepUpData = await stepUpRes.json();
+  assert.ok(stepUpData.stepUpToken);
+
+  const stepUpHeaders = {
+    ...adminHeaders,
+    'x-admin-step-up-token': stepUpData.stepUpToken,
+  };
+
+  // 5.1 Busca por username (não exige step-up)
   const searchRes = await fetch(`${baseUrl}/api/admin/users?search=cadete`, { headers: adminHeaders });
   const searchData = await searchRes.json();
   assert.equal(searchData.items.length, 1);
@@ -222,7 +237,7 @@ test('5. Gestão de Usuários: Busca, suspensão e reativação de conta com blo
   // 5.2 IDs inexistentes retornam 404
   const notFoundRes = await fetch(`${baseUrl}/api/admin/users/id_totalmente_inexistente_999/status`, {
     method: 'PATCH',
-    headers: adminHeaders,
+    headers: stepUpHeaders,
     body: JSON.stringify({ status: 'suspended' }),
   });
   assert.equal(notFoundRes.status, 404, 'ID inexistente deve retornar 404');
@@ -230,7 +245,7 @@ test('5. Gestão de Usuários: Busca, suspensão e reativação de conta com blo
   // 5.3 Suspender cadete
   const suspendRes = await fetch(`${baseUrl}/api/admin/users/${cadetUser.id}/status`, {
     method: 'PATCH',
-    headers: adminHeaders,
+    headers: stepUpHeaders,
     body: JSON.stringify({ status: 'suspended' }),
   });
   assert.equal(suspendRes.status, 200);
@@ -249,7 +264,7 @@ test('5. Gestão de Usuários: Busca, suspensão e reativação de conta com blo
   // 5.5 Reativar cadete
   const reactivateRes = await fetch(`${baseUrl}/api/admin/users/${cadetUser.id}/status`, {
     method: 'PATCH',
-    headers: adminHeaders,
+    headers: stepUpHeaders,
     body: JSON.stringify({ status: 'active' }),
   });
   assert.equal(reactivateRes.status, 200);
@@ -269,6 +284,19 @@ test('6. Gestão de Sessões: Listagem e revogação imediata de sessão especí
   const adminToken = adminLogin.token!;
   const adminHeaders = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
 
+  // Obter Step-Up token para autorizar revogação
+  const stepUpRes = await fetch(`${baseUrl}/api/admin/step-up`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({ password: 'cfocbmerj2026!' }),
+  });
+  assert.equal(stepUpRes.status, 200);
+  const stepUpData = await stepUpRes.json();
+  const stepUpHeaders = {
+    ...adminHeaders,
+    'x-admin-step-up-token': stepUpData.stepUpToken,
+  };
+
   // Garante que o cadete está ativo
   const cadet = userRepo.findByUsername('cadete')!;
   userRepo.updateStatus(cadet.id, 'active');
@@ -284,10 +312,10 @@ test('6. Gestão de Sessões: Listagem e revogação imediata de sessão especí
   const validateBefore = sessionRepo.validateSession(sessionResult.rawToken);
   assert.equal(validateBefore.valid, true, 'Sessão recém criada deve estar válida');
 
-  // Admin revoga a sessão através de /api/admin/sessions/:id/revoke
+  // Admin revoga a sessão através de /api/admin/sessions/:id/revoke com Step-Up
   const revokeRes = await fetch(`${baseUrl}/api/admin/sessions/${sessionResult.session.id}/revoke`, {
     method: 'POST',
-    headers: adminHeaders,
+    headers: stepUpHeaders,
   });
   assert.equal(revokeRes.status, 200);
   const revokeData = await revokeRes.json();

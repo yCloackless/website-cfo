@@ -17,6 +17,7 @@ import {
   DbAuditEvent,
   DbPasswordReset,
   DbSession,
+  DbRecoveryCode,
   OrderStatus,
   RefundRequestStatus,
   UserRole,
@@ -1148,6 +1149,101 @@ export class SessionRepository {
     const now = new Date().toISOString();
     const result = this.db.prepare('UPDATE sessions SET revoked_at = ? WHERE id = ?').run(now, sessionId);
     return Number(result.changes) > 0;
+  }
+}
+
+export class RecoveryCodeRepository {
+  constructor(private db: DatabaseSync) {}
+
+  /**
+   * Normaliza o código para comparação determinística:
+   * Remove espaços, traços e converte para maiúsculas.
+   */
+  public static normalizeCode(code: string): string {
+    return (code || '').replace(/[\s-]+/g, '').toUpperCase().trim();
+  }
+
+  /**
+   * Hasheia o código normalizado em SHA-256 para armazenamento seguro
+   */
+  public static hashCode(code: string): string {
+    const normalized = RecoveryCodeRepository.normalizeCode(code);
+    return crypto.createHash('sha256').update(normalized).digest('hex');
+  }
+
+  /**
+   * Gera um novo lote de códigos de contingência criptograficamente fortes (ex: ABCD-EFGH-IJKL).
+   * Invalida códigos não utilizados anteriores do mesmo usuário.
+   */
+  public generateCodesForUser(
+    userId: string,
+    count: number = 8
+  ): { rawCodes: string[]; count: number } {
+    const now = new Date().toISOString();
+    const rawCodes: string[] = [];
+    const charset = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'; // Base32 legível sem 0/O/1/I
+
+    for (let i = 0; i < count; i++) {
+      const bytes = crypto.randomBytes(9);
+      let codeStr = '';
+      for (let b = 0; b < 9; b++) {
+        codeStr += charset[bytes[b] % charset.length];
+      }
+      // Formata em blocos: XXX-XXX-XXX
+      const formatted = `${codeStr.slice(0, 3)}-${codeStr.slice(3, 6)}-${codeStr.slice(6, 9)}`;
+      rawCodes.push(formatted);
+    }
+
+    // Invalida/deleta códigos não usados anteriores do usuário
+    this.db.prepare('DELETE FROM admin_recovery_codes WHERE user_id = ? AND is_used = 0').run(userId);
+
+    const insertStmt = this.db.prepare(
+      `INSERT INTO admin_recovery_codes (id, user_id, code_hash, is_used, created_at)
+       VALUES (?, ?, ?, 0, ?)`
+    );
+
+    for (const rawCode of rawCodes) {
+      const codeHash = RecoveryCodeRepository.hashCode(rawCode);
+      insertStmt.run(crypto.randomUUID(), userId, codeHash, now);
+    }
+
+    return { rawCodes, count: rawCodes.length };
+  }
+
+  /**
+   * Valida e consome um código de recuperação de uso único.
+   * Se for válido e não utilizado, marca is_used = 1 e used_at = now() atomicamente.
+   * Se já tiver sido consumido ou for inválido, retorna false.
+   */
+  public verifyAndConsumeCode(userId: string, rawCode: string): boolean {
+    if (!userId || !rawCode) return false;
+    const codeHash = RecoveryCodeRepository.hashCode(rawCode);
+    const now = new Date().toISOString();
+
+    const result = this.db
+      .prepare(
+        `UPDATE admin_recovery_codes
+         SET is_used = 1, used_at = ?
+         WHERE user_id = ? AND code_hash = ? AND is_used = 0`
+      )
+      .run(now, userId, codeHash);
+
+    return Number(result.changes) > 0;
+  }
+
+  /**
+   * Retorna a quantidade de códigos de recuperação ainda disponíveis (não utilizados) para o usuário.
+   */
+  public getRemainingCount(userId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) as count
+         FROM admin_recovery_codes
+         WHERE user_id = ? AND is_used = 0`
+      )
+      .get(userId) as { count: number } | undefined;
+
+    return row ? Number(row.count) : 0;
   }
 }
 

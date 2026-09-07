@@ -146,13 +146,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Feedback de Ações
   const [actionFeedback, setActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const getHeaders = useCallback(() => {
+  // 🛡️ Step-Up Authentication State
+  const [stepUpToken, setStepUpToken] = useState<string | null>(null);
+  const [isStepUpModalOpen, setIsStepUpModalOpen] = useState(false);
+  const [stepUpPassword, setStepUpPassword] = useState('');
+  const [stepUpTotp, setStepUpTotp] = useState('');
+  const [stepUpError, setStepUpError] = useState('');
+  const [isStepUpLoading, setIsStepUpLoading] = useState(false);
+  const [pendingAction, setPendingAction] = useState<((token: string) => Promise<void>) | null>(null);
+
+  // 🔐 Recovery Codes State
+  const [recoveryCount, setRecoveryCount] = useState<number | null>(null);
+  const [newRecoveryCodes, setNewRecoveryCodes] = useState<string[] | null>(null);
+  const [isGeneratingRecoveryCodes, setIsGeneratingRecoveryCodes] = useState(false);
+
+  const getHeaders = useCallback((overrideStepUp?: string | null) => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (sessionToken) {
       headers.Authorization = `Bearer ${sessionToken}`;
     }
+    const tokenToUse = overrideStepUp !== undefined ? overrideStepUp : stepUpToken;
+    if (tokenToUse) {
+      headers['x-admin-step-up-token'] = tokenToUse;
+    }
     return headers;
-  }, [sessionToken]);
+  }, [sessionToken, stepUpToken]);
 
   // 1. Verificação de Acesso Server-Side
   useEffect(() => {
@@ -292,26 +310,114 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (activeTab === 'dashboard') loadDashboard();
     else if (activeTab === 'users') loadUsers();
     else if (activeTab === 'sessions') loadSessions();
-    else if (activeTab === 'security' || activeTab === 'audit') loadAudit();
+    else if (activeTab === 'security' || activeTab === 'audit') {
+      loadAudit();
+      loadRecoveryCount();
+    }
     else if (activeTab === 'admins') loadAdmins();
   }, [activeTab, isAuthorized, loadDashboard, loadUsers, loadSessions, loadAudit, loadAdmins]);
 
-  // Ações de Usuário (Suspender / Reativar)
-  const handleToggleUserStatus = async (user: UserItem) => {
-    const nextStatus = user.status === 'suspended' ? 'active' : 'suspended';
-    const confirmMsg = nextStatus === 'suspended'
-      ? `Tem certeza que deseja SUSPENDER o usuário @${user.username}? Todas as sessões dele serão revogadas imediatamente.`
-      : `Deseja reativar o acesso de @${user.username}?`;
+  // Submeter Confirmação de Step-Up
+  const handleConfirmStepUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStepUpError('');
+    setIsStepUpLoading(true);
 
-    if (!window.confirm(confirmMsg)) return;
+    try {
+      const res = await fetch('/api/admin/step-up', {
+        method: 'POST',
+        headers: getHeaders(null),
+        body: JSON.stringify({
+          password: stepUpPassword || undefined,
+          totpCode: stepUpTotp || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success || !data.stepUpToken) {
+        setStepUpError(data.message || 'Credencial de confirmação incorreta.');
+        return;
+      }
+
+      setStepUpToken(data.stepUpToken);
+      setIsStepUpModalOpen(false);
+      setStepUpPassword('');
+      setStepUpTotp('');
+
+      if (pendingAction) {
+        const action = pendingAction;
+        setPendingAction(null);
+        await action(data.stepUpToken);
+      }
+    } catch {
+      setStepUpError('Erro de conexão ao autenticar Step-Up.');
+    } finally {
+      setIsStepUpLoading(false);
+    }
+  };
+
+  // Carregar Quantidade de Recovery Codes Restantes
+  const loadRecoveryCount = useCallback(() => {
+    if (!isAuthorized) return;
+    fetch('/api/admin/2fa/recovery-codes-count', { headers: getHeaders() })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && typeof data.remainingCount === 'number') {
+          setRecoveryCount(data.remainingCount);
+        }
+      })
+      .catch(() => {});
+  }, [isAuthorized, getHeaders]);
+
+  // Gerar Novos Códigos de Recuperação
+  const handleGenerateRecoveryCodes = async (overrideStepUp?: string) => {
+    setIsGeneratingRecoveryCodes(true);
+    try {
+      const res = await fetch('/api/admin/2fa/generate-recovery-codes', {
+        method: 'POST',
+        headers: getHeaders(overrideStepUp),
+      });
+      const data = await res.json();
+      if (res.status === 403 && data.error === 'STEP_UP_REQUIRED') {
+        setPendingAction(() => (token: string) => handleGenerateRecoveryCodes(token));
+        setIsStepUpModalOpen(true);
+        return;
+      }
+      if (res.ok && data.success && data.codes) {
+        setNewRecoveryCodes(data.codes);
+        setRecoveryCount(data.codes.length);
+        setActionFeedback({ type: 'success', message: 'Novos códigos de recuperação gerados com sucesso!' });
+      } else {
+        setActionFeedback({ type: 'error', message: data.message || 'Falha ao gerar códigos.' });
+      }
+    } catch {
+      setActionFeedback({ type: 'error', message: 'Erro de comunicação ao gerar recovery codes.' });
+    } finally {
+      setIsGeneratingRecoveryCodes(false);
+    }
+  };
+
+  // Ações de Usuário (Suspender / Reativar)
+  const handleToggleUserStatus = async (user: UserItem, overrideStepUp?: string) => {
+    const nextStatus = user.status === 'suspended' ? 'active' : 'suspended';
+    if (!overrideStepUp) {
+      const confirmMsg = nextStatus === 'suspended'
+        ? `Tem certeza que deseja SUSPENDER o usuário @${user.username}? Todas as sessões dele serão revogadas imediatamente.`
+        : `Deseja reativar o acesso de @${user.username}?`;
+      if (!window.confirm(confirmMsg)) return;
+    }
 
     try {
       const res = await fetch(`/api/admin/users/${user.id}/status`, {
         method: 'PATCH',
-        headers: getHeaders(),
+        headers: getHeaders(overrideStepUp),
         body: JSON.stringify({ status: nextStatus }),
       });
       const data = await res.json();
+      if (res.status === 403 && data.error === 'STEP_UP_REQUIRED') {
+        setPendingAction(() => (token: string) => handleToggleUserStatus(user, token));
+        setIsStepUpModalOpen(true);
+        return;
+      }
       if (res.ok && data.success) {
         setActionFeedback({ type: 'success', message: data.message });
         loadUsers();
@@ -325,21 +431,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Ações de Usuário (Promover / Rebaixar Role)
-  const handleToggleUserRole = async (user: UserItem) => {
+  const handleToggleUserRole = async (user: UserItem, overrideStepUp?: string) => {
     const nextRole = user.role === 'admin' ? 'cadet' : 'admin';
-    const confirmMsg = nextRole === 'admin'
-      ? `Deseja conceder privilégios de ADMINISTRADOR a @${user.username}?`
-      : `Deseja revogar os privilégios administrativos de @${user.username}?`;
-
-    if (!window.confirm(confirmMsg)) return;
+    if (!overrideStepUp) {
+      const confirmMsg = nextRole === 'admin'
+        ? `Deseja conceder privilégios de ADMINISTRADOR a @${user.username}?`
+        : `Deseja revogar os privilégios administrativos de @${user.username}?`;
+      if (!window.confirm(confirmMsg)) return;
+    }
 
     try {
       const res = await fetch(`/api/admin/users/${user.id}/role`, {
         method: 'PATCH',
-        headers: getHeaders(),
+        headers: getHeaders(overrideStepUp),
         body: JSON.stringify({ role: nextRole }),
       });
       const data = await res.json();
+      if (res.status === 403 && data.error === 'STEP_UP_REQUIRED') {
+        setPendingAction(() => (token: string) => handleToggleUserRole(user, token));
+        setIsStepUpModalOpen(true);
+        return;
+      }
       if (res.ok && data.success) {
         setActionFeedback({ type: 'success', message: data.message });
         loadUsers();
@@ -352,14 +464,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Ações de Sessão (Revogar)
-  const handleRevokeSession = async (sessionId: string) => {
-    if (!window.confirm('Deseja realmente revogar esta sessão imediatamente? O usuário será desconectado.')) return;
+  const handleRevokeSession = async (sessionId: string, overrideStepUp?: string) => {
+    if (!overrideStepUp) {
+      if (!window.confirm('Deseja realmente revogar esta sessão imediatamente? O usuário será desconectado.')) return;
+    }
     try {
       const res = await fetch(`/api/admin/sessions/${sessionId}/revoke`, {
         method: 'POST',
-        headers: getHeaders(),
+        headers: getHeaders(overrideStepUp),
       });
       const data = await res.json();
+      if (res.status === 403 && data.error === 'STEP_UP_REQUIRED') {
+        setPendingAction(() => (token: string) => handleRevokeSession(sessionId, token));
+        setIsStepUpModalOpen(true);
+        return;
+      }
       if (res.ok && data.success) {
         setActionFeedback({ type: 'success', message: data.message });
         loadSessions();
@@ -1306,11 +1425,169 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Card de Recovery Codes (Códigos de Backup) */}
+              <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      Códigos de Recuperação de Uso Único (Backup Codes)
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Permitem acessar a conta administrativa em caso de perda ou indisponibilidade do Google Authenticator.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isGeneratingRecoveryCodes}
+                    onClick={() => handleGenerateRecoveryCodes()}
+                    className="px-3.5 py-2 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingRecoveryCodes ? 'animate-spin' : ''}`} />
+                    Gerar Novos Códigos
+                  </button>
+                </div>
+
+                <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800 flex items-center justify-between">
+                  <span className="text-slate-400 text-xs">Códigos Disponíveis Restantes:</span>
+                  <span className="text-amber-400 font-mono font-bold text-sm">
+                    {recoveryCount !== null ? `${recoveryCount} códigos ativos` : 'Consultando...'}
+                  </span>
+                </div>
+
+                {newRecoveryCodes && (
+                  <div className="bg-red-950/30 border border-red-500/40 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-red-400 font-bold text-xs">
+                      <AlertTriangle className="w-4 h-4" />
+                      Guarde estes códigos em local seguro! Cada código só funciona uma única vez:
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-xs text-amber-200">
+                      {newRecoveryCodes.map((code, idx) => (
+                        <div key={idx} className="bg-black/60 px-3 py-1.5 rounded border border-slate-800 text-center font-bold tracking-wider">
+                          {code}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(newRecoveryCodes.join('\n'));
+                          setActionFeedback({ type: 'success', message: 'Códigos copiados para a área de transferência!' });
+                        }}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold cursor-pointer"
+                      >
+                        Copiar Códigos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const blob = new Blob([newRecoveryCodes.join('\n')], { type: 'text/plain' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `cfo-admin-recovery-codes-${new Date().toISOString().slice(0, 10)}.txt`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold cursor-pointer"
+                      >
+                        Baixar .txt
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
         </main>
       </div>
+
+      {/* ===================================================================== */}
+      {/* MODAL DE CONFIRMAÇÃO DE STEP-UP (AÇÕES CRÍTICAS)                       */}
+      {/* ===================================================================== */}
+      {isStepUpModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-[#0B1220] border border-red-500/40 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Elevação de Privilégio</h3>
+                <p className="text-xs text-slate-400">Confirmação de identidade obrigatória (Step-Up)</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+              Esta é uma operação administrativa de alto impacto. Confirme sua senha mestre ou o código atual do Google Authenticator para prosseguir.
+            </p>
+
+            {stepUpError && (
+              <div className="p-3 bg-red-500/15 border border-red-500/40 rounded-xl text-red-300 text-xs flex items-center gap-2 font-medium">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{stepUpError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleConfirmStepUp} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-mono font-bold text-slate-400 uppercase mb-1">
+                  Código TOTP (Google Authenticator)
+                </label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  placeholder="000000"
+                  value={stepUpTotp}
+                  onChange={(e) => setStepUpTotp(e.target.value.replace(/\D/g, ''))}
+                  className="w-full bg-slate-900/80 border border-slate-700/80 rounded-xl px-4 py-2 text-center text-sm font-mono tracking-widest text-amber-300 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="text-center text-[11px] text-slate-500 font-mono font-bold uppercase">— OU —</div>
+
+              <div>
+                <label className="block text-[11px] font-mono font-bold text-slate-400 uppercase mb-1">
+                  Senha do Administrador
+                </label>
+                <input
+                  type="password"
+                  placeholder="••••••••••••"
+                  value={stepUpPassword}
+                  onChange={(e) => setStepUpPassword(e.target.value)}
+                  className="w-full bg-slate-900/80 border border-slate-700/80 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-red-500"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsStepUpModalOpen(false);
+                    setPendingAction(null);
+                    setStepUpPassword('');
+                    setStepUpTotp('');
+                    setStepUpError('');
+                  }}
+                  className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isStepUpLoading || (!stepUpPassword && stepUpTotp.length !== 6)}
+                  className="flex-1 py-2 rounded-xl bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-bold text-xs transition-all shadow-md cursor-pointer disabled:opacity-40"
+                >
+                  {isStepUpLoading ? 'Validando...' : 'Confirmar Ação'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );

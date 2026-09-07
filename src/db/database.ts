@@ -252,6 +252,25 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_audit_events_user_id ON audit_events(user_id);
     `,
   },
+  {
+    id: 5,
+    name: '005_admin_recovery_codes',
+    sql: `
+      -- 12. ADMIN RECOVERY CODES (Códigos de Backup de Uso Único Armazenados em Hash)
+      CREATE TABLE IF NOT EXISTS admin_recovery_codes (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        code_hash TEXT NOT NULL UNIQUE,
+        is_used INTEGER NOT NULL DEFAULT 0 CHECK (is_used IN (0, 1)),
+        used_at TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_recovery_codes_user_id ON admin_recovery_codes(user_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_codes_hash ON admin_recovery_codes(code_hash);
+      CREATE INDEX IF NOT EXISTS idx_recovery_codes_is_used ON admin_recovery_codes(is_used);
+    `,
+  },
 ];
 
 export class DatabaseService {
@@ -275,6 +294,8 @@ export class DatabaseService {
   }
 
   private configurePragmas(): void {
+    // Set busy timeout for concurrent process access
+    this.db.exec('PRAGMA busy_timeout = 10000;');
     // Enable foreign keys constraints in SQLite
     this.db.exec('PRAGMA foreign_keys = ON;');
     // Optimize performance and durability
