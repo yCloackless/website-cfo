@@ -25,7 +25,9 @@ function getResendClient(): Resend {
   return resendClient;
 }
 
-const FROM_ADDRESS = process.env.EMAIL_FROM || 'onboarding@resend.dev';
+function getFromAddress(): string {
+  return process.env.EMAIL_FROM || 'onboarding@resend.dev';
+}
 const APP_NAME = 'CFO CBMERJ';
 
 // ---------------------------------------------------------------------------
@@ -169,7 +171,7 @@ export async function sendPasswordResetEmail(
   try {
     const client = getResendClient();
     const { error } = await client.emails.send({
-      from: FROM_ADDRESS,
+      from: getFromAddress(),
       to: [toEmail],
       subject,
       html,
