@@ -238,13 +238,13 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
         return;
       }
 
-      // Se for login direto de Aluno/Cadete (não requer 2FA mestre do Admin)
+      // Se for login direto (sem 2FA obrigatório)
       if (data.directLogin && data.token) {
         localStorage.setItem('cfo_terminal_session', data.token);
         localStorage.setItem('cfo_terminal_expires_at', String(data.expiresAt));
-        localStorage.setItem('cfo_terminal_user', data.username || 'cadete');
-        localStorage.setItem('cfo_terminal_role', data.role || 'cadet');
-        localStorage.setItem('cfo_can_access_notion', String(Boolean(data.canAccessNotion)));
+        localStorage.setItem('cfo_terminal_user', data.username || cleanUser);
+        localStorage.setItem('cfo_terminal_role', data.role || 'admin');
+        localStorage.setItem('cfo_can_access_notion', String(Boolean(data.canAccessNotion ?? (data.role === 'admin'))));
         onAuthenticated(data.token, data.expiresAt, false);
         return;
       }

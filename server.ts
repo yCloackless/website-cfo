@@ -629,10 +629,15 @@ function getSecurityConfig(): SecurityConfig {
         saveSecurityConfig(parsed);
       }
 
+      let is2faActive = parsed.is2faActive !== undefined ? Boolean(parsed.is2faActive) : false;
+      if (process.env.ADMIN_REQUIRE_2FA !== undefined) {
+        is2faActive = process.env.ADMIN_REQUIRE_2FA === 'true';
+      }
+
       return {
         totpSecret: secret,
         sessionSecret,
-        is2faActive: Boolean(parsed.is2faActive),
+        is2faActive,
         createdAt: parsed.createdAt || new Date().toISOString(),
       };
     }
@@ -640,10 +645,12 @@ function getSecurityConfig(): SecurityConfig {
     console.warn("Falha ao ler security-config.json:", e);
   }
 
+  const is2faActive = process.env.ADMIN_REQUIRE_2FA !== 'false';
+
   const newConfig: SecurityConfig = {
     totpSecret: process.env.TOTP_SECRET || generateSecret(),
     sessionSecret: process.env.SESSION_SECRET || CONFIGURED_SESSION_SECRET,
-    is2faActive: true,
+    is2faActive,
     createdAt: new Date().toISOString(),
   };
 
@@ -1144,6 +1151,32 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
           message: "ACESSO BLOQUEADO: Conexões fora do território nacional são restritas para esta conta.",
         });
       }
+    }
+
+    const config = getSecurityConfig();
+    if (!config.is2faActive) {
+      const session = createTerminalSession(dbUser.username, req.body.rememberMe !== false, dbUser.role);
+      logSecurityEvent(req, {
+        action: 'LOGIN_SUCCESS',
+        actor: dbUser.username,
+        resource: '/api/auth/check-credentials',
+        status: 'SUCCESS',
+      });
+      logSecurityEvent(req, {
+        action: 'ADMIN_LOGIN',
+        actor: dbUser.username,
+        resource: '/api/auth/check-credentials',
+        status: 'SUCCESS',
+        details: { role: 'admin', method: 'PASSWORD_DIRECT', rememberMe: req.body.rememberMe !== false },
+      });
+      return res.json({
+        success: true,
+        directLogin: true,
+        ...session,
+        username: dbUser.username,
+        role: dbUser.role,
+        canAccessNotion: true,
+      });
     }
 
     return res.json({
