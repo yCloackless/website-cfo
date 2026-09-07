@@ -244,7 +244,7 @@ function getSecurityConfig(): SecurityConfig {
   const newConfig: SecurityConfig = {
     totpSecret: process.env.TOTP_SECRET || DEFAULT_TOTP_SECRET,
     sessionSecret: process.env.SESSION_SECRET || DEFAULT_SESSION_SECRET,
-    is2faActive: false,
+    is2faActive: true,
     createdAt: new Date().toISOString(),
   };
 
@@ -335,6 +335,13 @@ app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
 
   try {
     const config = getSecurityConfig();
+    if (config.is2faActive) {
+      return res.status(403).json({
+        error: "2FA_ALREADY_CONFIGURED",
+        message: "O sistema de segurança 2FA já está ativado permanentemente. O QR Code foi destruído.",
+      });
+    }
+
     const otpauthUrl = generateURI({
       label: `${ADMIN_USER}@cfo-cbmerj`,
       issuer: "CFO CBMERJ Terminal",
@@ -363,7 +370,7 @@ app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
   }
 });
 
-// 3. Rota de Validação de Login no Terminal (Se 2FA ativo, exige TOTP. Se não ativo, permite login inicial)
+// 3. Rota de Validação de Login no Terminal (Exige TOTP rigorosamente em todas as requisições)
 app.post("/api/auth/verify-2fa", async (req: Request, res: Response) => {
   try {
     const { username, password, token, rememberMe } = req.body || {};
@@ -391,22 +398,20 @@ app.post("/api/auth/verify-2fa", async (req: Request, res: Response) => {
 
     const config = getSecurityConfig();
 
-    // Se o 2FA já estiver permanentemente ativado, o código é rigorosamente obrigatório
-    if (config.is2faActive) {
-      if (!token || token.trim().length !== 6) {
-        return res.status(400).json({
-          error: "TOTP_REQUIRED",
-          message: "Código Authenticator de 6 dígitos é obrigatório.",
-        });
-      }
+    // Código Authenticator de 6 dígitos é 100% obrigatório
+    if (!token || token.trim().length !== 6) {
+      return res.status(400).json({
+        error: "TOTP_REQUIRED",
+        message: "Código Google Authenticator de 6 dígitos é obrigatório.",
+      });
+    }
 
-      const isCodeValid = verifyTotpToken(token, config.totpSecret);
-      if (!isCodeValid) {
-        return res.status(401).json({
-          error: "INVALID_TOTP",
-          message: "Código Authenticator incorreto ou expirado. Verifique o relógio do seu celular.",
-        });
-      }
+    const isCodeValid = verifyTotpToken(token, config.totpSecret);
+    if (!isCodeValid) {
+      return res.status(401).json({
+        error: "INVALID_TOTP",
+        message: "Código Authenticator incorreto ou expirado. Verifique o relógio do seu celular.",
+      });
     }
 
     const session = createTerminalSession(ADMIN_USER, !!rememberMe);
