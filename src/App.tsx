@@ -62,6 +62,8 @@ import { SecurityGate } from './components/SecurityGate';
 import { LandingPage } from './components/LandingPage';
 import { TimerTab } from './components/TimerTab';
 import { NotionAgendaTab } from './components/NotionAgendaTab';
+import { CookieConsent } from './components/CookieConsent';
+import { TacticalSimulations } from './components/TacticalSimulations';
 
 export default function App() {
   // 🛡️ Security Gate (2FA TOTP Terminal) State
@@ -152,8 +154,8 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
 
-  // Active Tab ('table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar')
-  const [activeTab, setActiveTab] = useState<'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar'>('table');
+  // Active Tab ('table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations')
+  const [activeTab, setActiveTab] = useState<'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations'>('table');
 
   // Preset topic for creating a Bizu from HighYield tab
   const [presetTopicForBizu, setPresetTopicForBizu] = useState<{
@@ -936,24 +938,30 @@ export default function App() {
   if (!isTerminalUnlocked) {
     if (showLoginModal) {
       return (
-        <SecurityGate
-          onAuthenticated={() => {
-            setIsTerminalUnlocked(true);
-            setShowLoginModal(false);
-          }}
-          onBackToLanding={() => {
-            setShowLoginModal(false);
-          }}
-        />
+        <>
+          <SecurityGate
+            onAuthenticated={() => {
+              setIsTerminalUnlocked(true);
+              setShowLoginModal(false);
+            }}
+            onBackToLanding={() => {
+              setShowLoginModal(false);
+            }}
+          />
+          <CookieConsent />
+        </>
       );
     }
 
     return (
-      <LandingPage
-        onOpenLogin={() => {
-          setShowLoginModal(true);
-        }}
-      />
+      <>
+        <LandingPage
+          onOpenLogin={() => {
+            setShowLoginModal(true);
+          }}
+        />
+        <CookieConsent />
+      </>
     );
   }
 
@@ -1433,6 +1441,14 @@ export default function App() {
           />
         )}
 
+        {/* Render Tab: Central de Inteligência & Simulados */}
+        {activeTab === 'simulations' && (
+          <TacticalSimulations
+            theme={theme}
+            showToast={showToast}
+          />
+        )}
+
         {/* Footer */}
         <footer
           className={`mt-8 pt-6 border-t flex flex-col sm:flex-row justify-between items-center gap-2 text-[10px] uppercase tracking-[0.2em] pb-4 transition-colors ${
@@ -1534,6 +1550,9 @@ export default function App() {
         onSaveGoal={handleSaveGoalHours}
         theme={theme}
       />
+
+      {/* Banner LGPD de Cookies de Sessão */}
+      <CookieConsent />
     </div>
   );
 }

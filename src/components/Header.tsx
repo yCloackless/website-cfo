@@ -14,6 +14,7 @@ import {
   BookOpen,
   Target,
   Lock,
+  Crosshair,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
@@ -34,8 +35,8 @@ interface HeaderProps {
   pendingRevisionsCount: number;
   theme: AppTheme;
   onToggleTheme: () => void;
-  activeTab: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar';
-  onSelectTab: (tab: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar') => void;
+  activeTab: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations';
+  onSelectTab: (tab: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations') => void;
   onLockTerminal?: () => void;
 }
 
@@ -141,7 +142,13 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Calendar className="w-3.5 h-3.5" />
               <span>Agenda</span>
-              <span className="px-1 py-0.2 rounded text-[8.5px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 uppercase">
+              <span
+                className={`px-1 py-0.2 rounded text-[8.5px] font-bold uppercase border ${
+                  isDark
+                    ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                    : 'bg-blue-100 text-blue-900 border-blue-300'
+                }`}
+              >
                 Notion
               </span>
             </button>
@@ -207,6 +214,30 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Sparkles className="w-3.5 h-3.5 text-blue-400" />
               <span>IA</span>
+            </button>
+
+            <button
+              id="tab-simulados"
+              onClick={() => onSelectTab('simulations')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === 'simulations'
+                  ? 'bg-gradient-to-r from-red-700 to-red-900 text-white shadow-sm shadow-red-950/60'
+                  : isDark
+                  ? 'text-slate-400 hover:text-red-400'
+                  : 'text-slate-600 hover:text-red-600'
+              }`}
+            >
+              <Crosshair className="w-3.5 h-3.5 text-red-400" />
+              <span>Simulados</span>
+              <span
+                className={`px-1 py-0.2 rounded text-[8px] font-extrabold uppercase border ${
+                  isDark
+                    ? 'bg-red-600/30 text-red-300 border-red-500/40'
+                    : 'bg-red-100 text-red-900 border-red-300'
+                }`}
+              >
+                UERJ
+              </span>
             </button>
           </div>
 

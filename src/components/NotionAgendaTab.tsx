@@ -223,22 +223,75 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
     return { cycleKey: null, label: "Concluído", isCompleted: true };
   };
 
-  // Auxiliar: Determina o status da Próxima Revisão em relação à data atual
+  // Auxiliar: Determina o status da Próxima Revisão em relação à data atual com alto contraste
   const getRevisionUrgency = (
     item: NotionRevisionItem
   ): { status: "hoje" | "atrasada" | "futura" | "concluida"; label: string; colorClass: string } => {
     const { isCompleted } = getPendingCycleInfo(item);
     if (isCompleted || !item.proximaRevisao) {
-      return { status: "concluida", label: "Ciclo Concluído", colorClass: "text-emerald-400 bg-emerald-950/40 border-emerald-800/50" };
+      return {
+        status: "concluida",
+        label: "Ciclo Concluído",
+        colorClass: isDark
+          ? "text-emerald-400 bg-emerald-950/40 border-emerald-800/50"
+          : "text-emerald-950 bg-emerald-100 border-emerald-400 font-bold",
+      };
     }
 
     if (item.proximaRevisao === todayStr) {
-      return { status: "hoje", label: "Revisar Hoje!", colorClass: "text-amber-400 bg-amber-950/50 border-amber-800/60 font-bold" };
+      return {
+        status: "hoje",
+        label: "Revisar Hoje!",
+        colorClass: isDark
+          ? "text-amber-400 bg-amber-950/50 border-amber-800/60 font-bold"
+          : "text-amber-950 bg-amber-100 border-amber-400 font-black",
+      };
     }
     if (item.proximaRevisao < todayStr) {
-      return { status: "atrasada", label: "Revisão Atrasada", colorClass: "text-rose-400 bg-rose-950/50 border-rose-800/60 font-bold" };
+      return {
+        status: "atrasada",
+        label: "Revisão Atrasada",
+        colorClass: isDark
+          ? "text-rose-400 bg-rose-950/50 border-rose-800/60 font-bold"
+          : "text-rose-950 bg-rose-100 border-rose-400 font-black",
+      };
     }
-    return { status: "futura", label: "Programada", colorClass: "text-slate-300 bg-slate-800/50 border-slate-700/50" };
+    return {
+      status: "futura",
+      label: "Programada",
+      colorClass: isDark
+        ? "text-slate-300 bg-slate-800/50 border-slate-700/50 font-medium"
+        : "text-slate-950 bg-slate-100 border-slate-400 font-bold",
+    };
+  };
+
+  // Badges de matérias com contraste garantido no modo claro (letras pretas/escuras) e escuro (letras claras)
+  const getSubjectBadgeStyle = (materia: string, isDarkTheme: boolean, defaultBadge: string) => {
+    if (isDarkTheme) return defaultBadge;
+    if (materia.includes("Química")) return "bg-rose-100 text-rose-950 border-rose-400 font-black";
+    if (materia.includes("Português") || materia.includes("Língua")) return "bg-amber-100 text-amber-950 border-amber-400 font-black";
+    if (materia.includes("História")) return "bg-emerald-100 text-emerald-950 border-emerald-400 font-black";
+    if (materia.includes("Física")) return "bg-violet-100 text-violet-950 border-violet-400 font-black";
+    if (materia.includes("Matemática")) return "bg-indigo-100 text-indigo-950 border-indigo-400 font-black";
+    if (materia.includes("Biologia")) return "bg-teal-100 text-teal-950 border-teal-400 font-black";
+    if (materia.includes("Geografia")) return "bg-sky-100 text-sky-950 border-sky-400 font-black";
+    if (materia.includes("Redação")) return "bg-orange-100 text-orange-950 border-orange-400 font-black";
+    return "bg-slate-100 text-slate-950 border-slate-400 font-black";
+  };
+
+  // Badges de tipos de revisão com contraste total em ambos os modos
+  const getTipoRevisaoStyle = (tipo: string, isDarkTheme: boolean) => {
+    if (isDarkTheme) return TIPO_REVISAO_STYLES[tipo] || TIPO_REVISAO_STYLES.Default;
+    switch (tipo) {
+      case "Questões": return "bg-amber-100 text-amber-950 border-amber-400 font-black";
+      case "LDI": return "bg-sky-100 text-sky-950 border-sky-400 font-black";
+      case "Pestana": return "bg-fuchsia-100 text-fuchsia-950 border-fuchsia-400 font-black";
+      case "Apostila": return "bg-orange-100 text-orange-950 border-orange-400 font-black";
+      case "PDF": return "bg-blue-100 text-blue-950 border-blue-400 font-black";
+      case "Qcon": return "bg-emerald-100 text-emerald-950 border-emerald-400 font-black";
+      case "Teoria": return "bg-purple-100 text-purple-950 border-purple-400 font-black";
+      default: return "bg-slate-100 text-slate-950 border-slate-400 font-black";
+    }
   };
 
   // Matérias que TÊM que revisar (Atrasadas ou Hoje ou Pendentes)
@@ -372,38 +425,40 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
         </div>
 
         {/* Linha de KPIs Rápidos */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t border-slate-800/60">
-          <div className={`p-3 rounded-xl border ${isDark ? "bg-slate-900/50 border-slate-800/80" : "bg-slate-50 border-slate-200"}`}>
-            <span className="text-[11px] font-medium text-slate-400 block">Total no Caderno</span>
-            <span className="text-xl font-extrabold text-white mt-0.5 block">{stats.total} matérias</span>
+        <div className={`grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t ${isDark ? "border-slate-800/60" : "border-slate-200"}`}>
+          <div className={`p-3 rounded-xl border ${isDark ? "bg-slate-900/50 border-slate-800/80" : "bg-white border-slate-300 shadow-xs"}`}>
+            <span className={`text-[11px] font-medium block ${isDark ? "text-slate-400" : "text-slate-700 font-semibold"}`}>Total no Caderno</span>
+            <span className={`text-xl font-extrabold mt-0.5 block ${isDark ? "text-white" : "text-black font-black"}`}>{stats.total} matérias</span>
           </div>
 
-          <div className={`p-3 rounded-xl border ${isDark ? "bg-rose-950/30 border-rose-900/40" : "bg-rose-50 border-rose-200"}`}>
-            <span className="text-[11px] font-medium text-rose-400 block">Para Revisar Agora / Hoje</span>
-            <span className="text-xl font-extrabold text-rose-300 mt-0.5 block">{stats.atrasadasOuHoje} pendentes</span>
+          <div className={`p-3 rounded-xl border ${isDark ? "bg-rose-950/30 border-rose-900/40" : "bg-rose-50 border-rose-300 shadow-xs"}`}>
+            <span className={`text-[11px] font-medium block ${isDark ? "text-rose-400" : "text-rose-800 font-bold"}`}>Para Revisar Agora / Hoje</span>
+            <span className={`text-xl font-extrabold mt-0.5 block ${isDark ? "text-rose-300" : "text-rose-950 font-black"}`}>{stats.atrasadasOuHoje} pendentes</span>
           </div>
 
-          <div className={`p-3 rounded-xl border ${isDark ? "bg-blue-950/30 border-blue-900/40" : "bg-blue-50 border-blue-200"}`}>
-            <span className="text-[11px] font-medium text-blue-400 block">Em Ciclo de Revisão</span>
-            <span className="text-xl font-extrabold text-blue-300 mt-0.5 block">{stats.pendentes} em andamento</span>
+          <div className={`p-3 rounded-xl border ${isDark ? "bg-blue-950/30 border-blue-900/40" : "bg-blue-50 border-blue-300 shadow-xs"}`}>
+            <span className={`text-[11px] font-medium block ${isDark ? "text-blue-400" : "text-blue-800 font-bold"}`}>Em Ciclo de Revisão</span>
+            <span className={`text-xl font-extrabold mt-0.5 block ${isDark ? "text-blue-300" : "text-blue-950 font-black"}`}>{stats.pendentes} em andamento</span>
           </div>
 
-          <div className={`p-3 rounded-xl border ${isDark ? "bg-emerald-950/30 border-emerald-900/40" : "bg-emerald-50 border-emerald-200"}`}>
-            <span className="text-[11px] font-medium text-emerald-400 block">Ciclo 100% Concluído</span>
-            <span className="text-xl font-extrabold text-emerald-300 mt-0.5 block">{stats.concluidas} dominadas</span>
+          <div className={`p-3 rounded-xl border ${isDark ? "bg-emerald-950/30 border-emerald-900/40" : "bg-emerald-50 border-emerald-300 shadow-xs"}`}>
+            <span className={`text-[11px] font-medium block ${isDark ? "text-emerald-400" : "text-emerald-800 font-bold"}`}>Ciclo 100% Concluído</span>
+            <span className={`text-xl font-extrabold mt-0.5 block ${isDark ? "text-emerald-300" : "text-emerald-950 font-black"}`}>{stats.concluidas} dominadas</span>
           </div>
         </div>
 
         {/* Seletor de Modo de Visualização: Calendário Tático vs Tabela Oficial */}
-        <div className="flex items-center justify-between border-t border-slate-800/80 mt-4 pt-3.5 flex-wrap gap-2">
-          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-black/60 border border-slate-800">
+        <div className={`flex items-center justify-between border-t mt-4 pt-3.5 flex-wrap gap-2 ${isDark ? "border-slate-800/80" : "border-slate-200"}`}>
+          <div className={`flex items-center gap-1.5 p-1 rounded-xl border ${isDark ? "bg-black/60 border-slate-800" : "bg-slate-100 border-slate-300"}`}>
             <button
               type="button"
               onClick={() => setViewMode("CALENDAR")}
               className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
                 viewMode === "CALENDAR"
                   ? "bg-green-600 text-black shadow-sm"
-                  : "text-slate-400 hover:text-white"
+                  : isDark
+                  ? "text-slate-400 hover:text-white"
+                  : "text-slate-700 hover:text-black font-semibold"
               }`}
             >
               <Calendar className="w-3.5 h-3.5" />
@@ -415,7 +470,9 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
               className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
                 viewMode === "TABLE"
                   ? "bg-[#0056D2] text-white shadow-sm"
-                  : "text-slate-400 hover:text-white"
+                  : isDark
+                  ? "text-slate-400 hover:text-white"
+                  : "text-slate-700 hover:text-black font-semibold"
               }`}
             >
               <Layers className="w-3.5 h-3.5" />
@@ -433,116 +490,168 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
           {/* 2. Seção Tática: "Matérias que você tem para revisar agora" */}
           {dueItems.length > 0 && (
             <div
-          className={`p-5 rounded-2xl border backdrop-blur-md shadow-xl transition-all ${
-            isDark ? "bg-[#0f172a]/90 border-rose-900/40 shadow-rose-950/10" : "bg-white border-rose-200 shadow-rose-100"
-          }`}
-        >
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <div className="flex items-center gap-2">
-              <span className="flex h-2.5 w-2.5 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
-              </span>
-              <h2 className="text-sm font-extrabold tracking-wide uppercase text-rose-400">
-                Matérias do Dia Para Revisar (Notion)
-              </h2>
-            </div>
-            <span className="text-xs font-medium text-slate-400">
-              {dueItems.length} {dueItems.length === 1 ? "revisão pendente" : "revisões pendentes"}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            {dueItems.map((item) => {
-              const pendingCycle = getPendingCycleInfo(item);
-              const urgency = getRevisionUrgency(item);
-              const subjColor = getSubjectColor(item.materia);
-
-              return (
-                <div
-                  key={item.id}
-                  className={`p-4 rounded-xl border flex flex-col justify-between gap-3 transition-all hover:border-slate-700 ${
-                    isDark ? "bg-[#111827] border-slate-800" : "bg-slate-50 border-slate-200"
+              className={`p-5 rounded-2xl border backdrop-blur-md shadow-xl transition-all ${
+                isDark
+                  ? "bg-[#0f172a]/90 border-rose-900/40 shadow-rose-950/10"
+                  : "bg-white border-rose-300 shadow-sm"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-2.5 w-2.5 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                  </span>
+                  <h2
+                    className={`text-sm font-extrabold tracking-wide uppercase ${
+                      isDark ? "text-rose-400" : "text-rose-950 font-black"
+                    }`}
+                  >
+                    Matérias do Dia Para Revisar (Notion)
+                  </h2>
+                </div>
+                <span
+                  className={`text-xs ${
+                    isDark ? "text-slate-400 font-semibold" : "text-black font-black"
                   }`}
                 >
-                  <div className="space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${subjColor.badgeBg}`}
-                      >
-                        {item.materia}
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${urgency.colorClass}`}
-                      >
-                        {urgency.label} ({formatDateDisplay(item.proximaRevisao)})
-                      </span>
-                    </div>
+                  {dueItems.length} {dueItems.length === 1 ? "revisão pendente" : "revisões pendentes"}
+                </span>
+              </div>
 
-                    <h3 className="text-sm font-bold text-white line-clamp-2 leading-snug">
-                      {item.assunto}
-                    </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {dueItems.map((item) => {
+                  const pendingCycle = getPendingCycleInfo(item);
+                  const urgency = getRevisionUrgency(item);
+                  const subjColor = getSubjectColor(item.materia);
 
-                    <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                      {item.tipoRevisao.map((tipo) => (
+                  return (
+                    <div
+                      key={item.id}
+                      className={`p-4 rounded-xl border flex flex-col justify-between gap-3 transition-all ${
+                        isDark
+                          ? "bg-[#111827] border-slate-800 hover:border-slate-700"
+                          : "bg-white border-slate-300 hover:border-slate-400 shadow-md"
+                      }`}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded text-[10px] uppercase border ${getSubjectBadgeStyle(
+                              item.materia,
+                              isDark,
+                              subjColor.badgeBg
+                            )}`}
+                          >
+                            {item.materia}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] border ${urgency.colorClass}`}
+                          >
+                            {urgency.label} ({formatDateDisplay(item.proximaRevisao)})
+                          </span>
+                        </div>
+
+                        {/* Assunto: PRETO no modo claro, BRANCO no modo escuro */}
+                        <h3
+                          className={`text-sm font-bold line-clamp-2 leading-snug ${
+                            isDark ? "text-white" : "text-black font-black"
+                          }`}
+                        >
+                          {item.assunto}
+                        </h3>
+
+                        <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                          {item.tipoRevisao.map((tipo) => (
+                            <span
+                              key={tipo}
+                              className={`text-[9.5px] px-1.5 py-0.2 rounded border font-medium ${getTipoRevisaoStyle(
+                                tipo,
+                                isDark
+                              )}`}
+                            >
+                              {tipo}
+                            </span>
+                          ))}
+                          <span
+                            className={`text-[10px] ml-auto font-medium ${
+                              isDark ? "text-slate-400" : "text-black font-bold"
+                            }`}
+                          >
+                            Estudado em {formatDateDisplay(item.data)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 4 Caixas Interativas do Notion */}
+                      <div
+                        className={`pt-2 border-t ${
+                          isDark ? "border-slate-800/80" : "border-slate-200"
+                        }`}
+                      >
                         <span
-                          key={tipo}
-                          className={`text-[9.5px] px-1.5 py-0.2 rounded border font-medium ${
-                            TIPO_REVISAO_STYLES[tipo] || TIPO_REVISAO_STYLES.Default
+                          className={`text-[10px] uppercase tracking-wider block mb-1.5 ${
+                            isDark ? "text-slate-400 font-bold" : "text-black font-black"
                           }`}
                         >
-                          {tipo}
+                          Marcar no Notion:
                         </span>
-                      ))}
-                      <span className="text-[10px] text-slate-400 ml-auto">
-                        Estudado em {formatDateDisplay(item.data)}
-                      </span>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {[
+                            { key: "semana" as RevisionCycleKey, label: "Semana", checked: item.semana },
+                            { key: "mes1" as RevisionCycleKey, label: "Mês 1", checked: item.mes1 },
+                            { key: "mes2" as RevisionCycleKey, label: "Mês 2", checked: item.mes2 },
+                            { key: "mes3" as RevisionCycleKey, label: "Mês 3", checked: item.mes3 },
+                          ].map((box) => (
+                            <button
+                              key={box.key}
+                              type="button"
+                              onClick={() => handleToggleCheckbox(item, box.key, box.checked)}
+                              className={`py-1.5 px-1 rounded-lg border text-center transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
+                                box.checked
+                                  ? isDark
+                                    ? "bg-blue-600/30 border-blue-500/60 text-blue-300 font-bold"
+                                    : "bg-blue-100 border-blue-600 text-blue-950 font-black shadow-xs"
+                                  : pendingCycle.cycleKey === box.key
+                                  ? isDark
+                                    ? "bg-rose-950/40 border-rose-500/60 text-rose-300 font-semibold hover:bg-rose-900/40 animate-pulse"
+                                    : "bg-rose-100 border-rose-600 text-rose-950 font-black hover:bg-rose-200 animate-pulse shadow-xs"
+                                  : isDark
+                                  ? "bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700"
+                                  : "bg-slate-50 border-slate-400 text-black font-bold hover:bg-slate-100 shadow-2xs"
+                              }`}
+                              title={`Clique para marcar/desmarcar '${box.label}' no Notion`}
+                            >
+                              {box.checked ? (
+                                <CheckSquare
+                                  className={`w-4 h-4 ${
+                                    isDark ? "text-blue-400" : "text-blue-900"
+                                  }`}
+                                />
+                              ) : (
+                                <Square
+                                  className={`w-4 h-4 ${
+                                    isDark ? "opacity-60" : "text-slate-700"
+                                  }`}
+                                />
+                              )}
+                              <span
+                                className={`text-[9.5px] truncate w-full ${
+                                  isDark ? "text-inherit" : "text-black font-black"
+                                }`}
+                              >
+                                {box.label}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-
-                  {/* 4 Caixas Interativas do Notion */}
-                  <div className="pt-2 border-t border-slate-800/80">
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1.5">
-                      Marcar no Notion:
-                    </span>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {[
-                        { key: "semana" as RevisionCycleKey, label: "Semana", checked: item.semana },
-                        { key: "mes1" as RevisionCycleKey, label: "Mês 1", checked: item.mes1 },
-                        { key: "mes2" as RevisionCycleKey, label: "Mês 2", checked: item.mes2 },
-                        { key: "mes3" as RevisionCycleKey, label: "Mês 3", checked: item.mes3 },
-                      ].map((box) => (
-                        <button
-                          key={box.key}
-                          type="button"
-                          onClick={() => handleToggleCheckbox(item, box.key, box.checked)}
-                          className={`py-1.5 px-1 rounded-lg border text-center transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
-                            box.checked
-                              ? "bg-blue-600/30 border-blue-500/60 text-blue-300 font-bold"
-                              : pendingCycle.cycleKey === box.key
-                              ? "bg-rose-950/40 border-rose-500/60 text-rose-300 font-semibold hover:bg-rose-900/40 animate-pulse"
-                              : isDark
-                              ? "bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700"
-                              : "bg-white border-slate-300 text-slate-600 hover:bg-slate-100"
-                          }`}
-                          title={`Clique para marcar/desmarcar '${box.label}' no Notion`}
-                        >
-                          {box.checked ? (
-                            <CheckSquare className="w-4 h-4 text-blue-400" />
-                          ) : (
-                            <Square className="w-4 h-4 opacity-60" />
-                          )}
-                          <span className="text-[9.5px] truncate w-full">{box.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
       {/* 3. Tabela Oficial de Revisões (Espelho da base Notion) */}
       <div
@@ -553,41 +662,55 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
         {/* Barra de Filtros e Busca */}
         <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 mb-5">
           {/* Abas de Filtro */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-900/80 border border-slate-800 overflow-x-auto">
+          <div
+            className={`flex items-center gap-1 p-1 rounded-xl border overflow-x-auto ${
+              isDark ? "bg-slate-900/80 border-slate-800" : "bg-slate-100 border-slate-300"
+            }`}
+          >
             <button
               onClick={() => setFilterTab("APENAS_REVISAR")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                 filterTab === "APENAS_REVISAR"
                   ? "bg-[#0056D2] text-white shadow-sm"
-                  : "text-slate-400 hover:text-white"
+                  : isDark
+                  ? "text-slate-400 hover:text-white"
+                  : "text-black hover:text-blue-700"
               }`}
             >
               🔥 O que Tem que Revisar ({stats.pendentes})
             </button>
             <button
               onClick={() => setFilterTab("HOJE_ATRASADAS")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                 filterTab === "HOJE_ATRASADAS"
                   ? "bg-rose-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-rose-400"
+                  : isDark
+                  ? "text-slate-400 hover:text-rose-400"
+                  : "text-rose-950 hover:text-rose-700"
               }`}
             >
               🚨 Hoje / Atrasadas ({stats.atrasadasOuHoje})
             </button>
             <button
               onClick={() => setFilterTab("TODAS")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                filterTab === "TODAS" ? "bg-[#0056D2] text-white shadow-sm" : "text-slate-400 hover:text-white"
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+                filterTab === "TODAS"
+                  ? "bg-[#0056D2] text-white shadow-sm"
+                  : isDark
+                  ? "text-slate-400 hover:text-white"
+                  : "text-black hover:text-blue-700"
               }`}
             >
               📋 Todas ({stats.total})
             </button>
             <button
               onClick={() => setFilterTab("CONCLUIDAS")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                 filterTab === "CONCLUIDAS"
                   ? "bg-emerald-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-emerald-400"
+                  : isDark
+                  ? "text-slate-400 hover:text-emerald-400"
+                  : "text-emerald-950 hover:text-emerald-700"
               }`}
             >
               ✅ Concluídas ({stats.concluidas})
@@ -597,16 +720,20 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
           {/* Busca e Dropdown de Disciplina */}
           <div className="flex items-center gap-2">
             <div className="relative flex-1 md:w-56">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search
+                className={`w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 ${
+                  isDark ? "text-slate-400" : "text-black"
+                }`}
+              />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Buscar assunto..."
-                className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium ${
                   isDark
                     ? "bg-slate-900 border-slate-700 text-white placeholder-slate-500"
-                    : "bg-slate-50 border-slate-300 text-slate-900"
+                    : "bg-white border-slate-400 text-black font-bold placeholder-slate-500 shadow-2xs"
                 }`}
               />
             </div>
@@ -614,8 +741,10 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
             <select
               value={filterMateria}
               onChange={(e) => setFilterMateria(e.target.value)}
-              className={`px-2.5 py-1.5 text-xs font-medium rounded-xl border focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer ${
-                isDark ? "bg-slate-900 border-slate-700 text-slate-300" : "bg-slate-50 border-slate-300 text-slate-700"
+              className={`px-2.5 py-1.5 text-xs font-bold rounded-xl border focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer ${
+                isDark
+                  ? "bg-slate-900 border-slate-700 text-slate-300"
+                  : "bg-white border-slate-400 text-black shadow-2xs"
               }`}
             >
               <option value="TODAS">Todas Matérias</option>
@@ -629,10 +758,10 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
         </div>
 
         {/* Tabela do Notion */}
-        <div className="overflow-x-auto rounded-xl border border-slate-800/80">
+        <div className={`overflow-x-auto rounded-xl border ${isDark ? "border-slate-800/80" : "border-slate-300 shadow-xs"}`}>
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className={`border-b ${isDark ? "bg-slate-900/80 border-slate-800 text-slate-400" : "bg-slate-100 border-slate-200 text-slate-700"}`}>
+              <tr className={`border-b ${isDark ? "bg-slate-900/80 border-slate-800 text-slate-400" : "bg-slate-100 border-slate-300 text-slate-950 font-black"}`}>
                 <th className="py-3 px-3.5 font-bold uppercase tracking-wider text-[11px] min-w-[220px]">
                   Aa Assunto
                 </th>
@@ -665,10 +794,10 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/50">
+            <tbody className={`divide-y ${isDark ? "divide-slate-800/50" : "divide-slate-200"}`}>
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className={`py-12 text-center ${isDark ? "text-slate-400" : "text-slate-800 font-bold"}`}>
                     Nenhuma matéria encontrada com os filtros selecionados.
                   </td>
                 </tr>
@@ -683,14 +812,14 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                     <tr
                       key={item.id}
                       className={`transition-colors ${
-                        isDark ? "hover:bg-slate-800/40" : "hover:bg-slate-50"
+                        isDark ? "hover:bg-slate-800/40" : "hover:bg-slate-100/80"
                       }`}
                     >
                       {/* Assunto */}
                       <td className="py-3 px-3.5">
                         <div className="flex items-start gap-2">
-                          <span className="text-slate-400 mt-0.5">📄</span>
-                          <span className="font-semibold text-white leading-snug">
+                          <span className={isDark ? "text-slate-400 mt-0.5" : "text-slate-700 mt-0.5"}>📄</span>
+                          <span className={`font-bold leading-snug ${isDark ? "text-white" : "text-black font-black"}`}>
                             {item.assunto}
                           </span>
                         </div>
@@ -699,14 +828,18 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                       {/* Matéria */}
                       <td className="py-3 px-3 whitespace-nowrap">
                         <span
-                          className={`inline-block px-2.5 py-0.5 rounded text-[11px] font-bold border ${subjColor.badgeBg}`}
+                          className={`inline-block px-2.5 py-0.5 rounded text-[11px] font-bold border ${getSubjectBadgeStyle(
+                            item.materia,
+                            isDark,
+                            subjColor.badgeBg
+                          )}`}
                         >
                           {item.materia}
                         </span>
                       </td>
 
                       {/* Data */}
-                      <td className="py-3 px-3 whitespace-nowrap text-slate-300 font-medium">
+                      <td className={`py-3 px-3 whitespace-nowrap font-medium ${isDark ? "text-slate-300" : "text-black font-bold"}`}>
                         {formatDateDisplay(item.data)}
                       </td>
 
@@ -716,9 +849,10 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                           {item.tipoRevisao.map((tipo) => (
                             <span
                               key={tipo}
-                              className={`text-[10px] px-2 py-0.5 rounded border font-medium ${
-                                TIPO_REVISAO_STYLES[tipo] || TIPO_REVISAO_STYLES.Default
-                              }`}
+                              className={`text-[10px] px-2 py-0.5 rounded border font-medium ${getTipoRevisaoStyle(
+                                tipo,
+                                isDark
+                              )}`}
                             >
                               {tipo}
                             </span>
@@ -737,7 +871,7 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                             {urgency.status === "atrasada" && <span className="font-bold">⚠️</span>}
                           </span>
                         ) : (
-                          <span className="text-emerald-400 text-[11px] font-semibold">
+                          <span className={`text-[11px] font-bold ${isDark ? "text-emerald-400" : "text-emerald-800 font-black"}`}>
                             ✅ Concluída
                           </span>
                         )}
@@ -753,7 +887,7 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                               ? "bg-blue-600 border-blue-500 text-white shadow-xs"
                               : isDark
                               ? "border-slate-600 hover:border-blue-400 bg-slate-900/50"
-                              : "border-slate-300 hover:border-blue-500 bg-white"
+                              : "border-slate-400 hover:border-blue-500 bg-white shadow-2xs"
                           }`}
                           title="Semana (7 dias) • Clique para marcar no Notion"
                         >
@@ -771,7 +905,7 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                               ? "bg-blue-600 border-blue-500 text-white shadow-xs"
                               : isDark
                               ? "border-slate-600 hover:border-blue-400 bg-slate-900/50"
-                              : "border-slate-300 hover:border-blue-500 bg-white"
+                              : "border-slate-400 hover:border-blue-500 bg-white shadow-2xs"
                           }`}
                           title="Mês 1 (30 dias) • Clique para marcar no Notion"
                         >
@@ -789,7 +923,7 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                               ? "bg-blue-600 border-blue-500 text-white shadow-xs"
                               : isDark
                               ? "border-slate-600 hover:border-blue-400 bg-slate-900/50"
-                              : "border-slate-300 hover:border-blue-500 bg-white"
+                              : "border-slate-400 hover:border-blue-500 bg-white shadow-2xs"
                           }`}
                           title="Mês 2 (60 dias) • Clique para marcar no Notion"
                         >
@@ -807,7 +941,7 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                               ? "bg-blue-600 border-blue-500 text-white shadow-xs"
                               : isDark
                               ? "border-slate-600 hover:border-blue-400 bg-slate-900/50"
-                              : "border-slate-300 hover:border-blue-500 bg-white"
+                              : "border-slate-400 hover:border-blue-500 bg-white shadow-2xs"
                           }`}
                           title="Mês 3 (90 dias) • Clique para marcar no Notion"
                         >
@@ -818,7 +952,7 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                       {/* Progresso */}
                       <td className="py-3 px-3 text-center whitespace-nowrap">
                         <div className="flex items-center gap-1.5 justify-center">
-                          <div className="w-12 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                          <div className={`w-12 rounded-full h-1.5 overflow-hidden ${isDark ? "bg-slate-800" : "bg-slate-300"}`}>
                             <div
                               className={`h-full transition-all ${
                                 progressPct === 100
@@ -830,7 +964,7 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                               style={{ width: `${progressPct}%` }}
                             ></div>
                           </div>
-                          <span className="text-[10px] font-bold text-slate-400">{completedCount}/4</span>
+                          <span className={`text-[10px] font-black ${isDark ? "text-slate-400" : "text-black"}`}>{completedCount}/4</span>
                         </div>
                       </td>
                     </tr>
@@ -852,14 +986,14 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
               isDark ? "bg-[#0d1424] border-slate-800 text-white" : "bg-white border-slate-300 text-slate-900"
             }`}
           >
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+            <div className={`flex items-center justify-between pb-4 border-b ${isDark ? "border-slate-800" : "border-slate-200"}`}>
               <div className="flex items-center gap-2">
                 <span className="text-xl">📕</span>
-                <h3 className="font-bold text-base">Cadastrar Novo Estudo no Notion</h3>
+                <h3 className={`font-bold text-base ${isDark ? "text-white" : "text-black font-black"}`}>Cadastrar Novo Estudo no Notion</h3>
               </div>
               <button
                 onClick={() => setIsNewModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
+                className={`p-1 rounded-lg ${isDark ? "text-slate-400 hover:text-white" : "text-slate-500 hover:text-black"}`}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -867,7 +1001,7 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
 
             <form onSubmit={handleCreateStudy} className="space-y-4 pt-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className={`block text-xs font-semibold mb-1 ${isDark ? "text-slate-300" : "text-slate-900 font-bold"}`}>
                   Assunto / Conteúdo Estudado *
                 </label>
                 <input
@@ -877,21 +1011,21 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                   onChange={(e) => setNewAssunto(e.target.value)}
                   placeholder="Ex: Reações Químicas, Morfologia, MRUV..."
                   className={`w-full px-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    isDark ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-300"
+                    isDark ? "bg-slate-900 border-slate-700 text-white" : "bg-white border-slate-300 text-slate-900 font-medium"
                   }`}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? "text-slate-300" : "text-slate-900 font-bold"}`}>
                     Matéria *
                   </label>
                   <select
                     value={newMateria}
                     onChange={(e) => setNewMateria(e.target.value)}
                     className={`w-full px-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                      isDark ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-300"
+                      isDark ? "bg-slate-900 border-slate-700 text-white" : "bg-white border-slate-300 text-slate-900 font-medium"
                     }`}
                   >
                     <option value="Química">Química</option>
@@ -909,7 +1043,7 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? "text-slate-300" : "text-slate-900 font-bold"}`}>
                     Data do Estudo *
                   </label>
                   <input
@@ -918,21 +1052,21 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
                     value={newData}
                     onChange={(e) => setNewData(e.target.value)}
                     className={`w-full px-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                      isDark ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-300"
+                      isDark ? "bg-slate-900 border-slate-700 text-white" : "bg-white border-slate-300 text-slate-900 font-medium"
                     }`}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className={`block text-xs font-semibold mb-1 ${isDark ? "text-slate-300" : "text-slate-900 font-bold"}`}>
                   Tipo de Revisão
                 </label>
                 <select
                   value={newTipo}
                   onChange={(e) => setNewTipo(e.target.value)}
                   className={`w-full px-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    isDark ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-300"
+                    isDark ? "bg-slate-900 border-slate-700 text-white" : "bg-white border-slate-300 text-slate-900 font-medium"
                   }`}
                 >
                   <option value="Questões">Questões</option>

@@ -301,8 +301,8 @@ export async function updateCheckinInNotion(
 
   const { isConfigured, apiKey } = getNotionConfig();
 
-  // Se não estiver conectado à API do Notion, a persistência no cache local já atende perfeitamente!
-  if (!isConfigured || pageId.startsWith("notion_seed_")) {
+  // Se não estiver conectado à API do Notion ou for item simulado local, a persistência no cache local atende perfeitamente!
+  if (!isConfigured || pageId.startsWith("notion_")) {
     return {
       success: true,
       item: targetItem || undefined,

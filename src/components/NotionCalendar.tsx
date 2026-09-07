@@ -80,6 +80,8 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
   theme = "dark",
   showToast = (_msg: string, _type?: "success" | "error" | "info") => {},
 }) => {
+  const isDark = theme === "dark";
+
   // Estado das revisões vindas exclusivamente do Notion
   const [reviews, setReviews] = useState<NotionReviewRecord[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -411,24 +413,24 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
   return (
     <div className="w-full max-w-7xl mx-auto space-y-4 select-none">
       {/* 1. Barra Superior Tática de Controle */}
-      <div className="bg-slate-950/90 border border-slate-800/90 rounded-2xl p-4 sm:p-5 shadow-2xl backdrop-blur-md">
+      <div className={`border rounded-2xl p-4 sm:p-5 shadow-2xl backdrop-blur-md ${isDark ? "bg-slate-950/90 border-slate-800/90" : "bg-white border-slate-300 shadow-sm"}`}>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           {/* Título & Identificador Tático */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-green-950/70 border border-green-700/50 text-green-400 flex items-center justify-center shadow-lg shadow-green-950/30">
+            <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shadow-lg ${isDark ? "bg-green-950/70 border-green-700/50 text-green-400 shadow-green-950/30" : "bg-emerald-100 border-emerald-300 text-emerald-800"}`}>
               <CalendarIcon className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-black tracking-wider text-white uppercase font-mono">
+                <h2 className={`text-base sm:text-lg font-black tracking-wider uppercase font-mono ${isDark ? "text-white" : "text-black"}`}>
                   Calendário de Revisões Tático
                 </h2>
-                <span className="px-2 py-0.5 rounded text-[9.5px] font-mono font-bold uppercase bg-green-950/60 text-green-400 border border-green-800/60">
+                <span className={`px-2 py-0.5 rounded text-[9.5px] font-mono font-bold uppercase border ${isDark ? "bg-green-950/60 text-green-400 border-green-800/60" : "bg-emerald-100 text-emerald-950 border-emerald-400"}`}>
                   Notion Sync
                 </span>
               </div>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">
-                Exibição exclusiva de matérias agendadas em <strong className="text-green-400 font-semibold">Próxima Revisão</strong> no Notion
+              <p className={`text-xs font-mono mt-0.5 ${isDark ? "text-slate-400" : "text-slate-700 font-semibold"}`}>
+                Exibição exclusiva de matérias agendadas em <strong className={isDark ? "text-green-400 font-semibold" : "text-emerald-800 font-black"}>Próxima Revisão</strong> no Notion
               </p>
             </div>
           </div>
@@ -438,7 +440,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
             <button
               onClick={() => fetchNotionReviews(true)}
               disabled={isSyncing}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/80 hover:bg-slate-800 text-slate-300 text-xs font-mono transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${isDark ? "border-slate-800 bg-slate-900/80 hover:bg-slate-800 text-slate-300" : "border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold"}`}
               title="Sincronizar dados do Notion"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-green-400" : ""}`} />
@@ -447,25 +449,25 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
 
             <button
               onClick={handleGoToToday}
-              className="px-3 py-1.5 rounded-lg border border-slate-800 bg-slate-900/80 hover:bg-slate-800 text-slate-300 text-xs font-mono font-semibold transition-all cursor-pointer"
+              className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-semibold transition-all cursor-pointer ${isDark ? "border-slate-800 bg-slate-900/80 hover:bg-slate-800 text-slate-300" : "border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold"}`}
             >
               Hoje
             </button>
 
-            <div className="flex items-center border border-slate-800 rounded-lg overflow-hidden bg-black/60">
+            <div className={`flex items-center border rounded-lg overflow-hidden ${isDark ? "border-slate-800 bg-black/60" : "border-slate-300 bg-slate-100"}`}>
               <button
                 onClick={handlePrevMonth}
-                className="p-2 text-slate-400 hover:text-white hover:bg-slate-900 transition-colors cursor-pointer"
+                className={`p-2 transition-colors cursor-pointer ${isDark ? "text-slate-400 hover:text-white hover:bg-slate-900" : "text-slate-600 hover:text-black hover:bg-slate-200"}`}
                 title="Mês Anterior"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <span className="px-3 text-xs font-mono font-bold text-white uppercase min-w-[130px] text-center tracking-wider">
+              <span className={`px-3 text-xs font-mono font-bold uppercase min-w-[130px] text-center tracking-wider ${isDark ? "text-white" : "text-black font-black"}`}>
                 {MONTH_NAMES[currentDate.getMonth()]} {currentDate.getFullYear()}
               </span>
               <button
                 onClick={handleNextMonth}
-                className="p-2 text-slate-400 hover:text-white hover:bg-slate-900 transition-colors cursor-pointer"
+                className={`p-2 transition-colors cursor-pointer ${isDark ? "text-slate-400 hover:text-white hover:bg-slate-900" : "text-slate-600 hover:text-black hover:bg-slate-200"}`}
                 title="Próximo Mês"
               >
                 <ChevronRight className="w-4 h-4" />
@@ -475,17 +477,17 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
         </div>
 
         {/* Linha de Filtros e Busca Tática */}
-        <div className="mt-4 pt-3.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+        <div className={`mt-4 pt-3.5 border-t flex flex-wrap items-center justify-between gap-3 text-xs font-mono ${isDark ? "border-slate-800/80" : "border-slate-200"}`}>
           <div className="flex items-center gap-2 flex-wrap flex-1 min-w-[280px]">
             {/* Campo de Busca */}
             <div className="relative w-full sm:w-56">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Filtrar assunto..."
-                className="w-full pl-8 pr-2.5 py-1.5 rounded-lg bg-black/80 border border-slate-800 text-white placeholder-slate-600 focus:outline-none focus:border-green-600 text-xs font-mono"
+                className={`w-full pl-8 pr-2.5 py-1.5 rounded-lg border text-xs font-mono ${isDark ? "bg-black/80 border-slate-800 text-white placeholder-slate-600 focus:border-green-600" : "bg-white border-slate-300 text-black placeholder-slate-500 font-medium focus:border-green-600"}`}
               />
             </div>
 
@@ -493,7 +495,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
             <select
               value={selectedMateria}
               onChange={(e) => setSelectedMateria(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg bg-black/80 border border-slate-800 text-slate-300 focus:outline-none focus:border-green-600 text-xs font-mono cursor-pointer"
+              className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono cursor-pointer ${isDark ? "bg-black/80 border-slate-800 text-slate-300 focus:border-green-600" : "bg-white border-slate-300 text-slate-900 font-bold focus:border-green-600"}`}
             >
               <option value="TODAS">Todas as Matérias</option>
               {materias.map((m) => (
@@ -508,8 +510,12 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
               onClick={() => setOnlyPending((prev) => !prev)}
               className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors flex items-center gap-1.5 cursor-pointer ${
                 onlyPending
-                  ? "bg-amber-950/40 border-amber-600/50 text-amber-300 font-bold"
-                  : "bg-black/60 border-slate-800 text-slate-400 hover:text-white"
+                  ? isDark
+                    ? "bg-amber-950/40 border-amber-600/50 text-amber-300 font-bold"
+                    : "bg-amber-100 border-amber-500 text-amber-950 font-black"
+                  : isDark
+                  ? "bg-black/60 border-slate-800 text-slate-400 hover:text-white"
+                  : "bg-slate-100 border-slate-300 text-slate-800 hover:text-black font-bold"
               }`}
             >
               {onlyPending ? <CheckSquare className="w-3.5 h-3.5 text-amber-400" /> : <Square className="w-3.5 h-3.5" />}
@@ -518,25 +524,25 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
           </div>
 
           {/* Badges Táticos de Resumo do Mês */}
-          <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400">
-            <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
-              No Mês: <strong className="text-white">{monthStats.totalMonth}</strong>
+          <div className="flex items-center gap-2 text-[11px] font-mono">
+            <span className={`px-2 py-0.5 rounded border ${isDark ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-100 border-slate-300 text-slate-800 font-semibold"}`}>
+              No Mês: <strong className={isDark ? "text-white" : "text-black font-black"}>{monthStats.totalMonth}</strong>
             </span>
-            <span className="px-2 py-0.5 rounded bg-green-950/40 border border-green-800/50 text-green-400">
-              Pendentes: <strong className="text-green-300">{monthStats.pendingMonth}</strong>
+            <span className={`px-2 py-0.5 rounded border ${isDark ? "bg-green-950/40 border-green-800/50 text-green-400" : "bg-emerald-100 border-emerald-300 text-emerald-950 font-bold"}`}>
+              Pendentes: <strong className={isDark ? "text-green-300" : "text-emerald-950 font-black"}>{monthStats.pendingMonth}</strong>
             </span>
           </div>
         </div>
       </div>
 
       {/* 2. Grid do Calendário Mensal Tático */}
-      <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+      <div className={`border rounded-2xl overflow-hidden shadow-2xl ${isDark ? "bg-slate-950 border-slate-800" : "bg-white border-slate-300 shadow-sm"}`}>
         {/* Cabeçalho dos Dias da Semana */}
-        <div className="grid grid-cols-7 border-b border-slate-800 bg-black text-center py-2.5 text-[11px] font-mono font-bold tracking-widest text-slate-400">
+        <div className={`grid grid-cols-7 border-b text-center py-2.5 text-[11px] font-mono font-bold tracking-widest ${isDark ? "border-slate-800 bg-black text-slate-400" : "border-slate-300 bg-slate-100 text-slate-900 font-black"}`}>
           {WEEK_DAYS.map((dayName, idx) => (
             <div
               key={dayName}
-              className={idx === 0 || idx === 6 ? "text-slate-500" : "text-slate-300"}
+              className={idx === 0 || idx === 6 ? (isDark ? "text-slate-500" : "text-slate-600") : (isDark ? "text-slate-300" : "text-slate-900")}
             >
               {dayName}
             </div>
@@ -544,7 +550,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
         </div>
 
         {/* Células do Mês */}
-        <div className="grid grid-cols-7 divide-x divide-y divide-slate-800/80 bg-slate-950">
+        <div className={`grid grid-cols-7 divide-x divide-y ${isDark ? "divide-slate-800/80 bg-slate-950" : "divide-slate-200 bg-white"}`}>
           {calendarCells.map((cell) => {
             const dayReviews = reviewsByDate[cell.dateStr] || [];
             const hasReviews = dayReviews.length > 0;
@@ -557,10 +563,16 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
                 key={cell.dateStr}
                 className={`min-h-[110px] sm:min-h-[125px] p-1.5 sm:p-2 transition-colors flex flex-col justify-between ${
                   !cell.isCurrentMonth
-                    ? "bg-black/40 opacity-40"
+                    ? isDark
+                      ? "bg-black/40 opacity-40"
+                      : "bg-slate-100/60 opacity-60"
                     : cell.isToday
-                    ? "bg-green-950/15 ring-1 ring-inset ring-green-600/40"
-                    : "hover:bg-slate-900/30"
+                    ? isDark
+                      ? "bg-green-950/15 ring-1 ring-inset ring-green-600/40"
+                      : "bg-emerald-50/80 ring-1 ring-inset ring-emerald-500/60"
+                    : isDark
+                    ? "hover:bg-slate-900/30"
+                    : "hover:bg-slate-50"
                 }`}
               >
                 {/* Topo da Célula: Número do Dia */}
@@ -570,15 +582,19 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
                       cell.isToday
                         ? "bg-green-600 text-black font-black shadow-xs shadow-green-400/50"
                         : cell.isCurrentMonth
-                        ? "text-slate-300"
-                        : "text-slate-600"
+                        ? isDark
+                          ? "text-slate-300"
+                          : "text-slate-950 font-black"
+                        : isDark
+                        ? "text-slate-600"
+                        : "text-slate-400 font-medium"
                     }`}
                   >
                     {cell.dayNum}
                   </span>
 
                   {hasReviews && (
-                    <span className="text-[9.5px] font-mono text-green-500 font-bold">
+                    <span className={`text-[9.5px] font-mono font-bold ${isDark ? "text-green-500" : "text-emerald-700"}`}>
                       {dayReviews.length} rev
                     </span>
                   )}
@@ -595,8 +611,12 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
                         key={item.id}
                         className={`group relative rounded px-1.5 py-1 border text-[11px] font-mono flex items-center justify-between gap-1.5 transition-all shadow-xs ${
                           isAllDone
-                            ? "bg-slate-900/40 border-slate-800 text-slate-500 line-through opacity-60"
-                            : "bg-green-900/30 hover:bg-green-900/50 text-green-300 border-green-800/50 hover:border-green-600/70"
+                            ? isDark
+                              ? "bg-slate-900/40 border-slate-800 text-slate-500 line-through opacity-60"
+                              : "bg-slate-100 border-slate-300 text-slate-500 line-through"
+                            : isDark
+                            ? "bg-green-900/30 hover:bg-green-900/50 text-green-300 border-green-800/50 hover:border-green-600/70"
+                            : "bg-emerald-100 hover:bg-emerald-200 text-emerald-950 font-bold border-emerald-400 shadow-2xs"
                         }`}
                         title={`${item.assunto} (${item.materia}) - Clique no checkbox para marcar no Notion`}
                       >
@@ -616,10 +636,12 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
                             e.stopPropagation();
                             handleCheckReview(item.id, nextCycle || "mes3");
                           }}
-                          className={`w-4 h-4 rounded shrink-0 flex items-center justify-center transition-all cursor-pointer bg-black border ${
+                          className={`w-4 h-4 rounded shrink-0 flex items-center justify-center transition-all cursor-pointer border ${
                             isAllDone
                               ? "border-green-500 bg-green-950/80 text-green-400"
-                              : "border-slate-700 hover:border-rose-500 hover:scale-110 hover:shadow-[0_0_6px_rgba(244,63,94,0.6)] text-transparent hover:text-rose-400/50"
+                              : isDark
+                              ? "bg-black border-slate-700 hover:border-rose-500 hover:scale-110 text-transparent hover:text-rose-400/50"
+                              : "bg-white border-slate-400 hover:border-rose-600 hover:scale-110 text-transparent hover:text-rose-600/50 shadow-2xs"
                           }`}
                           title={
                             isAllDone
@@ -657,17 +679,29 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
       {/* 3. Modal Tático de Detalhes do Dia (caso clique em +X mais) */}
       {selectedDayDetail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="w-full max-w-lg bg-slate-950 border border-slate-800 rounded-2xl p-5 shadow-2xl text-white font-mono space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div
+            className={`w-full max-w-lg rounded-2xl p-5 shadow-2xl font-mono space-y-4 border ${
+              isDark
+                ? "bg-slate-950 border-slate-800 text-white"
+                : "bg-white border-slate-300 text-black shadow-2xl"
+            }`}
+          >
+            <div
+              className={`flex items-center justify-between pb-3 border-b ${
+                isDark ? "border-slate-800" : "border-slate-200"
+              }`}
+            >
               <div className="flex items-center gap-2">
-                <CalendarIcon className="w-4 h-4 text-green-400" />
-                <h3 className="font-bold text-sm text-green-300">
+                <CalendarIcon className="w-4 h-4 text-green-600" />
+                <h3 className={`font-bold text-sm ${isDark ? "text-green-300" : "text-black font-black"}`}>
                   Revisões Programadas para {selectedDayDetail.dateStr}
                 </h3>
               </div>
               <button
                 onClick={() => setSelectedDayDetail(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
+                className={`p-1 rounded-lg ${
+                  isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-black"
+                }`}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -681,20 +715,26 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
                 return (
                   <div
                     key={item.id}
-                    className="p-3 rounded-xl border border-slate-800 bg-black/60 flex items-center justify-between gap-3 hover:border-slate-700 transition-colors"
+                    className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
+                      isDark
+                        ? "border-slate-800 bg-black/60 hover:border-slate-700"
+                        : "border-slate-300 bg-slate-50 hover:border-slate-400 shadow-2xs"
+                    }`}
                   >
                     <div className="space-y-1">
                       <span
                         className={`text-[9.5px] px-2 py-0.5 rounded border font-bold ${
-                          MATERIA_BADGES[item.materia] || MATERIA_BADGES.Default
+                          isDark
+                            ? MATERIA_BADGES[item.materia] || MATERIA_BADGES.Default
+                            : "bg-slate-200 text-black border-slate-400 font-black"
                         }`}
                       >
                         {item.materia}
                       </span>
-                      <h4 className="text-xs font-bold text-white leading-snug">
+                      <h4 className={`text-xs font-bold leading-snug ${isDark ? "text-white" : "text-black font-black"}`}>
                         {item.assunto}
                       </h4>
-                      <p className="text-[10px] text-slate-500">
+                      <p className={`text-[10px] ${isDark ? "text-slate-500" : "text-slate-800 font-bold"}`}>
                         Estudado em: {item.dataEstudo || "-"}
                       </p>
                     </div>
@@ -703,10 +743,14 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
                       <button
                         type="button"
                         onClick={() => handleCheckReview(item.id, nextCycle || "mes3")}
-                        className={`w-6 h-6 rounded flex items-center justify-center transition-all bg-black border ${
+                        className={`w-6 h-6 rounded flex items-center justify-center transition-all border cursor-pointer ${
                           isAllDone
-                            ? "border-green-500 text-green-400 bg-green-950/60"
-                            : "border-slate-700 hover:border-rose-500 hover:scale-105 text-slate-700 hover:text-rose-400"
+                            ? isDark
+                              ? "border-green-500 text-green-400 bg-green-950/60"
+                              : "border-green-600 text-green-950 bg-green-200"
+                            : isDark
+                            ? "bg-black border-slate-700 hover:border-rose-500 hover:scale-105 text-slate-700 hover:text-rose-400"
+                            : "bg-white border-slate-400 hover:border-rose-600 hover:scale-105 text-slate-400 hover:text-rose-700 shadow-2xs"
                         }`}
                         title="Marcar no Notion"
                       >
@@ -724,15 +768,29 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
       {/* 4. Modal de Inspeção Completa dos 4 Checkboxes do Notion */}
       {activeItemModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="w-full max-w-md bg-slate-950 border border-slate-800 rounded-2xl p-5 shadow-2xl text-white font-mono space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div
+            className={`w-full max-w-md rounded-2xl p-5 shadow-2xl font-mono space-y-4 border ${
+              isDark
+                ? "bg-slate-950 border-slate-800 text-white"
+                : "bg-white border-slate-300 text-black shadow-2xl"
+            }`}
+          >
+            <div
+              className={`flex items-center justify-between pb-3 border-b ${
+                isDark ? "border-slate-800" : "border-slate-200"
+              }`}
+            >
               <div className="flex items-center gap-2">
                 <span className="text-base">📕</span>
-                <h3 className="font-bold text-sm text-green-300">Controle do Notion</h3>
+                <h3 className={`font-bold text-sm ${isDark ? "text-green-300" : "text-black font-black"}`}>
+                  Controle do Notion
+                </h3>
               </div>
               <button
                 onClick={() => setActiveItemModal(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
+                className={`p-1 rounded-lg ${
+                  isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-black"
+                }`}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -742,23 +800,25 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
               <div>
                 <span
                   className={`text-[10px] px-2 py-0.5 rounded border font-bold ${
-                    MATERIA_BADGES[activeItemModal.materia] || MATERIA_BADGES.Default
+                    isDark
+                      ? MATERIA_BADGES[activeItemModal.materia] || MATERIA_BADGES.Default
+                      : "bg-slate-200 text-black border-slate-400 font-black"
                   }`}
                 >
                   {activeItemModal.materia}
                 </span>
-                <h3 className="text-sm font-bold text-white mt-1.5 leading-snug">
+                <h3 className={`text-sm font-bold mt-1.5 leading-snug ${isDark ? "text-white" : "text-black font-black"}`}>
                   {activeItemModal.assunto}
                 </h3>
-                <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
+                <div className={`text-[11px] mt-1 flex items-center justify-between ${isDark ? "text-slate-400" : "text-slate-900 font-bold"}`}>
                   <span>Data do Estudo: {activeItemModal.dataEstudo}</span>
                   <span>Próxima: {activeItemModal.proximaRevisao || "Concluída"}</span>
                 </div>
               </div>
 
               {/* 4 Checkboxes do Notion */}
-              <div className="pt-3 border-t border-slate-800 space-y-2">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+              <div className={`pt-3 border-t space-y-2 ${isDark ? "border-slate-800" : "border-slate-200"}`}>
+                <span className={`text-xs font-bold uppercase tracking-wider block ${isDark ? "text-slate-400" : "text-black font-black"}`}>
                   Caixas de Revisão no Notion:
                 </span>
 
@@ -775,16 +835,22 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
                       onClick={() => handleCheckReview(activeItemModal.id, box.key)}
                       className={`p-2.5 rounded-xl border text-left transition-all flex items-center justify-between cursor-pointer ${
                         box.checked
-                          ? "bg-green-950/50 border-green-500/80 text-green-300 font-bold"
-                          : "bg-black border-slate-800 text-slate-400 hover:border-rose-500 hover:text-rose-300"
+                          ? isDark
+                            ? "bg-green-950/50 border-green-500/80 text-green-300 font-bold"
+                            : "bg-emerald-100 border-emerald-600 text-emerald-950 font-black shadow-xs"
+                          : isDark
+                          ? "bg-black border-slate-800 text-slate-400 hover:border-rose-500 hover:text-rose-300"
+                          : "bg-slate-50 border-slate-300 text-black font-bold hover:border-rose-600 hover:bg-slate-100 shadow-2xs"
                       }`}
                     >
                       <span className="text-xs">{box.label}</span>
                       <div
                         className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
                           box.checked
-                            ? "bg-green-600 border-green-500 text-black"
-                            : "border-slate-700 bg-slate-900 group-hover:border-rose-500"
+                            ? "bg-green-600 border-green-500 text-white"
+                            : isDark
+                            ? "border-slate-700 bg-slate-900 group-hover:border-rose-500"
+                            : "border-slate-400 bg-white"
                         }`}
                       >
                         {box.checked && <Check className="w-3.5 h-3.5 stroke-[3]" />}

@@ -308,7 +308,11 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
             {/* Score Big Display */}
             <div className="my-4 text-center">
               <div className="inline-flex items-baseline gap-1">
-                <span className="text-4xl font-black text-slate-100 tracking-tight">
+                <span
+                  className={`text-4xl font-black tracking-tight ${
+                    isDark ? 'text-slate-100' : 'text-slate-900'
+                  }`}
+                >
                   {analysis?.equilibriumScore ?? 75}
                 </span>
                 <span className="text-sm font-semibold text-slate-500">/ 100</span>
@@ -414,7 +418,11 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
                 >
                   <div>
                     <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="text-xs font-bold text-slate-100 truncate">
+                      <span
+                        className={`text-xs font-bold truncate ${
+                          isDark ? 'text-slate-100' : 'text-slate-900'
+                        }`}
+                      >
                         {p.name}
                       </span>
                       <span
