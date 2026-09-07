@@ -231,16 +231,11 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated }) =
               </svg>
             </div>
 
-            {/* Subtitle & Impact Heading */}
+            {/* Title: RUMO AO CFO - Área de Alunos */}
             <div className="text-center mb-6">
-              <p className="text-[11px] font-mono tracking-[0.25em] text-[#ff7a3d] uppercase font-bold mb-1">
-                FÊNIX • ÁREA DO ALUNO
-              </p>
-              <h1 className="text-3xl sm:text-4xl font-black tracking-tight uppercase leading-[1.08] font-sans">
-                <span className="block text-white">DAS CINZAS</span>
-                <span className="block text-[#ff5e1f] drop-shadow-[0_2px_12px_rgba(255,94,31,0.5)]">
-                  À APROVAÇÃO.
-                </span>
+              <h1 className="text-2xl sm:text-3xl font-black tracking-tight font-sans drop-shadow-[0_2px_12px_rgba(255,94,31,0.4)]">
+                <span className="text-white">RUMO AO CFO</span>{' '}
+                <span className="text-[#ff5e1f] font-bold">- Área de Alunos</span>
               </h1>
             </div>
 
