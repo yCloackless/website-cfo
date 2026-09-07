@@ -104,11 +104,6 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
       id: 'simulations',
       label: 'Simulados',
       icon: Crosshair,
-      badge: 'UERJ',
-      badgeClass: {
-        dark: 'bg-red-600/30 text-red-300 border-red-500/40',
-        light: 'bg-red-100 text-red-900 border-red-300',
-      },
       description: 'Central de simulados',
     },
   ];
