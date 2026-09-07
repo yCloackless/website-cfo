@@ -11,8 +11,26 @@ import helmet from "helmet";
 import cors from "cors";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
+import bcrypt from "bcryptjs";
 
 dotenv.config();
+
+// ============================================================================
+// 🛑 VALIDAÇÃO OBRIGATÓRIA DE SECRETS NO STARTUP (Defesa em Profundidade)
+// ============================================================================
+const missingVars: string[] = [];
+if (!process.env.ADMIN_PASSWORD_HASH && !process.env.ADMIN_PASSWORD) missingVars.push('ADMIN_PASSWORD_HASH (or ADMIN_PASSWORD)');
+if (!process.env.CADET_PASSWORD_HASH && !process.env.CADET_PASSWORD) missingVars.push('CADET_PASSWORD_HASH (or CADET_PASSWORD)');
+if (!process.env.TOTP_SECRET) missingVars.push('TOTP_SECRET');
+if (!process.env.SESSION_SECRET) missingVars.push('SESSION_SECRET');
+if (!process.env.TURNSTILE_SECRET_KEY) missingVars.push('TURNSTILE_SECRET_KEY');
+
+if (missingVars.length > 0 && process.env.NODE_ENV === 'production') {
+  console.error(`\n🚨 [FATAL] Variáveis de ambiente obrigatórias não configuradas: ${missingVars.join(', ')}`);
+  console.error('O servidor NÃO pode iniciar sem essas variáveis em produção.');
+  console.error('Configure-as no .env ou nas variáveis de ambiente do Render/host.\n');
+  process.exit(1);
+}
 
 import {
   getNotionConfig,
@@ -215,8 +233,11 @@ async function getIpGeoLocation(
 
 // Verificação do Token do Cloudflare Turnstile
 async function verifyTurnstileToken(token?: string, remoteip?: string): Promise<boolean> {
-  const secretKey =
-    process.env.TURNSTILE_SECRET_KEY || "0x4AAAAAAEq86v_Nx6LNd3-DPNOuhECnjek";
+  const secretKey = process.env.TURNSTILE_SECRET_KEY;
+  if (!secretKey) {
+    console.error('[Turnstile] TURNSTILE_SECRET_KEY não configurada. Recusando validação.');
+    return false;
+  }
   if (!token) return false;
 
   // Chave de teste oficial da Cloudflare que sempre passa em desenvolvimento
@@ -327,12 +348,18 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
+      // Requests sem origin (server-to-server, curl, mobile) — permitir
       if (!origin) return callback(null, true);
       const isAllowed = allowedOrigins.some((allowed) => origin.startsWith(allowed) || allowed.startsWith(origin));
-      if (isAllowed || origin.includes("render.com") || origin.includes("localhost")) {
+      if (isAllowed) {
         return callback(null, true);
       }
-      return callback(null, true);
+      // Em desenvolvimento, permitir localhost
+      if (process.env.NODE_ENV !== 'production' && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+        return callback(null, true);
+      }
+      console.warn(`[CORS] Origin rejeitada: ${origin}`);
+      return callback(new Error('CORS: Origin não autorizada'), false);
     },
     credentials: true,
   })
@@ -553,28 +580,35 @@ function getGeminiClient(): GoogleGenAI | null {
   return aiClient;
 }
 
-// API Health
-app.get("/api/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
+// (Rota /api/health definida anteriormente na linha ~40)
 
 // ==========================================
 // 🛡️ TERMINAL DE ACESSO RESTRITO (2FA TOTP)
 // ==========================================
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "cfocbmerj2026!";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
+const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || (ADMIN_PASSWORD ? bcrypt.hashSync(ADMIN_PASSWORD, 10) : "");
 const CADET_USER = process.env.CADET_USER || "cadete";
-const CADET_PASSWORD = process.env.CADET_PASSWORD || "cadetecfo2026!";
-const DEFAULT_TOTP_SECRET = "T37NFOFA5PCDA5NRXKDVWVEHZ2F22ZV3";
-const DEFAULT_SESSION_SECRET = "b6708b60d07229c5f49cbc2612e747acae36b92bf8435b11569bc916560ea12f";
+const CADET_PASSWORD = process.env.CADET_PASSWORD || "";
+const CADET_PASSWORD_HASH = process.env.CADET_PASSWORD_HASH || (CADET_PASSWORD ? bcrypt.hashSync(CADET_PASSWORD, 10) : "");
+// Fallbacks vazios — em produção, startup valida que existem via missingVars
+const CONFIGURED_TOTP_SECRET = process.env.TOTP_SECRET || "";
+const CONFIGURED_SESSION_SECRET = process.env.SESSION_SECRET || "";
 const SECURITY_CONFIG_FILE = path.join(process.cwd(), "data", "security-config.json");
 
-// Verificação de senha em tempo constante (Proteção contra Timing Attacks)
-function safeComparePassword(input: string, expected: string): boolean {
-  if (!input || !expected) return false;
-  const a = crypto.createHash("sha256").update(input).digest();
-  const b = crypto.createHash("sha256").update(expected).digest();
-  return crypto.timingSafeEqual(a, b);
+// Verificação de senha via bcrypt (tempo constante nativo, resistente a timing attacks)
+async function safeComparePassword(input: string, hashOrPlain: string): Promise<boolean> {
+  if (!input || !hashOrPlain) return false;
+  try {
+    if (hashOrPlain.startsWith("$2a$") || hashOrPlain.startsWith("$2b$") || hashOrPlain.startsWith("$2y$")) {
+      return await bcrypt.compare(input, hashOrPlain);
+    }
+    const a = crypto.createHash("sha256").update(input).digest();
+    const b = crypto.createHash("sha256").update(hashOrPlain).digest();
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }
 
 interface SecurityConfig {
@@ -590,8 +624,8 @@ function getSecurityConfig(): SecurityConfig {
       const raw = fs.readFileSync(SECURITY_CONFIG_FILE, "utf-8");
       const parsed = JSON.parse(raw);
       return {
-        totpSecret: process.env.TOTP_SECRET || parsed.totpSecret || DEFAULT_TOTP_SECRET,
-        sessionSecret: process.env.SESSION_SECRET || parsed.sessionSecret || DEFAULT_SESSION_SECRET,
+        totpSecret: CONFIGURED_TOTP_SECRET || parsed.totpSecret || "",
+        sessionSecret: CONFIGURED_SESSION_SECRET || parsed.sessionSecret || "",
         is2faActive: Boolean(parsed.is2faActive),
         createdAt: parsed.createdAt || new Date().toISOString(),
       };
@@ -601,8 +635,8 @@ function getSecurityConfig(): SecurityConfig {
   }
 
   const newConfig: SecurityConfig = {
-    totpSecret: process.env.TOTP_SECRET || DEFAULT_TOTP_SECRET,
-    sessionSecret: process.env.SESSION_SECRET || DEFAULT_SESSION_SECRET,
+    totpSecret: CONFIGURED_TOTP_SECRET,
+    sessionSecret: CONFIGURED_SESSION_SECRET,
     is2faActive: true,
     createdAt: new Date().toISOString(),
   };
@@ -661,9 +695,12 @@ function verifyTerminalSession(token?: string | null): {
 
   const [payloadB64, signature] = parts;
   const config = getSecurityConfig();
-  const expectedSignature = crypto.createHmac("sha256", config.sessionSecret).update(payloadB64).digest("base64url");
-
-  if (signature !== expectedSignature) return { valid: false };
+  // Comparação de assinatura em tempo constante (proteção contra timing attacks)
+  const expectedSig = crypto.createHmac("sha256", config.sessionSecret).update(payloadB64).digest("base64url");
+  if (expectedSig.length !== signature.length) return { valid: false };
+  const sigBufA = Buffer.from(signature, 'utf-8');
+  const sigBufB = Buffer.from(expectedSig, 'utf-8');
+  if (sigBufA.length !== sigBufB.length || !crypto.timingSafeEqual(sigBufA, sigBufB)) return { valid: false };
 
   try {
     const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf-8"));
@@ -682,13 +719,31 @@ function verifyTerminalSession(token?: string | null): {
   }
 }
 
+// Cache de códigos TOTP já usados para proteção anti-replay
+const usedTotpCodes = new Map<string, number>(); // code -> timestamp
+function cleanupUsedTotpCodes(): void {
+  const now = Date.now();
+  for (const [code, ts] of usedTotpCodes) {
+    if (now - ts > 180000) usedTotpCodes.delete(code); // 3 minutos
+  }
+}
+
 function verifyTotpToken(token: string, secret: string): boolean {
   const cleanToken = token.trim().replace(/\s+/g, "");
   const currentEpoch = Math.floor(Date.now() / 1000);
-  // Tolerância estendida para desvios de relógio de celular (+/- 120 segundos)
-  for (const offset of [0, -30, 30, -60, 60, -90, 90, -120, 120]) {
+
+  // Proteção anti-replay: mesmo código não pode ser reutilizado
+  if (usedTotpCodes.has(cleanToken)) {
+    console.warn('[2FA] Tentativa de reutilização de código TOTP detectada.');
+    return false;
+  }
+
+  // Tolerância reduzida para ±30 segundos (1 step antes, 1 depois)
+  for (const offset of [0, -30, 30]) {
     const result = verifySync({ token: cleanToken, secret, epoch: currentEpoch + offset });
     if (result && result.valid) {
+      usedTotpCodes.set(cleanToken, Date.now());
+      cleanupUsedTotpCodes();
       return true;
     }
   }
@@ -708,7 +763,8 @@ app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
   const sessionResult = verifyTerminalSession(token);
   const adminKey = req.query.adminKey || req.headers["x-admin-key"];
 
-  if (!sessionResult.valid && adminKey !== ADMIN_PASSWORD) {
+  const isAdminKeyValid = adminKey ? await safeComparePassword(String(adminKey), ADMIN_PASSWORD_HASH) : false;
+  if (!sessionResult.valid && !isAdminKeyValid) {
     return res.status(403).json({
       error: "FORBIDDEN",
       message: "Acesso restrito. Faça login primeiro para visualizar o QR Code de ativação.",
@@ -970,7 +1026,7 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
       inputUser === "aluno@cfocbmerj.com";
 
     if (isCadetTarget) {
-      if (!safeComparePassword(password, CADET_PASSWORD)) {
+      if (!(await safeComparePassword(password, CADET_PASSWORD_HASH))) {
         logAuditEvent({
           action: "LOGIN_FAILED",
           actor: inputUser,
@@ -1053,7 +1109,7 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
       });
     }
 
-    if (!safeComparePassword(password, ADMIN_PASSWORD)) {
+    if (!(await safeComparePassword(password, ADMIN_PASSWORD_HASH))) {
       logAuditEvent({
         action: "LOGIN_FAILED",
         actor: inputUser,
@@ -1141,7 +1197,7 @@ app.post("/api/auth/verify-2fa", authLimiter, async (req: Request, res: Response
       cleanUser === "jb080956@gmail.com" ||
       ALLOWED_EMAILS.includes(cleanUser);
 
-    if (!isAuthorized || !safeComparePassword(password, ADMIN_PASSWORD)) {
+    if (!isAuthorized || !(await safeComparePassword(password, ADMIN_PASSWORD_HASH))) {
       logAuditEvent({
         action: "LOGIN_FAILED",
         actor: cleanUser,
@@ -2733,13 +2789,14 @@ app.post("/api/notion/novo-estudo", async (req: Request, res: Response) => {
 // ============================================================================
 
 // Middleware de autorização estrita para Operações Administrativas
-function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
+async function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
   const adminKey = req.query.adminKey || req.headers["x-admin-key"];
 
-  if (adminKey && safeComparePassword(String(adminKey), ADMIN_PASSWORD)) {
-    return next();
+  if (adminKey) {
+    const isKeyValid = await safeComparePassword(String(adminKey), ADMIN_PASSWORD_HASH);
+    if (isKeyValid) return next();
   }
 
   const session = verifyTerminalSession(token);
@@ -2953,7 +3010,7 @@ app.post("/api/admin/backup/create", requireAdminAuth, async (req: Request, res:
 });
 
 // 6. Restauração Crítica de Backup do Servidor (Requer confirmação explícita)
-app.post("/api/admin/backup/restore", requireAdminAuth, (req: Request, res: Response) => {
+app.post("/api/admin/backup/restore", requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { filename, confirm } = req.body || {};
     const actor = (req as any).user?.username || "admin";
@@ -2981,40 +3038,30 @@ app.post("/api/admin/backup/restore", requireAdminAuth, (req: Request, res: Resp
       ip: clientIp,
     });
 
-    const result = restoreBackup(String(filename));
+    const result = await restoreBackup(String(filename));
 
-    if (result.success) {
-      logAuditEvent({
-        action: "BACKUP_RESTORE_SUCCESS",
-        actor,
-        resource: filename,
-        status: "SUCCESS",
-        ip: clientIp,
-        details: { restoredFiles: result.restoredFiles },
-      });
+    logAuditEvent({
+      action: "BACKUP_RESTORE_SUCCESS",
+      actor,
+      resource: filename,
+      status: "SUCCESS",
+      ip: clientIp,
+      details: { message: result.message },
+    });
 
-      return res.json({
-        success: true,
-        message: "Backup restaurado com sucesso no servidor. Dados restabelecidos.",
-        restoredFiles: result.restoredFiles,
-      });
-    } else {
-      logAuditEvent({
-        action: "BACKUP_RESTORE_FAILED",
-        actor,
-        resource: filename,
-        status: "FAILED",
-        ip: clientIp,
-        details: { error: result.error },
-      });
-
-      return res.status(500).json({
-        success: false,
-        error: "RESTORE_FAILED",
-        message: result.error || "Falha na restauração do backup.",
-      });
-    }
+    return res.json({
+      success: true,
+      message: result.message || "Backup restaurado com sucesso no servidor. Dados restabelecidos.",
+    });
   } catch (err: any) {
+    logAuditEvent({
+      action: "BACKUP_RESTORE_FAILED",
+      actor: (req as any).user?.u || "admin",
+      resource: req.body?.filename,
+      status: "FAILED",
+      ip: req.ip || "UNKNOWN",
+      details: { error: err?.message },
+    });
     return res.status(500).json({
       error: "RESTORE_ERROR",
       message: err?.message || "Erro inesperado durante restauração.",

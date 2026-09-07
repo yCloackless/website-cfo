@@ -14,3 +14,4 @@ coverage/
 banned-ips.json
 security-config.json
 calendar-session.json
+.agents/

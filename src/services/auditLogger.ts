@@ -3,17 +3,12 @@ import path from 'path';
 
 export interface AuditEntry {
   timestamp: string;
-  eventType:
-    | 'LOGIN_SUCCESS'
-    | 'LOGIN_FAILED'
-    | 'ACCESS_BLOCKED_GEO'
-    | 'IP_BANNED'
-    | 'BACKUP_CREATED'
-    | 'BACKUP_RESTORED'
-    | 'USER_BACKUP_SYNC'
-    | 'USER_BACKUP_RESTORE'
-    | 'SECURITY_ALERT';
+  eventType?: string;
+  action?: string;
   username?: string;
+  actor?: string;
+  resource?: string;
+  status?: string;
   ip: string;
   details?: Record<string, any>;
 }
@@ -27,9 +22,19 @@ export function logAuditEvent(entry: Omit<AuditEntry, 'timestamp'>): void {
       fs.mkdirSync(dir, { recursive: true });
     }
 
+    const eventType = entry.eventType || entry.action || 'SECURITY_ALERT';
+    const username = entry.username || entry.actor;
+
     const fullEntry: AuditEntry = {
       timestamp: new Date().toISOString(),
-      ...entry,
+      eventType,
+      action: entry.action || eventType,
+      username,
+      actor: entry.actor || username,
+      resource: entry.resource,
+      status: entry.status,
+      ip: entry.ip,
+      details: entry.details,
     };
 
     // Sanitiza qualquer menção acidental a senhas ou segredos
