@@ -280,14 +280,15 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         throw new Error('Resposta incompleta do Gemini AI');
       }
 
+      const detectedSubj = aiData.detectedSubject || targetSubject;
       const generatedTitle = aiData.refinedTitle || targetContent;
       const generatedCategory =
         aiData.category ||
-        (targetSubject === 'Geografia'
+        (detectedSubj === 'Geografia'
           ? 'Geopolítica & Cartografia'
-          : targetSubject === 'Física'
+          : detectedSubj === 'Física'
           ? 'Física & Fenômenos'
-          : targetSubject === 'Matemática'
+          : detectedSubj === 'Matemática'
           ? 'Matemática & Geometria'
           : 'Edital CFO CBMERJ');
       const generatedKeyPoints =
@@ -295,13 +296,13 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
       const generatedTags =
         Array.isArray(aiData.tags) && aiData.tags.length > 0
           ? aiData.tags
-          : [targetSubject, 'CFO-CBMERJ', 'Bizu-Direto'];
+          : [detectedSubj, 'CFO-CBMERJ', 'Bizu-Direto'];
 
       // Add directly to persistent storage (IndexedDB)
       const formattedNotes = formatNotesToSeparatedTopics(aiData.notes);
       addBizuItem({
         title: generatedTitle,
-        subjectName: targetSubject,
+        subjectName: detectedSubj,
         category: generatedCategory,
         notes: formattedNotes,
         keyPoints: generatedKeyPoints,
@@ -311,7 +312,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
 
       onRefreshBizuItems();
       setIsFormModalOpen(false);
-      showToast(`✨ Bizu tático "${generatedTitle}" gerado e salvo com sucesso!`, 'success');
+      showToast(`✨ Bizu tático "${generatedTitle}" (${detectedSubj}) gerado e salvo com sucesso!`, 'success');
     } catch (err: any) {
       console.error('Falha na geração direta do Bizu:', err);
       showToast('Erro ao gerar anotação com IA. Tente novamente.', 'error');
@@ -357,13 +358,15 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         throw new Error('Resposta incompleta do Gemini AI');
       }
 
+      const detectedSubj = aiData.detectedSubject || targetSubject;
       setFormTitle(aiData.refinedTitle || targetContent);
-      setFormSubject(targetSubject);
+      setFormSubject(detectedSubj);
+      setDirectSubject(detectedSubj);
       setFormCategory(
         aiData.category ||
-          (targetSubject === 'Geografia'
+          (detectedSubj === 'Geografia'
             ? 'Geopolítica & Cartografia'
-            : targetSubject === 'Física'
+            : detectedSubj === 'Física'
             ? 'Física & Fenômenos'
             : 'Edital CFO CBMERJ')
       );
@@ -372,7 +375,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
       setFormTags(
         Array.isArray(aiData.tags) && aiData.tags.length > 0
           ? aiData.tags
-          : [targetSubject, 'CFO-CBMERJ']
+          : [detectedSubj, 'CFO-CBMERJ']
       );
       setFormIsFavorite(true);
 
@@ -443,6 +446,20 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
       return true;
     });
   }, [bizuItems, searchTerm, selectedSubjectFilter, selectedTagFilter, onlyFavorites]);
+
+  // Keyword auto-detection for military subjects
+  const detectSubjectFromTopic = (text: string): string | null => {
+    const t = text.toLowerCase();
+    if (!t || t.length < 3) return null;
+    if (/circuito|elétric|eletro|ohm|resistor|capacit|magnet|newton|calor|óptic|termodinâm|cinemát|vetor|onda|refraç|dinâmic/i.test(t)) return 'Física';
+    if (/matriz|trigonometr|geometri|probabilidad|combinaç|arranj|logaritmo|polinôm|equaçã|funçã|geometria/i.test(t)) return 'Matemática';
+    if (/escala|cartograf|fuso|clima|relevo|geopolític|vegetaç|hidrograf|demograf|urbanizaç/i.test(t)) return 'Geografia';
+    if (/tabela periód|estequiometr|soluçã|ácido|base|oxidaç|termoquím|eletroquím|átomo|ligaç/i.test(t)) return 'Química';
+    if (/concordânc|regênc|crase|sintaxe|morfolog|pontuaç|acentuaç|figura|texto|redaç/i.test(t)) return 'Língua Portuguesa';
+    if (/revoluç|ditadura|repúblic|império|era vargas|guerra|independênc|colonizaç/i.test(t)) return 'História';
+    if (/ecolog|genétic|citolog|fisiolog|evoluç|célula/i.test(t)) return 'Biologia';
+    return null;
+  };
 
   // Open Form for New Bizu (defaults to AI Direct mode as requested)
   const handleOpenNewModal = (
@@ -1213,7 +1230,9 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
 
             {/* Mode Switcher: AI Direct vs Manual Form */}
             {!editingBizu && (
-              <div className="px-6 py-2.5 border-b border-slate-800 bg-slate-950/60 flex items-center justify-between gap-2">
+              <div className={`px-6 py-2.5 border-b flex items-center justify-between gap-2 ${
+                isDark ? 'border-slate-800 bg-slate-950/60' : 'border-slate-200 bg-slate-100/80'
+              }`}>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -1221,7 +1240,9 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       modalMode === 'ai_direct'
                         ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                        : isDark
+                        ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                        : 'text-slate-800 font-bold hover:text-slate-950 hover:bg-slate-200'
                     }`}
                   >
                     <Zap className="w-3.5 h-3.5 text-amber-300" />
@@ -1237,7 +1258,9 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                       modalMode === 'manual'
                         ? 'bg-slate-800 text-white shadow-md'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                        : isDark
+                        ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                        : 'text-slate-800 font-bold hover:text-slate-950 hover:bg-slate-200'
                     }`}
                   >
                     <Edit3 className="w-3.5 h-3.5" />
@@ -1245,7 +1268,9 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                   </button>
                 </div>
 
-                <span className="text-[11px] text-slate-500 hidden sm:inline">
+                <span className={`text-[11px] font-bold hidden sm:inline ${
+                  isDark ? 'text-slate-400' : 'text-slate-900'
+                }`}>
                   {modalMode === 'ai_direct' ? 'Apenas Matéria + Conteúdo' : 'Preenchimento livre com foto'}
                 </span>
               </div>
@@ -1255,29 +1280,47 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
             {modalMode === 'ai_direct' && !editingBizu ? (
               <div className="p-6 space-y-5 overflow-y-auto flex-1 scrollbar-thin">
                 {/* Tactical Callout */}
-                <div className="p-4 rounded-xl bg-gradient-to-br from-blue-950/60 via-slate-900 to-indigo-950/40 border border-blue-500/25 space-y-2">
+                <div className={`p-4 rounded-xl space-y-2 ${
+                  isDark
+                    ? 'bg-gradient-to-br from-blue-950/60 via-slate-900 to-indigo-950/40 border border-blue-500/25'
+                    : 'bg-blue-50 border border-blue-200 shadow-xs'
+                }`}>
                   <div className="flex items-center justify-between flex-wrap gap-2">
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
-                      <Zap className="w-3 h-3 text-amber-400" />
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 ${
+                      isDark
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                        : 'bg-amber-100 text-amber-900 border border-amber-300'
+                    }`}>
+                      <Zap className="w-3 h-3 text-amber-500" />
                       Padrão Cartografia CFO CBMERJ
                     </span>
-                    <span className="text-[11px] text-blue-300 font-medium">
+                    <span className={`text-[11px] font-bold ${
+                      isDark ? 'text-blue-300' : 'text-blue-900'
+                    }`}>
                       LaTeX Formulas ($...$) + Mnemônicos
                     </span>
                   </div>
-                  <h4 className="text-sm font-bold text-slate-100">
+                  <h4 className={`text-sm font-black ${
+                    isDark ? 'text-slate-100' : 'text-slate-900'
+                  }`}>
                     Crie anotações profundas informando apenas Matéria e Conteúdo
                   </h4>
-                  <p className="text-xs text-slate-400 leading-relaxed">
+                  <p className={`text-xs leading-relaxed ${
+                    isDark ? 'text-slate-400' : 'text-slate-800 font-medium'
+                  }`}>
                     A IA gerará a estrutura tática completa idêntica às fichas de Cartografia: Conceitos Essenciais, Fórmulas com notação matemática limpa, Mnemônicos práticos, Pegadinhas clássicas das bancas (UERJ/FGV/IDECAN) e Dicas de Resolução Rápida.
                   </p>
                 </div>
 
                 {/* Field 1: Subject (Matéria) */}
                 <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-200 flex items-center justify-between">
-                    <span>1. Título da Matéria / Disciplina *</span>
-                    <span className="text-[10px] font-normal text-slate-400">Clique para selecionar rápido</span>
+                  <label className="block text-xs flex items-center justify-between">
+                    <span className={`font-black ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
+                      1. Título da Matéria / Disciplina *
+                    </span>
+                    <span className={`text-[10px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-700'}`}>
+                      Clique para selecionar rápido
+                    </span>
                   </label>
 
                   {/* Quick Select Subject Chips */}
@@ -1294,10 +1337,12 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                               setDirectTopicContent(QUICK_TOPIC_SUGGESTIONS[subj][0]);
                             }
                           }}
-                          className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                          className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                             isSelected
                               ? 'bg-blue-600 text-white shadow-md shadow-blue-900/40 scale-102 border border-blue-400'
-                              : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-850'
+                              : isDark
+                              ? 'bg-slate-950 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-850'
+                              : 'bg-slate-100 border border-slate-300 text-slate-900 hover:bg-slate-200'
                           }`}
                         >
                           {subj}
@@ -1314,7 +1359,11 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                     placeholder="Ou digite o nome da matéria..."
                     value={directSubject}
                     onChange={(e) => setDirectSubject(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-medium bg-slate-950 border border-slate-800 text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                    className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-bold focus:border-blue-500 focus:outline-none ${
+                      isDark
+                        ? 'bg-slate-950 border border-slate-800 text-slate-100 placeholder-slate-500'
+                        : 'bg-slate-50 border border-slate-300 text-slate-900 placeholder-slate-500 shadow-xs focus:bg-white'
+                    }`}
                   />
                   <datalist id="direct-subjects-datalist">
                     {availableSubjectNames.map((name) => (
@@ -1325,32 +1374,49 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
 
                 {/* Field 2: Conteúdo / Tópico que quero falar */}
                 <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-200 flex items-center justify-between">
-                    <span>2. Qual conteúdo você quer falar? *</span>
-                    <span className="text-[10px] font-normal text-blue-400">Assunto específico do edital</span>
+                  <label className="block text-xs flex items-center justify-between">
+                    <span className={`font-black ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
+                      2. Qual conteúdo você quer falar? *
+                    </span>
+                    <span className={`text-[10px] font-bold ${isDark ? 'text-blue-400' : 'text-blue-800'}`}>
+                      Assunto específico do edital (IA identifica a matéria)
+                    </span>
                   </label>
 
                   <input
                     type="text"
                     required
                     autoFocus
-                    placeholder="Ex: Cartografia, escalas e curvas de nível / Termologia e trocas de calor..."
+                    placeholder="Ex: Circuito Elétrico / Termologia e trocas de calor / Escalas cartográficas..."
                     value={directTopicContent}
-                    onChange={(e) => setDirectTopicContent(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setDirectTopicContent(val);
+                      const autoSubj = detectSubjectFromTopic(val);
+                      if (autoSubj) {
+                        setDirectSubject(autoSubj);
+                      }
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !isGeneratingAI && directTopicContent.trim()) {
                         e.preventDefault();
                         handleGenerateAndSaveDirectly();
                       }
                     }}
-                    className="w-full px-4 py-3 rounded-xl text-sm font-medium bg-slate-950 border border-slate-700 text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none shadow-inner"
+                    className={`w-full px-4 py-3 rounded-xl text-sm font-bold focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none shadow-inner ${
+                      isDark
+                        ? 'bg-slate-950 border border-slate-700 text-slate-100 placeholder-slate-500'
+                        : 'bg-slate-50 border border-slate-300 text-slate-900 placeholder-slate-500 focus:bg-white'
+                    }`}
                   />
 
                   {/* High Yield Suggestion Chips for Selected Subject */}
                   {QUICK_TOPIC_SUGGESTIONS[directSubject] && QUICK_TOPIC_SUGGESTIONS[directSubject].length > 0 && (
                     <div className="pt-1.5 space-y-1.5">
-                      <p className="text-[11px] text-slate-400 font-semibold flex items-center gap-1">
-                        <Sparkles className="w-3 h-3 text-amber-400" />
+                      <p className={`text-[11px] font-bold flex items-center gap-1 ${
+                        isDark ? 'text-slate-400' : 'text-slate-900'
+                      }`}>
+                        <Sparkles className="w-3 h-3 text-amber-500" />
                         Tópicos com alta incidência em {directSubject}:
                       </p>
                       <div className="flex flex-wrap gap-1.5">
@@ -1358,8 +1424,16 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                           <button
                             key={sug}
                             type="button"
-                            onClick={() => setDirectTopicContent(sug)}
-                            className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-950/80 border border-slate-800 text-slate-300 hover:text-blue-300 hover:border-blue-500/40 hover:bg-slate-900 transition-colors text-left cursor-pointer"
+                            onClick={() => {
+                              setDirectTopicContent(sug);
+                              const autoSubj = detectSubjectFromTopic(sug);
+                              if (autoSubj) setDirectSubject(autoSubj);
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold text-left cursor-pointer transition-colors ${
+                              isDark
+                                ? 'bg-slate-950/80 border border-slate-800 text-slate-300 hover:text-blue-300 hover:border-blue-500/40 hover:bg-slate-900'
+                                : 'bg-slate-100 border border-slate-300 text-slate-900 hover:bg-blue-100 hover:text-blue-950 hover:border-blue-300'
+                            }`}
                           >
                             + {sug}
                           </button>
@@ -1370,7 +1444,9 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                 </div>
 
                 {/* Action Controls */}
-                <div className="pt-4 border-t border-slate-800 space-y-3">
+                <div className={`pt-4 border-t space-y-3 ${
+                  isDark ? 'border-slate-800' : 'border-slate-200'
+                }`}>
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                     <button
                       type="button"
@@ -1379,9 +1455,11 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                         setFormSubject(directSubject);
                         setModalMode('manual');
                       }}
-                      className="text-xs text-slate-400 hover:text-slate-200 transition-colors text-center sm:text-left cursor-pointer"
+                      className={`text-xs font-bold transition-colors text-center sm:text-left cursor-pointer ${
+                        isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-800 hover:text-slate-950'
+                      }`}
                     >
-                      Prefere digitar manualmente ou anexar fotos? <span className="underline text-blue-400">Abrir Formulário Completo</span>
+                      Prefere digitar manualmente ou anexar fotos? <span className="underline text-blue-600 dark:text-blue-400">Abrir Formulário Completo</span>
                     </button>
 
                     <div className="flex items-center gap-2 justify-end">
@@ -1389,10 +1467,14 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                         type="button"
                         onClick={handleGenerateAndReview}
                         disabled={isGeneratingAI || !directTopicContent.trim()}
-                        className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                        className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 ${
+                          isDark
+                            ? 'text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700'
+                            : 'text-slate-900 hover:text-black bg-slate-200 hover:bg-slate-300 border border-slate-300'
+                        }`}
                         title="Gera a anotação detalhada e abre o formulário para você revisar ou anexar imagem antes de salvar"
                       >
-                        <FileText className="w-3.5 h-3.5 text-blue-400" />
+                        <FileText className="w-3.5 h-3.5 text-blue-500" />
                         <span>Gerar e Revisar</span>
                       </button>
 

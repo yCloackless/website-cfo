@@ -3150,18 +3150,25 @@ app.post("/api/ai/bizu-notes", async (req: Request, res: Response) => {
 
     const ai = getGeminiClient();
     if (ai) {
-      const prompt = `Você é o Estrategista Pedagógico Chefe e Especialista nas bancas do concurso CFO CBMERJ (Oficial Combatente do Corpo de Bombeiros Militar do Estado do Rio de Janeiro).
-O concurseiro está criando um Bizu Tático para o seu Bizuário de estudos informando apenas a matéria e o conteúdo desejado.
+      const prompt = `Você é o Estrategista Pedagógico Chefe e Especialista nas bancas do concurso CFO CBMERJ (Oficial Combatente do Corpo de Bombeiros Militar do Estado do Rio de Janeiro) e exames militares (UERJ, EsPCEx, EEAR, AFA).
+O concurseiro está criando um Bizu Tático para o seu Bizuário de estudos informando apenas o assunto ou matéria.
 
 Dados fornecidos:
-- Matéria: ${subject || "Geral do Edital"}
-- Conteúdo / Assunto: ${title || subject}
+- Matéria informada: ${subject || "Não especificada"}
+- Conteúdo / Assunto solicitado: ${title || subject}
 - Categoria sugerida: ${category || "Edital CFO CBMERJ"}
 - Anotações prévias (se houver): ${existingNotes || "Nenhuma"}
-- Foco específico: ${promptHint || "Geração direta de anotação detalhada e estratégica estilo Cartografia e Alta Incidência do CFO CBMERJ"}
+- Foco específico: ${promptHint || "Geração direta de anotação detalhada com fórmulas militares mais importantes em LaTeX"}
 
-IMPORTANTE SOBRE MATEMÁTICA / FÍSICA:
-SEMPRE utilize notação LaTeX com delimitadores $...$ (em linha) ou $$...$$ (em bloco) para quaisquer fórmulas matemáticas, físicas, químicas ou de escalas cartográficas (ex: $E = \\frac{d}{D}$, $Q = m \\cdot c \\cdot \\Delta T$, $v^2 = v_0^2 + 2a\\Delta s$, etc.).
+INSTRUÇÃO CRÍTICA 1 - AUTO-IDENTIFICAÇÃO DE MATÉRIA:
+Analise o Conteúdo / Assunto fornecido (ex: 'Circuito Elétrico', 'Calorimetria', 'Trigonometria', 'Cartografia', 'Concordância Verbal').
+IDENTIFIQUE E CONFIRME a Matéria principal exata a qual este assunto pertence no edital (ex: para 'Circuito Elétrico' ou 'Eletrodinâmica', a matéria é 'Física'; para 'Escalas', é 'Geografia'). Retorne o nome exato da matéria no campo "detectedSubject" (ex: "Física", "Matemática", "Química", "Geografia", "História", "Língua Portuguesa", "Biologia").
+
+INSTRUÇÃO CRÍTICA 2 - FÓRMULAS E BIZUS MAIS IMPORTANTES DE PROVAS MILITARES:
+Se o aluno forneceu um tópico genérico ou amplo (ex: 'Circuito Elétrico'), selecione e sintetize APENAS AS FÓRMULAS, LEIS E DICAS MAIS IMPORTANTES E MAIS RECORRENTES NAS PROVAS MILITARES (ex: $V = R \\cdot i$, $P = V \\cdot i$, $P = R \\cdot i^2$, Associação Série/Paralelo $R_{eq}$, Leis de Kirchhoff). Se o aluno pediu algo mais específico, aborde o especificou mais os pontos fundamentais de prova.
+
+IMPORTANTE SOBRE NOTAÇÃO MATEMÁTICA / FÍSICA:
+SEMPRE utilize notação LaTeX com delimitadores $...$ (em linha) ou $$...$$ (em bloco) para quaisquer fórmulas matemáticas, físicas, químicas ou de escalas (ex: $E = \\frac{d}{D}$, $Q = m \\cdot c \\cdot \\Delta T$, $v^2 = v_0^2 + 2a\\Delta s$, etc.).
 
 INSTRUÇÃO CRÍTICA DE SEPARAÇÃO EM TÓPICOS NO CAMPO "notes":
 O texto do campo "notes" NÃO PODE DE FORMA ALGUMA FICAR AMONTOADO EM UM PARÁGRAFO CORRIDO.
@@ -3171,9 +3178,9 @@ Tópico 1 - Conceito Essencial & Fundamentos
 • Definição clara, formal e didática do assunto.
 • Relações fundamentais de causa e efeito e aplicabilidade no CFO CBMERJ.
 
-Tópico 2 - Fórmulas & Relações Chave (LaTeX)
-• Todas as equações relevantes com notação LaTeX ($...$).
-• Significado de cada grandeza e conversões de unidades fundamentais no SI.
+Tópico 2 - Fórmulas & Equações de Alta Incidência nas Provas Militares (LaTeX)
+• Todas as equações vitais para o concurso com notação LaTeX ($...$).
+• Significado de cada grandeza e unidades no Sistema Internacional (SI).
 
 Tópico 3 - Bizus Táticos & Mnemônicos
 • Frases mnemônicas, macetes consagrados e regras práticas para memorização rápida.
@@ -3185,11 +3192,12 @@ Tópico 5 - Método de Prova & Resolução Rápida
 • Passo a passo para matar a questão em menos de 2 minutos sem perder tempo com contas desnecessárias.
 
 Estruture a resposta JSON contendo:
-1. "refinedTitle": Título elegante, profissional e direto para o Bizu (ex: "Cartografia: Escalas, Curvas de Nível e Fusos Horários" ou "Termologia: Calorimetria e Mudanças de Fase").
-2. "category": Categoria ou eixo temático refinado (ex: "Geopolítica & Cartografia", "Mecânica Clássica", "Geometria Plana", etc.).
-3. "notes": Texto com os tópicos OBRIGATORIAMENTE separados por linhas em branco conforme o modelo acima.
-4. "keyPoints": Array com 4 a 6 tópicos estratégicos ultra-sintéticos (bullets diretos para revisão rápida de véspera, podendo conter fórmulas curtas em $...$).
-5. "tags": Array com 4 a 6 tags/palavras-chave estratégicas para filtragem no Bizuário.`;
+1. "detectedSubject": Nome da matéria identificada pela IA (ex: "Física", "Matemática", "Química", "Geografia", "História", "Língua Portuguesa", "Biologia").
+2. "refinedTitle": Título elegante, profissional e direto para o Bizu (ex: "Física: Circuitos Elétricos, Leis de Ohm e Potência").
+3. "category": Categoria ou eixo temático refinado (ex: "Eletrodinâmica & Circuitos", "Geopolítica & Cartografia", "Mecânica Clássica", etc.).
+4. "notes": Texto com os tópicos OBRIGATORIAMENTE separados por linhas em branco conforme o modelo acima.
+5. "keyPoints": Array com 4 a 6 tópicos estratégicos ultra-sintéticos (bullets diretos com fórmulas em $...$).
+6. "tags": Array com 4 a 6 tags/palavras-chave estratégicas para filtragem no Bizuário.`;
 
       const candidateModels = [
         "gemini-2.5-flash",
@@ -3204,11 +3212,12 @@ Estruture a resposta JSON contendo:
             contents: prompt,
             config: {
               systemInstruction:
-                "Você é um tutor especialista de elite focado na aprovação no concurso CFO CBMERJ. Forneça anotações táticas completas, estruturadas estritamente em 'Tópico 1 - ...', 'Tópico 2 - ...', com linha em branco entre eles, mnemônicos e fórmulas em LaTeX.",
+                "Você é um tutor especialista de elite focado na aprovação no concurso CFO CBMERJ. Forneça anotações táticas completas com auto-detecção da matéria, foco em fórmulas militares mais importantes em LaTeX e estrutura rígida em tópicos.",
               responseMimeType: "application/json",
               responseSchema: {
                 type: Type.OBJECT,
                 properties: {
+                  detectedSubject: { type: Type.STRING },
                   refinedTitle: { type: Type.STRING },
                   category: { type: Type.STRING },
                   notes: { type: Type.STRING },
