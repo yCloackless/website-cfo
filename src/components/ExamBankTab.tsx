@@ -358,7 +358,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({ message: `Servidor respondeu com HTTP ${res.status}.` }));
 
       if (res.ok && data.success) {
         if (!data.paper) data.paper = { title: uploadTitle || 'Prova' };
@@ -454,8 +454,8 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
       } else {
         showToast?.(data.message || 'Falha no processamento da prova.', 'error');
       }
-    } catch (err) {
-      showToast?.('Erro ao enviar prova para o servidor.', 'error');
+    } catch (err: any) {
+      showToast?.(`Erro ao enviar prova para o servidor: ${err?.message || 'verifique sua conexão.'}`, 'error');
     } finally {
       setIsUploading(false);
     }

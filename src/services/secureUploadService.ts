@@ -27,7 +27,7 @@ export interface UploadLimitsConfig {
 }
 
 export const DEFAULT_UPLOAD_LIMITS: UploadLimitsConfig = {
-  maxSizeBytes: 10 * 1024 * 1024, // 10 MB
+  maxSizeBytes: 20 * 1024 * 1024, // 20 MB (mesmo limite exibido na interface)
   maxImageWidth: 4096,
   maxImageHeight: 4096,
   maxPdfPages: 200,
@@ -596,4 +596,3 @@ export const secureUploadService = {
   getAuthorizedFile: (fileId: string, requestingUserId: string, isAdmin?: boolean) =>
     getSecureUploadService().getAuthorizedFile(fileId, requestingUserId, isAdmin),
 };
-
