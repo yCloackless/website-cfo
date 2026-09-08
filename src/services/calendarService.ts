@@ -353,13 +353,13 @@ export async function createGoogleCalendarEvent(
  * Registra a sessão no Google Agenda:
  * - Se 'studied' (Estudado no dia): marcado em Azul (colorId: '9' - Blueberry/Royal Blue)
  * - Se 'reviewing' (Revisando): marcado em Verde (colorId: '2' - Sage/Green)
- * Sem criação de cascata de revisões espaçadas extras.
+ * - Opcionalmente agenda revisões inteligentes (1D, 7D, 30D, 60D, 90D) se createRevisions for true.
  */
 export async function syncStudySessionAndRevisions(
   accessToken: string | null | undefined,
   subject: Subject,
   entry: Partial<StudyEntry> & { dateStr: string },
-  _createRevisions: boolean = false
+  createRevisions: boolean = false
 ): Promise<{
   studyEventId: string;
   revision1dId?: string;
@@ -379,6 +379,7 @@ export async function syncStudySessionAndRevisions(
   const wholeHours = entry.durationMinutes ? Math.max(1, Math.round(entry.durationMinutes / 60)) : 1;
   const durationLabel = `\n⏱️ Carga horária: ${wholeHours}h (${wholeHours === 1 ? '1 hora' : `${wholeHours} horas`})`;
   const notesLabel = entry.notes ? `\n📝 Anotações: ${entry.notes}` : '';
+  const studiedDateFormatted = formatBRDate(entry.dateStr);
 
   // Configuração de cores e títulos:
   // Estudado no dia = Azul (colorId: '9')
@@ -398,9 +399,80 @@ export async function syncStudySessionAndRevisions(
     colorId,
   };
 
+  const revisionsList: CalendarEventPayload[] = [];
+  if (createRevisions && !isReview) {
+    // 1 day (Próximo dia / 24h)
+    revisionsList.push({
+      summary: `⚡ [Revisão 24h / Próx Dia • CFO CBMERJ] ${subject.name}${topicLabel}`,
+      description: `Revisão do próximo dia (Fixação imediata pós-estudo).\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado em: ${studiedDateFormatted}`,
+      dateStr: addDays(entry.dateStr, 1),
+      colorId: '2', // Verde
+      tag: '1d',
+    });
+
+    // 7 days (1 semana)
+    revisionsList.push({
+      summary: `🎯 [Revisão 7D • CFO CBMERJ] ${subject.name}${topicLabel}`,
+      description: `Revisão de 1 semana (Curva do Esquecimento).\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado originalmente em: ${studiedDateFormatted}`,
+      dateStr: addDays(entry.dateStr, 7),
+      colorId: '2', // Verde
+      tag: '7d',
+    });
+
+    // 30 days (1 mês)
+    revisionsList.push({
+      summary: `⭐ [Revisão 30D • CFO CBMERJ] ${subject.name}${topicLabel}`,
+      description: `Revisão mensal de 30 dias (Consolidação de longo prazo).\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado em: ${studiedDateFormatted}`,
+      dateStr: addDays(entry.dateStr, 30),
+      colorId: '2', // Verde
+      tag: '30d',
+    });
+
+    // 60 days (2 meses)
+    revisionsList.push({
+      summary: `🏆 [Revisão 60D • CFO CBMERJ] ${subject.name}${topicLabel}`,
+      description: `Revisão de 2 meses.\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado em: ${studiedDateFormatted}`,
+      dateStr: addDays(entry.dateStr, 60),
+      colorId: '2', // Verde
+      tag: '60d',
+    });
+
+    // 90 days (3 meses)
+    revisionsList.push({
+      summary: `🚀 [Revisão 90D • CFO CBMERJ] ${subject.name}${topicLabel}`,
+      description: `Revisão de 3 meses.\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado em: ${studiedDateFormatted}`,
+      dateStr: addDays(entry.dateStr, 90),
+      colorId: '2', // Verde
+      tag: '90d',
+    });
+  }
+
   const studyEventId = await createGoogleCalendarEvent(accessToken, studyEventPayload);
+  let revision1dId: string | undefined;
+  let revision7dId: string | undefined;
+  let revision30dId: string | undefined;
+  let revision60dId: string | undefined;
+  let revision90dId: string | undefined;
+
+  for (const rev of revisionsList) {
+    try {
+      const revId = await createGoogleCalendarEvent(accessToken, rev);
+      if (rev.tag === '1d') revision1dId = revId;
+      if (rev.tag === '7d') revision7dId = revId;
+      if (rev.tag === '30d') revision30dId = revId;
+      if (rev.tag === '60d') revision60dId = revId;
+      if (rev.tag === '90d') revision90dId = revId;
+    } catch (revErr) {
+      console.warn(`Aviso: Falha ao criar revisão ${rev.tag}:`, revErr);
+    }
+  }
 
   return {
     studyEventId,
+    revision1dId,
+    revision7dId,
+    revision30dId,
+    revision60dId,
+    revision90dId,
   };
 }

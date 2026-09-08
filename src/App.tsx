@@ -37,6 +37,8 @@ import {
   getCyclesHistory,
   loadWeeklyGoalHours,
   saveWeeklyGoalHours,
+  loadAutoSpacedRevisionsEnabled,
+  saveAutoSpacedRevisionsEnabled,
 } from './services/storageService';
 import { loadBizuItems, initBizuStorageAsync, subscribeBizuItems } from './utils/bizuarioStorage';
 import { initAuth, googleSignIn, logout, getAccessToken } from './services/firebaseAuth';
@@ -103,8 +105,10 @@ export default function App() {
     return saved === null ? true : saved === 'true';
   });
 
-  // 👤 Minha Conta & Perfil do Aluno
+  // 👤 Minha Conta & Perfil do Aluno & Configurações
   const [isMyAccountOpen, setIsMyAccountOpen] = useState(false);
+  const [accountInitialTab, setAccountInitialTab] = useState<'profile' | 'settings' | 'email' | 'password'>('profile');
+  const [autoSpacedRevisions, setAutoSpacedRevisions] = useState<boolean>(() => loadAutoSpacedRevisionsEnabled());
   const [userProfile, setUserProfile] = useState<{
     id?: string;
     fullName?: string;
@@ -1011,7 +1015,7 @@ export default function App() {
           token,
           subject,
           newEntry,
-          false
+          autoSpacedRevisions
         );
         newEntry.googleCalendarSynced = true;
         newEntry.calendarEventId = calendarResult.studyEventId;
@@ -1091,7 +1095,7 @@ export default function App() {
             token,
             selectedCell.subject,
             newEntry,
-            false
+            autoSpacedRevisions
           );
           newEntry.googleCalendarSynced = true;
           newEntry.calendarEventId = calendarResult.studyEventId;
@@ -1448,7 +1452,14 @@ export default function App() {
       <Header
         user={user}
         userProfile={userProfile}
-        onOpenAccount={() => setIsMyAccountOpen(true)}
+        onOpenAccount={() => {
+          setAccountInitialTab('profile');
+          setIsMyAccountOpen(true);
+        }}
+        onOpenSettings={() => {
+          setAccountInitialTab('settings');
+          setIsMyAccountOpen(true);
+        }}
         isAdmin={userProfile?.role === 'admin' || localStorage.getItem('cfo_terminal_role') === 'admin'}
         onOpenAdminSecurity={() => navigateTo('/admin')}
         hasCalendarAccess={isCalendarLinked}
@@ -2091,6 +2102,12 @@ export default function App() {
         theme={theme}
         sessionToken={localStorage.getItem('cfo_terminal_session')}
         onProfileUpdated={(updated) => setUserProfile(updated)}
+        initialTab={accountInitialTab}
+        autoSpacedRevisions={autoSpacedRevisions}
+        onToggleAutoSpacedRevisions={(enabled) => {
+          setAutoSpacedRevisions(enabled);
+          saveAutoSpacedRevisionsEnabled(enabled);
+        }}
       />
 
       {/* Modal de Monitoramento de Segurança e Auditoria (Admin) */}

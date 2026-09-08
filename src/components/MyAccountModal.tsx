@@ -15,8 +15,14 @@ import {
   Eye,
   EyeOff,
   Sparkles,
+  Settings as SettingsIcon,
+  Calendar,
 } from 'lucide-react';
 import { AppTheme } from '../types';
+import {
+  loadAutoSpacedRevisionsEnabled,
+  saveAutoSpacedRevisionsEnabled,
+} from '../services/storageService';
 
 interface UserProfileData {
   id: string;
@@ -37,6 +43,9 @@ interface MyAccountModalProps {
   theme: AppTheme;
   sessionToken: string | null;
   onProfileUpdated?: (updatedProfile: UserProfileData) => void;
+  autoSpacedRevisions?: boolean;
+  onToggleAutoSpacedRevisions?: (enabled: boolean) => void;
+  initialTab?: 'profile' | 'settings' | 'email' | 'password';
 }
 
 export const MyAccountModal: React.FC<MyAccountModalProps> = ({
@@ -45,14 +54,20 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
   theme,
   sessionToken,
   onProfileUpdated,
+  autoSpacedRevisions,
+  onToggleAutoSpacedRevisions,
+  initialTab = 'profile',
 }) => {
   const isDark = theme === 'dark';
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [activeSubTab, setActiveSubTab] = useState<'profile' | 'email' | 'password'>('profile');
+  const [activeSubTab, setActiveSubTab] = useState<'profile' | 'settings' | 'email' | 'password'>(initialTab);
   const [loading, setLoading] = useState(false);
   const [fetchingProfile, setFetchingProfile] = useState(false);
   const [profile, setProfile] = useState<UserProfileData | null>(null);
+  const [isAutoSpacedRevisions, setIsAutoSpacedRevisions] = useState<boolean>(() => {
+    return autoSpacedRevisions !== undefined ? autoSpacedRevisions : loadAutoSpacedRevisionsEnabled();
+  });
 
   // Formulário Perfil
   const [fullName, setFullName] = useState('');
@@ -77,6 +92,12 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Carrega perfil ao abrir o modal
+  useEffect(() => {
+    if (isOpen) {
+      setActiveSubTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
+
   useEffect(() => {
     if (!isOpen || !sessionToken) return;
 
@@ -358,6 +379,20 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
           </button>
           <button
             onClick={() => {
+              setActiveSubTab('settings');
+              setStatusMessage(null);
+            }}
+            className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+              activeSubTab === 'settings'
+                ? 'border-blue-500 text-blue-500 font-bold'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <SettingsIcon className="w-4 h-4" />
+            Configurações
+          </button>
+          <button
+            onClick={() => {
               setActiveSubTab('email');
               setStatusMessage(null);
             }}
@@ -576,6 +611,73 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                     </button>
                   </div>
                 </form>
+              )}
+
+              {/* ABA CONFIGURAÇÕES (PREFERÊNCIAS TÁTICAS & GOOGLE AGENDA) */}
+              {activeSubTab === 'settings' && (
+                <div className="space-y-5 animate-in fade-in duration-200">
+                  <div className="p-4 rounded-xl border border-blue-900/40 bg-[#070D18] space-y-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-blue-400" />
+                          <h3 className="text-xs font-bold text-slate-100">
+                            Revisão Espaçada Automática no Google Agenda
+                          </h3>
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          Quando ativado, o sistema agendará automaticamente os ciclos de revisão espaçada (+24h, +7d, +30d, +60d, +90d) ao concluir um estudo.
+                        </p>
+                        <p className="text-[10px] text-slate-500">
+                          {isAutoSpacedRevisions
+                            ? '🟢 Ativado: Eventos extras de revisão serão criados na Google Agenda.'
+                            : '⚪ Desativado (Padrão): Agenda apenas a sessão do dia (Azul para Estudado, Verde para Revisando).'}
+                        </p>
+                      </div>
+
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                        <input
+                          type="checkbox"
+                          checked={isAutoSpacedRevisions}
+                          onChange={(e) => {
+                            const val = e.target.checked;
+                            setIsAutoSpacedRevisions(val);
+                            saveAutoSpacedRevisionsEnabled(val);
+                            if (onToggleAutoSpacedRevisions) {
+                              onToggleAutoSpacedRevisions(val);
+                            }
+                            setStatusMessage({
+                              type: 'success',
+                              text: val
+                                ? 'Revisão espaçada automática ativada com sucesso!'
+                                : 'Revisão espaçada automática desativada (agendamento individual simples ativado).',
+                            });
+                          }}
+                          className="sr-only peer"
+                        />
+                        <div className="w-10 h-5.5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-[#0056D2]"></div>
+                      </label>
+                    </div>
+
+                    {/* Resumo visual do padrão de cores */}
+                    <div className="pt-3 border-t border-blue-900/30 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                      <div className="p-2.5 rounded-lg bg-[#0F1D38]/60 border border-blue-900/40 flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-blue-400 shrink-0"></span>
+                        <div>
+                          <span className="font-bold text-blue-300 block">Estudado no dia</span>
+                          <span className="text-[10px] text-slate-400">Marcado em Azul no Google Agenda</span>
+                        </div>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-[#062018]/60 border border-emerald-900/40 flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0"></span>
+                        <div>
+                          <span className="font-bold text-emerald-300 block">Revisando</span>
+                          <span className="text-[10px] text-slate-400">Marcado em Verde no Google Agenda</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               )}
 
               {/* ABA 2: ALTERAÇÃO DE E-MAIL */}

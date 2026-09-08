@@ -18,6 +18,7 @@ import {
   User as UserIcon,
   Shield,
   Bell,
+  Settings as SettingsIcon,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
@@ -25,6 +26,7 @@ interface HeaderProps {
   user: User | null;
   userProfile?: { fullName?: string; username?: string; avatarUrl?: string | null; role?: string } | null;
   onOpenAccount?: () => void;
+  onOpenSettings?: () => void;
   isAdmin?: boolean;
   onOpenAdminSecurity?: () => void;
   onOpenNotifications?: () => void;
@@ -55,6 +57,7 @@ export const Header: React.FC<HeaderProps> = ({
   user,
   userProfile = null,
   onOpenAccount,
+  onOpenSettings,
   isAdmin = false,
   onOpenAdminSecurity,
   onOpenNotifications,
@@ -275,6 +278,22 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className={mobileLabel}>Reiniciar</span>
               </button>
 
+              {onOpenSettings && (
+                <button
+                  type="button"
+                  id="btn-open-settings-mobile"
+                  onClick={onOpenSettings}
+                  aria-label="Configurações do cronograma e agenda"
+                  className={`${mobileCircle} ${mobileSurface}`}
+                  title="Configurações de sincronização e preferências"
+                >
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-500/30 bg-slate-500/10 text-slate-300">
+                    <SettingsIcon className="h-5 w-5 text-blue-400" />
+                  </span>
+                  <span className={mobileLabel}>Ajustes</span>
+                </button>
+              )}
+
               {onOpenAccount && (
                 <button
                   type="button"
@@ -387,6 +406,24 @@ export const Header: React.FC<HeaderProps> = ({
                 </>
               )}
             </button>
+
+            {/* Settings (Engrenagem / Configurações) */}
+            {onOpenSettings && (
+              <button
+                type="button"
+                id="btn-open-settings"
+                onClick={onOpenSettings}
+                className={`p-2 rounded-xl border transition-all cursor-pointer ${
+                  isDark
+                    ? 'border-slate-800 bg-[#0B1528] text-slate-300 hover:text-white hover:border-blue-500/50'
+                    : 'border-slate-200 bg-slate-100 text-slate-700 hover:text-slate-900 hover:border-blue-500/50'
+                }`}
+                title="Configurações (Revisão Espaçada, Notificações e Preferências)"
+                aria-label="Abrir configurações"
+              >
+                <SettingsIcon className="w-4 h-4 text-slate-400 hover:text-blue-400 transition-colors" />
+              </button>
+            )}
 
             {/* Notification Bell 🔔 */}
             {onOpenNotifications && (

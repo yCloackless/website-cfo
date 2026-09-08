@@ -9,6 +9,7 @@ const RAW_STORAGE_KEYS = {
   CYCLES_HISTORY: 'cfo_cbmerj_cycles_history_v1',
   REVISIONS: 'cfo_cbmerj_revisions_v1',
   WEEKLY_GOAL: 'cfo_cbmerj_weekly_goal_hours_v1',
+  AUTO_SPACED_REVISIONS: 'cfo_cbmerj_auto_spaced_revisions_v1',
 };
 
 const STORAGE_KEYS = {
@@ -27,7 +28,30 @@ const STORAGE_KEYS = {
   get WEEKLY_GOAL() {
     return getUserStorageKey(RAW_STORAGE_KEYS.WEEKLY_GOAL);
   },
+  get AUTO_SPACED_REVISIONS() {
+    return getUserStorageKey(RAW_STORAGE_KEYS.AUTO_SPACED_REVISIONS);
+  },
 };
+
+export function loadAutoSpacedRevisionsEnabled(): boolean {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.AUTO_SPACED_REVISIONS);
+    if (raw !== null) {
+      return raw === 'true';
+    }
+  } catch (e) {
+    console.error('Erro ao carregar preferência de revisão espaçada:', e);
+  }
+  return false; // Default: Desativado por padrão conforme solicitado
+}
+
+export function saveAutoSpacedRevisionsEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.AUTO_SPACED_REVISIONS, String(enabled));
+  } catch (e) {
+    console.error('Erro ao salvar preferência de revisão espaçada:', e);
+  }
+}
 
 export function loadWeeklyGoalHours(): number {
   try {
