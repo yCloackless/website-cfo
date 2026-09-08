@@ -230,3 +230,27 @@ export interface DbSecurityNotification {
   metadataJson?: string | null;
   createdAt: string;
 }
+
+export type UploadScanStatus =
+  | 'UPLOADED'
+  | 'QUARANTINED'
+  | 'SCANNING'
+  | 'CLEAN'
+  | 'REJECTED'
+  | 'PROCESSING'
+  | 'READY';
+
+export interface DbUploadedFile {
+  id: string;
+  userId: string;
+  originalFilename: string;
+  storagePath: string;
+  mimeType: string;
+  extension: string;
+  sizeBytes: number;
+  sha256: string;
+  status: UploadScanStatus;
+  scanDetailsJson?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

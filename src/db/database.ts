@@ -436,6 +436,34 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE password_resets ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    id: 14,
+    name: '014_secure_uploaded_files',
+    sql: `
+      -- Tabela de Arquivos com Quarentena e Validação Estrutural
+      CREATE TABLE IF NOT EXISTS uploaded_files (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        original_filename TEXT NOT NULL,
+        storage_path TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        extension TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+        sha256 TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'QUARANTINED' CHECK (
+          status IN ('UPLOADED', 'QUARANTINED', 'SCANNING', 'CLEAN', 'REJECTED', 'PROCESSING', 'READY')
+        ),
+        scan_details_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_uploaded_files_user_id ON uploaded_files(user_id);
+      CREATE INDEX IF NOT EXISTS idx_uploaded_files_status ON uploaded_files(status);
+      CREATE INDEX IF NOT EXISTS idx_uploaded_files_sha256 ON uploaded_files(sha256);
+      CREATE INDEX IF NOT EXISTS idx_uploaded_files_created_at ON uploaded_files(created_at);
+    `,
+  },
 ];
 
 

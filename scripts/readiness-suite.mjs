@@ -12,7 +12,7 @@ const files = ['models', 'auth', 'profile', 'audit_security', 'admin_panel',
   'admin_security_2fa', 'admin_realtime', 'admin_users_management', 'admin_audit',
   'frontend_integration', 'security_review', 'download_functions', 'privacy_minimization',
   'cadet_exclusive_session', 'cadet_security_audit', 'cadet_5h_block_and_alerts',
-  'security_hardening'];
+  'security_hardening', 'secure_uploads'];
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|HOME|USERPROFILE|COMSPEC|PATHEXT)$/i.test(key)));
 env.NODE_ENV = 'test';

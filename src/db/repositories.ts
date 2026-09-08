@@ -22,6 +22,8 @@ import {
   DbTemporarySourceBlock,
   DbSecurityNotification,
   SecurityNotificationType,
+  DbUploadedFile,
+  UploadScanStatus,
   OrderStatus,
   RefundRequestStatus,
   UserRole,
@@ -1696,3 +1698,131 @@ export class SecurityNotificationRepository {
     `).run(now);
   }
 }
+
+export class UploadedFileRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public create(data: {
+    id?: string;
+    userId: string;
+    originalFilename: string;
+    storagePath: string;
+    mimeType: string;
+    extension: string;
+    sizeBytes: number;
+    sha256: string;
+    status?: UploadScanStatus;
+    scanDetails?: Record<string, any>;
+  }): DbUploadedFile {
+    const id = data.id || crypto.randomUUID();
+    const now = new Date().toISOString();
+    const status: UploadScanStatus = data.status || 'QUARANTINED';
+    const scanDetailsJson = data.scanDetails ? JSON.stringify(data.scanDetails) : null;
+
+    this.db
+      .prepare(
+        `INSERT INTO uploaded_files (
+          id, user_id, original_filename, storage_path, mime_type, extension,
+          size_bytes, sha256, status, scan_details_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        data.userId,
+        data.originalFilename,
+        data.storagePath,
+        data.mimeType,
+        data.extension,
+        data.sizeBytes,
+        data.sha256,
+        status,
+        scanDetailsJson,
+        now,
+        now
+      );
+
+    return this.findById(id)!;
+  }
+
+  public findById(id: string): DbUploadedFile | null {
+    const row = this.db.prepare('SELECT * FROM uploaded_files WHERE id = ?').get(id) as any;
+    if (!row) return null;
+    return this.mapFile(row);
+  }
+
+  public findByUserId(userId: string, limit: number = 50): DbUploadedFile[] {
+    const rows = this.db
+      .prepare('SELECT * FROM uploaded_files WHERE user_id = ? ORDER BY created_at DESC LIMIT ?')
+      .all(userId, limit) as any[];
+    return rows.map((r) => this.mapFile(r));
+  }
+
+  public updateStatus(
+    id: string,
+    status: UploadScanStatus,
+    scanDetails?: Record<string, any>,
+    storagePath?: string
+  ): DbUploadedFile | null {
+    const now = new Date().toISOString();
+    const scanDetailsJson = scanDetails !== undefined ? JSON.stringify(scanDetails) : undefined;
+
+    if (storagePath !== undefined && scanDetailsJson !== undefined) {
+      this.db
+        .prepare(
+          `UPDATE uploaded_files
+           SET status = ?, scan_details_json = ?, storage_path = ?, updated_at = ?
+           WHERE id = ?`
+        )
+        .run(status, scanDetailsJson, storagePath, now, id);
+    } else if (scanDetailsJson !== undefined) {
+      this.db
+        .prepare(
+          `UPDATE uploaded_files
+           SET status = ?, scan_details_json = ?, updated_at = ?
+           WHERE id = ?`
+        )
+        .run(status, scanDetailsJson, now, id);
+    } else if (storagePath !== undefined) {
+      this.db
+        .prepare(
+          `UPDATE uploaded_files
+           SET status = ?, storage_path = ?, updated_at = ?
+           WHERE id = ?`
+        )
+        .run(status, storagePath, now, id);
+    } else {
+      this.db
+        .prepare(
+          `UPDATE uploaded_files
+           SET status = ?, updated_at = ?
+           WHERE id = ?`
+        )
+        .run(status, now, id);
+    }
+
+    return this.findById(id);
+  }
+
+  public delete(id: string): boolean {
+    const res = this.db.prepare('DELETE FROM uploaded_files WHERE id = ?').run(id);
+    return Number(res.changes) > 0;
+  }
+
+  private mapFile(row: any): DbUploadedFile {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      originalFilename: row.original_filename,
+      storagePath: row.storage_path,
+      mimeType: row.mime_type,
+      extension: row.extension,
+      sizeBytes: Number(row.size_bytes),
+      sha256: row.sha256,
+      status: row.status as UploadScanStatus,
+      scanDetailsJson: row.scan_details_json ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+}
+

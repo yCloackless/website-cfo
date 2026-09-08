@@ -51,9 +51,10 @@ import {
 import { logAuditEvent, readRecentAuditLogs } from "./src/services/auditLogger";
 import { AuthService } from "./src/db/authService";
 import { getDb } from "./src/db/database";
-import { UserRepository, ProfileRepository, AuditRepository, SessionRepository, RecoveryCodeRepository, UserStateRepository, SecurityNotificationRepository } from "./src/db/repositories";
+import { UserRepository, ProfileRepository, AuditRepository, SessionRepository, RecoveryCodeRepository, UserStateRepository, SecurityNotificationRepository, UploadedFileRepository } from "./src/db/repositories";
 import { UserRole, DbUser } from "./src/db/schema";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
+import { secureUploadService, SecureUploadService } from "./src/services/secureUploadService";
 import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtimeHub";
 import { createAuthMiddlewares } from "./src/middleware/auth";
 
@@ -477,7 +478,7 @@ const aiLimiter = rateLimit({
   },
 });
 
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "20mb" }));
 app.use('/avatars', express.static(path.join(process.cwd(), 'data', 'avatars'), { dotfiles: 'deny', index: false }));
 
 // Google OAuth 2.0 Credentials & Storage Configuration
@@ -732,6 +733,7 @@ const profileRepoInstance = new ProfileRepository(getDb().getRawDb());
 const userStateRepoInstance = new UserStateRepository(getDb().getRawDb());
 const sessionRepoInstance = new SessionRepository(getDb().getRawDb());
 const recoveryCodeRepoInstance = new RecoveryCodeRepository(getDb().getRawDb());
+const uploadedFileRepoInstance = new UploadedFileRepository(getDb().getRawDb());
 
 function logSecurityEvent(
   req: Request,
@@ -4411,6 +4413,188 @@ app.get("/api/admin/audit-logs", requireAdminAuth, (req: Request, res: Response)
     return res.status(500).json({
       error: "AUDIT_LOG_ERROR",
       message: "Falha ao ler registros de auditoria.",
+    });
+  }
+});
+
+// ============================================================================
+// 🔒 CAMADA OBRIGATÓRIA DE SEGURANÇA PARA UPLOADS (DEFENSE-IN-DEPTH)
+// ============================================================================
+
+// 1. Rate Limiter Dedicado para Uploads (Anti-DoS / Anti-Flooding)
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30, // 30 uploads por 15 min por IP/usuário
+  validate: { xForwardedForHeader: false },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => {
+    const userId = String((req as any).user?.userId || '').trim();
+    return userId ? `user:${userId}` : `ip:${ipKeyGenerator(req.ip || getClientIp(req))}`;
+  },
+  message: {
+    error: "UPLOAD_RATE_LIMITED",
+    message: "Limite de uploads atingido para esta janela de tempo. Tente novamente mais tarde.",
+  },
+});
+
+// 2. Endpoint de Upload Seguro: POST /api/uploads/file
+app.post("/api/uploads/file", requireUserAuth, uploadLimiter, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    if (!user || !user.userId) {
+      return res.status(401).json({ error: "UNAUTHORIZED", message: "Autenticação obrigatória." });
+    }
+
+    const { fileName, originalName, declaredMime, contentBase64 } = req.body || {};
+    const effectiveOriginalName = originalName || fileName;
+
+    if (typeof contentBase64 !== 'string') {
+      return res.status(400).json({ error: "INVALID_PAYLOAD", message: "Buffer base64 do arquivo não fornecido." });
+    }
+
+    if (!effectiveOriginalName || typeof effectiveOriginalName !== 'string') {
+      return res.status(400).json({ error: "INVALID_FILENAME", message: "Nome do arquivo não informado." });
+    }
+
+    // Decodifica buffer base64 com proteção contra estouro de memória
+    let buffer: Buffer;
+    try {
+      // Remove prefixos data:image/...;base64, se enviados
+      const cleanBase64 = contentBase64.replace(/^data:[^;]+;base64,/, '');
+      buffer = Buffer.from(cleanBase64, 'base64');
+    } catch {
+      return res.status(400).json({ error: "INVALID_ENCODING", message: "Falha ao decodificar conteúdo base64." });
+    }
+
+    const result = await secureUploadService.processUpload({
+      buffer,
+      originalName: effectiveOriginalName,
+      declaredMime: declaredMime || 'application/octet-stream',
+      userId: user.userId,
+      ip: getClientIp(req),
+      userAgent: (req.headers['user-agent'] as string) || undefined,
+    });
+
+    if (!result.success || !result.file) {
+      return res.status(400).json({
+        error: "UPLOAD_REJECTED",
+        message: result.error || "Arquivo rejeitado pela política de segurança.",
+        status: result.status,
+      });
+    }
+
+    logSecurityEvent(req, {
+      action: 'FILE_UPLOADED_SECURE',
+      actor: user.username || user.userId,
+      actorUserId: user.userId,
+      resource: 'uploaded_files',
+      status: 'SUCCESS',
+      targetType: 'file',
+      targetId: result.file.id,
+      details: {
+        fileId: result.file.id,
+        mime: result.file.mimeType,
+        size: result.file.sizeBytes,
+        sha256: result.file.sha256,
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Arquivo validado e armazenado com sucesso no cofre seguro.",
+      file: {
+        id: result.file.id,
+        originalName: result.file.originalFilename,
+        mimeType: result.file.mimeType,
+        sizeBytes: result.file.sizeBytes,
+        status: result.file.status,
+        createdAt: result.file.createdAt,
+      },
+    });
+  } catch (err: any) {
+    console.error("[Upload Processing Error]:", err?.stack || err?.message || err);
+    return res.status(500).json({
+      error: "UPLOAD_PROCESSING_FAILED",
+      message: err?.message || "Falha interna ao processar o arquivo enviado.",
+    });
+  }
+});
+
+// 3. Endpoint de Download/Acesso Seguro com Autorização Server-Side: GET /api/files/:id
+app.get("/api/files/:id", requireUserAuth, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const fileId = req.params.id;
+
+    if (!fileId || typeof fileId !== 'string') {
+      return res.status(400).json({ error: "INVALID_FILE_ID", message: "Identificador de arquivo inválido." });
+    }
+
+    const isAdmin = user.role === 'admin';
+    const access = secureUploadService.getAuthorizedFile(fileId, user.userId, isAdmin);
+
+    if (!access.authorized || !access.file || !access.buffer) {
+      logSecurityEvent(req, {
+        action: 'FILE_ACCESS_DENIED',
+        actor: user.username || user.userId,
+        actorUserId: user.userId,
+        resource: 'uploaded_files',
+        status: 'FAILED',
+        targetType: 'file',
+        targetId: fileId,
+        details: { reason: access.error },
+      });
+      return res.status(403).json({
+        error: "ACCESS_DENIED",
+        message: access.error || "Acesso não autorizado ao arquivo solicitado.",
+      });
+    }
+
+    // Cabeçalhos de Segurança Estritos para Entrega de Arquivos
+    res.setHeader('Content-Type', access.file.mimeType);
+    res.setHeader('Content-Length', access.buffer.length);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; sandbox");
+    res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+
+    // Sanitiza nome para Content-Disposition (evita header injection / CRLF)
+    const sanitizedFilename = access.file.originalFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    res.setHeader('Content-Disposition', `inline; filename="${sanitizedFilename}"`);
+
+    return res.send(access.buffer);
+  } catch (err: any) {
+    console.error("[File Download Error]:", err?.message || err);
+    return res.status(500).json({
+      error: "DOWNLOAD_FAILED",
+      message: "Falha ao recuperar o arquivo seguro.",
+    });
+  }
+});
+
+// 4. Listagem de Arquivos do Próprio Usuário: GET /api/files
+app.get("/api/files", requireUserAuth, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const files = uploadedFileRepoInstance.findByUserId(user.userId);
+
+    const safeList = files.map(f => ({
+      id: f.id,
+      originalName: f.originalFilename,
+      mimeType: f.mimeType,
+      sizeBytes: f.sizeBytes,
+      status: f.status,
+      createdAt: f.createdAt,
+    }));
+
+    return res.json({
+      success: true,
+      files: safeList,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      error: "LIST_FILES_FAILED",
+      message: "Falha ao consultar repositório de arquivos.",
     });
   }
 });
