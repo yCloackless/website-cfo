@@ -30,7 +30,7 @@ O projeto é um monólito híbrido Node.js + React contido em um único reposit�
 #### 2.1 Credenciais e Sessão
 O sistema opera com um modelo de **contas pré-definidas/hardcoded no código com fallback em variáveis de ambiente**:
 - **Conta Admin**: `ADMIN_USER` e `ADMIN_USER_EMAIL`, com senha definida via `ADMIN_PASSWORD` ou `ADMIN_PASSWORD_HASH`.
-- **Conta Cadete**: `CADET_USER` ("cadete", ou aliases como "cadete@cfo.cbmerj", "aluno") com senha via `CADET_PASSWORD` (fallback hardcoded: `"cadetecfo2026!"`) e hash `CADET_PASSWORD_HASH`.
+- **Conta Cadete**: `CADET_USER` e `CADET_USER_EMAIL`, com senha via `CADET_PASSWORD` ou hash `CADET_PASSWORD_HASH` configurados no ambiente.
 - **Sessões do Terminal**: Implementação customizada de tokens no formato `<payloadB64>.<signature>`, assinados via HMAC-SHA256 utilizando `SESSION_SECRET` (fallback hardcoded de 64 hex chars em `DEFAULT_SESSION_SECRET` e salvo em `data/security-config.json`).
 - **Segundo Fator (2FA TOTP)**: Obrigatório apenas para o perfil Admin, implementado via `otplib` (RFC 6238) com segredo persistido em `data/security-config.json` ou lido de `TOTP_SECRET`. Há proteção anti-replay com cache de códigos usados por 3 minutos.
 - **Geo-fencing de IP**: Bloqueia e bane automaticamente IPs com origem fora do Brasil/RJ ao tentar autenticar como `admin`.

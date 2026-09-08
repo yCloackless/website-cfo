@@ -3627,65 +3627,6 @@ app.post("/api/notion/novo-estudo", async (req: Request, res: Response) => {
 // 💾 SISTEMA PROFISSIONAL DE BACKUP E SINCRONIZAÇÃO RESILIENTE
 // ============================================================================
 
-// Middleware de autorização para Visualização Administrativa (Admin ou Support)
-function legacyRequireAdminAuth(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-
-  const session = verifyTerminalSession(token);
-  if (session.valid && (session.role === "admin" || session.role === "support")) {
-    (req as any).user = session;
-    return next();
-  }
-
-  return res.status(403).json({
-    error: "FORBIDDEN",
-    message: "Acesso administrativo restrito. Autenticação de comando necessária.",
-  });
-}
-
-// Middleware de autorização estrita para Operações Administrativas com Mutação (Apenas Admin pleno)
-function legacyRequireAdminWriteAuth(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-
-  const session = verifyTerminalSession(token);
-  if (session.valid) {
-    if (session.role === "admin") {
-      (req as any).user = session;
-      return next();
-    }
-    if (session.role === "support") {
-      return res.status(403).json({
-        error: "PERMISSION_DENIED",
-        message: "Operador de suporte possui permissão apenas de leitura. Ação restrita a administradores.",
-      });
-    }
-  }
-
-  return res.status(403).json({
-    error: "FORBIDDEN",
-    message: "Acesso administrativo restrito. Autenticação de comando necessária.",
-  });
-}
-
-// Middleware de autorização para Usuários Autenticados (Cadete ou Admin)
-function legacyRequireUserAuth(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  const session = verifyTerminalSession(token);
-
-  if (session.valid) {
-    (req as any).user = session;
-    return next();
-  }
-
-  return res.status(401).json({
-    error: "UNAUTHORIZED",
-    message: "Autenticação necessária para sincronização de dados.",
-  });
-}
-
 // 1. Sincronização de Progresso do Usuário (Backup em Nuvem Privada do Aluno/Cadete)
 app.get("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
   try {

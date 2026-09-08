@@ -126,7 +126,10 @@ export class AuthService {
 
     let support = this.userRepo.findByEmail(supportEmail) || this.userRepo.findByUsername(supportUsername);
     if (!support) {
-      if (!supportHash && !supportPass) throw new Error('SUPPORT_CREDENTIALS_NOT_CONFIGURED');
+      if (!supportHash && !supportPass) {
+        console.warn('[AUTH] Conta de suporte nÃ£o provisionada: configure SUPPORT_PASSWORD ou SUPPORT_PASSWORD_HASH para habilitÃ¡-la.');
+        return;
+      }
       const hash = supportHash || await bcrypt.hash(supportPass!, 10);
       support = this.userRepo.create({
         email: supportEmail,
