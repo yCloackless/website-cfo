@@ -855,10 +855,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     <div className={`min-h-screen flex flex-col antialiased ${isDark ? 'bg-[#060B14] text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       
       {/* Top Navbar */}
-      <header className={`sticky top-0 z-30 border-b px-6 py-3 backdrop-blur-md flex items-center justify-between ${
+      <header className={`sticky top-0 z-30 border-b px-3 sm:px-6 py-3 backdrop-blur-md flex flex-col gap-3 md:flex-row md:items-center md:justify-between ${
         isDark ? 'bg-[#0A101D]/90 border-slate-800' : 'bg-white/90 border-slate-200 shadow-xs'
       }`}>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0 w-full md:w-auto">
           <button
             type="button"
             onClick={onBackToApp}
@@ -876,20 +876,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-black tracking-tight text-white flex items-center gap-2">
+              <h1 className="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-2 min-w-0">
                 Painel Administrativo
                 <span className="text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-bold">
                   /ADMIN
                 </span>
               </h1>
             </div>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-slate-400 truncate">
               Controle Geral do Sistema & Segurança • CFO CBMERJ
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-end gap-2 sm:gap-3 w-full md:w-auto overflow-x-auto pb-0.5">
           {/* Badge de Conexão Realtime SSE */}
           {realtimeStatus === 'connected' && (
             <div
@@ -932,7 +932,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               else if (activeTab === 'security' || activeTab === 'audit') loadAudit();
               else if (activeTab === 'admins') loadAdmins();
             }}
-            className={`p-2 rounded-xl border transition-all cursor-pointer ${
+            className={`min-h-11 min-w-11 md:min-h-0 md:min-w-0 p-2 rounded-xl border transition-all cursor-pointer shrink-0 ${
               isDark ? 'border-slate-800 bg-slate-900/60 text-slate-300 hover:text-white' : 'border-slate-300 bg-slate-100 text-slate-700 hover:text-black'
             }`}
             title="Atualizar dados agora"
@@ -943,7 +943,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <button
             type="button"
             onClick={onBackToApp}
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-xs cursor-pointer"
+            className="inline-flex items-center min-h-11 md:min-h-0 gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-xs cursor-pointer shrink-0"
           >
             Área do Aluno
           </button>
@@ -972,7 +972,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <div className="flex-1 flex flex-col md:flex-row w-full min-w-0">
         
         {/* Sidebar */}
-        <aside className={`w-full md:w-64 shrink-0 border-b md:border-b-0 md:border-r p-3 sm:p-4 flex flex-row md:flex-col gap-1.5 overflow-x-auto select-none scrollbar-thin ${
+        <aside className={`w-full md:w-64 shrink-0 border-b md:border-b-0 md:border-r p-3 sm:p-4 flex flex-row md:flex-col flex-nowrap gap-1.5 overflow-x-auto select-none scrollbar-thin ${
           isDark ? 'bg-[#080D18] border-slate-800/80' : 'bg-white border-slate-200'
         }`}>
           <p className="text-[10px] font-mono uppercase tracking-widest text-slate-500 font-bold px-3 py-1 hidden md:block">
@@ -982,7 +982,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('dashboard')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               activeTab === 'dashboard'
                 ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
@@ -995,7 +995,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('users')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               activeTab === 'users'
                 ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
@@ -1013,7 +1013,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('security')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               activeTab === 'security'
                 ? 'bg-red-500/15 text-red-300 border border-red-500/30'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
@@ -1031,7 +1031,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('sessions')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               activeTab === 'sessions'
                 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
@@ -1049,7 +1049,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('audit')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               activeTab === 'audit'
                 ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
@@ -1062,7 +1062,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('admins')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               activeTab === 'admins'
                 ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/30'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
@@ -1077,11 +1077,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             )}
           </button>
 
-          <div className="mt-auto pt-4 border-t border-slate-800/60">
+          <div className="mt-0 md:mt-auto pt-0 md:pt-4 border-t border-slate-800/60 shrink-0">
             <button
               type="button"
               onClick={() => setActiveTab('settings')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === 'settings'
                   ? 'bg-slate-800 text-white'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
@@ -1094,7 +1094,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </aside>
 
         {/* Content Area */}
-        <main className="flex-1 p-6 overflow-y-auto max-w-7xl mx-auto w-full space-y-6">
+        <main className="flex-1 p-3 sm:p-6 overflow-y-auto max-w-7xl mx-auto w-full space-y-6 min-w-0">
           
           {/* ================================================================= */}
           {/* TAB: DASHBOARD                                                    */}

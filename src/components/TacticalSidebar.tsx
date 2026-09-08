@@ -1,4 +1,5 @@
 import React from 'react';
+import { useEffect } from 'react';
 import {
   LayoutGrid,
   Calendar,
@@ -12,6 +13,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Layers,
+  X,
 } from 'lucide-react';
 import { AppTheme } from '../types';
 
@@ -58,6 +60,29 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
   canAccessNotion = true,
 }) => {
   const isDark = theme === 'dark';
+
+  useEffect(() => {
+    if (!isOpen || typeof window === 'undefined') return;
+
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    const updateScrollLock = () => {
+      if (mediaQuery.matches) document.body.style.overflow = 'hidden';
+      else document.body.style.overflow = '';
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && mediaQuery.matches) onClose?.();
+    };
+
+    updateScrollLock();
+    mediaQuery.addEventListener('change', updateScrollLock);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      mediaQuery.removeEventListener('change', updateScrollLock);
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, onClose]);
 
   const NAV_ITEMS: NavItem[] = [
     {
@@ -144,7 +169,9 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
 
       <aside
         aria-label="Navegação Principal do Sistema"
-        className={`fixed inset-y-0 left-0 z-50 md:static md:z-20 shrink-0 transition-all duration-300 select-none flex flex-col border-r h-full md:h-auto ${
+        role="dialog"
+        aria-modal="true"
+        className={`fixed inset-y-0 left-0 z-50 md:static md:z-20 shrink-0 transition-all duration-300 select-none flex flex-col border-r h-full max-h-[100dvh] overflow-hidden md:max-h-none md:overflow-visible ${
           isCollapsed ? 'w-16' : 'w-64 md:w-60'
         } ${
           isDark
@@ -169,7 +196,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         <button
           type="button"
           onClick={onToggleCollapse}
-          className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+          className={`min-h-11 min-w-11 md:min-h-0 md:min-w-0 p-1.5 rounded-lg border transition-all cursor-pointer ${
             isDark
               ? 'border-slate-800 bg-slate-900/80 text-slate-400 hover:text-white hover:border-slate-700'
               : 'border-slate-300 bg-slate-100 text-slate-700 hover:text-black hover:border-slate-400'
@@ -182,6 +209,19 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
           ) : (
             <ChevronLeft className="w-4 h-4" />
           )}
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className={`min-h-11 min-w-11 md:hidden p-1.5 rounded-lg border transition-all cursor-pointer ${
+            isDark
+              ? 'border-slate-800 bg-slate-900/80 text-slate-400 hover:text-white hover:border-slate-700'
+              : 'border-slate-300 bg-slate-100 text-slate-700 hover:text-black hover:border-slate-400'
+          }`}
+          title="Fechar menu"
+          aria-label="Fechar menu lateral"
+        >
+          <X className="w-4 h-4" />
         </button>
       </div>
 
@@ -201,7 +241,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                 onSelectTab(item.id);
                 if (onClose) onClose();
               }}
-              className={`w-full group flex items-center rounded-xl transition-all cursor-pointer ${
+              className={`w-full min-h-11 md:min-h-0 group flex items-center rounded-xl transition-all cursor-pointer ${
                 isCollapsed
                   ? 'justify-center p-2.5'
                   : 'justify-between px-3 py-2.5 text-left'
