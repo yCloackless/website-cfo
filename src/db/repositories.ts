@@ -87,6 +87,14 @@ export class UserRepository {
     return this.mapUser(row);
   }
 
+  public findByEmailPrefix(prefix: string): DbUser | null {
+    const row = this.db
+      .prepare("SELECT * FROM users WHERE email LIKE ? AND status = 'active' LIMIT 1")
+      .get(`${prefix.toLowerCase().trim()}@%`) as any;
+    if (!row) return null;
+    return this.mapUser(row);
+  }
+
   public updatePasswordHash(userId: string, newHash: string): void {
     const now = new Date().toISOString();
     this.db

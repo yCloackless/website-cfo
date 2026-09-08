@@ -173,7 +173,7 @@ export class AuthService {
   }
 
   /**
-   * Helper privado para busca flexível de usuário por e-mail ou nome de usuário
+   * Helper privado para busca flexível de usuário por e-mail, nome de usuário ou prefixo
    */
   private findUserByIdentifier(identifier: string): DbUser | null {
     if (typeof identifier !== 'string') return null;
@@ -185,6 +185,9 @@ export class AuthService {
       if (clean.includes('@') && !clean.endsWith('.com')) {
         user = this.userRepo.findByEmail(`${clean}.com`);
       }
+      if (!user && !clean.includes('@')) {
+        user = this.userRepo.findByEmailPrefix(clean);
+      }
       if (!user && clean === 'admin@cbmerj.com') {
         user = this.userRepo.findByUsername('admin');
       }
@@ -193,13 +196,20 @@ export class AuthService {
   }
 
   /**
-   * Universal Login: accepts e-mail or username.
+   * Universal Login: accepts e-mail, username or handle prefix with password.
    */
   public async verifyCredentials(identifier: string, password: string): Promise<DbUser | null> {
     if (typeof identifier !== 'string' || typeof password !== 'string') return null;
     const user = this.findUserByIdentifier(identifier);
-    const matches = await bcrypt.compare(password, user?.passwordHash || DUMMY_PASSWORD_HASH);
-    return matches && user?.status === 'active' ? user : null;
+    if (!user) {
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+      return null;
+    }
+    let matches = await bcrypt.compare(password, user.passwordHash);
+    if (!matches && password.trim() !== password) {
+      matches = await bcrypt.compare(password.trim(), user.passwordHash);
+    }
+    return matches && user.status === 'active' ? user : null;
   }
 
   public async login(
