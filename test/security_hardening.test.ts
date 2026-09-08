@@ -85,7 +85,7 @@ test('F-01: 2FA activation remains enabled after configuration is reloaded', asy
   assert.equal(status.body.is2faActive, true, 'Persisted activation must not silently revert to false');
 });
 
-test.skip('F-02: active 2FA secret cannot be retrieved with a bearer session', async () => {
+test('F-02: active 2FA secret cannot be retrieved with a bearer session', async () => {
   const setup = await request('/api/auth/2fa-setup', {
     headers: { Authorization: `Bearer ${adminToken}` },
   });

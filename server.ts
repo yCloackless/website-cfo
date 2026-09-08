@@ -927,6 +927,15 @@ app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
   try {
     const config = getSecurityConfig();
 
+    if (config.is2faActive) {
+      return res.status(409).json({
+        error: "2FA_ALREADY_ACTIVE",
+        message: "O 2FA já está ativo. O segredo existente não pode ser exibido novamente.",
+      });
+    }
+
+    res.setHeader("Cache-Control", "no-store");
+
     const otpauthUrl = generateURI({
       label: `${ADMIN_USER}@cfo-cbmerj`,
       issuer: "CFO CBMERJ Terminal",
