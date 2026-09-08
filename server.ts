@@ -1531,7 +1531,13 @@ app.post("/api/auth/forgot-password", authLimiter, async (req: Request, res: Res
       status: "SUCCESS",
       details: { email },
     });
-    return res.json(result);
+    // 🛡️ Segurança: debugCode NUNCA é retornado em produção ou desenvolvimento
+    const isTest = process.env.NODE_ENV === 'test';
+    return res.json({
+      success: result.success,
+      message: result.message,
+      ...(isTest && result.debugCode ? { debugCode: result.debugCode } : {}),
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: "Erro ao processar solicitação de recuperação." });
   }

@@ -173,6 +173,7 @@ export interface DbPasswordReset {
   expiresAt: string;
   isUsed: boolean;
   usedAt?: string | null;
+  failedAttempts?: number;
   createdAt: string;
 }
 

@@ -136,19 +136,12 @@ function buildPasswordResetEmail(code: string, username: string): { subject: str
 
 export interface SendPasswordResetResult {
   sent: boolean;
-  /** Presente apenas em desenvolvimento (NODE_ENV !== 'production') */
-  debugCode?: string;
   error?: string;
 }
 
 /**
  * Envia o código de recuperação de senha por e-mail via Resend.
- *
- * - Em produção: envia o e-mail e nunca retorna o código.
- * - Em desenvolvimento: tenta enviar, mas inclui `debugCode` na resposta
- *   para facilitar testes sem domínio verificado.
- * - Se `RESEND_API_KEY` não estiver configurada em dev, apenas loga o código
- *   no console (sem erro).
+ * O código NUNCA é retornado no resultado da função ou na resposta de qualquer API.
  */
 export async function sendPasswordResetEmail(
   toEmail: string,
@@ -158,14 +151,13 @@ export async function sendPasswordResetEmail(
   const isProd = process.env.NODE_ENV === 'production';
   const { subject, html, text } = buildPasswordResetEmail(code, username);
 
-  // --- Sem API key em desenvolvimento: apenas loga e segue ---
+  // --- Sem API key configurada ---
   if (!process.env.RESEND_API_KEY) {
     if (isProd) {
-      // Em produção sem API key: falha ruidosa (startup deveria ter abortado)
       return { sent: false, error: 'RESEND_API_KEY não configurada em produção.' };
     }
-    console.warn('[Email DEV] Envio não configurado; código disponível somente na resposta de desenvolvimento.');
-    return { sent: false, debugCode: code };
+    console.warn('[Email DEV] RESEND_API_KEY não configurada. Código de recuperação emitido apenas no log seguro do console:', code);
+    return { sent: false };
   }
 
   try {
@@ -180,11 +172,9 @@ export async function sendPasswordResetEmail(
 
     if (error) {
       console.error('[Email] Falha ao enviar via Resend.');
-      // Em dev, ainda retorna debugCode para não travar o fluxo de testes
       return {
         sent: false,
         error: error.message,
-        debugCode: isProd ? undefined : code,
       };
     }
 
@@ -195,7 +185,6 @@ export async function sendPasswordResetEmail(
     return {
       sent: false,
       error: err?.message,
-      debugCode: isProd ? undefined : code,
     };
   }
 }

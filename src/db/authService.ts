@@ -68,7 +68,7 @@ export class AuthService {
    * Uses environment variables or secure hashed defaults.
    */
   public async ensureDefaultAccounts(): Promise<void> {
-    const adminEmail = (process.env.ADMIN_USER_EMAIL || 'admin@localhost.invalid').toLowerCase().trim();
+    const adminEmail = (process.env.ADMIN_USER_EMAIL || 'admin@cbmerj.com').toLowerCase().trim();
     const adminUsername = (process.env.ADMIN_USER || 'admin').toLowerCase().trim();
     const adminPass = process.env.ADMIN_PASSWORD;
     const adminHash = process.env.ADMIN_PASSWORD_HASH;
@@ -185,8 +185,8 @@ export class AuthService {
       if (clean.includes('@') && !clean.endsWith('.com')) {
         user = this.userRepo.findByEmail(`${clean}.com`);
       }
-      if (!user && (clean.startsWith('jb080956') || clean === 'admin@cbmerj.com')) {
-        user = this.userRepo.findByEmail('jb080956@gmail.com') || this.userRepo.findByUsername('admin');
+      if (!user && clean === 'admin@cbmerj.com') {
+        user = this.userRepo.findByUsername('admin');
       }
     }
     return user;
@@ -606,16 +606,14 @@ export class AuthService {
     });
 
     // Envia o código por e-mail via Resend
-    const emailResult = await sendPasswordResetEmail(cleanEmail, user.username, code);
+    await sendPasswordResetEmail(cleanEmail, user.username, code);
 
-    const isProd = process.env.NODE_ENV === 'production';
-
-    // Em produção: nunca retornar o código na API — apenas o e-mail entrega
-    // Em dev/teste: retornar debugCode se o envio falhou (sem API key configurada)
+    // 🛡️ Segurança: debugCode NUNCA é retornado em produção ou desenvolvimento
+    const isTest = process.env.NODE_ENV === 'test';
     return {
       success: true,
       message: 'Se este e-mail estiver cadastrado, você receberá um código de recuperação.',
-      debugCode: isProd ? undefined : (emailResult.debugCode ?? (emailResult.sent ? undefined : code)),
+      debugCode: isTest ? code : undefined,
     };
   }
 
@@ -723,17 +721,15 @@ export class AuthService {
     const user = this.userRepo.findById(userId);
     if (!user) return { success: false, message: 'Usuário não encontrado.' };
 
-    if (currentPassword !== undefined) {
-      if (!currentPassword) {
-        return { success: false, message: 'A senha atual é obrigatória para confirmar a alteração do e-mail.' };
-      }
-      const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
-      if (!isMatch) {
-        return { success: false, message: 'A senha atual informada está incorreta.' };
-      }
+    if (!currentPassword) {
+      return { success: false, message: 'A senha atual é obrigatória para confirmar a alteração do e-mail.' };
+    }
+    const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isMatch) {
+      return { success: false, message: 'A senha atual informada está incorreta.' };
     }
 
-    const isReservedAdmin = cleanEmail === 'admin@cbmerj.com' || cleanEmail === (process.env.ADMIN_USER_EMAIL || 'admin@localhost.invalid').toLowerCase().trim();
+    const isReservedAdmin = cleanEmail === 'admin@cbmerj.com' || cleanEmail === (process.env.ADMIN_USER_EMAIL || 'admin@cbmerj.com').toLowerCase().trim();
     const existing = this.userRepo.findByEmail(cleanEmail) || (isReservedAdmin ? this.userRepo.findByUsername('admin') : null);
     if (existing && existing.id !== userId) {
       return { success: false, message: 'Este endereço de e-mail já está em uso por outro operador.' };

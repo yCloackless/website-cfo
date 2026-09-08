@@ -28,6 +28,8 @@ export const ALLOWED_EMAILS = configuredAllowedEmails.split(',').map((value: str
 
 export const isEmailAuthorized = (email?: string | null): boolean => {
   if (!email) return false;
+  // Se nenhuma whitelist de frontend estiver definida, a autorização é validada pelo backend
+  if (ALLOWED_EMAILS.length === 0) return true;
   return ALLOWED_EMAILS.includes(email.toLowerCase().trim());
 };
 

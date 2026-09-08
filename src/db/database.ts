@@ -428,6 +428,14 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
     `,
   },
+  {
+    id: 13,
+    name: '013_password_reset_bruteforce_protection',
+    sql: `
+      -- Adiciona coluna de controle anti-força bruta na recuperação de senha
+      ALTER TABLE password_resets ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 

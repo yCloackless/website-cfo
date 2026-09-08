@@ -1081,10 +1081,19 @@ export class PasswordResetRepository {
     const createdAt = now.toISOString();
     const expiresAt = new Date(now.getTime() + expiresInMinutes * 60 * 1000).toISOString();
 
+    // 🛡️ Segurança: Invalida imediatamente qualquer código de recuperação anterior deste usuário
     this.db
       .prepare(
-        `INSERT INTO password_resets (id, user_id, code_hash, expires_at, is_used, created_at)
-         VALUES (?, ?, ?, ?, 0, ?)`
+        `UPDATE password_resets
+         SET is_used = 1, used_at = ?
+         WHERE user_id = ? AND is_used = 0`
+      )
+      .run(createdAt, userId);
+
+    this.db
+      .prepare(
+        `INSERT INTO password_resets (id, user_id, code_hash, expires_at, is_used, failed_attempts, created_at)
+         VALUES (?, ?, ?, ?, 0, 0, ?)`
       )
       .run(id, userId, codeHash, expiresAt, createdAt);
 
@@ -1096,24 +1105,56 @@ export class PasswordResetRepository {
         codeHash,
         expiresAt,
         isUsed: false,
+        failedAttempts: 0,
         createdAt,
       },
     };
   }
 
   public verifyAndConsume(userId: string, code: string): boolean {
-    const codeHash = crypto.createHash('sha256').update(code.trim()).digest('hex');
+    const trimmed = (code || '').trim();
+    if (!trimmed) return false;
+    const codeHash = crypto.createHash('sha256').update(trimmed).digest('hex');
     const now = new Date().toISOString();
 
-    const result = this.db
+    // 🛡️ Busca o código ativo mais recente não expirado
+    const active = this.db
       .prepare(
-        `UPDATE password_resets
-         SET is_used = 1, used_at = ?
-         WHERE user_id = ? AND code_hash = ? AND is_used = 0 AND expires_at > ?`
+        `SELECT id, code_hash, failed_attempts
+         FROM password_resets
+         WHERE user_id = ? AND is_used = 0 AND expires_at > ?
+         ORDER BY created_at DESC LIMIT 1`
       )
-      .run(now, userId, codeHash, now);
+      .get(userId, now) as { id: string; code_hash: string; failed_attempts: number } | undefined;
 
-    return result.changes > 0;
+    if (!active) return false;
+
+    // Comparação em tempo constante para proteção contra timing attacks
+    const activeHashBuf = Buffer.from(active.code_hash, 'hex');
+    const inputHashBuf = Buffer.from(codeHash, 'hex');
+    const isMatch = activeHashBuf.length === inputHashBuf.length && crypto.timingSafeEqual(activeHashBuf, inputHashBuf);
+
+    if (isMatch) {
+      this.db
+        .prepare('UPDATE password_resets SET is_used = 1, used_at = ? WHERE id = ?')
+        .run(now, active.id);
+      return true;
+    }
+
+    // Código incorreto: incrementa contador de tentativas falhas.
+    // 🛡️ Queima o código de recuperação imediatamente após 5 tentativas falhas para impedir força bruta
+    const newAttempts = (active.failed_attempts || 0) + 1;
+    if (newAttempts >= 5) {
+      this.db
+        .prepare('UPDATE password_resets SET failed_attempts = ?, is_used = 1, used_at = ? WHERE id = ?')
+        .run(newAttempts, now, active.id);
+    } else {
+      this.db
+        .prepare('UPDATE password_resets SET failed_attempts = ? WHERE id = ?')
+        .run(newAttempts, active.id);
+    }
+
+    return false;
   }
 }
 

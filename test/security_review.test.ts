@@ -9,6 +9,7 @@ import {
   SessionRepository,
   ProfileRepository,
   RecoveryCodeRepository,
+  PasswordResetRepository,
 } from '../src/db/repositories';
 import { AuthService } from '../src/db/authService';
 import { validateImageBuffer } from '../src/services/avatarService';
@@ -215,5 +216,48 @@ test('🔒 FASE 12: SECURITY REVIEW & DEFENSIVE AUDIT', async (t) => {
       resultNonExisting.message,
       'A mensagem para e-mail existente e inexistente deve ser estritamente idêntica para evitar enumeração'
     );
+  });
+
+  await t.test('8. Proteção Anti-Força Bruta: código de recuperação queima após 5 tentativas falhas', () => {
+    const cadet = userRepo.findByUsername('cadete')!;
+    const resetRepo = new PasswordResetRepository(rawDb);
+    const { code } = resetRepo.createResetCode(cadet.id, 15);
+
+    // 4 tentativas incorretas não devem invalidar o código
+    for (let i = 0; i < 4; i++) {
+      const failCheck = resetRepo.verifyAndConsume(cadet.id, '000000');
+      assert.equal(failCheck, false, `Tentativa errada ${i + 1} deve falhar`);
+    }
+
+    // 5ª tentativa incorreta deve falhar E queimar o código
+    const fifthFail = resetRepo.verifyAndConsume(cadet.id, '000000');
+    assert.equal(fifthFail, false, '5ª tentativa errada deve falhar');
+
+    // Agora, mesmo informando o código CORRETO, deve ser rejeitado porque foi queimado
+    const checkBurned = resetRepo.verifyAndConsume(cadet.id, code);
+    assert.equal(checkBurned, false, 'Código deve ter sido queimado e invalidado após 5 tentativas incorretas');
+  });
+
+  await t.test('9. Política de código único ativo: nova solicitação invalida código anterior', () => {
+    const cadet = userRepo.findByUsername('cadete')!;
+    const resetRepo = new PasswordResetRepository(rawDb);
+
+    const first = resetRepo.createResetCode(cadet.id, 15);
+    const second = resetRepo.createResetCode(cadet.id, 15);
+
+    // O primeiro código foi revogado
+    const firstCheck = resetRepo.verifyAndConsume(cadet.id, first.code);
+    assert.equal(firstCheck, false, 'Código anterior deve ser invalidado quando um novo é solicitado');
+
+    // O segundo código está ativo
+    const secondCheck = resetRepo.verifyAndConsume(cadet.id, second.code);
+    assert.equal(secondCheck, true, 'Código mais recente deve funcionar');
+  });
+
+  await t.test('10. Alteração de e-mail rejeita requisições sem senha atual', async () => {
+    const cadet = userRepo.findByUsername('cadete')!;
+    const failUpdate = await authService.updateEmail(cadet.id, 'novoteste@cbmerj.com');
+    assert.equal(failUpdate.success, false);
+    assert.match(failUpdate.message, /senha atual é obrigatória/i);
   });
 });
