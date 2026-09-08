@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, CheckCircle2, Clock, Calendar, Sparkles, Plus, Edit2, Trash2 } from 'lucide-react';
+import { Check, CheckCircle2, Clock, Calendar, Sparkles, Plus, Edit2, Trash2, RotateCcw } from 'lucide-react';
 import { Subject, StudyEntry, AppTheme } from '../types';
 import { WEEK_DAYS } from '../data/cfoSubjects';
 import { formatBRDateShort, formatDurationHours } from '../utils/dateUtils';
@@ -10,6 +10,8 @@ interface HorizontalWeeklyTableProps {
   entries: Record<string, StudyEntry>;
   onCellClick: (subject: Subject, dayIndex: number, dateStr: string) => void;
   onQuickToggle: (subject: Subject, dayIndex: number, dateStr: string, e: React.MouseEvent) => void;
+  onClearCell?: (subjectId: string, dayIndex: number, e: React.MouseEvent) => void;
+  onClearAllEntries?: () => void;
   onDeleteCustomSubject?: (subjectId: string) => void;
   hasGoogleCalendar: boolean;
   theme?: AppTheme;
@@ -21,6 +23,8 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
   entries,
   onCellClick,
   onQuickToggle,
+  onClearCell,
+  onClearAllEntries,
   onDeleteCustomSubject,
   hasGoogleCalendar,
   theme = 'dark',
@@ -71,15 +75,31 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                     : 'bg-slate-50/95 border-slate-200 text-slate-800'
                 }`}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-1">
                   <span className="truncate">Matérias CFO</span>
-                  <span
-                    className={`text-[10px] font-medium normal-case hidden sm:inline ${
-                      isDark ? 'text-slate-500' : 'text-slate-400'
-                    }`}
-                  >
-                    {subjects.length} matérias
-                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span
+                      className={`text-[10px] font-medium normal-case hidden sm:inline ${
+                        isDark ? 'text-slate-500' : 'text-slate-400'
+                      }`}
+                    >
+                      {subjects.length} matérias
+                    </span>
+                    {onClearAllEntries && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onClearAllEntries();
+                        }}
+                        className="text-[10px] font-bold text-red-400 hover:text-red-300 hover:bg-red-500/10 px-1.5 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-colors"
+                        title="Limpar e desmarcar todos os estudos do cronograma semanal"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span className="hidden xl:inline">Limpar Tudo</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </th>
 
@@ -233,14 +253,30 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                                 Concluído
                               </span>
 
-                              {/* Quick toggle checkmark */}
-                              <button
-                                onClick={(e) => onQuickToggle(subject, day.index, day.dateStr, e)}
-                                title="Desmarcar estudo"
-                                className="w-4 h-4 sm:w-5 sm:h-5 rounded text-blue-400 hover:bg-blue-500/20 flex items-center justify-center transition-colors cursor-pointer"
-                              >
-                                <Check className="w-3 h-3 stroke-[3]" />
-                              </button>
+                              <div className="flex items-center gap-0.5">
+                                {/* Quick toggle checkmark */}
+                                <button
+                                  onClick={(e) => onQuickToggle(subject, day.index, day.dateStr, e)}
+                                  title="Desmarcar estudo"
+                                  className="w-4 h-4 sm:w-5 sm:h-5 rounded text-blue-400 hover:bg-blue-500/20 flex items-center justify-center transition-colors cursor-pointer"
+                                >
+                                  <Check className="w-3 h-3 stroke-[3]" />
+                                </button>
+
+                                {/* Clear cell entry button */}
+                                {onClearCell && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onClearCell(subject.id, day.index, e);
+                                    }}
+                                    title="Apagar e limpar este estudo marcado sem querer"
+                                    className="w-4 h-4 sm:w-5 sm:h-5 rounded text-red-400 hover:bg-red-500/20 hover:text-red-300 flex items-center justify-center transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
 
                             {/* Topic name if recorded */}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Calendar, Clock, BookOpen, FileText, CheckCircle2, Sparkles, AlertCircle } from 'lucide-react';
+import { X, Calendar, Clock, BookOpen, FileText, CheckCircle2, Sparkles, AlertCircle, Trash2 } from 'lucide-react';
 import { Subject, StudyEntry } from '../types';
 import { formatBRDate, formatBRDateShort, addDays } from '../utils/dateUtils';
 import { CFO_INCIDENCE_DATA } from '../data/cfoIncidenceData';
@@ -19,6 +19,7 @@ interface StudyDetailModalProps {
     notes: string;
     syncWithCalendar: boolean;
   }) => Promise<void>;
+  onClearEntry?: () => void;
   isSaving: boolean;
 }
 
@@ -31,6 +32,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
   hasGoogleCalendar,
   initialDurationMinutes,
   onSave,
+  onClearEntry,
   isSaving,
 }) => {
   const [completed, setCompleted] = useState(true);
@@ -356,28 +358,45 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-blue-900/40">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 rounded-xl transition-colors cursor-pointer"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-6 py-2.5 text-xs font-extrabold text-white bg-[#0056D2] hover:bg-[#0047B3] active:scale-[0.98] rounded-xl shadow-md shadow-blue-950/60 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              {isSaving ? (
-                <span>Salvando...</span>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4 text-sky-300" />
-                  <span>Salvar Estudo &amp; Sincronizar</span>
-                </>
-              )}
-            </button>
+          <div className="flex items-center justify-between gap-2.5 pt-3 border-t border-blue-900/40">
+            {onClearEntry ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onClearEntry();
+                  onClose();
+                }}
+                className="px-3 py-2 text-xs font-bold text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/30 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                title="Apagar e desmarcar esta aula do cronograma"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Limpar Este Estudo</span>
+              </button>
+            ) : <div />}
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="px-6 py-2.5 text-xs font-extrabold text-white bg-[#0056D2] hover:bg-[#0047B3] active:scale-[0.98] rounded-xl shadow-md shadow-blue-950/60 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isSaving ? (
+                  <span>Salvando...</span>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-sky-300" />
+                    <span>Salvar Estudo &amp; Sincronizar</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </form>
       </div>

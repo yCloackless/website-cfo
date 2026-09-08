@@ -903,6 +903,37 @@ export default function App() {
     }
   };
 
+  // Clear a single cell entry (subject + day) completely
+  const handleClearCellEntry = (subjectId: string, dayIndex: number, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!currentCycle) return;
+
+    const cellKey = `${subjectId}_${dayIndex}`;
+    const updatedEntries = { ...currentCycle.entries };
+    delete updatedEntries[cellKey];
+
+    const updatedCycle = { ...currentCycle, entries: updatedEntries, updatedAt: new Date().toISOString() };
+    setCurrentCycle(updatedCycle);
+    saveActiveCycle(updatedCycle);
+    showToast('Registro de estudo limpo com sucesso!', 'info');
+  };
+
+  // Clear ALL entries in weekly schedule
+  const handleClearAllWeeklyEntries = () => {
+    if (!currentCycle) return;
+    const count = Object.keys(currentCycle.entries).length;
+    if (count === 0) {
+      showToast('O cronograma semanal já está limpo.', 'info');
+      return;
+    }
+    if (window.confirm('Tem certeza de que deseja apagar TODOS os estudos marcados nesta semana? Esta ação limpará os tópicos e horas registradas.')) {
+      const updatedCycle = { ...currentCycle, entries: {}, updatedAt: new Date().toISOString() };
+      setCurrentCycle(updatedCycle);
+      saveActiveCycle(updatedCycle);
+      showToast('Todos os registros de estudo do cronograma foram limpos!', 'info');
+    }
+  };
+
   // Add custom subject handler
   const handleAddCustomSubject = (newSubject: Subject) => {
     const updated = [...subjects, newSubject];
@@ -1676,14 +1707,6 @@ export default function App() {
           />
         )}
 
-        {/* Render Tab: Central de Inteligência & Simulados */}
-        {activeTab === 'simulations' && (
-          <TacticalSimulations
-            theme={theme}
-            showToast={showToast}
-          />
-        )}
-
         {/* Render Tab: Caderno de Erros & Flashcards (Anki Style) */}
         {activeTab === 'flashcards' && (
           <ErrorNotebookTab
@@ -1760,6 +1783,7 @@ export default function App() {
         hasGoogleCalendar={isCalendarLinked}
         initialDurationMinutes={initialStudyDurationMinutes || undefined}
         onSave={handleSaveStudyDetail}
+        onClearEntry={selectedCell ? () => handleClearCellEntry(selectedCell.subject.id, selectedCell.dayIndex) : undefined}
         isSaving={isSavingStudy}
       />
 
