@@ -14,6 +14,8 @@ import {
   PanelLeftOpen,
   Layers,
   X,
+  UserCircle,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { AppTheme } from '../types';
 
@@ -37,6 +39,11 @@ interface TacticalSidebarProps {
   onClose?: () => void;
   pendingRevisionsCount?: number;
   canAccessNotion?: boolean;
+  userProfile?: { fullName?: string; username?: string; avatarUrl?: string | null; role?: string } | null;
+  isAdmin?: boolean;
+  canReturnToAdmin?: boolean;
+  onOpenAccountSwitcher?: () => void;
+  onReturnToAdmin?: () => void;
 }
 
 interface NavItem {
@@ -58,6 +65,11 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
   onClose,
   pendingRevisionsCount = 0,
   canAccessNotion = true,
+  userProfile,
+  isAdmin = false,
+  canReturnToAdmin = false,
+  onOpenAccountSwitcher,
+  onReturnToAdmin,
 }) => {
   const isDark = theme === 'dark';
 
@@ -292,6 +304,29 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
           );
         })}
       </nav>
+
+      {/* Perfil e troca de conta: a visibilidade da acao e apenas um conforto de UI; o backend autoriza a operacao. */}
+      {(userProfile || canReturnToAdmin) && (
+        <div className={`p-2.5 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
+          {!isCollapsed ? (
+            <div className={`rounded-xl border p-2 ${isDark ? 'bg-slate-900/70 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <div className="flex items-center gap-2 min-w-0">
+                {userProfile?.avatarUrl ? <img src={userProfile.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover border border-blue-500/50 shrink-0" /> : <div className="w-9 h-9 rounded-full bg-blue-600/20 border border-blue-500/40 text-blue-300 flex items-center justify-center shrink-0"><UserCircle className="w-5 h-5" /></div>}
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold truncate text-slate-200">{userProfile?.fullName || userProfile?.username || 'Perfil'}</p>
+                  <p className="text-[10px] font-mono truncate text-blue-400">@{userProfile?.username || 'conta'}</p>
+                </div>
+              </div>
+              <div className="mt-2 grid grid-cols-1 gap-1">
+                {isAdmin && onOpenAccountSwitcher && <button type="button" onClick={onOpenAccountSwitcher} className="w-full min-h-10 inline-flex items-center justify-center gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-[11px] font-bold cursor-pointer"><ArrowLeftRight className="w-3.5 h-3.5" /> Trocar de conta</button>}
+                {canReturnToAdmin && onReturnToAdmin && <button type="button" onClick={onReturnToAdmin} className="w-full min-h-10 inline-flex items-center justify-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 text-[11px] font-bold cursor-pointer"><ArrowLeftRight className="w-3.5 h-3.5" /> Voltar ao ADM</button>}
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={canReturnToAdmin ? onReturnToAdmin : onOpenAccountSwitcher} className="w-full min-h-11 flex items-center justify-center rounded-xl border border-slate-800 text-cyan-300 cursor-pointer" title={canReturnToAdmin ? 'Voltar ao ADM' : 'Trocar de conta'}><ArrowLeftRight className="w-4 h-4" /></button>
+          )}
+        </div>
+      )}
 
       {/* Footer of Sidebar */}
       <div

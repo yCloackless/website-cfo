@@ -1126,6 +1126,8 @@ export class SessionRepository {
     ip?: string | null;
     userAgent?: string | null;
     expiresInDays?: number;
+    impersonatedByUserId?: string | null;
+    parentSessionId?: string | null;
   }): { rawToken: string; session: DbSession } {
     const id = crypto.randomUUID();
     const rawToken = crypto.randomBytes(32).toString('hex');
@@ -1138,10 +1140,10 @@ export class SessionRepository {
 
     this.db
       .prepare(
-        `INSERT INTO sessions (id, user_id, token_hash, role, ip, user_agent, expires_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, user_id, token_hash, role, ip, user_agent, expires_at, created_at, impersonated_by_user_id, parent_session_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, data.userId, tokenHash, data.role, data.ip ?? null, data.userAgent ?? null, expiresAt, createdAt);
+      .run(id, data.userId, tokenHash, data.role, data.ip ?? null, data.userAgent ?? null, expiresAt, createdAt, data.impersonatedByUserId ?? null, data.parentSessionId ?? null);
 
     return {
       rawToken,
@@ -1167,6 +1169,7 @@ export class SessionRepository {
       .prepare(
         `SELECT s.id AS s_id, s.user_id, s.token_hash, s.role AS s_role, s.ip, s.user_agent,
                 s.expires_at, s.revoked_at, s.created_at AS s_created_at,
+                s.impersonated_by_user_id, s.parent_session_id,
                 u.id AS u_id, u.email, u.username, u.password_hash, u.role AS u_role, u.status, u.can_access_notion,
                 u.created_at AS u_created_at, u.updated_at AS u_updated_at
          FROM sessions s
@@ -1189,6 +1192,8 @@ export class SessionRepository {
         expiresAt: row.expires_at,
         revokedAt: row.revoked_at,
         createdAt: row.s_created_at,
+        impersonatedByUserId: row.impersonated_by_user_id,
+        parentSessionId: row.parent_session_id,
       },
       user: {
         id: row.u_id,

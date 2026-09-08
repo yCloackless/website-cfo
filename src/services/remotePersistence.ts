@@ -1,6 +1,6 @@
 const EXCLUDED_KEYS = new Set([
   'cfo_terminal_session', 'cfo_terminal_expires_at', 'cfo_terminal_user',
-  'cfo_terminal_role', 'cfo_can_access_notion',
+  'cfo_terminal_role', 'cfo_can_access_notion', 'cfo_theme', 'cfo_sidebar_open', 'cfo_sidebar_collapsed',
 ]);
 
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -59,6 +59,20 @@ export async function hydratePersistentState(): Promise<void> {
     }
   } catch {
     // Keep local cache available during a temporary backend outage.
+  }
+}
+
+export function clearPersistentStateCache(): void {
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (key && !EXCLUDED_KEYS.has(key) && (key.startsWith('cfo_') || key.includes('anki_'))) keysToRemove.push(key);
+  }
+  keysToRemove.forEach((key) => localStorage.removeItem(key));
+  pendingValues = {};
+  if (syncTimer) {
+    clearTimeout(syncTimer);
+    syncTimer = null;
   }
 }
 

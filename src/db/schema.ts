@@ -186,6 +186,8 @@ export interface DbSession {
   expiresAt: string;
   revokedAt?: string | null;
   createdAt: string;
+  impersonatedByUserId?: string | null;
+  parentSessionId?: string | null;
 }
 
 export interface DbRecoveryCode {

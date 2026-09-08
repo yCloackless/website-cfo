@@ -418,6 +418,16 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_users_notion_access ON users(can_access_notion);
     `,
   },
+  {
+    id: 12,
+    name: '012_impersonation_sessions',
+    sql: `
+      ALTER TABLE sessions ADD COLUMN impersonated_by_user_id TEXT;
+      ALTER TABLE sessions ADD COLUMN parent_session_id TEXT;
+      CREATE INDEX IF NOT EXISTS idx_sessions_impersonated_by ON sessions(impersonated_by_user_id);
+      CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
+    `,
+  },
 ];
 
 

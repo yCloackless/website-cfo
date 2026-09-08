@@ -18,6 +18,9 @@ import {
   RotateCcw,
   LayoutGrid,
   Target,
+  ArrowLeftRight,
+  Loader2,
+  X,
 } from 'lucide-react';
 
 import { Subject, StudyEntry, WeeklyCycle, SmartRevisionItem, AppTheme, AIAnalysisResult, BizuItem } from './types';
@@ -47,7 +50,7 @@ import {
 } from './services/calendarService';
 import { buildWeeklyStudySummary, fetchAIStudyAnalysis } from './services/aiService';
 import { getMondayOfWeek, getWeekDaysList, isTodayDate, formatBRDate, toISODate } from './utils/dateUtils';
-import { hydratePersistentState, startPersistentStateSync } from './services/remotePersistence';
+import { hydratePersistentState, startPersistentStateSync, clearPersistentStateCache } from './services/remotePersistence';
 
 import { Header } from './components/Header';
 import { HorizontalWeeklyTable } from './components/HorizontalWeeklyTable';
@@ -110,6 +113,18 @@ export default function App() {
     avatarUrl?: string | null;
     role?: string;
   } | null>(null);
+  const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
+  const [switchableAccounts, setSwitchableAccounts] = useState<Array<{ id: string; username: string; fullName?: string | null; role: string; status: string; avatarUrl?: string | null }>>([]);
+  const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
+  const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
+  const [pendingAccountId, setPendingAccountId] = useState<string | null>(null);
+  const [switchStepUpOpen, setSwitchStepUpOpen] = useState(false);
+  const [switchStepUpPassword, setSwitchStepUpPassword] = useState('');
+  const [switchStepUpTotp, setSwitchStepUpTotp] = useState('');
+  const [switchStepUpError, setSwitchStepUpError] = useState('');
+
+  const isImpersonating = typeof window !== 'undefined' && Boolean(sessionStorage.getItem('cfo_admin_original_session'));
+  const isCurrentAdmin = userProfile?.role === 'admin' || localStorage.getItem('cfo_terminal_role') === 'admin';
 
   // 🛡️ Monitoramento de Segurança e Auditoria (Admin)
   const [isAdminSecurityOpen, setIsAdminSecurityOpen] = useState(false);
@@ -541,6 +556,118 @@ export default function App() {
       setToastMessage(null);
     }, 4500);
   }, []);
+
+  const openAccountSwitcher = useCallback(async () => {
+    if (!isCurrentAdmin) return;
+    setAccountSwitcherOpen(true);
+    setIsLoadingAccounts(true);
+    const token = localStorage.getItem('cfo_terminal_session');
+    try {
+      const response = await fetch('/api/admin/users?limit=100', { headers: { Authorization: `Bearer ${token || ''}` } });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.message || 'Nao foi possivel carregar as contas.');
+      setSwitchableAccounts((data.items || []).filter((account: any) => account.role !== 'admin' && account.status === 'active'));
+    } catch (error: any) {
+      setAccountSwitcherOpen(false);
+      showToast(error?.message || 'Nao foi possivel carregar as contas.', 'error');
+    } finally {
+      setIsLoadingAccounts(false);
+    }
+  }, [isCurrentAdmin, showToast]);
+
+  const startAccountSwitch = useCallback(async (targetUserId: string, stepUpToken?: string) => {
+    const adminToken = localStorage.getItem('cfo_terminal_session');
+    if (!adminToken || !isCurrentAdmin) return;
+    setIsSwitchingAccount(true);
+    try {
+      const headers: Record<string, string> = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
+      if (stepUpToken) headers['x-admin-step-up-token'] = stepUpToken;
+      const response = await fetch('/api/admin/impersonation/start', { method: 'POST', headers, body: JSON.stringify({ targetUserId }) });
+      const data = await response.json();
+      if (response.status === 403 && data.error === 'STEP_UP_REQUIRED' && !stepUpToken) {
+        setPendingAccountId(targetUserId);
+        setSwitchStepUpError('');
+        setSwitchStepUpOpen(true);
+        return;
+      }
+      if (!response.ok || !data.success || !data.token) throw new Error(data.message || 'Nao foi possivel trocar de conta.');
+
+      sessionStorage.setItem('cfo_admin_original_session', adminToken);
+      sessionStorage.setItem('cfo_admin_original_expires_at', localStorage.getItem('cfo_terminal_expires_at') || '');
+      sessionStorage.setItem('cfo_admin_original_user', localStorage.getItem('cfo_terminal_user') || 'admin');
+      sessionStorage.setItem('cfo_admin_original_role', localStorage.getItem('cfo_terminal_role') || 'admin');
+      sessionStorage.setItem('cfo_admin_original_notion', localStorage.getItem('cfo_can_access_notion') || 'true');
+
+      localStorage.setItem('cfo_terminal_session', data.token);
+      localStorage.setItem('cfo_terminal_expires_at', String(data.expiresAt));
+      localStorage.setItem('cfo_terminal_user', data.username);
+      localStorage.setItem('cfo_terminal_role', data.role);
+      localStorage.setItem('cfo_can_access_notion', String(Boolean(data.canAccessNotion)));
+      setUserProfile({ ...data.profile, username: data.username, role: data.role });
+      setCanAccessNotion(Boolean(data.canAccessNotion));
+      setAccountSwitcherOpen(false);
+      setSwitchStepUpOpen(false);
+      setPendingAccountId(null);
+      setIsPersistentStateReady(false);
+      clearPersistentStateCache();
+      await hydratePersistentState();
+      setIsPersistentStateReady(true);
+      showToast(`Voce entrou na conta @${data.username}.`, 'success');
+    } catch (error: any) {
+      showToast(error?.message || 'Nao foi possivel trocar de conta.', 'error');
+    } finally {
+      setIsSwitchingAccount(false);
+    }
+  }, [isCurrentAdmin, showToast]);
+
+  const confirmAccountSwitchStepUp = useCallback(async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!pendingAccountId) return;
+    setSwitchStepUpError('');
+    try {
+      const token = localStorage.getItem('cfo_terminal_session');
+      const response = await fetch('/api/admin/step-up', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token || ''}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: switchStepUpPassword || undefined, totpCode: switchStepUpTotp || undefined }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success || !data.stepUpToken) {
+        setSwitchStepUpError(data.message || 'Confirmacao invalida.');
+        return;
+      }
+      const target = pendingAccountId;
+      setSwitchStepUpPassword('');
+      setSwitchStepUpTotp('');
+      await startAccountSwitch(target, data.stepUpToken);
+    } catch {
+      setSwitchStepUpError('Erro de comunicacao ao confirmar a troca.');
+    }
+  }, [pendingAccountId, startAccountSwitch, switchStepUpPassword, switchStepUpTotp]);
+
+  const returnToAdminAccount = useCallback(async () => {
+    const targetToken = localStorage.getItem('cfo_terminal_session');
+    const originalToken = sessionStorage.getItem('cfo_admin_original_session');
+    if (!targetToken || !originalToken) return;
+    try {
+      await fetch('/api/auth/impersonation/stop', { method: 'POST', headers: { Authorization: `Bearer ${targetToken}` } });
+      localStorage.setItem('cfo_terminal_session', originalToken);
+      localStorage.setItem('cfo_terminal_expires_at', sessionStorage.getItem('cfo_admin_original_expires_at') || '');
+      localStorage.setItem('cfo_terminal_user', sessionStorage.getItem('cfo_admin_original_user') || 'admin');
+      localStorage.setItem('cfo_terminal_role', sessionStorage.getItem('cfo_admin_original_role') || 'admin');
+      localStorage.setItem('cfo_can_access_notion', sessionStorage.getItem('cfo_admin_original_notion') || 'true');
+      ['cfo_admin_original_session', 'cfo_admin_original_expires_at', 'cfo_admin_original_user', 'cfo_admin_original_role', 'cfo_admin_original_notion'].forEach((key) => sessionStorage.removeItem(key));
+      setUserProfile(null);
+      setCanAccessNotion(true);
+      setIsPersistentStateReady(false);
+      clearPersistentStateCache();
+      await hydratePersistentState();
+      setIsPersistentStateReady(true);
+      showToast('Voce voltou para a conta ADM.', 'success');
+    } catch {
+      showToast('Nao foi possivel voltar para a conta ADM.', 'error');
+    }
+  }, [showToast]);
 
   // Compute weekly study summary
   const studySummary = useMemo(() => {
@@ -1376,6 +1503,11 @@ export default function App() {
           onClose={() => setIsSidebarOpen(false)}
           pendingRevisionsCount={pendingRevisionsCount}
           canAccessNotion={canAccessNotion}
+          userProfile={userProfile || { username: localStorage.getItem('cfo_terminal_user') || 'perfil', role: localStorage.getItem('cfo_terminal_role') || undefined }}
+          isAdmin={isCurrentAdmin && !isImpersonating}
+          canReturnToAdmin={isImpersonating}
+          onOpenAccountSwitcher={openAccountSwitcher}
+          onReturnToAdmin={returnToAdminAccount}
         />
 
         {/* Main Content Area */}
@@ -1937,6 +2069,30 @@ export default function App() {
       />
 
       {/* Modal Minha Conta & Perfil do Aluno */}
+      {accountSwitcherOpen && !isImpersonating && (
+        <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4">
+          <div className="w-full sm:max-w-lg max-h-[85dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-slate-700 bg-[#0B1220] p-4 sm:p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div><h2 className="text-base font-bold text-white flex items-center gap-2"><ArrowLeftRight className="w-4 h-4 text-cyan-400" /> Trocar de conta</h2><p className="text-xs text-slate-400 mt-1">Apenas contas ativas aparecem. A operacao fica registrada na auditoria.</p></div>
+              <button type="button" onClick={() => setAccountSwitcherOpen(false)} className="min-h-10 min-w-10 inline-flex items-center justify-center rounded-lg bg-slate-800 text-slate-300 hover:text-white cursor-pointer" aria-label="Fechar"><X className="w-4 h-4" /></button>
+            </div>
+            {isLoadingAccounts ? <div className="py-10 flex items-center justify-center text-slate-400 text-xs gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Carregando contas...</div> : switchableAccounts.length === 0 ? <p className="py-8 text-center text-xs text-slate-500">Nenhuma outra conta ativa disponivel.</p> : <div className="space-y-2">{switchableAccounts.map((account) => <button key={account.id} type="button" disabled={isSwitchingAccount} onClick={() => startAccountSwitch(account.id)} className="w-full min-h-14 flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/70 px-3 text-left hover:border-cyan-500/50 disabled:opacity-50 cursor-pointer"><div className="w-9 h-9 rounded-full bg-blue-600/20 border border-blue-500/30 text-blue-300 flex items-center justify-center text-xs font-bold">{(account.fullName || account.username).slice(0, 1).toUpperCase()}</div><span className="min-w-0 flex-1"><strong className="block text-xs text-white truncate">{account.fullName || account.username}</strong><small className="block text-[11px] text-blue-400 font-mono truncate">@{account.username}</small></span><span className="text-[10px] text-slate-500 uppercase">{account.role === 'support' ? 'Suporte' : 'Cadete'}</span></button>)}</div>}
+          </div>
+        </div>
+      )}
+
+      {switchStepUpOpen && (
+        <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center bg-black/75 p-0 sm:p-4">
+          <form onSubmit={confirmAccountSwitchStepUp} className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl border border-amber-500/30 bg-[#0B1220] p-5 shadow-2xl space-y-4">
+            <div><h2 className="text-base font-bold text-white">Confirmar troca de conta</h2><p className="text-xs text-slate-400 mt-1">Por seguranca, confirme sua senha de administrador ou o codigo 2FA.</p></div>
+            <input type="password" value={switchStepUpPassword} onChange={(e) => setSwitchStepUpPassword(e.target.value)} placeholder="Senha do ADM" className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-xs text-white" />
+            <input inputMode="numeric" maxLength={6} value={switchStepUpTotp} onChange={(e) => setSwitchStepUpTotp(e.target.value.replace(/\D/g, ''))} placeholder="Codigo 2FA (opcional)" className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-xs text-white" />
+            {switchStepUpError && <p className="text-xs text-red-300">{switchStepUpError}</p>}
+            <div className="flex gap-2 justify-end"><button type="button" onClick={() => setSwitchStepUpOpen(false)} className="min-h-11 px-4 rounded-xl border border-slate-700 text-xs text-slate-300 cursor-pointer">Cancelar</button><button type="submit" disabled={isSwitchingAccount || (!switchStepUpPassword && switchStepUpTotp.length !== 6)} className="min-h-11 px-4 rounded-xl bg-amber-600 text-white text-xs font-bold disabled:opacity-50 cursor-pointer">{isSwitchingAccount ? 'Confirmando...' : 'Confirmar'}</button></div>
+          </form>
+        </div>
+      )}
+
       <MyAccountModal
         isOpen={isMyAccountOpen}
         onClose={() => setIsMyAccountOpen(false)}

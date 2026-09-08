@@ -781,6 +781,9 @@ function verifyTerminalSession(token?: string | null): {
   canAccessNotion?: boolean;
   expiresAt?: number;
   userId?: string;
+  sessionId?: string;
+  impersonatedByUserId?: string | null;
+  parentSessionId?: string | null;
 } {
   if (!token || typeof token !== "string") return { valid: false };
 
@@ -797,6 +800,9 @@ function verifyTerminalSession(token?: string | null): {
       canAccessNotion,
       expiresAt,
       userId: dbCheck.user.id,
+      sessionId: dbCheck.session.id,
+      impersonatedByUserId: dbCheck.session.impersonatedByUserId || null,
+      parentSessionId: dbCheck.session.parentSessionId || null,
     };
   }
 
@@ -1417,11 +1423,83 @@ app.post("/api/auth/verify-session", (req: Request, res: Response) => {
     role: result.role,
     canAccessNotion: result.canAccessNotion,
     expiresAt: result.expiresAt,
+    sessionId: result.sessionId,
+    isImpersonation: Boolean(result.impersonatedByUserId),
+    impersonatedByUserId: result.impersonatedByUserId || null,
     is2faActive: config.is2faActive,
   });
 });
 
 // 6. Rota de Logout (Revogação Segura de Sessão)
+app.post("/api/admin/impersonation/start", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
+  try {
+    const adminSession = (req as any).user;
+    const targetUserId = typeof req.body?.targetUserId === 'string' ? req.body.targetUserId.trim() : '';
+    const targetUser = targetUserId ? userRepoInstance.findById(targetUserId) : null;
+    if (!targetUser) return res.status(404).json({ success: false, error: 'USER_NOT_FOUND', message: 'Conta nao encontrada.' });
+    if (targetUser.role === 'admin') return res.status(400).json({ success: false, error: 'ADMIN_TARGET_NOT_ALLOWED', message: 'A visao de outra conta admin nao pode ser assumida.' });
+    if (targetUser.status !== 'active') return res.status(400).json({ success: false, error: 'USER_INACTIVE', message: 'A conta precisa estar ativa.' });
+
+    const created = sessionRepoInstance.createSession({
+      userId: targetUser.id,
+      role: targetUser.role,
+      ip: getClientIp(req),
+      userAgent: (req.headers['user-agent'] as string) || null,
+      expiresInDays: 1,
+      impersonatedByUserId: adminSession.userId,
+      parentSessionId: adminSession.sessionId,
+    });
+    const profile = profileRepoInstance.findByUserId(targetUser.id);
+    logSecurityEvent(req, {
+      action: 'IMPERSONATION_STARTED',
+      actor: adminSession.username || 'admin',
+      actorUserId: adminSession.userId || null,
+      targetType: 'user',
+      targetId: targetUser.id,
+      resource: `/admin/impersonation/${targetUser.id}`,
+      status: 'SUCCESS',
+      userId: targetUser.id,
+      details: { targetUsername: targetUser.username },
+    });
+    return res.json({
+      success: true,
+      token: created.rawToken,
+      expiresAt: Date.parse(created.session.expiresAt),
+      username: targetUser.username,
+      role: targetUser.role,
+      canAccessNotion: targetUser.canAccessNotion,
+      profile: { id: targetUser.id, fullName: profile?.fullName || targetUser.username, avatarUrl: profile?.avatarUrl || null },
+    });
+  } catch (err: any) {
+    console.error('[Admin Impersonation Start Error]:', err);
+    return res.status(500).json({ success: false, message: 'Erro ao trocar de conta.' });
+  }
+});
+
+app.post("/api/auth/impersonation/stop", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const session = (req as any).user;
+    if (!session.impersonatedByUserId) return res.status(400).json({ success: false, message: 'Esta sessao nao e uma troca de conta.' });
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    if (token) sessionRepoInstance.revokeSession(token);
+    logSecurityEvent(req, {
+      action: 'IMPERSONATION_STOPPED',
+      actor: session.username || 'impersonated_user',
+      actorUserId: session.userId || null,
+      targetType: 'admin_session',
+      targetId: session.impersonatedByUserId,
+      resource: '/api/auth/impersonation/stop',
+      status: 'SUCCESS',
+      userId: session.userId || null,
+    });
+    return res.json({ success: true, adminUserId: session.impersonatedByUserId });
+  } catch (err: any) {
+    console.error('[Impersonation Stop Error]:', err);
+    return res.status(500).json({ success: false, message: 'Erro ao voltar para a conta ADM.' });
+  }
+});
+
 app.post("/api/auth/logout", (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
   const token = req.body?.token || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null);

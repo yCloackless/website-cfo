@@ -5,6 +5,9 @@ export interface TerminalSession {
   username?: string;
   role?: string;
   userId?: string;
+  sessionId?: string;
+  impersonatedByUserId?: string | null;
+  parentSessionId?: string | null;
 }
 
 type VerifySession = (token?: string | null) => TerminalSession;
