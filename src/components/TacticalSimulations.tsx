@@ -449,7 +449,7 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
       {/* 🎯 SEÇÃO 1: CONSOLE DA IA TÁTICA */}
       {/* ========================================================================= */}
       <section className="space-y-4">
-        <div className="rounded-2xl border border-red-950/60 bg-black shadow-2xl p-5 relative overflow-hidden font-mono">
+        <div className="rounded-2xl border border-red-950/60 bg-black shadow-2xl p-3.5 sm:p-5 relative overflow-hidden font-mono">
           <div className="flex items-center justify-between border-b border-slate-800/80 pb-3 mb-4">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5">
@@ -457,16 +457,16 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" />
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
               </div>
-              <span className="text-[11px] text-slate-400 tracking-wider flex items-center gap-1.5">
-                <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-                CONSOLE_INTELIGENCIA // CFO_AI_DIAGNOSTICS
+              <span className="text-[11px] text-slate-400 tracking-wider flex items-center gap-1.5 truncate">
+                <Terminal className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="truncate">CONSOLE_INTELIGENCIA</span>
               </span>
             </div>
 
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5 text-[10px] text-emerald-400">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block" />
-                <span>ONLINE [IA ATIVA]</span>
+                <span className="hidden sm:inline">ONLINE [IA ATIVA]</span>
               </div>
               <button
                 type="button"
@@ -487,7 +487,7 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
               <span>{currentDirective.title}</span>
             </div>
 
-            <div className="bg-slate-950/90 p-3.5 rounded-xl border border-slate-900 text-slate-200 whitespace-pre-line leading-loose">
+            <div className="bg-slate-950/90 p-3.5 rounded-xl border border-slate-900 text-slate-200 whitespace-pre-line leading-loose break-words overflow-x-auto">
               {currentDirective.body}
               <span className="inline-block w-2 h-4 bg-emerald-400 ml-1 translate-y-0.5 animate-pulse" />
             </div>

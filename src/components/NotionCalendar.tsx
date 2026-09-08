@@ -538,13 +538,14 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
       {/* 2. Grid do Calendário Mensal Tático */}
       <div className={`border rounded-2xl overflow-hidden shadow-2xl ${isDark ? "bg-slate-950 border-slate-800" : "bg-white border-slate-300 shadow-sm"}`}>
         {/* Cabeçalho dos Dias da Semana */}
-        <div className={`grid grid-cols-7 border-b text-center py-2.5 text-[11px] font-mono font-bold tracking-widest ${isDark ? "border-slate-800 bg-black text-slate-400" : "border-slate-300 bg-slate-100 text-slate-900 font-black"}`}>
+        <div className={`grid grid-cols-7 border-b text-center py-2.5 text-[10px] sm:text-[11px] font-mono font-bold tracking-widest ${isDark ? "border-slate-800 bg-black text-slate-400" : "border-slate-300 bg-slate-100 text-slate-900 font-black"}`}>
           {WEEK_DAYS.map((dayName, idx) => (
             <div
               key={dayName}
               className={idx === 0 || idx === 6 ? (isDark ? "text-slate-500" : "text-slate-600") : (isDark ? "text-slate-300" : "text-slate-900")}
             >
-              {dayName}
+              <span className="hidden sm:inline">{dayName}</span>
+              <span className="sm:hidden">{dayName.slice(0, 3)}</span>
             </div>
           ))}
         </div>
