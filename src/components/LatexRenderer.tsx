@@ -139,39 +139,42 @@ export const Latex: React.FC<LatexRendererProps> = ({
 
   if (!text) return null;
 
-  return (
-    <span className={`inline-block max-w-full align-baseline overflow-x-auto scrollbar-thin ${className}`}>
-      {segments.map((seg, idx) => {
-        if (seg.type === 'text') {
-          return (
-            <span key={idx} className="whitespace-pre-wrap">
-              {seg.content}
-            </span>
-          );
-        }
+  const renderedSegments = segments.map((seg, idx) => {
+    if (seg.type === 'text') {
+      return (
+        <span key={idx} className="whitespace-pre-wrap">
+          {seg.content}
+        </span>
+      );
+    }
 
-        const isBlock = seg.type === 'block-math';
-        const html = renderMathToHtml(seg.content, isBlock);
+    const isBlock = seg.type === 'block-math';
+    const html = renderMathToHtml(seg.content, isBlock);
 
-        if (isBlock) {
-          return (
-            <div
-              key={idx}
-              className="my-1.5 py-1 px-2.5 rounded-lg bg-black/10 dark:bg-black/25 overflow-x-auto max-w-full scrollbar-thin text-center text-amber-300 dark:text-amber-200"
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
-          );
-        }
+    if (isBlock) {
+      return (
+        <div
+          key={idx}
+          className="my-1.5 py-1 px-2.5 rounded-lg bg-black/10 dark:bg-black/25 overflow-x-auto max-w-full scrollbar-thin text-center text-amber-300 dark:text-amber-200"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      );
+    }
 
-        return (
-          <span
-            key={idx}
-            className="inline-math px-0.5 mx-0.5 max-w-full overflow-x-auto scrollbar-thin text-amber-300 dark:text-amber-200"
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-        );
-      })}
-    </span>
+    return (
+      <span
+        key={idx}
+        className="inline-math px-0.5 mx-0.5 max-w-full overflow-x-auto scrollbar-thin text-amber-300 dark:text-amber-200"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  });
+
+  const wrapperClass = `inline-block max-w-full align-baseline overflow-x-auto scrollbar-thin ${className}`;
+  return segments.some((segment) => segment.type === 'block-math') ? (
+    <div className={wrapperClass}>{renderedSegments}</div>
+  ) : (
+    <span className={wrapperClass}>{renderedSegments}</span>
   );
 };
 

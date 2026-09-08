@@ -3124,6 +3124,15 @@ function formatNotesIntoSeparatedTopics(raw: string): string {
   return text;
 }
 
+function parseAiJsonResponse(raw: string): any {
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+  return JSON.parse(cleaned);
+}
+
 // Endpoint: AI Bizu Notes Generator using Gemini
 app.post("/api/ai/bizu-notes", async (req: Request, res: Response) => {
   try {
@@ -3218,7 +3227,7 @@ Estruture a resposta JSON contendo:
           });
 
           if (response.text) {
-            const parsed = JSON.parse(response.text);
+            const parsed = parseAiJsonResponse(response.text);
             // Guarantee strictly separated topics with blank lines
             if (parsed.notes) {
               parsed.notes = formatNotesIntoSeparatedTopics(parsed.notes);
