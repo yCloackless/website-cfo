@@ -634,10 +634,9 @@ function getSecurityConfig(): SecurityConfig {
         saveSecurityConfig(parsed);
       }
 
-      let is2faActive = false;
-      if (process.env.ADMIN_REQUIRE_2FA === 'true') {
-        is2faActive = true;
-      }
+      // An explicit production mandate always wins, otherwise preserve the state
+      // activated through the authenticated setup flow.
+      const is2faActive = process.env.ADMIN_REQUIRE_2FA === 'true' || parsed.is2faActive === true;
 
       return {
         totpSecret: secret,
@@ -2471,10 +2470,20 @@ app.patch("/api/admin/settings", requireAdminWriteAuth, requireStepUpAuth, (req:
       twoFactorActive: getSecurityConfig().is2faActive,
     };
 
+    if (twoFactorEnforced !== undefined && typeof twoFactorEnforced !== 'boolean') {
+      return res.status(400).json({ success: false, message: "twoFactorEnforced deve ser booleano." });
+    }
+
+    const securityConfig = getSecurityConfig();
+    if (typeof twoFactorEnforced === 'boolean') {
+      securityConfig.is2faActive = process.env.ADMIN_REQUIRE_2FA === 'true' ? true : twoFactorEnforced;
+      saveSecurityConfig(securityConfig);
+    }
+
     const newConfig = {
       retentionDays: Number(retentionDays) || previousConfig.retentionDays,
       sessionDurationDays: Number(sessionDurationDays) || previousConfig.sessionDurationDays,
-      twoFactorActive: twoFactorEnforced !== undefined ? Boolean(twoFactorEnforced) : previousConfig.twoFactorActive,
+      twoFactorActive: securityConfig.is2faActive,
     };
 
     logSecurityEvent(req, {
@@ -2869,15 +2878,34 @@ app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
     const existing = readCalendarSession();
     saveCalendarSession({ access_token: tokenData.access_token, refresh_token: tokenData.refresh_token || (existing?.email === email ? existing.refresh_token : undefined),
       expiry_date: Date.now() + (tokenData.expires_in || 3600) * 1000, email, name: String(profile.name || ''), scope: tokenData.scope, updatedAt: new Date().toISOString() });
-    const payload = JSON.stringify({ type: 'GOOGLE_CALENDAR_CONNECTED', success: true, connected: true, email, name: String(profile.name || '') }).replace(/</g, '\\u003c');
-    const origin = JSON.stringify(pending.origin).replace(/</g, '\\u003c');
-    return res.send(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><title>Google Agenda conectado</title><body><h1>Google Agenda conectado</h1><p>Você pode fechar esta janela.</p><script>
-      const payload = ${payload};
-      localStorage.setItem('cfo_calendar_status', JSON.stringify(payload));
-      localStorage.setItem('cfo_calendar_auth_success', JSON.stringify(payload));
-      if (window.opener) window.opener.postMessage(payload, ${origin});
-      if (typeof BroadcastChannel !== 'undefined') { const channel = new BroadcastChannel('cfo_google_calendar_auth'); channel.postMessage(payload); channel.close(); }
-      setTimeout(() => window.close(), 250);
+    const safeData = {
+      type: 'GOOGLE_CALENDAR_CONNECTED',
+      success: true,
+      connected: true,
+      email,
+      name: String(profile.name || ''),
+      targetOrigin: pending.origin,
+    };
+    const safeJson = JSON.stringify(safeData).replace(/</g, '\\u003c');
+    return res.send(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Google Agenda conectado</title></head><body><h1>Google Agenda conectado</h1><p>Você pode fechar esta janela.</p><script id="oauth-payload" type="application/json">${safeJson}</script><script>
+      (function() {
+        try {
+          var el = document.getElementById('oauth-payload');
+          if (!el) return;
+          var data = JSON.parse(el.textContent || '{}');
+          localStorage.setItem('cfo_calendar_status', JSON.stringify(data));
+          localStorage.setItem('cfo_calendar_auth_success', JSON.stringify(data));
+          if (window.opener && data.targetOrigin) {
+            window.opener.postMessage(data, data.targetOrigin);
+          }
+          if (typeof BroadcastChannel !== 'undefined') {
+            var channel = new BroadcastChannel('cfo_google_calendar_auth');
+            channel.postMessage(data);
+            channel.close();
+          }
+        } catch (_) {}
+        setTimeout(function() { window.close(); }, 250);
+      })();
     </script></body></html>`);
   } catch { return res.status(502).send('Falha ao conectar com o Google Calendar.'); }
 });
