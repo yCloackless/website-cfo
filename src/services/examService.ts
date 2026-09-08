@@ -21,9 +21,11 @@ import {
 } from '../db/repositories';
 import { getDb } from '../db/database';
 import fs from 'node:fs';
+import { createCanvas } from '@napi-rs/canvas';
 
 export interface ExtractedQuestionDraft {
   questionNumber: number;
+  pageNumber?: number;
   statement: string;
   supportText?: string | null;
   options: { letter: 'A' | 'B' | 'C' | 'D' | 'E'; text: string }[];
@@ -135,6 +137,16 @@ export class ExamService {
         }),
         questions: [],
       }));
+    }
+
+    if (params.fileId) {
+      const sourceFile = this.fileRepo.findById(params.fileId);
+      if (sourceFile?.mimeType === 'application/pdf' && fs.existsSync(sourceFile.storagePath)) {
+        try {
+          const pageImages = await this.renderQuestionPages(fs.readFileSync(sourceFile.storagePath), extractedQuestions);
+          extractedQuestions = extractedQuestions.map((question) => ({ ...question, images: pageImages.get(question.questionNumber) || question.images }));
+        } catch (err) { console.warn('[PDF Page Render Warning]:', err); }
+      }
     }
 
     // Identifica disciplinas presentes
@@ -521,6 +533,7 @@ Retorne APENAS um array JSON de questões com a estrutura:
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed.map((item, idx) => ({
           questionNumber: Number(item.questionNumber) || idx + 1,
+          pageNumber: Number(item.pageNumber) || undefined,
           statement: String(item.statement || '').trim(),
           supportText: item.supportText ? String(item.supportText).trim() : null,
           options: Array.isArray(item.options) ? item.options : [],
@@ -562,6 +575,23 @@ Retorne APENAS um array JSON de questões com a estrutura:
     return strings.join(' ');
   }
 
+  private async renderQuestionPages(buffer: Buffer, questions: ExtractedQuestionDraft[]): Promise<Map<number, string[]>> {
+    const pageNumbers = [...new Set(questions.map((question) => question.pageNumber).filter((page): page is number => Boolean(page && page > 0)))];
+    const result = new Map<number, string[]>();
+    if (pageNumbers.length === 0) return result;
+    const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const document = await pdfjs.getDocument({ data: new Uint8Array(buffer), disableWorker: true }).promise;
+    for (const pageNumber of pageNumbers) {
+      if (pageNumber > document.numPages) continue;
+      const page = await document.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1.35 });
+      const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      result.set(pageNumber, [canvas.toDataURL('image/jpeg', 0.78)]);
+    }
+    return result;
+  }
+
   private async extractQuestionsFromPdfBuffer(buffer: Buffer): Promise<ExtractedQuestionDraft[]> {
     if (!this.genAI) return [];
     try {
@@ -569,7 +599,7 @@ Retorne APENAS um array JSON de questões com a estrutura:
         model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
         contents: [
           { inlineData: { mimeType: 'application/pdf', data: buffer.toString('base64') } },
-          { text: `Leia visualmente o PDF inteiro, incluindo páginas escaneadas. Extraia SOMENTE as questões que realmente aparecem no documento, sem inventar ou completar conteúdo ausente. Preserve a numeração original e extraia todas as alternativas visíveis. Retorne apenas JSON neste formato: [{"questionNumber":1,"statement":"enunciado completo","supportText":null,"options":[{"letter":"A","text":"..."},{"letter":"B","text":"..."}],"correctOption":null,"discipline":"Conhecimentos Gerais","topic":"Geral","subtopic":"Geral","difficulty":"Médio"}]. Use correctOption somente se houver gabarito explícito no PDF.` },
+          { text: `Leia visualmente o PDF inteiro, incluindo páginas escaneadas. Extraia SOMENTE as questões que realmente aparecem no documento, sem inventar ou completar conteúdo ausente. Preserve a numeração original, informe pageNumber da página onde a questão aparece e extraia todas as alternativas visíveis. Retorne apenas JSON neste formato: [{"questionNumber":1,"pageNumber":1,"statement":"enunciado completo","supportText":null,"options":[{"letter":"A","text":"..."},{"letter":"B","text":"..."}],"correctOption":null,"discipline":"Conhecimentos Gerais","topic":"Geral","subtopic":"Geral","difficulty":"Médio"}]. Use correctOption somente se houver gabarito explícito no PDF.` },
         ],
         config: { responseMimeType: 'application/json', temperature: 0.1 },
       });
@@ -577,6 +607,7 @@ Retorne APENAS um array JSON de questões com a estrutura:
       if (!Array.isArray(parsed)) return [];
       return parsed.map((item, idx) => ({
         questionNumber: Number(item.questionNumber) || idx + 1,
+        pageNumber: Number(item.pageNumber) || undefined,
         statement: String(item.statement || '').trim(),
         supportText: item.supportText ? String(item.supportText).trim() : null,
         options: Array.isArray(item.options) ? item.options.filter((option: any) => ['A', 'B', 'C', 'D', 'E'].includes(option?.letter)).map((option: any) => ({ letter: option.letter, text: String(option.text || '').trim() })) : [],
