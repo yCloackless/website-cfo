@@ -225,7 +225,7 @@ export const Header: React.FC<HeaderProps> = ({
                 type="button"
                 id="btn-open-notifications"
                 onClick={onOpenNotifications}
-                className={`relative min-w-11 sm:min-w-0 p-2 rounded-xl border transition-all cursor-pointer ${
+                className={`relative shrink-0 p-2 rounded-xl border transition-all cursor-pointer ${
                   isDark
                     ? 'border-slate-800 bg-[#0B1528] text-slate-300 hover:text-white hover:border-blue-500/50'
                     : 'border-slate-200 bg-slate-100 text-slate-700 hover:text-slate-900 hover:border-blue-500/50'
@@ -234,7 +234,7 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <Bell className="w-4 h-4" />
                 {unreadNotificationsCount > 0 && (
-                  <span className="absolute -top-1 -right-1 px-1.5 py-0.5 text-[10px] font-black rounded-full bg-red-500 text-white leading-none shadow-md shadow-red-500/40 animate-pulse">
+                  <span className="absolute top-0 right-0 sm:-top-1 sm:-right-1 px-1.5 py-0.5 text-[10px] font-black rounded-full bg-red-500 text-white leading-none shadow-md shadow-red-500/40 animate-pulse">
                     {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
                   </span>
                 )}
@@ -249,7 +249,7 @@ export const Header: React.FC<HeaderProps> = ({
             >
               {hasCalendarAccess ? (
                 <div
-                  className={`flex items-center gap-2 border rounded-full px-2.5 py-1 text-xs ${
+                  className={`flex items-center justify-center gap-2 border rounded-full p-1.5 sm:px-2.5 sm:py-1 text-xs ${
                     isDark
                       ? 'bg-slate-900/80 border-slate-800 text-slate-300'
                       : 'bg-slate-100 border-slate-200 text-slate-800'
@@ -262,7 +262,7 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shrink-0"></div>
                   <span
-                    className="truncate max-w-[125px] font-semibold text-[11px]"
+                    className="hidden sm:block truncate max-w-[125px] font-semibold text-[11px]"
                     title={
                       calendarName
                         ? `${calendarName} (${calendarEmail || ''})`
@@ -295,14 +295,15 @@ export const Header: React.FC<HeaderProps> = ({
                   id="btn-google-signin"
                   onClick={onSignIn}
                   disabled={isSigningIn}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium border shadow-2xs transition-all active:scale-[0.98] disabled:opacity-50 ${
+                  className={`inline-flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-2.5 sm:py-1.5 rounded-full text-xs font-medium border shadow-2xs transition-all active:scale-[0.98] disabled:opacity-50 ${
                     isDark
                       ? 'text-slate-200 bg-slate-900/80 hover:bg-slate-800 border-slate-800 hover:border-slate-700'
                       : 'text-slate-800 bg-white hover:bg-slate-50 border-slate-300'
                   }`}
                   title="Conectar com o Google Agenda para sincronizar seus estudos permanentemente"
                 >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                  <span className="sm:hidden w-2.5 h-2.5 rounded-full bg-red-500 shadow-sm shadow-red-500/60" aria-hidden="true" />
+                  <svg className="hidden sm:block w-3.5 h-3.5" viewBox="0 0 24 24">
                     <path
                       fill="#4285F4"
                       d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
