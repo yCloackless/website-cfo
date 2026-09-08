@@ -27,6 +27,12 @@ import {
   DbExamPaper,
   DbExamQuestion,
   DbExamJob,
+  DbQuestionSegment,
+  DbQuestionAsset,
+  DbSupportMaterial,
+  DbQuestionAuditLog,
+  QuestionSegmentSource,
+  QuestionAssetType,
   ExamOption,
   ExamPaperStatus,
   ExamDifficulty,
@@ -2189,6 +2195,85 @@ export class ExamQuestionRepository {
     return this.findById(id);
   }
 
+  public update(id: string, partial: {
+    statement?: string;
+    supportText?: string | null;
+    options?: ExamOption[];
+    correctOption?: string | null;
+    discipline?: string;
+    topic?: string;
+    subtopic?: string;
+    difficulty?: ExamDifficulty;
+    difficultyScore?: number;
+    confidenceScore?: number;
+    images?: string[];
+    status?: string;
+  }): DbExamQuestion | null {
+    const existing = this.findById(id);
+    if (!existing) return null;
+
+    const sets: string[] = [];
+    const values: any[] = [];
+
+    if (partial.statement !== undefined) {
+      sets.push('statement = ?');
+      values.push(partial.statement);
+    }
+    if (partial.supportText !== undefined) {
+      sets.push('support_text = ?');
+      values.push(partial.supportText);
+    }
+    if (partial.options !== undefined) {
+      sets.push('options_json = ?');
+      values.push(JSON.stringify(partial.options));
+    }
+    if (partial.correctOption !== undefined) {
+      sets.push('correct_option = ?');
+      values.push(partial.correctOption);
+    }
+    if (partial.discipline !== undefined) {
+      sets.push('discipline = ?');
+      values.push(partial.discipline);
+    }
+    if (partial.topic !== undefined) {
+      sets.push('topic = ?');
+      values.push(partial.topic);
+    }
+    if (partial.subtopic !== undefined) {
+      sets.push('subtopic = ?');
+      values.push(partial.subtopic);
+    }
+    if (partial.difficulty !== undefined) {
+      sets.push('difficulty = ?');
+      values.push(partial.difficulty);
+    }
+    if (partial.difficultyScore !== undefined) {
+      sets.push('difficulty_score = ?');
+      values.push(partial.difficultyScore);
+    }
+    if (partial.confidenceScore !== undefined) {
+      sets.push('confidence_score = ?');
+      values.push(partial.confidenceScore);
+    }
+    if (partial.images !== undefined) {
+      sets.push('images_json = ?');
+      values.push(JSON.stringify(partial.images));
+    }
+    if (partial.status !== undefined) {
+      sets.push('status = ?');
+      values.push(partial.status);
+    }
+
+    if (sets.length === 0) return existing;
+
+    sets.push('updated_at = ?');
+    values.push(new Date().toISOString());
+
+    values.push(id);
+    this.db.prepare(`UPDATE exam_questions SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+    return this.findById(id);
+  }
+
   public deleteByExamId(examId: string): boolean {
     const res = this.db.prepare('DELETE FROM exam_questions WHERE exam_id = ?').run(examId);
     return Number(res.changes) > 0;
@@ -2329,5 +2414,360 @@ export class ExamJobRepository {
     };
   }
 }
+
+export class QuestionSegmentRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public create(data: {
+    id?: string;
+    questionId: string;
+    examId: string;
+    page: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    orderNum?: number;
+    confidence?: number;
+    source?: QuestionSegmentSource;
+  }): DbQuestionSegment {
+    const id = data.id || crypto.randomUUID();
+    const now = new Date().toISOString();
+    const orderNum = data.orderNum ?? 1;
+    const confidence = data.confidence ?? 1.0;
+    const source: QuestionSegmentSource = data.source ?? 'pdf_text';
+
+    this.db
+      .prepare(
+        `INSERT INTO question_segments (
+          id, question_id, exam_id, page, x, y, width, height, order_num,
+          confidence, source, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        data.questionId,
+        data.examId,
+        data.page,
+        data.x,
+        data.y,
+        data.width,
+        data.height,
+        orderNum,
+        confidence,
+        source,
+        now,
+        now
+      );
+
+    return this.findById(id)!;
+  }
+
+  public findById(id: string): DbQuestionSegment | null {
+    const row = this.db.prepare('SELECT * FROM question_segments WHERE id = ?').get(id) as any;
+    if (!row) return null;
+    return this.mapSegment(row);
+  }
+
+  public listByQuestion(questionId: string): DbQuestionSegment[] {
+    const rows = this.db
+      .prepare('SELECT * FROM question_segments WHERE question_id = ? ORDER BY order_num ASC, page ASC')
+      .all(questionId) as any[];
+    return rows.map((r) => this.mapSegment(r));
+  }
+
+  public listByExam(examId: string): DbQuestionSegment[] {
+    const rows = this.db
+      .prepare('SELECT * FROM question_segments WHERE exam_id = ? ORDER BY page ASC, y ASC')
+      .all(examId) as any[];
+    return rows.map((r) => this.mapSegment(r));
+  }
+
+  public updateCoordinates(
+    id: string,
+    coords: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      confidence?: number;
+      source?: QuestionSegmentSource;
+    }
+  ): DbQuestionSegment | null {
+    const now = new Date().toISOString();
+    const current = this.findById(id);
+    if (!current) return null;
+
+    const newConfidence = coords.confidence ?? current.confidence;
+    const newSource = coords.source ?? 'manual';
+
+    this.db
+      .prepare(
+        `UPDATE question_segments
+         SET x = ?, y = ?, width = ?, height = ?, confidence = ?, source = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .run(coords.x, coords.y, coords.width, coords.height, newConfidence, newSource, now, id);
+
+    return this.findById(id);
+  }
+
+  public delete(id: string): boolean {
+    const res = this.db.prepare('DELETE FROM question_segments WHERE id = ?').run(id);
+    return Number(res.changes) > 0;
+  }
+
+  private mapSegment(row: any): DbQuestionSegment {
+    return {
+      id: row.id,
+      questionId: row.question_id,
+      examId: row.exam_id,
+      page: Number(row.page),
+      x: Number(row.x),
+      y: Number(row.y),
+      width: Number(row.width),
+      height: Number(row.height),
+      orderNum: Number(row.order_num || 1),
+      confidence: Number(row.confidence || 1.0),
+      source: row.source as QuestionSegmentSource,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+}
+
+export class QuestionAssetRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public create(data: {
+    id?: string;
+    questionId: string;
+    segmentId?: string | null;
+    assetType: QuestionAssetType;
+    filePath: string;
+    publicUrl?: string | null;
+    width: number;
+    height: number;
+    format?: string;
+    dpi?: number;
+  }): DbQuestionAsset {
+    const id = data.id || crypto.randomUUID();
+    const now = new Date().toISOString();
+    const format = data.format || 'webp';
+    const dpi = data.dpi || 180;
+
+    this.db
+      .prepare(
+        `INSERT INTO question_assets (
+          id, question_id, segment_id, asset_type, file_path, public_url,
+          width, height, format, dpi, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        data.questionId,
+        data.segmentId ?? null,
+        data.assetType,
+        data.filePath,
+        data.publicUrl ?? null,
+        data.width,
+        data.height,
+        format,
+        dpi,
+        now
+      );
+
+    return this.findById(id)!;
+  }
+
+  public findById(id: string): DbQuestionAsset | null {
+    const row = this.db.prepare('SELECT * FROM question_assets WHERE id = ?').get(id) as any;
+    if (!row) return null;
+    return this.mapAsset(row);
+  }
+
+  public listByQuestion(questionId: string): DbQuestionAsset[] {
+    const rows = this.db
+      .prepare('SELECT * FROM question_assets WHERE question_id = ? ORDER BY created_at ASC')
+      .all(questionId) as any[];
+    return rows.map((r) => this.mapAsset(r));
+  }
+
+  public findBySegment(segmentId: string): DbQuestionAsset[] {
+    const rows = this.db
+      .prepare('SELECT * FROM question_assets WHERE segment_id = ? ORDER BY created_at ASC')
+      .all(segmentId) as any[];
+    return rows.map((r) => this.mapAsset(r));
+  }
+
+  public delete(id: string): boolean {
+    const res = this.db.prepare('DELETE FROM question_assets WHERE id = ?').run(id);
+    return Number(res.changes) > 0;
+  }
+
+  public deleteByQuestion(questionId: string): number {
+    const res = this.db.prepare('DELETE FROM question_assets WHERE question_id = ?').run(questionId);
+    return Number(res.changes);
+  }
+
+  private mapAsset(row: any): DbQuestionAsset {
+    return {
+      id: row.id,
+      questionId: row.question_id,
+      segmentId: row.segment_id ?? null,
+      assetType: row.asset_type as QuestionAssetType,
+      filePath: row.file_path,
+      publicUrl: row.public_url ?? null,
+      width: Number(row.width),
+      height: Number(row.height),
+      format: row.format,
+      dpi: Number(row.dpi || 180),
+      createdAt: row.created_at,
+    };
+  }
+}
+
+export class SupportMaterialRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public create(data: {
+    id?: string;
+    examId: string;
+    title: string;
+    contentText?: string | null;
+    page: number;
+    bbox?: { x: number; y: number; width: number; height: number };
+    assetPath?: string | null;
+  }): DbSupportMaterial {
+    const id = data.id || crypto.randomUUID();
+    const now = new Date().toISOString();
+    const bboxJson = data.bbox ? JSON.stringify(data.bbox) : null;
+
+    this.db
+      .prepare(
+        `INSERT INTO support_materials (
+          id, exam_id, title, content_text, page, bbox_json, asset_path, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        data.examId,
+        data.title,
+        data.contentText ?? null,
+        data.page,
+        bboxJson,
+        data.assetPath ?? null,
+        now,
+        now
+      );
+
+    return this.findById(id)!;
+  }
+
+  public findById(id: string): DbSupportMaterial | null {
+    const row = this.db.prepare('SELECT * FROM support_materials WHERE id = ?').get(id) as any;
+    if (!row) return null;
+    return this.mapSupport(row);
+  }
+
+  public listByExam(examId: string): DbSupportMaterial[] {
+    const rows = this.db
+      .prepare('SELECT * FROM support_materials WHERE exam_id = ? ORDER BY page ASC, created_at ASC')
+      .all(examId) as any[];
+    return rows.map((r) => this.mapSupport(r));
+  }
+
+  public delete(id: string): boolean {
+    const res = this.db.prepare('DELETE FROM support_materials WHERE id = ?').run(id);
+    return Number(res.changes) > 0;
+  }
+
+  private mapSupport(row: any): DbSupportMaterial {
+    return {
+      id: row.id,
+      examId: row.exam_id,
+      title: row.title,
+      contentText: row.content_text ?? null,
+      page: Number(row.page),
+      bboxJson: row.bbox_json ?? null,
+      assetPath: row.asset_path ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+}
+
+export class QuestionAuditRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public create(data: {
+    id?: string;
+    questionId: string;
+    detector: string;
+    confidence: number;
+    isManualReview?: boolean;
+    userId?: string | null;
+    previousBbox?: Record<string, any>;
+    newBbox?: Record<string, any>;
+    notes?: string | null;
+  }): DbQuestionAuditLog {
+    const id = data.id || crypto.randomUUID();
+    const now = new Date().toISOString();
+    const isManual = data.isManualReview ? 1 : 0;
+    const prevJson = data.previousBbox ? JSON.stringify(data.previousBbox) : null;
+    const newJson = data.newBbox ? JSON.stringify(data.newBbox) : null;
+
+    this.db
+      .prepare(
+        `INSERT INTO question_audit_logs (
+          id, question_id, detector, confidence, is_manual_review, user_id,
+          previous_bbox_json, new_bbox_json, notes, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        data.questionId,
+        data.detector,
+        data.confidence,
+        isManual,
+        data.userId ?? null,
+        prevJson,
+        newJson,
+        data.notes ?? null,
+        now
+      );
+
+    return this.findById(id)!;
+  }
+
+  public findById(id: string): DbQuestionAuditLog | null {
+    const row = this.db.prepare('SELECT * FROM question_audit_logs WHERE id = ?').get(id) as any;
+    if (!row) return null;
+    return this.mapAudit(row);
+  }
+
+  public listByQuestion(questionId: string): DbQuestionAuditLog[] {
+    const rows = this.db
+      .prepare('SELECT * FROM question_audit_logs WHERE question_id = ? ORDER BY created_at DESC')
+      .all(questionId) as any[];
+    return rows.map((r) => this.mapAudit(r));
+  }
+
+  private mapAudit(row: any): DbQuestionAuditLog {
+    return {
+      id: row.id,
+      questionId: row.question_id,
+      detector: row.detector,
+      confidence: Number(row.confidence),
+      isManualReview: Boolean(row.is_manual_review),
+      userId: row.user_id ?? null,
+      previousBboxJson: row.previous_bbox_json ?? null,
+      newBboxJson: row.new_bbox_json ?? null,
+      notes: row.notes ?? null,
+      createdAt: row.created_at,
+    };
+  }
+}
+
 
 

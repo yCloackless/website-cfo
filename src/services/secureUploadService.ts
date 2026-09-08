@@ -27,7 +27,7 @@ export interface UploadLimitsConfig {
 }
 
 export const DEFAULT_UPLOAD_LIMITS: UploadLimitsConfig = {
-  maxSizeBytes: 20 * 1024 * 1024, // 20 MB (mesmo limite exibido na interface)
+  maxSizeBytes: 10 * 1024 * 1024, // 10 MB
   maxImageWidth: 4096,
   maxImageHeight: 4096,
   maxPdfPages: 200,

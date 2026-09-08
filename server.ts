@@ -51,7 +51,23 @@ import {
 import { logAuditEvent, readRecentAuditLogs } from "./src/services/auditLogger";
 import { AuthService } from "./src/db/authService";
 import { getDb } from "./src/db/database";
-import { UserRepository, ProfileRepository, AuditRepository, SessionRepository, RecoveryCodeRepository, UserStateRepository, SecurityNotificationRepository, UploadedFileRepository, ExamPaperRepository, ExamQuestionRepository, ExamJobRepository } from "./src/db/repositories";
+import {
+  UserRepository,
+  ProfileRepository,
+  AuditRepository,
+  SessionRepository,
+  RecoveryCodeRepository,
+  UserStateRepository,
+  SecurityNotificationRepository,
+  UploadedFileRepository,
+  ExamPaperRepository,
+  ExamQuestionRepository,
+  ExamJobRepository,
+  QuestionSegmentRepository,
+  QuestionAssetRepository,
+  SupportMaterialRepository,
+  QuestionAuditRepository,
+} from "./src/db/repositories";
 import { UserRole, DbUser, DbExamPaper } from "./src/db/schema";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
 import { secureUploadService, SecureUploadService } from "./src/services/secureUploadService";
@@ -738,11 +754,20 @@ const uploadedFileRepoInstance = new UploadedFileRepository(getDb().getRawDb());
 const examPaperRepoInstance = new ExamPaperRepository(getDb().getRawDb());
 const examQuestionRepoInstance = new ExamQuestionRepository(getDb().getRawDb());
 const examJobRepoInstance = new ExamJobRepository(getDb().getRawDb());
+const questionSegmentRepoInstance = new QuestionSegmentRepository(getDb().getRawDb());
+const questionAssetRepoInstance = new QuestionAssetRepository(getDb().getRawDb());
+const supportMaterialRepoInstance = new SupportMaterialRepository(getDb().getRawDb());
+const questionAuditRepoInstance = new QuestionAuditRepository(getDb().getRawDb());
+
 const examServiceInstance = new ExamService(
   examPaperRepoInstance,
   examQuestionRepoInstance,
   examJobRepoInstance,
-  uploadedFileRepoInstance
+  uploadedFileRepoInstance,
+  questionSegmentRepoInstance,
+  questionAssetRepoInstance,
+  supportMaterialRepoInstance,
+  questionAuditRepoInstance
 );
 
 function logSecurityEvent(
@@ -4660,22 +4685,45 @@ app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async 
 
     // Extrai e cadastra a prova e suas questões
     const job = examJobRepoInstance.create({ userId: user.userId, jobType: 'EXTRACTION', status: 'processing', totalItems: 1 });
-    void examServiceInstance.extractAndRegisterExam({
+
+    if (req.body?.async === true) {
+      void examServiceInstance.extractAndRegisterExam({
+        userId: user.userId,
+        fileId,
+        title: cleanTitle,
+        institution: cleanInstitution,
+        examYear: parsedYear,
+        rawTextContent: typeof rawTextContent === 'string' ? rawTextContent : undefined,
+      }).then((result) => {
+        examJobRepoInstance.updateStatus(job.id, 'completed', 1, { paperId: result.paper.id, questionsCount: result.questions.length });
+        logSecurityEvent(req, { action: 'EXAM_PAPER_CREATED', actor: user.username || user.userId, actorUserId: user.userId, resource: 'exam_papers', status: 'SUCCESS', targetType: 'exam_paper', targetId: result.paper.id, details: { totalQuestions: result.paper.totalQuestions } });
+      }).catch((err) => {
+        console.error('[Background Exam Extraction Error]:', err?.message || err);
+        examJobRepoInstance.updateStatus(job.id, 'failed', 0, undefined, err?.message || 'Falha ao processar a prova.');
+      });
+
+      return res.status(202).json({ success: true, processing: true, jobId: job.id, message: 'Prova recebida. A extração continuará em segundo plano.' });
+    }
+
+    const result = await examServiceInstance.extractAndRegisterExam({
       userId: user.userId,
       fileId,
       title: cleanTitle,
       institution: cleanInstitution,
       examYear: parsedYear,
       rawTextContent: typeof rawTextContent === 'string' ? rawTextContent : undefined,
-    }).then((result) => {
-      examJobRepoInstance.updateStatus(job.id, 'completed', 1, { paperId: result.paper.id, questionsCount: result.questions.length });
-      logSecurityEvent(req, { action: 'EXAM_PAPER_CREATED', actor: user.username || user.userId, actorUserId: user.userId, resource: 'exam_papers', status: 'SUCCESS', targetType: 'exam_paper', targetId: result.paper.id, details: { totalQuestions: result.paper.totalQuestions } });
-    }).catch((err) => {
-      console.error('[Background Exam Extraction Error]:', err?.message || err);
-      examJobRepoInstance.updateStatus(job.id, 'failed', 0, undefined, err?.message || 'Falha ao processar a prova.');
     });
 
-    return res.status(202).json({ success: true, processing: true, jobId: job.id, message: 'Prova recebida. A extração continuará em segundo plano.' });
+    examJobRepoInstance.updateStatus(job.id, 'completed', 1, { paperId: result.paper.id, questionsCount: result.questions.length });
+    logSecurityEvent(req, { action: 'EXAM_PAPER_CREATED', actor: user.username || user.userId, actorUserId: user.userId, resource: 'exam_papers', status: 'SUCCESS', targetType: 'exam_paper', targetId: result.paper.id, details: { totalQuestions: result.paper.totalQuestions } });
+
+    return res.status(201).json({
+      success: true,
+      paper: result.paper,
+      questionsCount: result.questions.length,
+      jobId: job.id,
+      message: 'Prova cadastrada e processada com sucesso.',
+    });
 
   } catch (err: any) {
     console.error("[Exam Upload & Process Error]:", err?.message || err);
@@ -4938,6 +4986,259 @@ app.delete("/api/exams/:id", requireUserAuth, (req: Request, res: Response) => {
       error: "DELETE_EXAM_FAILED",
       message: "Falha ao remover a prova.",
     });
+  }
+});
+
+// 8. Entrega Segura de Asset de Recorte da Questão: GET /api/exams/assets/:assetId
+app.get("/api/exams/assets/:assetId", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { assetId } = req.params;
+
+    const asset = examServiceInstance.getAssetById(assetId);
+    if (!asset) {
+      return res.status(404).json({ error: "ASSET_NOT_FOUND", message: "Asset de imagem não encontrado." });
+    }
+
+    const question = examQuestionRepoInstance.findById(asset.questionId);
+    if (!question) {
+      return res.status(404).json({ error: "QUESTION_NOT_FOUND", message: "Questão vinculada não encontrada." });
+    }
+
+    const paper = examPaperRepoInstance.findById(question.examId);
+    if (paper && paper.userId !== user.userId && user.role !== 'admin') {
+      return res.status(403).json({ error: "ACCESS_DENIED", message: "Acesso não autorizado a este recorte." });
+    }
+
+    if (!fs.existsSync(asset.filePath)) {
+      return res.status(404).json({ error: "FILE_MISSING", message: "Arquivo físico de imagem ausente no disco." });
+    }
+
+    res.setHeader('Content-Type', `image/${asset.format || 'webp'}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    return res.sendFile(path.resolve(asset.filePath));
+  } catch (err: any) {
+    console.error("[Asset Serve Error]:", err?.message || err);
+    return res.status(500).json({ error: "ASSET_SERVE_ERROR", message: "Falha ao carregar imagem da questão." });
+  }
+});
+
+// 9. Entrega de Imagem de Recorte Sanitizada por Nome: GET /api/exams/assets/file/:filename
+app.get("/api/exams/assets/file/:filename", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const safeName = path.basename(req.params.filename);
+    if (!safeName || safeName.includes('..')) {
+      return res.status(400).json({ error: "INVALID_FILENAME", message: "Nome de arquivo inválido." });
+    }
+
+    // Busca nas pastas permitidas
+    const allowedDirs = [
+      path.resolve(process.cwd(), 'data', 'exam_crops'),
+      path.resolve(process.cwd(), 'data', 'test_fixtures', 'crops'),
+    ];
+
+    let foundPath: string | null = null;
+    for (const baseDir of allowedDirs) {
+      if (!fs.existsSync(baseDir)) continue;
+      // Procura recursivamente ou direto
+      const candidate = path.join(baseDir, safeName);
+      if (fs.existsSync(candidate)) {
+        foundPath = candidate;
+        break;
+      }
+      // Subdiretórios
+      const subdirs = fs.readdirSync(baseDir, { withFileTypes: true }).filter(d => d.isDirectory());
+      for (const sub of subdirs) {
+        const subCand = path.join(baseDir, sub.name, safeName);
+        if (fs.existsSync(subCand)) {
+          foundPath = subCand;
+          break;
+        }
+      }
+      if (foundPath) break;
+    }
+
+    if (!foundPath) {
+      return res.status(404).json({ error: "IMAGE_NOT_FOUND", message: "Imagem não encontrada no servidor." });
+    }
+
+    res.setHeader('Content-Type', 'image/webp');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    return res.sendFile(foundPath);
+  } catch (err: any) {
+    return res.status(500).json({ error: "IMAGE_SERVE_ERROR", message: "Falha ao servir arquivo de imagem." });
+  }
+});
+
+// 10. Visualização de Página Inteira da Prova (para Editor Visual): GET /api/exams/:id/pages/:pageNumber/preview
+app.get("/api/exams/:id/pages/:pageNumber/preview", requireUserAuth, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const examId = req.params.id;
+    const pageNum = parseInt(req.params.pageNumber, 10);
+
+    if (isNaN(pageNum) || pageNum < 1) {
+      return res.status(400).json({ error: "INVALID_PAGE", message: "Número de página inválido." });
+    }
+
+    const paper = examPaperRepoInstance.findById(examId);
+    if (!paper) {
+      return res.status(404).json({ error: "EXAM_NOT_FOUND", message: "Prova não encontrada." });
+    }
+
+    if (paper.userId !== user.userId && user.role !== 'admin') {
+      return res.status(403).json({ error: "ACCESS_DENIED", message: "Acesso não autorizado a esta prova." });
+    }
+
+    const renderResult = await examServiceInstance.renderFullPageForReview(examId, pageNum);
+    if (!renderResult.success) {
+      return res.status(500).json({ error: "PAGE_RENDER_FAILED", message: renderResult.error || "Falha ao renderizar página do PDF." });
+    }
+
+    const baseName = path.basename(renderResult.imagePath || '');
+    return res.json({
+      success: true,
+      page: pageNum,
+      widthPx: renderResult.width,
+      heightPx: renderResult.height,
+      pageWidthPt: renderResult.pageWidthPt,
+      pageHeightPt: renderResult.pageHeightPt,
+      previewUrl: `/api/exams/assets/file/${baseName}`,
+    });
+  } catch (err: any) {
+    console.error("[Page Preview Error]:", err?.message || err);
+    return res.status(500).json({ error: "RENDER_ERROR", message: "Falha ao gerar visualização da página." });
+  }
+});
+
+// 11. Dados de Revisão da Questão (Segmentos + Assets + Auditoria): GET /api/exams/questions/:questionId/review
+app.get("/api/exams/questions/:questionId/review", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { questionId } = req.params;
+
+    const data = examServiceInstance.getQuestionReviewData(questionId);
+    if (!data) {
+      return res.status(404).json({ error: "QUESTION_NOT_FOUND", message: "Questão não encontrada." });
+    }
+
+    const paper = examPaperRepoInstance.findById(data.question.examId);
+    if (paper && paper.userId !== user.userId && user.role !== 'admin') {
+      return res.status(403).json({ error: "ACCESS_DENIED", message: "Acesso não autorizado a esta questão." });
+    }
+
+    return res.json({
+      success: true,
+      question: data.question,
+      segments: data.segments,
+      assets: data.assets,
+      auditLogs: data.auditLogs,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: "REVIEW_DATA_ERROR", message: "Falha ao carregar dados de revisão." });
+  }
+});
+
+// 12. Recorte Manual / Snapping de Bounding Box: PUT /api/exams/questions/:questionId/crop
+app.put("/api/exams/questions/:questionId/crop", requireUserAuth, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { questionId } = req.params;
+    const { segmentId, page, x, y, width, height } = req.body || {};
+
+    const qNum = Number(page);
+    const qX = Number(x);
+    const qY = Number(y);
+    const qW = Number(width);
+    const qH = Number(height);
+
+    if (isNaN(qNum) || qNum < 1 || isNaN(qX) || qX < 0 || isNaN(qY) || qY < 0 || isNaN(qW) || qW <= 0 || isNaN(qH) || qH <= 0) {
+      return res.status(400).json({
+        error: "INVALID_GEOMETRY",
+        message: "Coordenadas e dimensões de recorte inválidas. Devem ser números estritamente positivos.",
+      });
+    }
+
+    const question = examQuestionRepoInstance.findById(questionId);
+    if (!question) {
+      return res.status(404).json({ error: "QUESTION_NOT_FOUND", message: "Questão não encontrada." });
+    }
+
+    const paper = examPaperRepoInstance.findById(question.examId);
+    if (paper && paper.userId !== user.userId && user.role !== 'admin') {
+      return res.status(403).json({ error: "ACCESS_DENIED", message: "Acesso negado para modificar o recorte." });
+    }
+
+    const result = await examServiceInstance.cropQuestionSegment({
+      questionId,
+      segmentId: typeof segmentId === 'string' ? segmentId : undefined,
+      page: qNum,
+      x: qX,
+      y: qY,
+      width: qW,
+      height: qH,
+      userId: user.userId,
+    });
+
+    logSecurityEvent(req, {
+      action: 'QUESTION_MANUAL_CROP_SAVED',
+      actor: user.username || user.userId,
+      actorUserId: user.userId,
+      resource: 'question_segments',
+      status: 'SUCCESS',
+      targetType: 'question_segment',
+      targetId: result.segment.id,
+      details: { questionId, bbox: { x: qX, y: qY, width: qW, height: qH } },
+    });
+
+    return res.json({
+      success: true,
+      message: "Recorte manual aplicado com sucesso.",
+      segment: result.segment,
+      asset: result.asset,
+    });
+  } catch (err: any) {
+    console.error("[Manual Crop Error]:", err?.message || err);
+    return res.status(500).json({
+      error: "CROP_FAILED",
+      message: err?.message || "Falha ao aplicar recorte manual.",
+    });
+  }
+});
+
+// 13. Exclusão de Segmento Específico: DELETE /api/exams/segments/:segmentId
+app.delete("/api/exams/segments/:segmentId", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { segmentId } = req.params;
+
+    const segment = questionSegmentRepoInstance.findById(segmentId);
+    if (!segment) {
+      return res.status(404).json({ error: "SEGMENT_NOT_FOUND", message: "Segmento não encontrado." });
+    }
+
+    const paper = examPaperRepoInstance.findById(segment.examId);
+    if (paper && paper.userId !== user.userId && user.role !== 'admin') {
+      return res.status(403).json({ error: "ACCESS_DENIED", message: "Acesso não autorizado para excluir este segmento." });
+    }
+
+    examServiceInstance.deleteSegment(segmentId);
+
+    logSecurityEvent(req, {
+      action: 'QUESTION_SEGMENT_DELETED',
+      actor: user.username || user.userId,
+      actorUserId: user.userId,
+      resource: 'question_segments',
+      status: 'SUCCESS',
+      targetType: 'question_segment',
+      targetId: segmentId,
+    });
+
+    return res.json({ success: true, message: "Segmento removido com sucesso." });
+  } catch (err: any) {
+    return res.status(500).json({ error: "DELETE_SEGMENT_FAILED", message: "Falha ao remover segmento." });
   }
 });
 

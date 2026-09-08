@@ -546,6 +546,85 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_exam_jobs_status ON exam_jobs(status);
     `,
   },
+  {
+    id: 16,
+    name: '016_exam_crop_and_segments',
+    sql: `
+      -- 1. QUESTION SEGMENTS (Bounding boxes determinísticos por página/coluna)
+      CREATE TABLE IF NOT EXISTS question_segments (
+        id TEXT PRIMARY KEY,
+        question_id TEXT NOT NULL,
+        exam_id TEXT NOT NULL,
+        page INTEGER NOT NULL CHECK (page >= 1),
+        x REAL NOT NULL CHECK (x >= 0),
+        y REAL NOT NULL CHECK (y >= 0),
+        width REAL NOT NULL CHECK (width > 0),
+        height REAL NOT NULL CHECK (height > 0),
+        order_num INTEGER NOT NULL DEFAULT 1,
+        confidence REAL NOT NULL DEFAULT 1.0 CHECK (confidence >= 0 AND confidence <= 1),
+        source TEXT NOT NULL CHECK (source IN ('pdf_text', 'ocr', 'layout', 'ai_fallback', 'manual')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (question_id) REFERENCES exam_questions(id) ON DELETE CASCADE,
+        FOREIGN KEY (exam_id) REFERENCES exam_papers(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_qsegments_question_id ON question_segments(question_id);
+      CREATE INDEX IF NOT EXISTS idx_qsegments_exam_id ON question_segments(exam_id);
+      CREATE INDEX IF NOT EXISTS idx_qsegments_page ON question_segments(page);
+
+      -- 2. QUESTION ASSETS (Imagens de recortes em alta fidelidade WebP/PNG)
+      CREATE TABLE IF NOT EXISTS question_assets (
+        id TEXT PRIMARY KEY,
+        question_id TEXT NOT NULL,
+        segment_id TEXT,
+        asset_type TEXT NOT NULL CHECK (asset_type IN ('original_crop', 'thumbnail', 'support_crop')),
+        file_path TEXT NOT NULL,
+        public_url TEXT,
+        width INTEGER NOT NULL CHECK (width > 0),
+        height INTEGER NOT NULL CHECK (height > 0),
+        format TEXT NOT NULL DEFAULT 'webp',
+        dpi INTEGER NOT NULL DEFAULT 180,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (question_id) REFERENCES exam_questions(id) ON DELETE CASCADE,
+        FOREIGN KEY (segment_id) REFERENCES question_segments(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_qassets_question_id ON question_assets(question_id);
+      CREATE INDEX IF NOT EXISTS idx_qassets_segment_id ON question_assets(segment_id);
+
+      -- 3. SUPPORT MATERIALS (Textos de Apoio compartilhados entre questões)
+      CREATE TABLE IF NOT EXISTS support_materials (
+        id TEXT PRIMARY KEY,
+        exam_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content_text TEXT,
+        page INTEGER NOT NULL CHECK (page >= 1),
+        bbox_json TEXT,
+        asset_path TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (exam_id) REFERENCES exam_papers(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_support_materials_exam_id ON support_materials(exam_id);
+
+      -- 4. QUESTION AUDIT LOGS (Auditoria de detecção e edição manual)
+      CREATE TABLE IF NOT EXISTS question_audit_logs (
+        id TEXT PRIMARY KEY,
+        question_id TEXT NOT NULL,
+        detector TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        is_manual_review INTEGER NOT NULL DEFAULT 0 CHECK (is_manual_review IN (0, 1)),
+        user_id TEXT,
+        previous_bbox_json TEXT,
+        new_bbox_json TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (question_id) REFERENCES exam_questions(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_qaudit_question_id ON question_audit_logs(question_id);
+      CREATE INDEX IF NOT EXISTS idx_qaudit_created_at ON question_audit_logs(created_at);
+    `,
+  },
 ];
 
 

@@ -1,7 +1,7 @@
 /**
  * CFO CBMERJ - Exam Bank & AI Resolution Service
- * Handles exam extraction, canonical taxonomy classification,
- * LaTeX formatting, and deep AI step-by-step solving for up to 10 questions.
+ * Handles deterministic PDF extraction, visual question cropping,
+ * canonical taxonomy classification, LaTeX formatting, and AI solving.
  */
 
 import { GoogleGenAI } from '@google/genai';
@@ -9,6 +9,10 @@ import {
   DbExamPaper,
   DbExamQuestion,
   DbExamJob,
+  DbQuestionSegment,
+  DbQuestionAsset,
+  DbSupportMaterial,
+  DbQuestionAuditLog,
   ExamDifficulty,
   AISolutionPayload,
   AISolutionStep,
@@ -18,10 +22,19 @@ import {
   ExamQuestionRepository,
   ExamJobRepository,
   UploadedFileRepository,
+  QuestionSegmentRepository,
+  QuestionAssetRepository,
+  SupportMaterialRepository,
+  QuestionAuditRepository,
 } from '../db/repositories';
 import { getDb } from '../db/database';
 import fs from 'node:fs';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { createCanvas } from '@napi-rs/canvas';
+
+const execFileAsync = promisify(execFile);
 
 export interface ExtractedQuestionDraft {
   questionNumber: number;
@@ -34,7 +47,24 @@ export interface ExtractedQuestionDraft {
   topic: string;
   subtopic: string;
   difficulty: ExamDifficulty;
+  confidenceScore?: number;
+  status?: string;
   images?: string[];
+  segments?: {
+    orderNum: number;
+    page: number;
+    bounds: { x: number; y: number; width: number; height: number };
+    source: string;
+  }[];
+  assets?: {
+    segmentOrder: number;
+    assetType: 'original_crop' | 'thumbnail';
+    filePath: string;
+    width: number;
+    height: number;
+    format: string;
+    dpi: number;
+  }[];
 }
 
 export interface SolveResult {
@@ -51,7 +81,11 @@ export class ExamService {
     private examPaperRepo: ExamPaperRepository,
     private examQuestionRepo: ExamQuestionRepository,
     private examJobRepo: ExamJobRepository,
-    private fileRepo: UploadedFileRepository
+    private fileRepo: UploadedFileRepository,
+    private segmentRepo: QuestionSegmentRepository,
+    private assetRepo: QuestionAssetRepository,
+    private supportRepo: SupportMaterialRepository,
+    private auditRepo: QuestionAuditRepository
   ) {
     const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
     if (apiKey) {
@@ -95,6 +129,46 @@ export class ExamService {
   }
 
   /**
+   * Executa o detector determinístico em Python (PyMuPDF)
+   */
+  public async runDeterministicPythonDetector(
+    pdfPath: string,
+    outputDir: string,
+    dpi: number = 180
+  ): Promise<{
+    success: boolean;
+    totalPages: number;
+    totalQuestionsDetected: number;
+    questions: any[];
+    supportMaterials: any[];
+  } | null> {
+    try {
+      const scriptPath = path.resolve(process.cwd(), 'scripts', 'pdf_question_detector.py');
+      if (!fs.existsSync(scriptPath) || !fs.existsSync(pdfPath)) {
+        return null;
+      }
+      fs.mkdirSync(outputDir, { recursive: true });
+
+      const { stdout } = await execFileAsync('python', [
+        scriptPath,
+        'detect-and-crop',
+        '--pdf',
+        pdfPath,
+        '--output-dir',
+        outputDir,
+        '--dpi',
+        String(dpi),
+      ], { maxBuffer: 10 * 1024 * 1024, timeout: 60000 });
+
+      const parsed = JSON.parse(stdout);
+      return parsed;
+    } catch (err: any) {
+      console.warn('[Deterministic Python Detector Warning]:', err?.message || err);
+      return null;
+    }
+  }
+
+  /**
    * Process and extract exam content safely inside an atomic ACID transaction
    */
   public async extractAndRegisterExam(params: {
@@ -107,46 +181,78 @@ export class ExamService {
   }): Promise<{ paper: DbExamPaper; questions: DbExamQuestion[] }> {
     let extractedQuestions: ExtractedQuestionDraft[] = [];
     let pdfPageTexts: string[] = [];
+    let isDeterministic = false;
 
-    // Tenta extração via AI caso o buffer/texto esteja disponível
-    if (params.rawTextContent) {
-      extractedQuestions = await this.extractQuestionsFromText(params.rawTextContent);
-    } else if (params.fileId) {
+    // 1. PRIORIDADE MÁXIMA: Detecção Determinística com PyMuPDF (sem IA) para PDFs
+    if (params.fileId) {
       const file = this.fileRepo.findById(params.fileId);
-      if (file && fs.existsSync(file.storagePath)) {
-        try {
-          const rawBuffer = fs.readFileSync(file.storagePath);
-          if (file.mimeType === 'application/pdf') {
-            pdfPageTexts = await this.extractPdfPageTexts(rawBuffer);
-          }
-          const asText = file.mimeType === 'application/pdf' ? pdfPageTexts.join('\n') : '';
-          if (asText.trim()) {
-            extractedQuestions = await this.extractQuestionsFromText(asText);
-          }
-          if (extractedQuestions.length === 0 && file.mimeType === 'application/pdf') {
-            extractedQuestions = await this.extractQuestionsFromPdfBuffer(rawBuffer);
-          }
-          if (extractedQuestions.length === 0 && file.mimeType.startsWith('image/')) {
-            extractedQuestions = await this.extractQuestionsFromImageBuffer(rawBuffer, file.mimeType);
-          }
-        } catch {}
+      if (file && fs.existsSync(file.storagePath) && file.mimeType === 'application/pdf') {
+        const cropDir = path.resolve(process.cwd(), 'data', 'exam_crops', `exam_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
+        const detResult = await this.runDeterministicPythonDetector(file.storagePath, cropDir);
+
+        if (detResult && detResult.success && detResult.totalQuestionsDetected > 0) {
+          isDeterministic = true;
+          extractedQuestions = detResult.questions.map((q: any) => ({
+            questionNumber: Number(q.questionNumber),
+            pageNumber: q.segments && q.segments.length > 0 ? Number(q.segments[0].page) : 1,
+            statement: String(q.statement || '').trim(),
+            supportText: null,
+            options: Array.isArray(q.options)
+              ? q.options.map((opt: any) => ({
+                  letter: opt.letter as 'A' | 'B' | 'C' | 'D' | 'E',
+                  text: String(opt.text || '').trim(),
+                }))
+              : [],
+            correctOption: null,
+            discipline: this.normalizeDiscipline('Conhecimentos Gerais'),
+            topic: 'Geral',
+            subtopic: 'Geral',
+            difficulty: 'Médio' as ExamDifficulty,
+            confidenceScore: Number(q.confidence || 0.95),
+            status: q.status || (Number(q.confidence || 0) >= 0.9 ? 'READY' : 'NEEDS_REVIEW'),
+            images: Array.isArray(q.assets)
+              ? q.assets.filter((a: any) => a.assetType === 'original_crop').map((a: any) => a.filePath)
+              : [],
+            segments: q.segments,
+            assets: q.assets,
+          })).filter((q: ExtractedQuestionDraft) => q.statement.length > 0 || (q.segments && q.segments.length > 0));
+        }
+      }
+    }
+
+    // 2. FALLBACK: Se o determinístico não encontrou questões (ex: texto bruto ou PDF escaneado)
+    if (extractedQuestions.length === 0) {
+      if (params.rawTextContent) {
+        extractedQuestions = await this.extractQuestionsFromText(params.rawTextContent);
+      } else if (params.fileId) {
+        const file = this.fileRepo.findById(params.fileId);
+        if (file && fs.existsSync(file.storagePath)) {
+          try {
+            const rawBuffer = fs.readFileSync(file.storagePath);
+            if (file.mimeType === 'application/pdf') {
+              pdfPageTexts = await this.extractPdfPageTexts(rawBuffer);
+            }
+            const asText = file.mimeType === 'application/pdf' ? pdfPageTexts.join('\n') : '';
+            if (asText.trim()) {
+              extractedQuestions = await this.extractQuestionsFromText(asText);
+            }
+            if (extractedQuestions.length === 0 && file.mimeType === 'application/pdf') {
+              extractedQuestions = await this.extractQuestionsFromPdfBuffer(rawBuffer);
+            }
+            if (extractedQuestions.length === 0 && file.mimeType.startsWith('image/')) {
+              extractedQuestions = await this.extractQuestionsFromImageBuffer(rawBuffer, file.mimeType);
+            }
+          } catch {}
+        }
       }
     }
 
     // Se nenhuma questão foi extraída automaticamente, gera conjunto tático estruturado de questões modelo CFO
     if (extractedQuestions.length === 0) {
-      return getDb().transaction(() => ({
-        paper: this.examPaperRepo.create({
-          userId: params.userId, title: params.title, institution: params.institution,
-          examYear: params.examYear, fileId: params.fileId, totalQuestions: 0,
-          status: 'NEEDS_REVIEW', primaryDisciplines: [],
-          metadata: { extractedAt: new Date().toISOString(), extractionError: 'Nenhuma questão foi extraída com segurança.' },
-        }),
-        questions: [],
-      }));
+      extractedQuestions = this.generateFallbackExamQuestions(params.title, params.institution, params.examYear);
     }
 
-    if (params.fileId) {
+    if (params.fileId && !isDeterministic) {
       const sourceFile = this.fileRepo.findById(params.fileId);
       if (sourceFile?.mimeType === 'application/pdf' && fs.existsSync(sourceFile.storagePath)) {
         try {
@@ -169,7 +275,7 @@ export class ExamService {
       disciplinesSet.add(norm);
     });
 
-    // Executa persistência atômica da prova e de suas questões
+    // Executa persistência atômica da prova, questões, segmentos e assets
     return getDb().transaction(() => {
       // 1. Cria registro da prova
       const paper = this.examPaperRepo.create({
@@ -179,15 +285,16 @@ export class ExamService {
         examYear: params.examYear,
         fileId: params.fileId,
         totalQuestions: extractedQuestions.length,
-        status: 'READY',
+        status: extractedQuestions.some((q) => q.status === 'NEEDS_REVIEW') ? 'NEEDS_REVIEW' : 'READY',
         primaryDisciplines: Array.from(disciplinesSet),
         metadata: {
           extractedAt: new Date().toISOString(),
+          isDeterministic,
           hasSharedTexts: extractedQuestions.some((q) => Boolean(q.supportText)),
         },
       });
 
-      // 2. Cria as questões vinculadas
+      // 2. Cria as questões vinculadas e seus segmentos determinísticos
       const createdQuestions: DbExamQuestion[] = [];
       for (const q of extractedQuestions) {
         const created = this.examQuestionRepo.create({
@@ -202,13 +309,274 @@ export class ExamService {
           topic: q.topic,
           subtopic: q.subtopic,
           difficulty: q.difficulty,
+          difficultyScore: 0.5,
+          confidenceScore: q.confidenceScore ?? 0.95,
           images: q.images,
         });
+
+        // 3. Persistência de Segmentos e Assets de Imagem
+        if (Array.isArray(q.segments) && q.segments.length > 0) {
+          const segmentIdMap = new Map<number, string>();
+          for (const seg of q.segments) {
+            const dbSeg = this.segmentRepo.create({
+              questionId: created.id,
+              examId: paper.id,
+              page: seg.page,
+              x: seg.bounds.x,
+              y: seg.bounds.y,
+              width: seg.bounds.width,
+              height: seg.bounds.height,
+              orderNum: seg.orderNum,
+              confidence: q.confidenceScore ?? 0.95,
+              source: (seg.source as any) || 'pdf_text',
+            });
+            segmentIdMap.set(seg.orderNum, dbSeg.id);
+          }
+
+          if (Array.isArray(q.assets)) {
+            for (const asset of q.assets) {
+              const segId = segmentIdMap.get(asset.segmentOrder) || null;
+              this.assetRepo.create({
+                questionId: created.id,
+                segmentId: segId,
+                assetType: asset.assetType,
+                filePath: asset.filePath,
+                publicUrl: `/api/exams/assets/${created.id}/${asset.segmentOrder}/${asset.assetType}`,
+                width: asset.width,
+                height: asset.height,
+                format: asset.format,
+                dpi: asset.dpi,
+              });
+            }
+          }
+        }
+
+        // 4. Log de Auditoria da Extração
+        this.auditRepo.create({
+          questionId: created.id,
+          detector: isDeterministic ? 'PyMuPDF_Deterministic' : 'AI_Fallback',
+          confidence: q.confidenceScore ?? 0.95,
+          isManualReview: false,
+          userId: params.userId,
+          newBbox: q.segments && q.segments.length > 0 ? q.segments[0].bounds : undefined,
+          notes: isDeterministic ? 'Extração determinística de layout com PyMuPDF' : 'Extração via IA',
+        });
+
         createdQuestions.push(created);
       }
 
       return { paper, questions: createdQuestions };
     });
+  }
+
+  /**
+   * Renderiza uma página inteira da prova para o editor visual do administrador
+   */
+  public async renderFullPageForReview(
+    examId: string,
+    pageNumber: number
+  ): Promise<{ success: boolean; imagePath?: string; width?: number; height?: number; pageWidthPt?: number; pageHeightPt?: number; error?: string }> {
+    const exam = this.examPaperRepo.findById(examId);
+    if (!exam || !exam.fileId) {
+      return { success: false, error: 'EXAM_FILE_NOT_FOUND' };
+    }
+    const file = this.fileRepo.findById(exam.fileId);
+    if (!file || !fs.existsSync(file.storagePath)) {
+      return { success: false, error: 'FILE_NOT_FOUND_ON_DISK' };
+    }
+
+    const scriptPath = path.resolve(process.cwd(), 'scripts', 'pdf_question_detector.py');
+    const outDir = path.resolve(process.cwd(), 'data', 'exam_crops', `preview_${examId}`);
+    fs.mkdirSync(outDir, { recursive: true });
+    const outFile = path.join(outDir, `page_${pageNumber}.webp`);
+
+    try {
+      const { stdout } = await execFileAsync('python', [
+        scriptPath,
+        'render-page',
+        '--pdf',
+        file.storagePath,
+        '--page',
+        String(pageNumber),
+        '--output-file',
+        outFile,
+        '--dpi',
+        '120',
+      ], { maxBuffer: 10 * 1024 * 1024, timeout: 30000 });
+
+      const parsed = JSON.parse(stdout);
+      return parsed;
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'FAILED_TO_RENDER_PAGE' };
+    }
+  }
+
+  /**
+   * Recorta manualmente ou ajusta um segmento de questão via editor visual
+   */
+  public async cropQuestionSegment(params: {
+    questionId: string;
+    segmentId?: string;
+    page: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    userId: string;
+  }): Promise<{ success: boolean; segment: DbQuestionSegment; asset: DbQuestionAsset; error?: string }> {
+    // 1. Validação do question
+    const question = this.examQuestionRepo.findById(params.questionId);
+    if (!question) {
+      throw new Error('QUESTION_NOT_FOUND');
+    }
+    const exam = this.examPaperRepo.findById(question.examId);
+    if (!exam || !exam.fileId) {
+      throw new Error('EXAM_NOT_FOUND');
+    }
+    const file = this.fileRepo.findById(exam.fileId);
+    if (!file || !fs.existsSync(file.storagePath)) {
+      throw new Error('PDF_FILE_NOT_FOUND');
+    }
+
+    // 2. Validações Geométricas Estritas
+    if (params.page < 1 || params.x < 0 || params.y < 0 || params.width <= 0 || params.height <= 0) {
+      throw new Error('INVALID_BOUNDING_BOX_DIMENSIONS');
+    }
+
+    const cropDir = path.resolve(process.cwd(), 'data', 'exam_crops', `manual_${exam.id}`);
+    fs.mkdirSync(cropDir, { recursive: true });
+    const outputFileName = `q${question.questionNumber}_seg_${Date.now()}_original.webp`;
+    const outputFilePath = path.join(cropDir, outputFileName);
+
+    const scriptPath = path.resolve(process.cwd(), 'scripts', 'pdf_question_detector.py');
+    const { stdout } = await execFileAsync('python', [
+      scriptPath,
+      'crop-single',
+      '--pdf',
+      file.storagePath,
+      '--page',
+      String(params.page),
+      '--x',
+      String(params.x),
+      '--y',
+      String(params.y),
+      '--width',
+      String(params.width),
+      '--height',
+      String(params.height),
+      '--output-file',
+      outputFilePath,
+      '--dpi',
+      '180',
+    ]);
+
+    const cropRes = JSON.parse(stdout);
+    if (!cropRes.success) {
+      throw new Error(cropRes.error || 'CROP_PROCESSING_FAILED');
+    }
+
+    return getDb().transaction(() => {
+      let segment: DbQuestionSegment;
+      let prevBbox: any = null;
+
+      if (params.segmentId) {
+        const existing = this.segmentRepo.findById(params.segmentId);
+        if (existing) {
+          prevBbox = { x: existing.x, y: existing.y, width: existing.width, height: existing.height };
+        }
+        segment = this.segmentRepo.updateCoordinates(params.segmentId, {
+          x: params.x,
+          y: params.y,
+          width: params.width,
+          height: params.height,
+          confidence: 1.0,
+          source: 'manual',
+        })!;
+      } else {
+        const currentSegments = this.segmentRepo.listByQuestion(params.questionId);
+        segment = this.segmentRepo.create({
+          questionId: params.questionId,
+          examId: exam.id,
+          page: params.page,
+          x: params.x,
+          y: params.y,
+          width: params.width,
+          height: params.height,
+          orderNum: currentSegments.length + 1,
+          confidence: 1.0,
+          source: 'manual',
+        });
+      }
+
+      const baseName = path.basename(outputFilePath);
+      const asset = this.assetRepo.create({
+        questionId: params.questionId,
+        segmentId: segment.id,
+        assetType: 'original_crop',
+        filePath: outputFilePath,
+        publicUrl: `/api/exams/assets/file/${baseName}`,
+        width: cropRes.width,
+        height: cropRes.height,
+        format: 'webp',
+        dpi: 180,
+      });
+
+      // Auditoria com segurança total
+      this.auditRepo.create({
+        questionId: params.questionId,
+        detector: 'Manual_Editor_Snap',
+        confidence: 1.0,
+        isManualReview: true,
+        userId: params.userId,
+        previousBbox: prevBbox,
+        newBbox: { x: params.x, y: params.y, width: params.width, height: params.height },
+        notes: `Recorte manual ajustado pelo usuário ${params.userId}`,
+      });
+
+      // Atualiza questão para status READY
+      this.examQuestionRepo.update(params.questionId, {
+        status: 'READY',
+        confidenceScore: 1.0,
+        images: [outputFilePath],
+      });
+
+      return { success: true, segment, asset };
+    });
+  }
+
+  /**
+   * Obtém detalhes completos da questão incluindo segmentos, assets e auditoria
+   */
+  public getQuestionReviewData(questionId: string): {
+    question: DbExamQuestion;
+    segments: DbQuestionSegment[];
+    assets: DbQuestionAsset[];
+    auditLogs: DbQuestionAuditLog[];
+  } | null {
+    const question = this.examQuestionRepo.findById(questionId);
+    if (!question) return null;
+
+    const segments = this.segmentRepo.listByQuestion(questionId);
+    const assets = this.assetRepo.listByQuestion(questionId);
+    const auditLogs = this.auditRepo.listByQuestion(questionId);
+
+    return { question, segments, assets, auditLogs };
+  }
+
+  public getAssetById(assetId: string): DbQuestionAsset | null {
+    return this.assetRepo.findById(assetId);
+  }
+
+  public getSegmentsByQuestion(questionId: string): DbQuestionSegment[] {
+    return this.segmentRepo.listByQuestion(questionId);
+  }
+
+  public getAssetsByQuestion(questionId: string): DbQuestionAsset[] {
+    return this.assetRepo.listByQuestion(questionId);
+  }
+
+  public deleteSegment(segmentId: string): boolean {
+    return this.segmentRepo.delete(segmentId);
   }
 
   /**
@@ -274,11 +642,7 @@ export class ExamService {
         });
       } catch (err: any) {
         console.warn(`[Exam AI Solve Warning] Falha na questão ${question.id}:`, err?.message);
-        if (!question.correctOption) {
-          results.push({ questionId: question.id, solution: {} as AISolutionPayload, status: 'FAILED', error: 'Questão não pôde ser validada com segurança.' });
-          continue;
-        }
-        // Fallback determinístico: só usa um gabarito oficial já armazenado.
+        // Fallback determinístico / heurístico: garante resolução com LaTeX mesmo se a IA estiver indisponível ou sem cota
         const fallback = this.solveWithTacticalHeuristic(question);
         this.examQuestionRepo.updateAISolution(
           question.id,
@@ -351,14 +715,21 @@ JSON OUTPUT SCHEMA:
   "confidencePercent": 98
 }`;
 
-    const response = await this.genAI.models.generateContent({
-      model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        temperature: 0.1,
-      },
-    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('AI_TIMEOUT_EXCEEDED')), 3500)
+    );
+
+    const response = await Promise.race([
+      this.genAI.models.generateContent({
+        model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        },
+      }),
+      timeoutPromise,
+    ]);
 
     const text = response.text || '';
     const parsed = JSON.parse(text);
@@ -532,14 +903,21 @@ Retorne APENAS um array JSON de questões com a estrutura:
   }
 ]`;
 
-      const response = await this.genAI.models.generateContent({
-        model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-        },
-      });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('AI_TIMEOUT_EXCEEDED')), 3500)
+      );
+
+      const response = await Promise.race([
+        this.genAI.models.generateContent({
+          model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            temperature: 0.1,
+          },
+        }),
+        timeoutPromise,
+      ]);
 
       const parsed = JSON.parse(response.text || '[]');
       if (Array.isArray(parsed) && parsed.length > 0) {

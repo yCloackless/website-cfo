@@ -335,3 +335,63 @@ export interface DbExamJob {
   updatedAt: string;
 }
 
+export type QuestionSegmentSource = 'pdf_text' | 'ocr' | 'layout' | 'ai_fallback' | 'manual';
+
+export interface DbQuestionSegment {
+  id: string;
+  questionId: string;
+  examId: string;
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  orderNum: number;
+  confidence: number;
+  source: QuestionSegmentSource;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type QuestionAssetType = 'original_crop' | 'thumbnail' | 'support_crop';
+
+export interface DbQuestionAsset {
+  id: string;
+  questionId: string;
+  segmentId?: string | null;
+  assetType: QuestionAssetType;
+  filePath: string;
+  publicUrl?: string | null;
+  width: number;
+  height: number;
+  format: string; // 'webp', 'png', etc.
+  dpi: number;
+  createdAt: string;
+}
+
+export interface DbSupportMaterial {
+  id: string;
+  examId: string;
+  title: string;
+  contentText?: string | null;
+  page: number;
+  bboxJson?: string | null; // { x, y, width, height }
+  assetPath?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DbQuestionAuditLog {
+  id: string;
+  questionId: string;
+  detector: string;
+  confidence: number;
+  isManualReview: boolean;
+  userId?: string | null;
+  previousBboxJson?: string | null;
+  newBboxJson?: string | null;
+  notes?: string | null;
+  createdAt: string;
+}
+
+
