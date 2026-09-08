@@ -19,6 +19,7 @@ import {
   ExamJobRepository,
   UploadedFileRepository,
 } from '../db/repositories';
+import { getDb } from '../db/database';
 import fs from 'node:fs';
 
 export interface ExtractedQuestionDraft {
@@ -92,7 +93,7 @@ export class ExamService {
   }
 
   /**
-   * Process and extract exam content safely
+   * Process and extract exam content safely inside an atomic ACID transaction
    */
   public async extractAndRegisterExam(params: {
     userId: string;
@@ -133,43 +134,46 @@ export class ExamService {
       disciplinesSet.add(norm);
     });
 
-    // Cria registro da prova
-    const paper = this.examPaperRepo.create({
-      userId: params.userId,
-      title: params.title,
-      institution: params.institution,
-      examYear: params.examYear,
-      fileId: params.fileId,
-      totalQuestions: extractedQuestions.length,
-      status: 'READY',
-      primaryDisciplines: Array.from(disciplinesSet),
-      metadata: {
-        extractedAt: new Date().toISOString(),
-        hasSharedTexts: extractedQuestions.some((q) => Boolean(q.supportText)),
-      },
-    });
-
-    // Cria as questões no banco
-    const createdQuestions: DbExamQuestion[] = [];
-    for (const q of extractedQuestions) {
-      const created = this.examQuestionRepo.create({
-        examId: paper.id,
+    // Executa persistência atômica da prova e de suas questões
+    return getDb().transaction(() => {
+      // 1. Cria registro da prova
+      const paper = this.examPaperRepo.create({
         userId: params.userId,
-        questionNumber: q.questionNumber,
-        statement: q.statement,
-        supportText: q.supportText,
-        options: q.options,
-        correctOption: q.correctOption,
-        discipline: q.discipline,
-        topic: q.topic,
-        subtopic: q.subtopic,
-        difficulty: q.difficulty,
-        images: q.images,
+        title: params.title,
+        institution: params.institution,
+        examYear: params.examYear,
+        fileId: params.fileId,
+        totalQuestions: extractedQuestions.length,
+        status: 'READY',
+        primaryDisciplines: Array.from(disciplinesSet),
+        metadata: {
+          extractedAt: new Date().toISOString(),
+          hasSharedTexts: extractedQuestions.some((q) => Boolean(q.supportText)),
+        },
       });
-      createdQuestions.push(created);
-    }
 
-    return { paper, questions: createdQuestions };
+      // 2. Cria as questões vinculadas
+      const createdQuestions: DbExamQuestion[] = [];
+      for (const q of extractedQuestions) {
+        const created = this.examQuestionRepo.create({
+          examId: paper.id,
+          userId: params.userId,
+          questionNumber: q.questionNumber,
+          statement: q.statement,
+          supportText: q.supportText,
+          options: q.options,
+          correctOption: q.correctOption,
+          discipline: q.discipline,
+          topic: q.topic,
+          subtopic: q.subtopic,
+          difficulty: q.difficulty,
+          images: q.images,
+        });
+        createdQuestions.push(created);
+      }
+
+      return { paper, questions: createdQuestions };
+    });
   }
 
   /**
@@ -180,17 +184,26 @@ export class ExamService {
     questionIds: string[];
     idempotencyKey?: string;
   }): Promise<{ results: SolveResult[]; totalSolved: number }> {
+    // Sanitização e desduplicação rigorosa de IDs
+    const cleanIds = Array.from(
+      new Set(
+        (params.questionIds || []).filter(
+          (id): id is string => typeof id === 'string' && id.trim().length > 0
+        )
+      )
+    );
+
     // 🛡️ Validação Estrita Server-Side: máximo 10 questões
-    if (!params.questionIds || params.questionIds.length === 0) {
+    if (cleanIds.length === 0) {
       throw new Error('Nenhuma questão selecionada para correção.');
     }
-    if (params.questionIds.length > 10) {
+    if (cleanIds.length > 10) {
       throw new Error('Você pode corrigir até 10 questões por vez.');
     }
 
     // Busca questões e valida ownership
-    const questions = this.examQuestionRepo.findByIds(params.questionIds);
-    if (questions.length !== params.questionIds.length) {
+    const questions = this.examQuestionRepo.findByIds(cleanIds);
+    if (questions.length !== cleanIds.length) {
       throw new Error('Uma ou mais questões selecionadas não foram encontradas.');
     }
     for (const q of questions) {

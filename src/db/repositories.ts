@@ -27,6 +27,7 @@ import {
   DbExamPaper,
   DbExamQuestion,
   DbExamJob,
+  ExamOption,
   ExamPaperStatus,
   ExamDifficulty,
   ExamJobType,
@@ -1650,6 +1651,15 @@ export class SecurityNotificationRepository {
     const clauses: string[] = [];
     const params: any[] = [];
 
+    if (options.userId !== undefined) {
+      if (options.userId) {
+        clauses.push('(user_id = ? OR user_id IS NULL)');
+        params.push(options.userId);
+      } else {
+        clauses.push('user_id IS NULL');
+      }
+    }
+
     if (options.filter === 'UNREAD') {
       clauses.push('is_read = 0');
     } else if (options.filter === 'SECURITY') {
@@ -1666,9 +1676,18 @@ export class SecurityNotificationRepository {
       LIMIT ?
     `).all(...params, limit) as any[];
 
-    const unreadRow = this.db.prepare(`
-      SELECT COUNT(*) as count FROM security_notifications WHERE is_read = 0
-    `).get() as { count: number } | undefined;
+    let unreadCountSql = 'SELECT COUNT(*) as count FROM security_notifications WHERE is_read = 0';
+    const unreadParams: any[] = [];
+    if (options.userId !== undefined) {
+      if (options.userId) {
+        unreadCountSql += ' AND (user_id = ? OR user_id IS NULL)';
+        unreadParams.push(options.userId);
+      } else {
+        unreadCountSql += ' AND user_id IS NULL';
+      }
+    }
+
+    const unreadRow = this.db.prepare(unreadCountSql).get(...unreadParams) as { count: number } | undefined;
 
     const items = rows.map((r) => ({
       id: r.id,
@@ -1921,6 +1940,15 @@ export class ExamPaperRepository {
     return rows.map((r) => this.mapPaper(r));
   }
 
+  public list(userId: string, filters?: {
+    discipline?: string;
+    year?: number;
+    search?: string;
+    limit?: number;
+  }): DbExamPaper[] {
+    return this.findByUserId(userId, filters);
+  }
+
   public findAll(filters?: { search?: string; limit?: number }): DbExamPaper[] {
     let query = 'SELECT * FROM exam_papers WHERE 1=1';
     const params: any[] = [];
@@ -1973,7 +2001,11 @@ export class ExamPaperRepository {
     return this.findById(id);
   }
 
-  public delete(id: string): boolean {
+  public delete(id: string, userId?: string): boolean {
+    if (userId) {
+      const res = this.db.prepare('DELETE FROM exam_papers WHERE id = ? AND user_id = ?').run(id, userId);
+      return Number(res.changes) > 0;
+    }
     const res = this.db.prepare('DELETE FROM exam_papers WHERE id = ?').run(id);
     return Number(res.changes) > 0;
   }
@@ -2028,16 +2060,20 @@ export class ExamPaperRepository {
 }
 
 export class ExamQuestionRepository {
-  constructor(private db: DatabaseSync) {}
+  private db: any;
+
+  constructor(db: any) {
+    this.db = db;
+  }
 
   public create(data: {
     examId: string;
     userId: string;
     questionNumber: number;
     statement: string;
-    supportText?: string | null;
-    options: { letter: 'A' | 'B' | 'C' | 'D' | 'E'; text: string }[];
-    correctOption?: 'A' | 'B' | 'C' | 'D' | 'E' | null;
+    supportText?: string;
+    options?: ExamOption[];
+    correctOption?: string;
     discipline: string;
     topic?: string;
     subtopic?: string;
@@ -2050,7 +2086,7 @@ export class ExamQuestionRepository {
   }): DbExamQuestion {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    const optionsJson = JSON.stringify(data.options);
+    const optionsJson = data.options !== undefined && data.options !== null ? JSON.stringify(data.options) : '[]';
     const topic = data.topic || 'Geral';
     const subtopic = data.subtopic || 'Geral';
     const difficulty = data.difficulty || 'Médio';
@@ -2073,12 +2109,12 @@ export class ExamQuestionRepository {
         id,
         data.examId,
         data.userId,
-        data.questionNumber,
-        data.statement,
+        data.questionNumber ?? 1,
+        data.statement ?? '',
         data.supportText ?? null,
         optionsJson,
         data.correctOption ?? null,
-        data.discipline,
+        data.discipline ?? 'Geral',
         topic,
         subtopic,
         difficulty,
@@ -2115,10 +2151,16 @@ export class ExamQuestionRepository {
     return rows.map((r) => this.mapQuestion(r));
   }
 
+  public listByExam(examId: string, discipline?: string): DbExamQuestion[] {
+    return this.findByExamId(examId, discipline);
+  }
+
   public findByIds(ids: string[]): DbExamQuestion[] {
-    if (!ids || ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db.prepare(`SELECT * FROM exam_questions WHERE id IN (${placeholders})`).all(...ids) as any[];
+    if (!ids || !Array.isArray(ids)) return [];
+    const cleanIds = Array.from(new Set(ids.filter((id) => typeof id === 'string' && id.trim().length > 0)));
+    if (cleanIds.length === 0) return [];
+    const placeholders = cleanIds.map(() => '?').join(',');
+    const rows = this.db.prepare(`SELECT * FROM exam_questions WHERE id IN (${placeholders})`).all(...cleanIds) as any[];
     return rows.map((r) => this.mapQuestion(r));
   }
 
@@ -2193,24 +2235,33 @@ export class ExamJobRepository {
     const status = data.status || 'queued';
     const totalItems = data.totalItems || 0;
 
-    this.db
-      .prepare(
-        `INSERT INTO exam_jobs (
-          id, user_id, exam_id, job_type, status, progress, total_items,
-          idempotency_key, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
-      )
-      .run(
-        id,
-        data.userId,
-        data.examId ?? null,
-        data.jobType,
-        status,
-        totalItems,
-        data.idempotencyKey ?? null,
-        now,
-        now
-      );
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO exam_jobs (
+            id, user_id, exam_id, job_type, status, progress, total_items,
+            idempotency_key, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
+        )
+        .run(
+          id,
+          data.userId,
+          data.examId ?? null,
+          data.jobType,
+          status,
+          totalItems,
+          data.idempotencyKey ?? null,
+          now,
+          now
+        );
+    } catch (err: any) {
+      // Em caso de chave de idempotência concorrente já inserida, recupera o registro existente
+      if (data.idempotencyKey && String(err?.message || '').includes('UNIQUE constraint failed')) {
+        const existing = this.findByIdempotencyKey(data.idempotencyKey);
+        if (existing) return existing;
+      }
+      throw err;
+    }
 
     return this.findById(id)!;
   }

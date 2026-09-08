@@ -623,6 +623,24 @@ export class DatabaseService {
     return this.db;
   }
 
+  /**
+   * Executes a callback inside an atomic ACID transaction.
+   * Automatically commits on success or rolls back on any error.
+   */
+  public transaction<T>(fn: () => T): T {
+    this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+    try {
+      const result = fn();
+      this.db.exec('COMMIT;');
+      return result;
+    } catch (err) {
+      try {
+        this.db.exec('ROLLBACK;');
+      } catch {}
+      throw err;
+    }
+  }
+
   public close(): void {
     this.db.close();
   }
