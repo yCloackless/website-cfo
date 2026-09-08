@@ -104,7 +104,7 @@ export const WeeklyGoalModal: React.FC<WeeklyGoalModalProps> = ({
               Selecione um ritmo ou personalize:
             </label>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 min-[390px]:grid-cols-2 gap-2.5">
               {PRESET_GOALS.map((preset) => {
                 const isSelected = goalHours === preset.hours;
                 return (

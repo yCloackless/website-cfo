@@ -425,7 +425,7 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
         </div>
 
         {/* Linha de KPIs Rápidos */}
-        <div className={`grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t ${isDark ? "border-slate-800/60" : "border-slate-200"}`}>
+        <div className={`grid grid-cols-1 min-[390px]:grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t ${isDark ? "border-slate-800/60" : "border-slate-200"}`}>
           <div className={`p-3 rounded-xl border ${isDark ? "bg-slate-900/50 border-slate-800/80" : "bg-white border-slate-300 shadow-xs"}`}>
             <span className={`text-[11px] font-medium block ${isDark ? "text-slate-400" : "text-slate-700 font-semibold"}`}>Total no Caderno</span>
             <span className={`text-xl font-extrabold mt-0.5 block ${isDark ? "text-white" : "text-black font-black"}`}>{stats.total} matérias</span>

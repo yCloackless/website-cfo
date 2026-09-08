@@ -776,7 +776,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         </div>
 
         {/* Stats Row */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-5 pt-4 border-t border-slate-800/40">
+        <div className="grid grid-cols-1 min-[390px]:grid-cols-2 sm:grid-cols-4 gap-2.5 mt-5 pt-4 border-t border-slate-800/40">
           <div className="flex items-center gap-2">
             <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400">
               <BookOpen className="w-4 h-4" />

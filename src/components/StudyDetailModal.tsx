@@ -134,7 +134,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
             <label className="block text-xs font-semibold text-slate-300 mb-2">
               Status do Estudo neste Dia:
             </label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 min-[390px]:grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => setCompleted(true)}

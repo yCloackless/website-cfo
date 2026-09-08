@@ -235,7 +235,7 @@ export const AdminSecurityPanelModal: React.FC<AdminSecurityPanelModalProps> = (
 
         {/* Métricas e Detecção de Anomalias (Cards) */}
         {metrics && (
-          <div className={`p-4 border-b grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs ${isDark ? 'border-slate-800/80 bg-slate-900/30' : 'border-slate-200 bg-slate-50/50'}`}>
+          <div className={`p-4 border-b grid grid-cols-1 min-[390px]:grid-cols-2 sm:grid-cols-4 gap-3 text-xs ${isDark ? 'border-slate-800/80 bg-slate-900/30' : 'border-slate-200 bg-slate-50/50'}`}>
             <div className={`p-3 rounded-xl border ${isDark ? 'border-slate-800 bg-[#070D18]' : 'border-slate-200 bg-white'}`}>
               <span className="text-[10px] font-semibold text-slate-400 block uppercase">Logins com Sucesso (24h)</span>
               <span className="text-xl font-black text-emerald-400 font-mono mt-0.5 block">{metrics.loginSuccess24h}</span>
@@ -269,7 +269,7 @@ export const AdminSecurityPanelModal: React.FC<AdminSecurityPanelModalProps> = (
 
         {/* Barra de Filtros */}
         <div className={`p-4 border-b flex flex-wrap gap-2.5 items-center justify-between text-xs ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
-          <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+          <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
             {/* Campo de Busca */}
             <div className="relative flex-1 min-w-[180px]">
               <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-500" />

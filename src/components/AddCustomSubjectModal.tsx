@@ -108,7 +108,7 @@ export const AddCustomSubjectModal: React.FC<AddCustomSubjectModalProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex border-b border-slate-800 px-6 bg-[#0D0E13]/60 shrink-0">
+        <div className="flex border-b border-slate-800 px-3 sm:px-6 bg-[#0D0E13]/60 shrink-0 overflow-x-auto scrollbar-thin">
           <button
             onClick={() => setActiveTab('manage')}
             className={`py-2.5 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
@@ -135,7 +135,7 @@ export const AddCustomSubjectModal: React.FC<AddCustomSubjectModalProps> = ({
 
         {/* Tab 1: Manage & Remove Subjects */}
         {activeTab === 'manage' ? (
-          <div className="p-6 space-y-4 overflow-y-auto flex-1">
+          <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
             <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-xs text-slate-300 flex items-start gap-2.5">
               <span className="text-base">💡</span>
               <p className="leading-relaxed text-[11px]">
@@ -221,7 +221,7 @@ export const AddCustomSubjectModal: React.FC<AddCustomSubjectModalProps> = ({
           </div>
         ) : (
           /* Tab 2: Add Custom Subject */
-          <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
+          <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
                 Nome da Matéria / Módulo:
