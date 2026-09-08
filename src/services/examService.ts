@@ -63,32 +63,32 @@ export class ExamService {
    * Canonical discipline normalizer for CFO CBMERJ edital
    */
   public normalizeDiscipline(input: string): string {
-    const clean = (input || '').trim().toLowerCase();
-    if (clean.includes('matemát') || clean.includes('raciocínio') || clean.includes('álgebra') || clean.includes('geometr')) {
+    const clean = (input || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (clean.includes('matemat') || clean.includes('raciocinio') || clean.includes('algebra') || clean.includes('geometr')) {
       return 'Matemática';
     }
-    if (clean.includes('físic') || clean.includes('mecânic') || clean.includes('óptic') || clean.includes('termo')) {
+    if (clean.includes('fisic') || clean.includes('mecanic') || clean.includes('optic') || clean.includes('termo')) {
       return 'Física';
     }
-    if (clean.includes('químic') || clean.includes('estequiom') || clean.includes('termoquím')) {
+    if (clean.includes('quimic') || clean.includes('estequiom') || clean.includes('termoquim')) {
       return 'Química';
     }
-    if (clean.includes('portugu') || clean.includes('gramát') || clean.includes('texto') || clean.includes('literat')) {
+    if (clean.includes('portugu') || clean.includes('gramat') || clean.includes('texto') || clean.includes('literat')) {
       return 'Língua Portuguesa';
     }
     if (clean.includes('biolog') || clean.includes('fisiolog') || clean.includes('ecolog')) {
       return 'Biologia';
     }
-    if (clean.includes('geograf') || clean.includes('geopolític') || clean.includes('clima')) {
+    if (clean.includes('geograf') || clean.includes('geopolitic') || clean.includes('clima')) {
       return 'Geografia';
     }
-    if (clean.includes('histór') || clean.includes('brasil') || clean.includes('república')) {
+    if (clean.includes('histor') || clean.includes('brasil') || clean.includes('republica')) {
       return 'História';
     }
     if (clean.includes('direit') || clean.includes('legisla') || clean.includes('constitui') || clean.includes('militar')) {
       return 'Legislação';
     }
-    if (clean.includes('informát') || clean.includes('computa') || clean.includes('redes')) {
+    if (clean.includes('informat') || clean.includes('computa') || clean.includes('redes')) {
       return 'Informática';
     }
     return 'Conhecimentos Gerais';
@@ -115,12 +115,15 @@ export class ExamService {
       if (file && fs.existsSync(file.storagePath)) {
         try {
           const rawBuffer = fs.readFileSync(file.storagePath);
-          const asText = file.mimeType === 'application/pdf' ? this.extractPdfText(rawBuffer) : rawBuffer.toString('utf-8');
+          const asText = file.mimeType === 'application/pdf' ? await this.extractPdfText(rawBuffer) : '';
           if (asText.trim()) {
             extractedQuestions = await this.extractQuestionsFromText(asText);
           }
           if (extractedQuestions.length === 0 && file.mimeType === 'application/pdf') {
             extractedQuestions = await this.extractQuestionsFromPdfBuffer(rawBuffer);
+          }
+          if (extractedQuestions.length === 0 && file.mimeType.startsWith('image/')) {
+            extractedQuestions = await this.extractQuestionsFromImageBuffer(rawBuffer, file.mimeType);
           }
         } catch {}
       }
@@ -340,7 +343,7 @@ JSON OUTPUT SCHEMA:
 }`;
 
     const response = await this.genAI.models.generateContent({
-      model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+      model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -521,7 +524,7 @@ Retorne APENAS um array JSON de questões com a estrutura:
 ]`;
 
       const response = await this.genAI.models.generateContent({
-        model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+        model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -552,7 +555,7 @@ Retorne APENAS um array JSON de questões com a estrutura:
 
   private extractQuestionsWithTextParser(text: string): ExtractedQuestionDraft[] {
     const result: ExtractedQuestionDraft[] = [];
-    const matches = [...text.matchAll(/(?:Quest(?:ão|Ã£o)|Q\.?)\s*[:#.-]?\s*(\d+)\s*[:.-]?([\s\S]*?)(?=(?:\n\s*(?:Quest(?:ão|Ã£o)|Q\.?)\s*\d+)|$)/gi)];
+    const matches = [...text.matchAll(/(?:Quest(?:ão|ao|Ã£o|ÃƒÂ£o)|Q\.?)\s*[:#.-]?\s*(\d+)\s*[:.-]?([\s\S]*?)(?=(?:\n\s*(?:Quest(?:ão|ao|Ã£o|ÃƒÂ£o)|Q\.?)\s*\d+)|$)/gi)];
     for (const match of matches) {
       const body = match[2].trim();
       const options = [...body.matchAll(/(?:^|\s)([A-E])\s*[)\].:-]\s*([\s\S]*?)(?=\s+[A-E]\s*[)\].:-]|$)/gi)];
@@ -566,13 +569,60 @@ Retorne APENAS um array JSON de questões com a estrutura:
     return result;
   }
 
-  private extractPdfText(buffer: Buffer): string {
+  private async extractPdfText(buffer: Buffer): Promise<string> {
+    // PDFs do not have a single text encoding. Use the PDF text layer first;
+    // the old regex fallback below only works for a subset of generated PDFs.
+    try {
+      const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      const document = await pdfjs.getDocument({ data: new Uint8Array(buffer), disableWorker: true }).promise;
+      const pages: string[] = [];
+      for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+        const page = await document.getPage(pageNumber);
+        const content = await page.getTextContent();
+        pages.push((content.items || []).map((item: any) => item.str || '').join(' '));
+      }
+      const text = pages.join('\n');
+      if (text.trim()) return text;
+    } catch (err) {
+      console.warn('[PDF Text Layer Warning]:', err);
+    }
+
     const source = buffer.toString('latin1');
     const strings: string[] = [];
     for (const match of source.matchAll(/\(([^()\\]*(?:\\.[^()\\]*)*)\)\s*T[Jj]/g)) {
       strings.push(match[1].replace(/\\([\\()])/g, '$1').replace(/\\n/g, '\n'));
     }
     return strings.join(' ');
+  }
+
+  private async extractQuestionsFromImageBuffer(buffer: Buffer, mimeType: string): Promise<ExtractedQuestionDraft[]> {
+    if (!this.genAI) return [];
+    try {
+      const response = await this.genAI.models.generateContent({
+        model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+        contents: [
+          { inlineData: { mimeType, data: buffer.toString('base64') } },
+          { text: 'Leia a imagem da prova e extraia somente as questões visíveis. Preserve a numeração e todas as alternativas. Retorne apenas JSON no formato: [{"questionNumber":1,"statement":"enunciado completo","supportText":null,"options":[{"letter":"A","text":"..."},{"letter":"B","text":"..."}],"correctOption":null,"discipline":"Conhecimentos Gerais","topic":"Geral","subtopic":"Geral","difficulty":"Médio"}]. Não invente conteúdo.' },
+        ],
+        config: { responseMimeType: 'application/json', temperature: 0.1 },
+      });
+      const parsed = JSON.parse(response.text || '[]');
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map((item, idx) => ({
+        questionNumber: Number(item.questionNumber) || idx + 1,
+        statement: String(item.statement || '').trim(),
+        supportText: item.supportText ? String(item.supportText).trim() : null,
+        options: Array.isArray(item.options) ? item.options.filter((option: any) => ['A', 'B', 'C', 'D', 'E'].includes(option?.letter)).map((option: any) => ({ letter: option.letter, text: String(option.text || '').trim() })) : [],
+        correctOption: ['A', 'B', 'C', 'D', 'E'].includes(item.correctOption) ? item.correctOption : null,
+        discipline: this.normalizeDiscipline(item.discipline || 'Conhecimentos Gerais'),
+        topic: String(item.topic || 'Geral').trim(),
+        subtopic: String(item.subtopic || 'Geral').trim(),
+        difficulty: (['FÃ¡cil', 'MÃ©dio', 'DifÃ­cil'].includes(item.difficulty) ? item.difficulty : 'MÃ©dio') as ExamDifficulty,
+      })).filter((item) => item.statement.length > 0 && item.options.length >= 2);
+    } catch (err) {
+      console.warn('[Image Extraction Warning]:', err);
+      return [];
+    }
   }
 
   private async renderQuestionPages(buffer: Buffer, questions: ExtractedQuestionDraft[]): Promise<Map<number, string[]>> {

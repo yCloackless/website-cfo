@@ -443,6 +443,12 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
               const jobData = await jobRes.json();
               if (jobData.job?.status === 'completed' || jobData.job?.status === 'failed') {
                 window.clearInterval(poll);
+                if (jobData.job.status === 'completed' && jobData.job.resultSummaryJson) {
+                  try {
+                    const summary = JSON.parse(jobData.job.resultSummaryJson);
+                    if (summary.paperId) setSelectedPaperId(summary.paperId);
+                  } catch { /* resumo opcional */ }
+                }
                 await fetchPapersAndStats();
                 showToast?.(jobData.job.status === 'completed' ? 'Prova processada. As questões já estão disponíveis.' : 'A leitura da prova falhou. Ela ficou disponível para revisão.', jobData.job.status === 'completed' ? 'success' : 'warning');
               }
