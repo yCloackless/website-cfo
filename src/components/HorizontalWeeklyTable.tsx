@@ -52,9 +52,9 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
         isDark ? 'bg-[#0B1528] border-slate-800/80' : 'bg-white border-slate-200 shadow-slate-200/50'
       }`}
     >
-      {/* Scrollable Horizontal Container */}
-      <div className="overflow-x-auto w-full scrollbar-thin">
-        <table className="w-full text-left border-collapse min-w-[700px] md:min-w-[960px]">
+      {/* Responsive Container: Scrollable on mobile, Fixed 100% on Desktop */}
+      <div className="overflow-x-auto lg:overflow-x-visible w-full scrollbar-thin">
+        <table className="w-full text-left border-collapse min-w-[650px] lg:min-w-0 lg:table-fixed">
           <thead>
             <tr
               className={`border-b text-xs font-bold uppercase tracking-wider transition-colors ${
@@ -65,7 +65,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
             >
               {/* Sticky Subject Column */}
               <th
-                className={`sticky left-0 z-20 backdrop-blur-xs py-3.5 px-2.5 sm:px-4 w-36 min-w-[130px] md:w-64 md:min-w-[240px] border-r transition-colors ${
+                className={`sticky left-0 z-20 backdrop-blur-xs py-3.5 px-2.5 sm:px-3 w-[140px] sm:w-[180px] lg:w-[22%] border-r transition-colors ${
                   isDark
                     ? 'bg-[#070D18]/95 border-slate-800 text-slate-300'
                     : 'bg-slate-50/95 border-slate-200 text-slate-800'
@@ -89,7 +89,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                 return (
                   <th
                     key={day.index}
-                    className={`py-3.5 px-2 sm:px-3 min-w-[95px] md:min-w-[125px] text-center border-r transition-colors ${
+                    className={`py-3.5 px-1 sm:px-2 w-[85px] sm:w-[95px] lg:w-[10%] text-center border-r transition-colors ${
                       isDark ? 'border-slate-800/80' : 'border-slate-200'
                     } ${
                       day.isToday
@@ -126,7 +126,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
 
               {/* Summary Column */}
               <th
-                className={`py-3.5 px-2 sm:px-3 w-24 md:w-28 min-w-[90px] md:min-w-[110px] text-center font-bold ${
+                className={`py-3.5 px-1 sm:px-2 w-[80px] sm:w-[90px] lg:w-[8%] text-center font-bold ${
                   isDark ? 'text-slate-400' : 'text-slate-600'
                 }`}
               >
@@ -213,7 +213,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                       <td
                         key={day.index}
                         onClick={() => onCellClick(subject, day.index, day.dateStr)}
-                        className={`p-2 border-r text-center cursor-pointer select-none transition-all ${
+                        className={`p-1 sm:p-1.5 border-r text-center cursor-pointer select-none transition-all ${
                           isDark ? 'border-slate-800/70' : 'border-slate-200'
                         } ${
                           day.isToday ? (isDark ? 'bg-blue-950/20' : 'bg-blue-50/40') : ''
@@ -221,15 +221,15 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                       >
                         {isCompleted ? (
                           <div
-                            className={`w-full h-full min-h-[58px] p-2 rounded-lg border border-l-2 border-l-blue-600 flex flex-col justify-between items-start text-left shadow-sm group/cell transition-all ${
+                            className={`w-full h-full min-h-[52px] sm:min-h-[56px] p-1.5 sm:p-2 rounded-lg border border-l-2 border-l-blue-600 flex flex-col justify-between items-start text-left shadow-sm group/cell transition-all ${
                               isDark
                                 ? 'bg-[#0F1D38]/80 border-slate-800 hover:border-slate-700'
                                 : 'bg-white border-slate-200 hover:border-slate-300'
                             }`}
                           >
                             {/* Top badge row */}
-                            <div className="w-full flex items-center justify-between gap-1">
-                              <span className="inline-flex items-center gap-1 text-[9px] font-bold text-blue-400 bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                            <div className="w-full flex items-center justify-between gap-0.5">
+                              <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] font-bold text-blue-400 bg-blue-500/15 border border-blue-500/30 px-1 py-0.2 rounded uppercase tracking-wider">
                                 Concluído
                               </span>
 
@@ -237,16 +237,16 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                               <button
                                 onClick={(e) => onQuickToggle(subject, day.index, day.dateStr, e)}
                                 title="Desmarcar estudo"
-                                className="w-5 h-5 rounded text-blue-400 hover:bg-blue-500/20 flex items-center justify-center transition-colors cursor-pointer"
+                                className="w-4 h-4 sm:w-5 sm:h-5 rounded text-blue-400 hover:bg-blue-500/20 flex items-center justify-center transition-colors cursor-pointer"
                               >
-                                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                <Check className="w-3 h-3 stroke-[3]" />
                               </button>
                             </div>
 
                             {/* Topic name if recorded */}
                             {entry?.topic ? (
                               <p
-                                className={`text-[11px] font-semibold line-clamp-1 mt-1 ${
+                                className={`text-[10px] sm:text-[11px] font-semibold line-clamp-1 mt-0.5 ${
                                   isDark ? 'text-slate-200' : 'text-slate-800'
                                 }`}
                               >
@@ -254,7 +254,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                               </p>
                             ) : (
                               <p
-                                className={`text-[10px] italic mt-0.5 ${
+                                className={`text-[9px] sm:text-[10px] italic mt-0.5 ${
                                   isDark ? 'text-slate-500' : 'text-slate-400'
                                 }`}
                               >
@@ -264,7 +264,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
 
                             {/* Meta footer (duration, google calendar sync, revisions) */}
                             <div
-                              className={`w-full flex items-center justify-between text-[10px] mt-1 pt-1 border-t ${
+                              className={`w-full flex items-center justify-between text-[9px] sm:text-[10px] mt-1 pt-0.5 border-t ${
                                 isDark ? 'border-slate-800/80 text-slate-500' : 'border-slate-100 text-slate-400'
                               }`}
                             >
@@ -277,13 +277,13 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                                 {formatDurationHours(entry?.durationMinutes || 60)}
                               </span>
 
-                              <div className="flex items-center gap-1">
+                              <div className="flex items-center gap-0.5">
                                 {entry?.googleCalendarSynced && (
                                   <span
                                     title="Sincronizado com Google Agenda"
                                     className="text-blue-400"
                                   >
-                                    <Calendar className="w-3 h-3" />
+                                    <Calendar className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                                   </span>
                                 )}
                                 {entry?.revisionScheduled && (
@@ -291,7 +291,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                                     title="Revisões agendadas: Próximo dia, 1 semana e mensais"
                                     className="text-amber-400"
                                   >
-                                    <Sparkles className="w-3 h-3" />
+                                    <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                                   </span>
                                 )}
                                 <Edit2 className="w-2.5 h-2.5 opacity-0 group-cell-hover/cell:opacity-100 transition-opacity" />
@@ -301,7 +301,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                         ) : (
                           /* Empty uncompleted cell */
                           <div
-                            className={`w-full h-full min-h-[58px] p-2 rounded-lg border border-dashed flex flex-col items-center justify-center group/empty transition-all ${
+                            className={`w-full h-full min-h-[52px] sm:min-h-[56px] p-1.5 sm:p-2 rounded-lg border border-dashed flex flex-col items-center justify-center group/empty transition-all ${
                               isDark
                                 ? 'border-slate-800 hover:border-slate-700 bg-slate-900/20 hover:bg-slate-900/50 text-slate-500'
                                 : 'border-slate-300 hover:border-slate-400 bg-slate-50/40 hover:bg-slate-100/60 text-slate-400'
@@ -309,7 +309,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                           >
                             <button
                               onClick={(e) => onQuickToggle(subject, day.index, day.dateStr, e)}
-                              className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors cursor-pointer ${
+                              className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full border flex items-center justify-center transition-colors cursor-pointer ${
                                 isDark
                                   ? 'border-slate-800 group-hover/empty:border-blue-500/50 group-hover/empty:bg-blue-950/30 text-slate-600 group-hover/empty:text-blue-400'
                                   : 'border-slate-300 group-hover/empty:border-blue-500/50 group-hover/empty:bg-blue-50 text-slate-400 group-hover/empty:text-blue-600'
@@ -318,7 +318,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                             >
                               <Plus className="w-3 h-3" />
                             </button>
-                            <span className="text-[10px] font-medium mt-1">
+                            <span className="text-[9px] sm:text-[10px] font-medium mt-0.5">
                               Marcar
                             </span>
                           </div>
@@ -328,17 +328,17 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                   })}
 
                   {/* Summary Progress Column */}
-                  <td className="py-3 px-3 text-center">
+                  <td className="py-3 px-1 sm:px-2 text-center">
                     <div className="flex flex-col items-center justify-center">
                       <span
-                        className={`font-bold text-xs ${
+                        className={`font-bold text-[11px] sm:text-xs ${
                           isDark ? 'text-slate-200' : 'text-slate-800'
                         }`}
                       >
                         {stats.completedCount}/7 dias
                       </span>
                       <div
-                        className={`w-16 h-1.5 rounded-full mt-1.5 overflow-hidden ${
+                        className={`w-12 sm:w-14 xl:w-16 h-1.5 rounded-full mt-1 overflow-hidden ${
                           isDark ? 'bg-slate-800' : 'bg-slate-200'
                         }`}
                       >
@@ -351,7 +351,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                         />
                       </div>
                       <span
-                        className={`text-[10px] font-bold mt-0.5 ${
+                        className={`text-[9px] sm:text-[10px] font-bold mt-0.5 ${
                           isDark ? 'text-slate-400' : 'text-slate-600'
                         }`}
                       >
