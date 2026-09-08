@@ -84,6 +84,15 @@ try {
   record('Bearer session without cookies', !login.res.headers.has('set-cookie'), 'No Set-Cookie; Secure/HttpOnly/SameSite do not apply to this session mechanism');
   const profile = await request('/api/user/profile', undefined, token);
   record('authenticated profile', profile.data.user?.role === 'cadet', `HTTP ${profile.res.status}`);
+  const boundedLoad = await Promise.all(Array.from({ length: 64 }, async () => {
+    const startedAt = performance.now();
+    const result = await request('/api/user/profile', undefined, token);
+    return { status: result.res.status, durationMs: performance.now() - startedAt };
+  }));
+  const sortedDurations = boundedLoad.map(item => item.durationMs).sort((a, b) => a - b);
+  const p95 = sortedDurations[Math.floor(sortedDurations.length * 0.95)] || 0;
+  record('bounded authenticated concurrency', boundedLoad.every(item => item.status === 200),
+    `${boundedLoad.length} concurrent requests; p95=${p95.toFixed(1)}ms; no destructive or sustained load`);
   const edit = await request('/api/user/profile', { fullName: 'Readiness Cadet', role: 'admin' }, token, 'PATCH');
   record('profile update and mass assignment', edit.data.user?.fullName === 'Readiness Cadet' && edit.data.user?.role === 'cadet', `HTTP ${edit.res.status}`);
   record('cadet denied admin', (await request('/api/admin/users', undefined, token)).res.status === 403, 'GET /api/admin/users');
