@@ -318,6 +318,24 @@ function normalizeBizuItems(items: BizuItem[]): BizuItem[] {
   });
 }
 
+function mergeBizuStorageCopies(localItems: BizuItem[], indexedDbItems: BizuItem[]): BizuItem[] {
+  const merged = new Map<string, BizuItem>();
+
+  indexedDbItems.forEach((item) => merged.set(item.id, item));
+  localItems.forEach((localItem) => {
+    const indexedDbItem = merged.get(localItem.id);
+    merged.set(localItem.id, {
+      ...indexedDbItem,
+      ...localItem,
+      // The localStorage fallback intentionally removes large images. Keep
+      // the complete IndexedDB copy when that happens.
+      imageUrl: localItem.imageUrl || indexedDbItem?.imageUrl || '',
+    });
+  });
+
+  return Array.from(merged.values());
+}
+
 export function loadBizuItems(): BizuItem[] {
   if (memoryBizuCache && memoryBizuCache.length > 0) {
     return memoryBizuCache;
@@ -349,24 +367,20 @@ export function loadBizuItems(): BizuItem[] {
  */
 export async function initBizuStorageAsync(onLoaded?: (items: BizuItem[]) => void): Promise<BizuItem[]> {
   try {
-    // The authenticated server snapshot hydrates localStorage before this runs;
-    // prefer that value so an older IndexedDB cache cannot overwrite new data.
     const localRaw = localStorage.getItem(getStorageKey());
-    if (localRaw) {
-      const localItems = JSON.parse(localRaw);
-      if (Array.isArray(localItems) && localItems.length > 0) {
-        const normalized = normalizeBizuItems(localItems);
-        memoryBizuCache = normalized;
-        await idbSet(getStorageKey(), normalized);
-        notifyBizuSubscribers(normalized);
-        if (onLoaded) onLoaded(normalized);
-        return normalized;
-      }
-    }
+    const localItems = localRaw ? JSON.parse(localRaw) : [];
     const idbItems = await idbGet<BizuItem[]>(getStorageKey());
-    if (Array.isArray(idbItems) && idbItems.length > 0) {
-      const normalized = normalizeBizuItems(idbItems);
+
+    if ((Array.isArray(localItems) && localItems.length > 0) || (Array.isArray(idbItems) && idbItems.length > 0)) {
+      const normalized = normalizeBizuItems(
+        mergeBizuStorageCopies(
+          Array.isArray(localItems) ? localItems : [],
+          Array.isArray(idbItems) ? idbItems : [],
+        ),
+      );
       memoryBizuCache = normalized;
+      await idbSet(getStorageKey(), normalized);
+      trySaveToLocalStorage(normalized);
       notifyBizuSubscribers(normalized);
       if (onLoaded) onLoaded(normalized);
       return normalized;
