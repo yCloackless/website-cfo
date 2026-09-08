@@ -156,7 +156,7 @@ export async function sendPasswordResetEmail(
     if (isProd) {
       return { sent: false, error: 'RESEND_API_KEY não configurada em produção.' };
     }
-    console.warn('[Email DEV] RESEND_API_KEY não configurada. Código de recuperação emitido apenas no log seguro do console:', code);
+    console.warn('[Email DEV] RESEND_API_KEY não configurada. A entrega do código de recuperação não foi realizada.');
     return { sent: false };
   }
 

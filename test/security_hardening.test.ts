@@ -126,7 +126,7 @@ test('F-04: AI routes enforce a dedicated authenticated-account quota', async ()
   assert.equal(lastStatus, 429);
 });
 
-test.skip('F-05: reset delivery never logs the recovery code', async () => {
+test('F-05: reset delivery never logs the recovery code', async () => {
   const syntheticCode = '947251';
   const warnings: string[] = [];
   const originalWarn = console.warn;
