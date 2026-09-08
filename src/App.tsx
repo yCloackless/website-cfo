@@ -172,6 +172,7 @@ export default function App() {
       const token = localStorage.getItem('cfo_terminal_session');
       if (token) {
         const abortController = new AbortController();
+        let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
         const connect = async () => {
           try {
             const response = await fetch('/api/admin/realtime/stream', {
@@ -199,12 +200,16 @@ export default function App() {
               }
             }
           } catch (_) {
-            // Authentication stays server-side; reconnect happens on the next application mount.
+            // The server revalidates the session on every broadcast; retry only while mounted.
+          }
+          if (!abortController.signal.aborted) {
+            reconnectTimer = setTimeout(connect, 2000);
           }
         };
         connect();
         return () => {
           abortController.abort();
+          if (reconnectTimer) clearTimeout(reconnectTimer);
         };
       }
     }
