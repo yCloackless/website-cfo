@@ -1,6 +1,7 @@
 import { BizuItem } from '../types';
 import { formatNotesToSeparatedTopics } from './bizuFormatter';
 import { getUserStorageKey } from './userStorage';
+import { queuePersistentSync } from '../services/remotePersistence';
 
 const getStorageKey = () => getUserStorageKey('cfo_bizuario_items');
 
@@ -348,6 +349,20 @@ export function loadBizuItems(): BizuItem[] {
  */
 export async function initBizuStorageAsync(onLoaded?: (items: BizuItem[]) => void): Promise<BizuItem[]> {
   try {
+    // The authenticated server snapshot hydrates localStorage before this runs;
+    // prefer that value so an older IndexedDB cache cannot overwrite new data.
+    const localRaw = localStorage.getItem(getStorageKey());
+    if (localRaw) {
+      const localItems = JSON.parse(localRaw);
+      if (Array.isArray(localItems) && localItems.length > 0) {
+        const normalized = normalizeBizuItems(localItems);
+        memoryBizuCache = normalized;
+        await idbSet(getStorageKey(), normalized);
+        notifyBizuSubscribers(normalized);
+        if (onLoaded) onLoaded(normalized);
+        return normalized;
+      }
+    }
     const idbItems = await idbGet<BizuItem[]>(getStorageKey());
     if (Array.isArray(idbItems) && idbItems.length > 0) {
       const normalized = normalizeBizuItems(idbItems);
@@ -375,6 +390,9 @@ export function saveBizuItems(items: BizuItem[]): void {
 
   // 2. Salva no localStorage com resiliência de quota
   trySaveToLocalStorage(items);
+  // IndexedDB mantém a cópia rica local; o payload completo também é enviado
+  // ao snapshot autenticado no banco para sobreviver a rebuild/deploy.
+  try { queuePersistentSync({ [getStorageKey()]: JSON.stringify(items) }); } catch {}
 }
 
 export function addBizuItem(item: Omit<BizuItem, 'id' | 'createdAt' | 'updatedAt'>): BizuItem {
@@ -403,4 +421,3 @@ export function deleteBizuItem(id: string): BizuItem[] {
   saveBizuItems(filtered);
   return filtered;
 }
-

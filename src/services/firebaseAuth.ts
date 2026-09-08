@@ -23,7 +23,8 @@ const STORAGE_EXPIRY_KEY = 'cfo_cbmerj_google_calendar_token_expiry';
 const STORAGE_EMAIL_KEY = 'cfo_cbmerj_google_calendar_user_email';
 
 // Whitelist de usuários autorizados
-export const ALLOWED_EMAILS = ['jb080956@gmail.com'];
+const configuredAllowedEmails = String(import.meta.env.VITE_ALLOWED_GOOGLE_EMAILS || '');
+export const ALLOWED_EMAILS = configuredAllowedEmails.split(',').map((value: string) => value.trim().toLowerCase()).filter(Boolean);
 
 export const isEmailAuthorized = (email?: string | null): boolean => {
   if (!email) return false;
@@ -161,9 +162,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     if (result.user?.email && !isEmailAuthorized(result.user.email)) {
       await signOut(auth);
       clearStoredAccessToken();
-      throw new Error(
-        `Acesso não autorizado para ${result.user.email}. Este cronograma é de uso exclusivo de jb080956@gmail.com.`
-      );
+      throw new Error('Acesso não autorizado para esta conta Google.');
     }
 
     const credential = GoogleAuthProvider.credentialFromResult(result);

@@ -39,7 +39,7 @@ O sistema conta com dois perfis de acesso estritamente segregados no servidor:
 
 | Perfil | Acesso Notion | 2FA Obrigatório | Geo-Fencing RJ | Finalidade |
 | :--- | :--- | :--- | :--- | :--- |
-| **Admin** (`admin` / `jb080956@gmail.com`) | **Sim** (Total) | **Sim** (Google Authenticator) | **Sim** (Apenas RJ/Brasil) | Comando operacional, parametrização, backups e auditoria |
+| **Admin** (`admin` / `ADMIN_USER_EMAIL`) | **Sim** (Total) | **Sim** (Google Authenticator) | **Sim** (Apenas RJ/Brasil) | Comando operacional, parametrização, backups e auditoria |
 | **Cadete** (`cadete` / `aluno`) | **Não** (Isolado) | Não (Login direto seguro) | Não (Acesso de qualquer local) | Estudo individual, cronômetro, simulados e questões |
 
 #### Mitigações Implementadas:

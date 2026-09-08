@@ -54,12 +54,16 @@ import { getDb } from "./src/db/database";
 import { UserRepository, ProfileRepository, AuditRepository, SessionRepository, RecoveryCodeRepository, UserStateRepository } from "./src/db/repositories";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
 import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtimeHub";
+import { createAuthMiddlewares } from "./src/middleware/auth";
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-// 1. Confiar no Proxy reverso do Render para captura precisa de IP
-app.set("trust proxy", process.env.TRUSTED_PROXIES ? process.env.TRUSTED_PROXIES.split(",").map(value => value.trim()) : false);
+// 1. Proxy reverso: somente IPs/CIDRs explicitamente configurados são confiáveis.
+// Nunca aceitar '*' ou 'true', pois isso permite spoof de X-Forwarded-For.
+const trustedProxyEntries = (process.env.TRUSTED_PROXIES || '')
+  .split(',').map(value => value.trim()).filter(value => value && value !== '*' && value !== 'true');
+app.set("trust proxy", trustedProxyEntries.length > 0 ? trustedProxyEntries : false);
 
 // 2. Rota de Health Check ultraleve para UptimeRobot / anti-sleep do Render
 app.get("/api/health", (_req: Request, res: Response) => {
@@ -115,7 +119,6 @@ function saveBannedIps(data: Record<string, BannedIpRecord>): void {
 
 // Garante que banned-ips.json começa vazio a cada inicialização
 // (ban automático por geolocalização foi removido; IPs nunca são banidos automaticamente)
-saveBannedIps({});
 
 function isIpBanned(ip: string): boolean {
   if (!ip) return false;
@@ -456,7 +459,8 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const CALENDAR_SESSION_FILE = path.join(process.cwd(), "data", "calendar-session.json");
 
 // Google Calendar is a shared administrative integration.
-const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
+const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || process.env.CALENDAR_EMAIL || process.env.ADMIN_USER_EMAIL || '')
+  .split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
 
 interface CalendarSession {
   access_token: string;
@@ -560,10 +564,10 @@ async function getValidCalendarAccessToken(clientToken?: string): Promise<string
           return session.access_token;
         } else {
           const errText = await refreshResp.text();
-          console.warn("Falha ao renovar token com refresh_token no Google:", errText);
+          console.warn("Falha ao renovar token do Google:", errText ? 'provider_error' : 'unknown_error');
         }
       } catch (err) {
-        console.error("Erro durante renovação de token do Google Agenda:", err);
+        console.error("Erro durante renovação de token do Google Agenda.");
       }
     }
 
@@ -801,6 +805,8 @@ function verifyTerminalSession(token?: string | null): {
 // ==========================================
 // 🛡️ STEP-UP AUTHENTICATION (Tokens Assinados de Curta Duração - 5 Minutos)
 // ==========================================
+const { requireAdminAuth, requireAdminWriteAuth, requireUserAuth } = createAuthMiddlewares(verifyTerminalSession);
+
 function createStepUpToken(username: string, userId?: string): { token: string; expiresIn: number } {
   const config = getSecurityConfig();
   const expiresIn = 5 * 60; // 5 minutos (300 segundos)
@@ -939,7 +945,8 @@ app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
       is2faActive: config.is2faActive,
     });
   } catch (err: any) {
-    return res.status(500).json({ error: "SETUP_FAILED", message: err?.message });
+    console.error('[2FA setup]', err);
+    return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Falha interna no servidor." });
   }
 });
 
@@ -1185,7 +1192,8 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
       canAccessNotion: true,
     });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: "AUTH_ERROR", message: err?.message });
+    console.error('[Auth]', err);
+    return res.status(500).json({ success: false, error: "INTERNAL_SERVER_ERROR", message: "Falha interna no servidor." });
   }
 });
 
@@ -1224,9 +1232,7 @@ app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Res
     const cleanUser = dbUser.username;
 
     // 2. Geo-fencing: Conta Admin só pode ser acessada a partir do Brasil
-    const isAdminTarget =
-      cleanUser === ADMIN_USER.toLowerCase() ||
-      cleanUser === "jb080956@gmail.com";
+    const isAdminTarget = dbUser.role === 'admin';
 
     if (isAdminTarget && !isAdmIp) {
       const geo = await getIpGeoLocation(clientIp, req);
@@ -1331,7 +1337,8 @@ app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Res
       authMethod,
     });
   } catch (err: any) {
-    return res.status(500).json({ error: "AUTH_ERROR", message: err?.message });
+    console.error('[2FA]', err);
+    return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Falha interna no servidor." });
   }
 });
 
@@ -1371,7 +1378,8 @@ app.post("/api/auth/activate-2fa", async (req: Request, res: Response) => {
       is2faActive: true,
     });
   } catch (err: any) {
-    return res.status(500).json({ error: "ACTIVATION_FAILED", message: err?.message });
+    console.error('[2FA activation]', err);
+    return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Falha interna no servidor." });
   }
 });
 
@@ -1678,7 +1686,8 @@ app.post("/api/admin/step-up", requireAdminAuth, twoFactorLimiter, async (req: R
       message: "Confirmação de identidade realizada com sucesso.",
     });
   } catch (err: any) {
-    return res.status(500).json({ error: "STEP_UP_ERROR", message: err?.message });
+    console.error('[Step-up]', err);
+    return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Falha interna no servidor." });
   }
 });
 
@@ -1709,7 +1718,8 @@ app.post("/api/admin/2fa/generate-recovery-codes", requireAdminWriteAuth, requir
       message: "Novos códigos de recuperação gerados com sucesso. Guarde-os em local seguro!",
     });
   } catch (err: any) {
-    return res.status(500).json({ error: "RECOVERY_CODES_ERROR", message: err?.message });
+    console.error('[Recovery codes]', err);
+    return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Falha interna no servidor." });
   }
 });
 
@@ -1729,7 +1739,8 @@ app.get("/api/admin/2fa/recovery-codes-count", requireAdminAuth, (req: Request, 
       remainingCount,
     });
   } catch (err: any) {
-    return res.status(500).json({ error: "RECOVERY_COUNT_ERROR", message: err?.message });
+    console.error('[Recovery count]', err);
+    return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Falha interna no servidor." });
   }
 });
 
@@ -2188,7 +2199,6 @@ app.post("/api/admin/unban", requireAdminWriteAuth, requireStepUpAuth, (req: Req
 
   const banned = loadBannedIps();
   if (unbanAll) {
-    saveBannedIps({});
     logSecurityEvent(req, {
       action: 'SECURITY_SETTING_CHANGED',
       actor: adminUser?.username || 'admin',
@@ -2499,7 +2509,8 @@ app.get("/api/calendar/status", async (_req: Request, res: Response) => {
       updatedAt: session.updatedAt,
     });
   } catch (error: any) {
-    return res.status(500).json({ connected: false, error: error?.message });
+    console.error('[Calendar status]', error);
+    return res.status(500).json({ connected: false, error: "INTERNAL_SERVER_ERROR" });
   }
 });
 
@@ -2511,7 +2522,11 @@ app.get('/api/calendar/auth-url', (req: Request, res: Response) => {
   if (!origin || !normalizedAllowedOrigins.has(origin)) return res.status(403).json({ error: 'INVALID_ORIGIN' });
   for (const [key, value] of calendarOAuthStates) if (value.expiresAt < Date.now()) calendarOAuthStates.delete(key);
   const state = crypto.randomBytes(32).toString('hex');
-  calendarOAuthStates.set(state, { origin, token: req.headers.authorization!.slice(7), expiresAt: Date.now() + 600000 });
+  const sessionToken = req.headers.authorization?.startsWith('Bearer ')
+    ? req.headers.authorization.slice(7).trim()
+    : '';
+  if (!sessionToken) return res.status(401).json({ error: 'UNAUTHORIZED' });
+  calendarOAuthStates.set(state, { origin, token: sessionToken, expiresAt: Date.now() + 600000 });
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   url.search = new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, redirect_uri: calendarRedirectUri,
     response_type: 'code', state, scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
@@ -2586,7 +2601,8 @@ app.post("/api/calendar/save-token", async (req: Request, res: Response) => {
     saveCalendarSession(session);
     return res.json({ success: true });
   } catch (error: any) {
-    return res.status(500).json({ error: error?.message });
+    console.error('[Calendar save token]', error);
+    return res.status(500).json({ error: "INTERNAL_SERVER_ERROR" });
   }
 });
 
@@ -2629,7 +2645,8 @@ app.post("/api/calendar/verify-token", async (req: Request, res: Response) => {
       scope: tokenInfo.scope,
     });
   } catch (error: any) {
-    return res.json({ valid: false, error: error?.message || "Erro ao verificar token" });
+    console.error('[Calendar verify token]', error);
+    return res.json({ valid: false, error: "TOKEN_VERIFICATION_FAILED" });
   }
 });
 
@@ -2682,7 +2699,7 @@ app.post("/api/calendar/create-event", async (req: Request, res: Response) => {
   } catch (error: any) {
     return res.status(error?.status || 500).json({
       error: "CALENDAR_SYNC_FAILED",
-      message: error?.message || "Erro ao criar evento na Google Agenda",
+      message: error?.status === 401 ? "A autorização do Google Agenda expirou." : "Falha ao criar evento na Google Agenda",
     });
   }
 });
@@ -2768,7 +2785,7 @@ app.post("/api/calendar/batch-sync", async (req: Request, res: Response) => {
   } catch (error: any) {
     return res.status(error?.status || 500).json({
       error: "CALENDAR_SYNC_FAILED",
-      message: error?.message || "Falha ao sincronizar eventos com Google Agenda",
+      message: error?.status === 401 ? "A autorização do Google Agenda expirou." : "Falha ao sincronizar eventos com Google Agenda",
     });
   }
 });
@@ -3305,7 +3322,8 @@ Tópico 5 - Método de Prova & Resolução Rápida
     });
   } catch (error: any) {
     console.error("Erro na rota /api/ai/bizu-notes:", error);
-    res.status(500).json({ error: "FALHA_AO_GERAR_BIZU", message: error?.message });
+    console.error('[AI Bizu]', error);
+    res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar o Bizu." });
   }
 });
 
@@ -3480,7 +3498,7 @@ A MATÉRIA QUE EU QUERO É: ${topic}`;
     console.error("Erro na rota /api/ai/flashcards:", error);
     return res.status(500).json({
       error: "FLASHCARDS_GENERATION_FAILED",
-      message: error?.message || "Falha ao gerar flashcards.",
+      message: "Falha ao gerar flashcards.",
     });
   }
 });
@@ -3532,7 +3550,7 @@ app.get("/api/notion/revisoes", async (_req: Request, res: Response) => {
     console.error("Erro ao buscar revisões do Notion:", e);
     return res.status(500).json({
       error: "NOTION_FETCH_ERROR",
-      message: e?.message || "Falha ao obter dados do Notion",
+      message: "Falha ao obter dados do Notion",
     });
   }
 });
@@ -3568,7 +3586,7 @@ app.patch("/api/notion/checkin", async (req: Request, res: Response) => {
     console.error("Erro ao processar check-in do Notion:", e);
     return res.status(500).json({
       error: "CHECKIN_ERROR",
-      message: e?.message || "Falha ao registrar check-in",
+      message: "Falha ao registrar check-in",
     });
   }
 });
@@ -3600,7 +3618,7 @@ app.post("/api/notion/novo-estudo", async (req: Request, res: Response) => {
     console.error("Erro ao cadastrar novo estudo no Notion:", e);
     return res.status(500).json({
       error: "CREATE_STUDY_ERROR",
-      message: e?.message || "Falha ao registrar estudo no Notion",
+      message: "Falha ao registrar estudo no Notion",
     });
   }
 });
@@ -3610,7 +3628,7 @@ app.post("/api/notion/novo-estudo", async (req: Request, res: Response) => {
 // ============================================================================
 
 // Middleware de autorização para Visualização Administrativa (Admin ou Support)
-async function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
+function legacyRequireAdminAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
@@ -3627,7 +3645,7 @@ async function requireAdminAuth(req: Request, res: Response, next: NextFunction)
 }
 
 // Middleware de autorização estrita para Operações Administrativas com Mutação (Apenas Admin pleno)
-async function requireAdminWriteAuth(req: Request, res: Response, next: NextFunction) {
+function legacyRequireAdminWriteAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
@@ -3652,7 +3670,7 @@ async function requireAdminWriteAuth(req: Request, res: Response, next: NextFunc
 }
 
 // Middleware de autorização para Usuários Autenticados (Cadete ou Admin)
-function requireUserAuth(req: Request, res: Response, next: NextFunction) {
+function legacyRequireUserAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
   const session = verifyTerminalSession(token);
@@ -3800,7 +3818,7 @@ app.get("/api/admin/backup/status", requireAdminAuth, (_req: Request, res: Respo
   } catch (err: any) {
     return res.status(500).json({
       error: "BACKUP_STATUS_ERROR",
-      message: err?.message || "Falha ao consultar status de backup.",
+      message: "Falha ao consultar status de backup.",
     });
   }
 });
@@ -3816,7 +3834,7 @@ app.get("/api/admin/backup/list", requireAdminAuth, (_req: Request, res: Respons
   } catch (err: any) {
     return res.status(500).json({
       error: "BACKUP_LIST_ERROR",
-      message: err?.message || "Falha ao listar backups.",
+      message: "Falha ao listar backups.",
     });
   }
 });
@@ -3873,7 +3891,7 @@ app.post("/api/admin/backup/create", requireAdminWriteAuth, async (req: Request,
   } catch (err: any) {
     return res.status(500).json({
       error: "BACKUP_ERROR",
-      message: err?.message || "Erro inesperado ao gerar backup.",
+      message: "Erro inesperado ao gerar backup.",
     });
   }
 });
@@ -3929,11 +3947,11 @@ app.post("/api/admin/backup/restore", requireAdminWriteAuth, requireStepUpAuth, 
       resource: req.body?.filename,
       status: "FAILED",
       ip: req.ip || "UNKNOWN",
-      details: { error: err?.message },
+      details: { error: 'INTERNAL_SERVER_ERROR' },
     });
     return res.status(500).json({
       error: "RESTORE_ERROR",
-      message: err?.message || "Erro inesperado durante restauração.",
+      message: "Erro inesperado durante restauração.",
     });
   }
 });
@@ -3994,7 +4012,7 @@ app.get("/api/admin/audit-logs", requireAdminAuth, (req: Request, res: Response)
   } catch (err: any) {
     return res.status(500).json({
       error: "AUDIT_LOG_ERROR",
-      message: err?.message || "Falha ao ler registros de auditoria.",
+      message: "Falha ao ler registros de auditoria.",
     });
   }
 });

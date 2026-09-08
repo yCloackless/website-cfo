@@ -1350,3 +1350,32 @@ export class RecoveryCodeRepository {
   }
 }
 
+export class UserStateRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public get(userId: string): { payload: Record<string, string>; updatedAt: string } | null {
+    const row = this.db.prepare(
+      'SELECT payload_json, updated_at FROM user_state_snapshots WHERE user_id = ?'
+    ).get(userId) as { payload_json: string; updated_at: string } | undefined;
+    if (!row) return null;
+    try {
+      const payload = JSON.parse(row.payload_json);
+      return payload && typeof payload === 'object' && !Array.isArray(payload)
+        ? { payload, updatedAt: row.updated_at }
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  public upsert(userId: string, payload: Record<string, string>): string {
+    const now = new Date().toISOString();
+    const serialized = JSON.stringify(payload);
+    this.db.prepare(`
+      INSERT INTO user_state_snapshots (user_id, payload_json, schema_version, created_at, updated_at)
+      VALUES (?, ?, 1, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET payload_json = excluded.payload_json, updated_at = excluded.updated_at
+    `).run(userId, serialized, now, now);
+    return now;
+  }
+}

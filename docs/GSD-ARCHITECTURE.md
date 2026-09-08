@@ -29,7 +29,7 @@ O projeto é um monólito híbrido Node.js + React contido em um único reposit�
 
 #### 2.1 Credenciais e Sessão
 O sistema opera com um modelo de **contas pré-definidas/hardcoded no código com fallback em variáveis de ambiente**:
-- **Conta Admin**: `ADMIN_USER` ("admin", ou "jb080956@gmail.com") com senha definida via `ADMIN_PASSWORD` (fallback hardcoded: `"cfocbmerj2026!"`) e hash `ADMIN_PASSWORD_HASH`.
+- **Conta Admin**: `ADMIN_USER` e `ADMIN_USER_EMAIL`, com senha definida via `ADMIN_PASSWORD` ou `ADMIN_PASSWORD_HASH`.
 - **Conta Cadete**: `CADET_USER` ("cadete", ou aliases como "cadete@cfo.cbmerj", "aluno") com senha via `CADET_PASSWORD` (fallback hardcoded: `"cadetecfo2026!"`) e hash `CADET_PASSWORD_HASH`.
 - **Sessões do Terminal**: Implementação customizada de tokens no formato `<payloadB64>.<signature>`, assinados via HMAC-SHA256 utilizando `SESSION_SECRET` (fallback hardcoded de 64 hex chars em `DEFAULT_SESSION_SECRET` e salvo em `data/security-config.json`).
 - **Segundo Fator (2FA TOTP)**: Obrigatório apenas para o perfil Admin, implementado via `otplib` (RFC 6238) com segredo persistido em `data/security-config.json` ou lido de `TOTP_SECRET`. Há proteção anti-replay com cache de códigos usados por 3 minutos.
@@ -41,7 +41,7 @@ O sistema opera com um modelo de **contas pré-definidas/hardcoded no código co
 - `requireAdminAuth`: Valida estritamente sessão autenticada com role === "admin" ou role === "support".
 - `requireAdminWriteAuth`: Valida estritamente sessão com role === "admin" para operações com mutação de estado.
 - `requireUserAuth`: Valida sessão HMAC/DB ativa de qualquer usuário autenticado (cadete, suporte ou admin).
-- `isRequestAuthorized`: Utilizado em endpoints de IA e Calendar, permitindo requisições se forem originadas de localhost/loopback, se o IP estiver na whitelist `ALLOWED_IPS`, ou se o e-mail estiver em `ALLOWED_EMAILS` ("jb080956@gmail.com").
+  - `isRequestAuthorized`: Utilizado em endpoints de IA e Calendar, com identidade derivada da sessão e whitelist configurada por ambiente.
 - Rota `/api/notion/*`: Restringe o acesso exclusivamente a sessões válidas com `canAccessNotion: true` (Admin).
 
 ---
@@ -84,10 +84,7 @@ O sistema opera com um modelo de **contas pré-definidas/hardcoded no código co
 #### 5.1 Severidade Alta / Crítica
 1. **Senhas e Segredos Hardcoded com Fallback em Código**:
    - `server.ts` (linhas 624-630):
-     - `ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "cfocbmerj2026!"`
-     - `CADET_PASSWORD = process.env.CADET_PASSWORD || "cadetecfo2026!"`
-     - `DEFAULT_TOTP_SECRET = "T37NFOFA5PCDA5NRXKDVWVEHZ2F22ZV3"`
-     - `DEFAULT_SESSION_SECRET = "b6708b60d07229c5f49cbc2612e747acae36b92bf8435b11569bc916560ea12f"`
+     - Credenciais e segredos devem ser fornecidos por variáveis de ambiente; não há fallback de senha ou segredo no código.
    - Se as variáveis de ambiente não forem estritamente provisionadas no runtime, qualquer atacante pode obter acesso total de administrador ou cadete conhecendo as credenciais padrão do repositório.
 2. **Bypass Administrativo via Query Parameter (`adminKey`)**:
    - Endpoints administrativos (`/api/admin/unban`, `/api/admin/backup/*`) e até o middleware global de IPs permitem autenticação via `req.query.adminKey`.
@@ -97,7 +94,7 @@ O sistema opera com um modelo de **contas pré-definidas/hardcoded no código co
    - Não há modelo relacional de contas individuais (userId único, tenant isolation ou controle de propriedade server-side por usuário cadastrado).
 4. **Autorização Frágil em Endpoints de IA e Google Calendar**:
    - A função `isRequestAuthorized(req, userEmail)` concede acesso se `host.startsWith("localhost")` ou se `ALLOWED_EMAILS.includes(userEmail)`.
-   - Se `userEmail` for enviado no corpo de uma requisição (`req.body.userEmail`) ou cabeçalho (`x-user-email`) sem checagem de assinatura de sessão vinculada, qualquer cliente pode forjar o e-mail `jb080956@gmail.com` para consumir a cota da API Gemini.
+   - Identidade enviada pelo cliente não deve ser usada sem checagem de sessão vinculada.
 5. **Armazenamento de Tokens e Sessões em Arquivos Flat JSON**:
    - Credenciais do Google Calendar com `refresh_token` estão gravadas em texto plano em `data/calendar-session.json`.
    - A concorrência de leitura/escrita em arquivos JSON síncronos pode corromper dados sob carga ou em caso de crash do Node.js.

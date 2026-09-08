@@ -312,7 +312,7 @@ export function initBackupScheduler(): void {
   // Executa verificação a cada 1 hora se já passou das 03:00 e não houve backup no dia
   setInterval(async () => {
     const now = new Date();
-    if (now.getHours() === 3) {
+    if (now.getHours() === 3 && now.getMinutes() < 15) {
       const status = getBackupStatus();
       const lastDate = status.lastBackup ? new Date(status.lastBackup.createdAt).toDateString() : '';
       if (lastDate !== now.toDateString()) {
@@ -324,5 +324,5 @@ export function initBackupScheduler(): void {
         }
       }
     }
-  }, 60 * 60 * 1000);
+  }, 15 * 60 * 1000);
 }

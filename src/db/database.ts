@@ -342,6 +342,23 @@ export const MIGRATIONS: Migration[] = [
       END;
     `,
   },
+  {
+    id: 8,
+    name: '008_user_state_persistence',
+    sql: `
+      -- Estado de estudo do usuário: fonte de verdade server-side, vinculado ao user_id.
+      -- O payload é versionado para permitir evolução sem apagar registros existentes.
+      CREATE TABLE IF NOT EXISTS user_state_snapshots (
+        user_id TEXT PRIMARY KEY,
+        payload_json TEXT NOT NULL,
+        schema_version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_state_snapshots_updated_at ON user_state_snapshots(updated_at);
+    `,
+  },
 ];
 
 export class DatabaseService {

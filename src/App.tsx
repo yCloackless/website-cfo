@@ -47,6 +47,7 @@ import {
 } from './services/calendarService';
 import { buildWeeklyStudySummary, fetchAIStudyAnalysis } from './services/aiService';
 import { getMondayOfWeek, getWeekDaysList, isTodayDate, formatBRDate, toISODate } from './utils/dateUtils';
+import { hydratePersistentState, startPersistentStateSync } from './services/remotePersistence';
 
 import { Header } from './components/Header';
 import { HorizontalWeeklyTable } from './components/HorizontalWeeklyTable';
@@ -90,6 +91,7 @@ export default function App() {
   // 🛡️ Security Gate (2FA TOTP Terminal) State
   const [isTerminalUnlocked, setIsTerminalUnlocked] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [isPersistentStateReady, setIsPersistentStateReady] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [canAccessNotion, setCanAccessNotion] = useState<boolean>(() => {
     const saved = localStorage.getItem('cfo_can_access_notion');
@@ -219,7 +221,7 @@ export default function App() {
 
   // Carrega perfil autenticado do aluno
   useEffect(() => {
-    if (!isTerminalUnlocked) return;
+    if (!isTerminalUnlocked || !isPersistentStateReady) return;
     const token = localStorage.getItem('cfo_terminal_session');
     if (!token) return;
     let isMounted = true;
@@ -236,7 +238,7 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, [isTerminalUnlocked]);
+  }, [isTerminalUnlocked, isPersistentStateReady]);
 
   // 🌐 Monitoramento de Conexão e Estados de Rede (Offline / Reconnecting)
   const [isOnline, setIsOnline] = useState<boolean>(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
@@ -461,9 +463,23 @@ export default function App() {
     [subjects, currentCycle, showToast]
   );
 
-  // Initialize Auth & Data on Mount (apenas se terminal destravado)
+  // Hydrate server-side user state before loading the study stores. This makes the
+  // database the source of truth after a browser reset, rebuild, or redeploy.
   useEffect(() => {
     if (!isTerminalUnlocked) return;
+    let cancelled = false;
+    void hydratePersistentState().finally(() => {
+      if (!cancelled) {
+        startPersistentStateSync();
+        setIsPersistentStateReady(true);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [isTerminalUnlocked]);
+
+  // Initialize Auth & Data on Mount (apenas se terminal destravado)
+  useEffect(() => {
+    if (!isTerminalUnlocked || !isPersistentStateReady) return;
 
     // 1. Load subjects
     const loadedSubs = loadSubjects();
@@ -570,7 +586,7 @@ export default function App() {
       }
     };
 
-  }, [isTerminalUnlocked, showToast, refreshCalendarStatus]);
+  }, [isTerminalUnlocked, isPersistentStateReady, showToast, refreshCalendarStatus]);
 
   // Trigger automated AI analysis whenever cycle entries change or subjects load
   useEffect(() => {

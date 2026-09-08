@@ -57,18 +57,15 @@ export class AuthService {
    * Uses environment variables or secure hashed defaults.
    */
   public async ensureDefaultAccounts(): Promise<void> {
-    const DEFAULT_ADMIN_HASH = '$2b$10$qLtlV80VP6DB5pZDkM.9G.Ucgzw.23yH5J2etgcWT02PEzy76jJzW';
-    const DEFAULT_CADET_HASH = '$2b$10$2Au.s9BUlB9ii0okzlmSY.Jh5lvsYOeSzjNDRGIj/vGPEUEtqLMg6';
-    const DEFAULT_SUPPORT_HASH = '$2b$10$0S8mbvn25RkmDdbvbZYaFu3I8xYBSV8esqpDR/EWLcT07GE/EdHMW';
-
-    const adminEmail = (process.env.ADMIN_USER_EMAIL || 'jb080956@gmail.com').toLowerCase().trim();
+    const adminEmail = (process.env.ADMIN_USER_EMAIL || 'admin@localhost.invalid').toLowerCase().trim();
     const adminUsername = (process.env.ADMIN_USER || 'admin').toLowerCase().trim();
     const adminPass = process.env.ADMIN_PASSWORD;
     const adminHash = process.env.ADMIN_PASSWORD_HASH;
 
     let admin = this.userRepo.findByEmail(adminEmail) || this.userRepo.findByUsername(adminUsername);
     if (!admin) {
-      const hash = adminHash || (adminPass ? await bcrypt.hash(adminPass, 10) : DEFAULT_ADMIN_HASH);
+      if (!adminHash && !adminPass) throw new Error('ADMIN_CREDENTIALS_NOT_CONFIGURED');
+      const hash = adminHash || await bcrypt.hash(adminPass!, 10);
       admin = this.userRepo.create({
         email: adminEmail,
         username: adminUsername,
@@ -95,7 +92,7 @@ export class AuthService {
         `INSERT INTO admin_recovery_codes (id, user_id, code_hash, is_used, created_at)
          VALUES (?, ?, ?, 0, ?)`
       ).run(crypto.randomUUID(), admin.id, RecoveryCodeRepository.hashCode(emergencyCode), new Date().toISOString());
-      console.warn(`[SEGURANÇA] Código de emergência admin gerado. Salve-o agora: ${emergencyCode}`);
+      console.warn('[SEGURANÇA] Novo código de emergência admin gerado; entregue-o por canal seguro ao administrador autorizado.');
     }
 
     const cadetEmail = (process.env.CADET_USER_EMAIL || 'cadete@cbmerj.com').toLowerCase().trim();
@@ -105,7 +102,8 @@ export class AuthService {
 
     let cadet = this.userRepo.findByEmail(cadetEmail) || this.userRepo.findByUsername(cadetUsername);
     if (!cadet) {
-      const hash = cadetHash || (cadetPass ? await bcrypt.hash(cadetPass, 10) : DEFAULT_CADET_HASH);
+      if (!cadetHash && !cadetPass) throw new Error('CADET_CREDENTIALS_NOT_CONFIGURED');
+      const hash = cadetHash || await bcrypt.hash(cadetPass!, 10);
       cadet = this.userRepo.create({
         email: cadetEmail,
         username: cadetUsername,
@@ -128,7 +126,8 @@ export class AuthService {
 
     let support = this.userRepo.findByEmail(supportEmail) || this.userRepo.findByUsername(supportUsername);
     if (!support) {
-      const hash = supportHash || (supportPass ? await bcrypt.hash(supportPass, 10) : DEFAULT_SUPPORT_HASH);
+      if (!supportHash && !supportPass) throw new Error('SUPPORT_CREDENTIALS_NOT_CONFIGURED');
+      const hash = supportHash || await bcrypt.hash(supportPass!, 10);
       support = this.userRepo.create({
         email: supportEmail,
         username: supportUsername,
@@ -152,7 +151,7 @@ export class AuthService {
     if (typeof identifier !== 'string' || typeof password !== 'string') return null;
     const clean = identifier.trim().toLowerCase();
     let user = this.userRepo.findByEmail(clean) || this.userRepo.findByUsername(clean);
-    if (!user && (clean === 'admin@cbmerj.com' || clean === 'jb080956@gmail.com')) {
+    if (!user && clean === 'admin@cbmerj.com') {
       user = this.userRepo.findByUsername('admin');
     }
     const matches = await bcrypt.compare(password, user?.passwordHash || DUMMY_PASSWORD_HASH);
@@ -170,7 +169,7 @@ export class AuthService {
     }
 
     let user = this.userRepo.findByEmail(cleanId) || this.userRepo.findByUsername(cleanId);
-    if (!user && (cleanId === 'admin@cbmerj.com' || cleanId === 'jb080956@gmail.com')) {
+    if (!user && cleanId === 'admin@cbmerj.com') {
       user = this.userRepo.findByUsername('admin');
     }
     if (!user) {
@@ -421,7 +420,7 @@ export class AuthService {
       }
     }
 
-    const isReservedAdmin = cleanEmail === 'admin@cbmerj.com' || cleanEmail === 'jb080956@gmail.com';
+    const isReservedAdmin = cleanEmail === 'admin@cbmerj.com' || cleanEmail === (process.env.ADMIN_USER_EMAIL || 'admin@localhost.invalid').toLowerCase().trim();
     const existing = this.userRepo.findByEmail(cleanEmail) || (isReservedAdmin ? this.userRepo.findByUsername('admin') : null);
     if (existing && existing.id !== userId) {
       return { success: false, message: 'Este endereço de e-mail já está em uso por outro operador.' };
