@@ -315,7 +315,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
 
   return (
     <div
-      className="min-h-screen w-full flex flex-col items-center justify-between p-4 sm:p-6 text-slate-800 select-none font-sans"
+      className="min-h-screen min-h-[100dvh] w-full max-w-full flex flex-col items-center justify-between p-3 min-[380px]:p-4 sm:p-6 py-4 sm:py-8 text-slate-800 select-none font-sans overflow-y-auto overflow-x-hidden"
       style={{
         backgroundColor: '#f1f4f9',
         backgroundImage: `
@@ -325,9 +325,9 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
         `,
       }}
     >
-      <div className="w-full flex-1 flex items-center justify-center">
+      <div className="w-full flex-1 flex items-center justify-center my-auto">
         {/* BEGIN: MainLoginWrapper */}
-        <main className="w-full flex items-center justify-center" data-purpose="login-viewport-container">
+        <main className="w-full flex items-center justify-center min-w-0" data-purpose="login-viewport-container">
           {/* BEGIN: LoginCard */}
           <div
             className="w-full max-w-[448px] bg-white rounded-[22px] overflow-hidden flex flex-col relative transition-all duration-300"
@@ -351,7 +351,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
             />
 
             {/* Card Inner Body Container */}
-            <div className="px-5 sm:px-11 pt-6 sm:pt-8 pb-8 sm:pb-10 flex flex-col items-center relative">
+            <div className="px-4 min-[380px]:px-6 sm:px-11 pt-5 sm:pt-8 pb-6 sm:pb-10 flex flex-col items-center relative w-full min-w-0">
               {onBackToLanding && (
                 <button
                   type="button"
@@ -481,17 +481,17 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
 
                   {/* Success Message Alert */}
                   {successMsg && (
-                    <div className="w-full mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-start gap-2.5">
+                    <div className="w-full mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-start gap-2.5 min-w-0 break-words">
                       <svg className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      <span className="leading-relaxed font-medium">{successMsg}</span>
+                      <span className="leading-relaxed font-medium min-w-0 break-words">{successMsg}</span>
                     </div>
                   )}
 
                   {/* Error Message Alert */}
                   {errorMsg && (
-                    <div className="w-full mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2.5">
+                    <div className="w-full mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2.5 min-w-0 break-words">
                       <svg
                         className="w-4 h-4 text-red-500 shrink-0 mt-0.5"
                         fill="none"
@@ -503,7 +503,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                         <line x1="12" y1="8" x2="12" y2="12" />
                         <line x1="12" y1="16" x2="12.01" y2="16" />
                       </svg>
-                      <span className="leading-relaxed font-medium">{errorMsg}</span>
+                      <span className="leading-relaxed font-medium min-w-0 break-words">{errorMsg}</span>
                     </div>
                   )}
 
@@ -559,7 +559,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                         placeholder="Digite seu usuário ou e-mail cadastrado"
                         autoComplete="username"
                         required
-                        className="w-full pl-10 pr-4 py-3 text-[14px] text-slate-800 placeholder:text-[#94a3b8] placeholder:font-normal bg-transparent border-0 rounded-xl focus:ring-0 focus:outline-none"
+                        className="w-full pl-10 pr-4 py-2.5 sm:py-3 text-base sm:text-[14px] text-slate-800 placeholder:text-[#94a3b8] placeholder:font-normal bg-transparent border-0 rounded-xl focus:ring-0 focus:outline-none"
                       />
                     </div>
                     <p className="text-[11px] text-slate-500 px-1">
@@ -606,7 +606,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                         placeholder="••••••••"
                         autoComplete="current-password"
                         required
-                        className="w-full pl-10 pr-10 py-3 text-[14px] text-slate-800 placeholder:text-[#94a3b8] placeholder:font-normal bg-transparent border-0 rounded-xl focus:ring-0 focus:outline-none"
+                        className="w-full pl-10 pr-10 py-2.5 sm:py-3 text-base sm:text-[14px] text-slate-800 placeholder:text-[#94a3b8] placeholder:font-normal bg-transparent border-0 rounded-xl focus:ring-0 focus:outline-none"
                       />
                       {/* Password Eye Toggle Button */}
                       <button
@@ -695,7 +695,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                         type="submit"
                         disabled={loading || (securityStatus?.turnstileRequired && !turnstileToken)}
                         data-purpose="submit-login-button"
-                        className="w-full py-3.5 px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] active:bg-[#0e2b5c] text-white font-bold text-[13px] tracking-[0.08em] uppercase transition-all duration-150 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#164491] focus:ring-offset-2 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                        className="w-full py-3 sm:py-3.5 px-3 sm:px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] active:bg-[#0e2b5c] text-white font-bold text-xs sm:text-[13px] tracking-[0.08em] uppercase transition-all duration-150 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#164491] focus:ring-offset-2 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                       >
                         {loading ? (
                           <>
@@ -746,14 +746,14 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                         }}
                         placeholder="seu@email.com"
                         required
-                        className="w-full px-4 py-3 text-[14px] text-slate-800 border border-[#e2e8f0] rounded-xl focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15 outline-none"
+                        className="w-full px-4 py-2.5 sm:py-3 text-base sm:text-[14px] text-slate-800 border border-[#e2e8f0] rounded-xl focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15 outline-none"
                       />
                     </div>
 
                     <button
                       type="submit"
                       disabled={loading || !resetEmail.trim()}
-                      className="w-full py-3.5 px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] text-white font-bold text-[13px] tracking-wider uppercase transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                      className="w-full py-3 sm:py-3.5 px-3 sm:px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] text-white font-bold text-xs sm:text-[13px] tracking-wider uppercase transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                     >
                       {loading ? (
                         <>
@@ -798,7 +798,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                         onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                         placeholder="123456"
                         required
-                        className="w-full px-4 py-3 text-center font-mono font-bold text-lg text-slate-900 border border-[#e2e8f0] rounded-xl focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15 outline-none tracking-[0.2em]"
+                        className="w-full px-2 min-[360px]:px-4 py-2.5 sm:py-3 text-center font-mono font-bold text-base sm:text-lg text-slate-900 border border-[#e2e8f0] rounded-xl focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15 outline-none tracking-[0.12em] min-[360px]:tracking-[0.2em]"
                       />
                     </div>
 
@@ -813,12 +813,12 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                           onChange={(e) => setNewPassword(e.target.value)}
                           placeholder="••••••••"
                           required
-                          className="w-full px-4 py-3 pr-10 text-[14px] text-slate-800 rounded-xl outline-none"
+                          className="w-full px-4 py-2.5 sm:py-3 pr-10 text-base sm:text-[14px] text-slate-800 rounded-xl outline-none"
                         />
                         <button
                           type="button"
                           onClick={() => setShowNewPassword(!showNewPassword)}
-                          className="absolute right-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          className="absolute right-3 text-slate-400 hover:text-slate-600 cursor-pointer text-xs"
                         >
                           {showNewPassword ? 'Ocultar' : 'Mostrar'}
                         </button>
@@ -828,7 +828,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                     <button
                       type="submit"
                       disabled={loading || resetCode.length !== 6 || newPassword.length < 8}
-                      className="w-full py-3.5 px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] text-white font-bold text-[13px] tracking-wider uppercase transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                      className="w-full py-3 sm:py-3.5 px-3 sm:px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] text-white font-bold text-xs sm:text-[13px] tracking-wider uppercase transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                     >
                       {loading ? (
                         <>
