@@ -60,11 +60,11 @@ import { createAuthMiddlewares } from "./src/middleware/auth";
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-// 1. Proxy reverso: suporte automático para Render (1 hop confiável) ou TRUSTED_PROXIES
-const isRenderHost = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
+// 1. Proxy reverso: suporte automático para Render e produção (1 hop confiável) ou TRUSTED_PROXIES
+const isProxyEnvironment = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID || process.env.NODE_ENV === 'production');
 const trustedProxyEntries = (process.env.TRUSTED_PROXIES || '')
   .split(',').map(value => value.trim()).filter(value => value && value !== '*' && value !== 'true');
-app.set("trust proxy", trustedProxyEntries.length > 0 ? trustedProxyEntries : (isRenderHost ? 1 : false));
+app.set("trust proxy", trustedProxyEntries.length > 0 ? trustedProxyEntries : (isProxyEnvironment ? 1 : false));
 
 // 2. Rota de Health Check ultraleve para UptimeRobot / anti-sleep do Render
 app.get("/api/health", (_req: Request, res: Response) => {
@@ -435,6 +435,7 @@ app.use(
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 350,
+  validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "TOO_MANY_REQUESTS", message: "Muitas requisições. Tente novamente em alguns minutos." },
@@ -445,6 +446,7 @@ const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 15,
   skip: (req) => isAdminIp(getClientIp(req)) || process.env.NODE_ENV === 'development',
+  validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "TOO_MANY_LOGIN_ATTEMPTS", message: "Muitas tentativas de autenticação. Acesso bloqueado por 15 minutos." },
@@ -453,6 +455,7 @@ const authLimiter = rateLimit({
 const twoFactorLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
+  validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "TOO_MANY_2FA_ATTEMPTS", message: "Muitas tentativas de 2FA. Acesso bloqueado por 15 minutos." },
@@ -461,6 +464,7 @@ const twoFactorLimiter = rateLimit({
 const aiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
+  validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: Request) => {
