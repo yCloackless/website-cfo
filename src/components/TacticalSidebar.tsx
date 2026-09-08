@@ -13,6 +13,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Layers,
+  FileText,
   X,
   UserCircle,
   ArrowLeftRight,
@@ -24,6 +25,7 @@ export type TabType =
   | 'timer'
   | 'bizuario'
   | 'highyield'
+  | 'examBank'
   | 'ai'
   | 'calendar'
   | 'simulations'
@@ -140,6 +142,17 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         light: 'bg-blue-600 text-white',
       },
       description: 'Incidência de provas',
+    },
+    {
+      id: 'examBank',
+      label: 'Banco de Provas',
+      icon: FileText,
+      badge: 'IA',
+      badgeClass: {
+        dark: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+        light: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+      },
+      description: 'Questões & Resolução IA',
     },
     {
       id: 'ai',

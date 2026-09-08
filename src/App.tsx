@@ -70,8 +70,9 @@ const TimerTab = lazy(() => import('./components/TimerTab').then(({ TimerTab }) 
 const NotionAgendaTab = lazy(() => import('./components/NotionAgendaTab').then(({ NotionAgendaTab }) => ({ default: NotionAgendaTab })));
 import { CookieConsent } from './components/CookieConsent';
 const TacticalSimulations = lazy(() => import('./components/TacticalSimulations').then(({ TacticalSimulations }) => ({ default: TacticalSimulations })));
-import { TacticalSidebar } from './components/TacticalSidebar';
+import { TacticalSidebar, TabType } from './components/TacticalSidebar';
 const ErrorNotebookTab = lazy(() => import('./components/ErrorNotebookTab').then(({ ErrorNotebookTab }) => ({ default: ErrorNotebookTab })));
+const ExamBankTab = lazy(() => import('./components/ExamBankTab').then(({ ExamBankTab }) => ({ default: ExamBankTab })));
 import { MyAccountModal } from './components/MyAccountModal';
 import { AdminSecurityPanelModal } from './components/AdminSecurityPanelModal';
 import { NotificationCenterDrawer, NotificationItem } from './components/NotificationCenterDrawer';
@@ -440,8 +441,8 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
 
-  // Active Tab ('table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations' | 'flashcards')
-  const [activeTab, setActiveTab] = useState<'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations' | 'flashcards'>('table');
+  // Active Tab
+  const [activeTab, setActiveTab] = useState<TabType>('table');
 
   // Preset topic for creating a Bizu from HighYield tab
   const [presetTopicForBizu, setPresetTopicForBizu] = useState<{
@@ -1930,6 +1931,14 @@ export default function App() {
               showToast(`Tópico "${topicName}" preparado no Bizuário. Clique em ✨ Gerar Anotações com Gemini AI!`, 'info');
             }}
             onNavigateToSchedule={() => setActiveTab('table')}
+          />
+        )}
+
+        {/* Render Tab: Banco de Provas & Resolução por IA */}
+        {activeTab === 'examBank' && (
+          <ExamBankTab
+            theme={theme}
+            showToast={showToast}
           />
         )}
 

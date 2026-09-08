@@ -51,10 +51,11 @@ import {
 import { logAuditEvent, readRecentAuditLogs } from "./src/services/auditLogger";
 import { AuthService } from "./src/db/authService";
 import { getDb } from "./src/db/database";
-import { UserRepository, ProfileRepository, AuditRepository, SessionRepository, RecoveryCodeRepository, UserStateRepository, SecurityNotificationRepository, UploadedFileRepository } from "./src/db/repositories";
-import { UserRole, DbUser } from "./src/db/schema";
+import { UserRepository, ProfileRepository, AuditRepository, SessionRepository, RecoveryCodeRepository, UserStateRepository, SecurityNotificationRepository, UploadedFileRepository, ExamPaperRepository, ExamQuestionRepository, ExamJobRepository } from "./src/db/repositories";
+import { UserRole, DbUser, DbExamPaper } from "./src/db/schema";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
 import { secureUploadService, SecureUploadService } from "./src/services/secureUploadService";
+import { ExamService } from "./src/services/examService";
 import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtimeHub";
 import { createAuthMiddlewares } from "./src/middleware/auth";
 
@@ -734,6 +735,15 @@ const userStateRepoInstance = new UserStateRepository(getDb().getRawDb());
 const sessionRepoInstance = new SessionRepository(getDb().getRawDb());
 const recoveryCodeRepoInstance = new RecoveryCodeRepository(getDb().getRawDb());
 const uploadedFileRepoInstance = new UploadedFileRepository(getDb().getRawDb());
+const examPaperRepoInstance = new ExamPaperRepository(getDb().getRawDb());
+const examQuestionRepoInstance = new ExamQuestionRepository(getDb().getRawDb());
+const examJobRepoInstance = new ExamJobRepository(getDb().getRawDb());
+const examServiceInstance = new ExamService(
+  examPaperRepoInstance,
+  examQuestionRepoInstance,
+  examJobRepoInstance,
+  uploadedFileRepoInstance
+);
 
 function logSecurityEvent(
   req: Request,
@@ -4595,6 +4605,342 @@ app.get("/api/files", requireUserAuth, async (req: Request, res: Response) => {
     return res.status(500).json({
       error: "LIST_FILES_FAILED",
       message: "Falha ao consultar repositório de arquivos.",
+    });
+  }
+});
+
+// ============================================================================
+// 📚 ROTAS DO BANCO DE PROVAS (EXAM BANK) & INTELIGÊNCIA ARTIFICIAL
+// ============================================================================
+
+// 1. Upload Seguro de Prova e Registro Estruturado: POST /api/exams/upload-and-process
+app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { title, institution, examYear, fileName, declaredMime, contentBase64, rawTextContent } = req.body || {};
+
+    if (!title || typeof title !== 'string') {
+      return res.status(400).json({ error: "INVALID_TITLE", message: "O título da prova é obrigatório." });
+    }
+
+    const cleanTitle = title.trim();
+    const cleanInstitution = (institution && typeof institution === 'string' ? institution.trim() : 'Banca Examinadora');
+    const parsedYear = Number(examYear) || new Date().getFullYear();
+
+    let fileId: string | undefined;
+
+    // Se houver arquivo binário fornecido via Base64, passa pelo cofre de upload seguro
+    if (contentBase64 && typeof contentBase64 === 'string') {
+      let buffer: Buffer;
+      try {
+        const cleanBase64 = contentBase64.replace(/^data:[^;]+;base64,/, '');
+        buffer = Buffer.from(cleanBase64, 'base64');
+      } catch {
+        return res.status(400).json({ error: "INVALID_ENCODING", message: "Buffer base64 corrompido." });
+      }
+
+      const uploadRes = await secureUploadService.processUpload({
+        buffer,
+        originalName: fileName || `${cleanTitle}.pdf`,
+        declaredMime: declaredMime || 'application/pdf',
+        userId: user.userId,
+        ip: getClientIp(req),
+        userAgent: (req.headers['user-agent'] as string) || undefined,
+      });
+
+      if (!uploadRes.success || !uploadRes.file) {
+        return res.status(400).json({
+          error: "UPLOAD_REJECTED",
+          message: uploadRes.error || "Arquivo de prova rejeitado pela validação de segurança.",
+        });
+      }
+
+      fileId = uploadRes.file.id;
+    }
+
+    // Extrai e cadastra a prova e suas questões
+    const result = await examServiceInstance.extractAndRegisterExam({
+      userId: user.userId,
+      fileId,
+      title: cleanTitle,
+      institution: cleanInstitution,
+      examYear: parsedYear,
+      rawTextContent: typeof rawTextContent === 'string' ? rawTextContent : undefined,
+    });
+
+    logSecurityEvent(req, {
+      action: 'EXAM_PAPER_CREATED',
+      actor: user.username || user.userId,
+      actorUserId: user.userId,
+      resource: 'exam_papers',
+      status: 'SUCCESS',
+      targetType: 'exam_paper',
+      targetId: result.paper.id,
+      details: {
+        totalQuestions: result.paper.totalQuestions,
+        disciplines: result.paper.primaryDisciplinesJson,
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Prova cadastrada e processada com sucesso.",
+      paper: result.paper,
+      questionsCount: result.questions.length,
+    });
+  } catch (err: any) {
+    console.error("[Exam Upload & Process Error]:", err?.message || err);
+    return res.status(500).json({
+      error: "EXAM_PROCESSING_FAILED",
+      message: err?.message || "Falha ao processar e extrair dados da prova.",
+    });
+  }
+});
+
+// 2. Listagem de Provas do Usuário com Filtros: GET /api/exams
+app.get("/api/exams", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const discipline = req.query.discipline ? String(req.query.discipline).trim() : undefined;
+    const year = req.query.year ? parseInt(String(req.query.year), 10) : undefined;
+    const search = req.query.search ? String(req.query.search).trim() : undefined;
+    const limit = req.query.limit ? Math.min(100, Math.max(1, parseInt(String(req.query.limit), 10))) : 50;
+
+    let papers: DbExamPaper[];
+    if (user.role === 'admin' && req.query.allUsers === 'true') {
+      papers = examPaperRepoInstance.findAll({ search, limit });
+    } else {
+      papers = examPaperRepoInstance.findByUserId(user.userId, {
+        discipline,
+        year: isNaN(year!) ? undefined : year,
+        search,
+        limit,
+      });
+    }
+
+    return res.json({
+      success: true,
+      papers,
+      total: papers.length,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      error: "LIST_EXAMS_FAILED",
+      message: "Falha ao listar o banco de provas.",
+    });
+  }
+});
+
+// 3. Estatísticas Reais Agregadas do Aluno: GET /api/exams/stats
+app.get("/api/exams/stats", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const stats = examPaperRepoInstance.getStatsByUserId(user.userId);
+
+    return res.json({
+      success: true,
+      stats: {
+        totalPapers: stats.totalPapers,
+        totalQuestions: stats.totalQuestions,
+        resolvedQuestions: stats.resolvedQuestions,
+        successRatePercent: stats.successRatePercent,
+        averageTimeMinutes: stats.totalPapers > 0 ? 2 : 0,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      error: "STATS_ERROR",
+      message: "Falha ao carregar métricas reais do banco de provas.",
+    });
+  }
+});
+
+// 4. Detalhes de Prova Específica: GET /api/exams/:id
+app.get("/api/exams/:id", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const examId = req.params.id;
+
+    const paper = examPaperRepoInstance.findById(examId);
+    if (!paper) {
+      return res.status(404).json({ error: "EXAM_NOT_FOUND", message: "Prova não encontrada." });
+    }
+
+    // Validação estrita de Ownership (IDOR Defense)
+    if (paper.userId !== user.userId && user.role !== 'admin') {
+      return res.status(403).json({ error: "ACCESS_DENIED", message: "Você não possui permissão para acessar esta prova." });
+    }
+
+    const questions = examQuestionRepoInstance.findByExamId(examId);
+
+    return res.json({
+      success: true,
+      paper,
+      questions,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      error: "GET_EXAM_FAILED",
+      message: "Falha ao obter detalhes da prova.",
+    });
+  }
+});
+
+// 5. Questões de uma Prova com Filtro por Disciplina: GET /api/exams/:id/questions
+app.get("/api/exams/:id/questions", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const examId = req.params.id;
+    const discipline = req.query.discipline ? String(req.query.discipline).trim() : undefined;
+
+    const paper = examPaperRepoInstance.findById(examId);
+    if (!paper) {
+      return res.status(404).json({ error: "EXAM_NOT_FOUND", message: "Prova não encontrada." });
+    }
+
+    if (paper.userId !== user.userId && user.role !== 'admin') {
+      return res.status(403).json({ error: "ACCESS_DENIED", message: "Acesso não autorizado." });
+    }
+
+    const questions = examQuestionRepoInstance.findByExamId(examId, discipline);
+
+    return res.json({
+      success: true,
+      examId,
+      discipline: discipline || 'Todas',
+      questions,
+      total: questions.length,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      error: "GET_QUESTIONS_FAILED",
+      message: "Falha ao obter questões da prova.",
+    });
+  }
+});
+
+// 6. Resolução Profunda por IA de até 10 Questões: POST /api/exams/solve-with-ai
+app.post("/api/exams/solve-with-ai", requireUserAuth, aiLimiter, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { questionIds, idempotencyKey } = req.body || {};
+
+    if (!Array.isArray(questionIds) || questionIds.length === 0) {
+      return res.status(400).json({
+        error: "NO_QUESTIONS_SELECTED",
+        message: "Selecione pelo menos uma questão para correção.",
+      });
+    }
+
+    // 🛑 Validação Rigorosa: Máximo 10 Questões
+    if (questionIds.length > 10) {
+      return res.status(400).json({
+        error: "MAX_QUESTIONS_EXCEEDED",
+        message: "Você pode corrigir até 10 questões por vez.",
+      });
+    }
+
+    // 🛑 Proteção de Idempotência contra Double-Click / Race Condition
+    if (idempotencyKey && typeof idempotencyKey === 'string') {
+      const existingJob = examJobRepoInstance.findByIdempotencyKey(idempotencyKey);
+      if (existingJob && existingJob.status === 'completed' && existingJob.resultSummaryJson) {
+        try {
+          const cachedResult = JSON.parse(existingJob.resultSummaryJson);
+          return res.json({
+            success: true,
+            idempotent: true,
+            ...cachedResult,
+          });
+        } catch {}
+      }
+    }
+
+    // Registra Job de IA
+    const job = examJobRepoInstance.create({
+      userId: user.userId,
+      jobType: 'AI_SOLVE',
+      status: 'processing',
+      totalItems: questionIds.length,
+      idempotencyKey: typeof idempotencyKey === 'string' ? idempotencyKey : null,
+    });
+
+    const solveOutput = await examServiceInstance.solveQuestionsWithAI({
+      userId: user.userId,
+      questionIds,
+      idempotencyKey: typeof idempotencyKey === 'string' ? idempotencyKey : undefined,
+    });
+
+    examJobRepoInstance.updateStatus(
+      job.id,
+      'completed',
+      solveOutput.totalSolved,
+      { results: solveOutput.results }
+    );
+
+    logSecurityEvent(req, {
+      action: 'EXAM_AI_SOLVE_COMPLETED',
+      actor: user.username || user.userId,
+      actorUserId: user.userId,
+      resource: 'exam_questions',
+      status: 'SUCCESS',
+      details: {
+        totalRequested: questionIds.length,
+        totalSolved: solveOutput.totalSolved,
+      },
+    });
+
+    return res.json({
+      success: true,
+      jobId: job.id,
+      results: solveOutput.results,
+      totalSolved: solveOutput.totalSolved,
+    });
+  } catch (err: any) {
+    console.error("[Solve With AI Error]:", err?.message || err);
+    return res.status(400).json({
+      error: "SOLVE_ERROR",
+      message: err?.message || "Falha durante resolução das questões com IA.",
+    });
+  }
+});
+
+// 7. Exclusão Segura de Prova: DELETE /api/exams/:id
+app.delete("/api/exams/:id", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const examId = req.params.id;
+
+    const paper = examPaperRepoInstance.findById(examId);
+    if (!paper) {
+      return res.status(404).json({ error: "EXAM_NOT_FOUND", message: "Prova não encontrada." });
+    }
+
+    if (paper.userId !== user.userId && user.role !== 'admin') {
+      return res.status(403).json({ error: "ACCESS_DENIED", message: "Permissão negada para excluir esta prova." });
+    }
+
+    // Exclui questões e prova em cascata
+    examQuestionRepoInstance.deleteByExamId(examId);
+    examPaperRepoInstance.delete(examId);
+
+    logSecurityEvent(req, {
+      action: 'EXAM_PAPER_DELETED',
+      actor: user.username || user.userId,
+      actorUserId: user.userId,
+      resource: 'exam_papers',
+      status: 'SUCCESS',
+      targetType: 'exam_paper',
+      targetId: examId,
+    });
+
+    return res.json({
+      success: true,
+      message: "Prova e questões associadas removidas com sucesso.",
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      error: "DELETE_EXAM_FAILED",
+      message: "Falha ao remover a prova.",
     });
   }
 });

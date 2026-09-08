@@ -254,3 +254,84 @@ export interface DbUploadedFile {
   createdAt: string;
   updatedAt: string;
 }
+
+export type ExamPaperStatus = 'QUEUED' | 'PROCESSING' | 'READY' | 'ERROR' | 'NEEDS_REVIEW';
+export type ExamDifficulty = 'Fácil' | 'Médio' | 'Difícil';
+
+export interface DbExamPaper {
+  id: string;
+  userId: string;
+  title: string;
+  institution: string;
+  examYear: number;
+  fileId?: string | null;
+  totalQuestions: number;
+  status: ExamPaperStatus;
+  primaryDisciplinesJson?: string | null;
+  metadataJson?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExamOption {
+  letter: 'A' | 'B' | 'C' | 'D' | 'E';
+  text: string;
+}
+
+export interface AISolutionStep {
+  stepNumber: number;
+  title: string;
+  explanation: string;
+  latex?: string;
+}
+
+export interface AISolutionPayload {
+  selectedOption: 'A' | 'B' | 'C' | 'D' | 'E';
+  steps: AISolutionStep[];
+  concepts: string[];
+  explanationSummary: string;
+  calculatedDifficulty: ExamDifficulty;
+  confidencePercent: number;
+  reviewedByAI?: boolean;
+}
+
+export interface DbExamQuestion {
+  id: string;
+  examId: string;
+  userId: string;
+  questionNumber: number;
+  statement: string;
+  supportText?: string | null;
+  optionsJson: string; // serialized ExamOption[]
+  correctOption?: 'A' | 'B' | 'C' | 'D' | 'E' | null;
+  discipline: string;
+  topic: string;
+  subtopic: string;
+  difficulty: ExamDifficulty;
+  difficultyScore: number;
+  confidenceScore: number;
+  imagesJson?: string | null; // serialized string[] of URLs/Paths
+  aiSolutionJson?: string | null; // serialized AISolutionPayload
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ExamJobType = 'EXTRACTION' | 'AI_SOLVE';
+export type ExamJobStatus = 'queued' | 'processing' | 'reviewing' | 'completed' | 'failed';
+
+export interface DbExamJob {
+  id: string;
+  userId: string;
+  examId?: string | null;
+  jobType: ExamJobType;
+  status: ExamJobStatus;
+  progress: number;
+  totalItems: number;
+  errorMessage?: string | null;
+  idempotencyKey?: string | null;
+  resultSummaryJson?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+

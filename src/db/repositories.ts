@@ -24,6 +24,13 @@ import {
   SecurityNotificationType,
   DbUploadedFile,
   UploadScanStatus,
+  DbExamPaper,
+  DbExamQuestion,
+  DbExamJob,
+  ExamPaperStatus,
+  ExamDifficulty,
+  ExamJobType,
+  ExamJobStatus,
   OrderStatus,
   RefundRequestStatus,
   UserRole,
@@ -1825,4 +1832,451 @@ export class UploadedFileRepository {
     };
   }
 }
+
+export class ExamPaperRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public create(data: {
+    userId: string;
+    title: string;
+    institution: string;
+    examYear: number;
+    fileId?: string | null;
+    totalQuestions?: number;
+    status?: ExamPaperStatus;
+    primaryDisciplines?: string[];
+    metadata?: Record<string, any>;
+  }): DbExamPaper {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const primaryDisciplinesJson = data.primaryDisciplines ? JSON.stringify(data.primaryDisciplines) : null;
+    const metadataJson = data.metadata ? JSON.stringify(data.metadata) : null;
+    const status = data.status || 'READY';
+    const totalQuestions = data.totalQuestions || 0;
+
+    this.db
+      .prepare(
+        `INSERT INTO exam_papers (
+          id, user_id, title, institution, exam_year, file_id,
+          total_questions, status, primary_disciplines_json, metadata_json,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        data.userId,
+        data.title,
+        data.institution,
+        data.examYear,
+        data.fileId ?? null,
+        totalQuestions,
+        status,
+        primaryDisciplinesJson,
+        metadataJson,
+        now,
+        now
+      );
+
+    return this.findById(id)!;
+  }
+
+  public findById(id: string): DbExamPaper | null {
+    const row = this.db.prepare('SELECT * FROM exam_papers WHERE id = ?').get(id) as any;
+    if (!row) return null;
+    return this.mapPaper(row);
+  }
+
+  public findByUserId(userId: string, filters?: {
+    discipline?: string;
+    year?: number;
+    search?: string;
+    limit?: number;
+  }): DbExamPaper[] {
+    let query = 'SELECT * FROM exam_papers WHERE user_id = ?';
+    const params: any[] = [userId];
+
+    if (filters?.year) {
+      query += ' AND exam_year = ?';
+      params.push(filters.year);
+    }
+
+    if (filters?.search) {
+      query += ' AND (title LIKE ? OR institution LIKE ?)';
+      params.push(`%${filters.search}%`, `%${filters.search}%`);
+    }
+
+    if (filters?.discipline) {
+      query += ' AND primary_disciplines_json LIKE ?';
+      params.push(`%${filters.discipline}%`);
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    if (filters?.limit) {
+      query += ' LIMIT ?';
+      params.push(filters.limit);
+    }
+
+    const rows = this.db.prepare(query).all(...params) as any[];
+    return rows.map((r) => this.mapPaper(r));
+  }
+
+  public findAll(filters?: { search?: string; limit?: number }): DbExamPaper[] {
+    let query = 'SELECT * FROM exam_papers WHERE 1=1';
+    const params: any[] = [];
+
+    if (filters?.search) {
+      query += ' AND (title LIKE ? OR institution LIKE ?)';
+      params.push(`%${filters.search}%`, `%${filters.search}%`);
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    if (filters?.limit) {
+      query += ' LIMIT ?';
+      params.push(filters.limit);
+    }
+
+    const rows = this.db.prepare(query).all(...params) as any[];
+    return rows.map((r) => this.mapPaper(r));
+  }
+
+  public update(id: string, data: Partial<Omit<DbExamPaper, 'id' | 'userId' | 'createdAt'>> & {
+    primaryDisciplines?: string[];
+    metadata?: Record<string, any>;
+  }): DbExamPaper | null {
+    const existing = this.findById(id);
+    if (!existing) return null;
+
+    const now = new Date().toISOString();
+    const title = data.title !== undefined ? data.title : existing.title;
+    const institution = data.institution !== undefined ? data.institution : existing.institution;
+    const examYear = data.examYear !== undefined ? data.examYear : existing.examYear;
+    const totalQuestions = data.totalQuestions !== undefined ? data.totalQuestions : existing.totalQuestions;
+    const status = data.status !== undefined ? data.status : existing.status;
+    const primaryDisciplinesJson = data.primaryDisciplines !== undefined
+      ? JSON.stringify(data.primaryDisciplines)
+      : (data.primaryDisciplinesJson !== undefined ? data.primaryDisciplinesJson : existing.primaryDisciplinesJson);
+    const metadataJson = data.metadata !== undefined
+      ? JSON.stringify(data.metadata)
+      : (data.metadataJson !== undefined ? data.metadataJson : existing.metadataJson);
+
+    this.db
+      .prepare(
+        `UPDATE exam_papers
+         SET title = ?, institution = ?, exam_year = ?, total_questions = ?,
+             status = ?, primary_disciplines_json = ?, metadata_json = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .run(title, institution, examYear, totalQuestions, status, primaryDisciplinesJson, metadataJson, now, id);
+
+    return this.findById(id);
+  }
+
+  public delete(id: string): boolean {
+    const res = this.db.prepare('DELETE FROM exam_papers WHERE id = ?').run(id);
+    return Number(res.changes) > 0;
+  }
+
+  public getStatsByUserId(userId: string): {
+    totalPapers: number;
+    totalQuestions: number;
+    resolvedQuestions: number;
+    successRatePercent: number;
+  } {
+    const paperRow = this.db
+      .prepare('SELECT COUNT(*) as count, SUM(total_questions) as total_q FROM exam_papers WHERE user_id = ?')
+      .get(userId) as any;
+
+    const questionRow = this.db
+      .prepare(
+        `SELECT COUNT(*) as total_resolved
+         FROM exam_questions
+         WHERE user_id = ? AND ai_solution_json IS NOT NULL`
+      )
+      .get(userId) as any;
+
+    const totalPapers = Number(paperRow?.count || 0);
+    const totalQuestions = Number(paperRow?.total_q || 0);
+    const resolvedQuestions = Number(questionRow?.total_resolved || 0);
+    const successRatePercent = totalQuestions > 0 ? Math.min(100, Math.round((resolvedQuestions / totalQuestions) * 100)) : 0;
+
+    return {
+      totalPapers,
+      totalQuestions,
+      resolvedQuestions,
+      successRatePercent,
+    };
+  }
+
+  private mapPaper(row: any): DbExamPaper {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      title: row.title,
+      institution: row.institution,
+      examYear: Number(row.exam_year),
+      fileId: row.file_id ?? null,
+      totalQuestions: Number(row.total_questions || 0),
+      status: row.status as ExamPaperStatus,
+      primaryDisciplinesJson: row.primary_disciplines_json ?? null,
+      metadataJson: row.metadata_json ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+}
+
+export class ExamQuestionRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public create(data: {
+    examId: string;
+    userId: string;
+    questionNumber: number;
+    statement: string;
+    supportText?: string | null;
+    options: { letter: 'A' | 'B' | 'C' | 'D' | 'E'; text: string }[];
+    correctOption?: 'A' | 'B' | 'C' | 'D' | 'E' | null;
+    discipline: string;
+    topic?: string;
+    subtopic?: string;
+    difficulty?: ExamDifficulty;
+    difficultyScore?: number;
+    confidenceScore?: number;
+    images?: string[];
+    aiSolution?: Record<string, any> | null;
+    status?: string;
+  }): DbExamQuestion {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const optionsJson = JSON.stringify(data.options);
+    const topic = data.topic || 'Geral';
+    const subtopic = data.subtopic || 'Geral';
+    const difficulty = data.difficulty || 'Médio';
+    const difficultyScore = data.difficultyScore !== undefined ? data.difficultyScore : 0.5;
+    const confidenceScore = data.confidenceScore !== undefined ? data.confidenceScore : 0.95;
+    const imagesJson = data.images ? JSON.stringify(data.images) : null;
+    const aiSolutionJson = data.aiSolution ? JSON.stringify(data.aiSolution) : null;
+    const status = data.status || 'READY';
+
+    this.db
+      .prepare(
+        `INSERT INTO exam_questions (
+          id, exam_id, user_id, question_number, statement, support_text,
+          options_json, correct_option, discipline, topic, subtopic,
+          difficulty, difficulty_score, confidence_score, images_json,
+          ai_solution_json, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        data.examId,
+        data.userId,
+        data.questionNumber,
+        data.statement,
+        data.supportText ?? null,
+        optionsJson,
+        data.correctOption ?? null,
+        data.discipline,
+        topic,
+        subtopic,
+        difficulty,
+        difficultyScore,
+        confidenceScore,
+        imagesJson,
+        aiSolutionJson,
+        status,
+        now,
+        now
+      );
+
+    return this.findById(id)!;
+  }
+
+  public findById(id: string): DbExamQuestion | null {
+    const row = this.db.prepare('SELECT * FROM exam_questions WHERE id = ?').get(id) as any;
+    if (!row) return null;
+    return this.mapQuestion(row);
+  }
+
+  public findByExamId(examId: string, discipline?: string): DbExamQuestion[] {
+    let query = 'SELECT * FROM exam_questions WHERE exam_id = ?';
+    const params: any[] = [examId];
+
+    if (discipline && discipline !== 'Todas') {
+      query += ' AND discipline = ?';
+      params.push(discipline);
+    }
+
+    query += ' ORDER BY question_number ASC';
+
+    const rows = this.db.prepare(query).all(...params) as any[];
+    return rows.map((r) => this.mapQuestion(r));
+  }
+
+  public findByIds(ids: string[]): DbExamQuestion[] {
+    if (!ids || ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = this.db.prepare(`SELECT * FROM exam_questions WHERE id IN (${placeholders})`).all(...ids) as any[];
+    return rows.map((r) => this.mapQuestion(r));
+  }
+
+  public updateAISolution(id: string, aiSolution: Record<string, any>, calculatedDifficulty?: ExamDifficulty, confidenceScore?: number): DbExamQuestion | null {
+    const now = new Date().toISOString();
+    const solutionJson = JSON.stringify(aiSolution);
+
+    if (calculatedDifficulty && confidenceScore !== undefined) {
+      this.db
+        .prepare(
+          `UPDATE exam_questions
+           SET ai_solution_json = ?, difficulty = ?, confidence_score = ?, updated_at = ?
+           WHERE id = ?`
+        )
+        .run(solutionJson, calculatedDifficulty, confidenceScore, now, id);
+    } else {
+      this.db
+        .prepare(
+          `UPDATE exam_questions
+           SET ai_solution_json = ?, updated_at = ?
+           WHERE id = ?`
+        )
+        .run(solutionJson, now, id);
+    }
+
+    return this.findById(id);
+  }
+
+  public deleteByExamId(examId: string): boolean {
+    const res = this.db.prepare('DELETE FROM exam_questions WHERE exam_id = ?').run(examId);
+    return Number(res.changes) > 0;
+  }
+
+  private mapQuestion(row: any): DbExamQuestion {
+    return {
+      id: row.id,
+      examId: row.exam_id,
+      userId: row.user_id,
+      questionNumber: Number(row.question_number),
+      statement: row.statement,
+      supportText: row.support_text ?? null,
+      optionsJson: row.options_json,
+      correctOption: row.correct_option as any,
+      discipline: row.discipline,
+      topic: row.topic,
+      subtopic: row.subtopic,
+      difficulty: row.difficulty as ExamDifficulty,
+      difficultyScore: Number(row.difficulty_score || 0.5),
+      confidenceScore: Number(row.confidence_score || 0.95),
+      imagesJson: row.images_json ?? null,
+      aiSolutionJson: row.ai_solution_json ?? null,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+}
+
+export class ExamJobRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public create(data: {
+    userId: string;
+    examId?: string | null;
+    jobType: ExamJobType;
+    status?: ExamJobStatus;
+    totalItems?: number;
+    idempotencyKey?: string | null;
+  }): DbExamJob {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const status = data.status || 'queued';
+    const totalItems = data.totalItems || 0;
+
+    this.db
+      .prepare(
+        `INSERT INTO exam_jobs (
+          id, user_id, exam_id, job_type, status, progress, total_items,
+          idempotency_key, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        data.userId,
+        data.examId ?? null,
+        data.jobType,
+        status,
+        totalItems,
+        data.idempotencyKey ?? null,
+        now,
+        now
+      );
+
+    return this.findById(id)!;
+  }
+
+  public findById(id: string): DbExamJob | null {
+    const row = this.db.prepare('SELECT * FROM exam_jobs WHERE id = ?').get(id) as any;
+    if (!row) return null;
+    return this.mapJob(row);
+  }
+
+  public findByIdempotencyKey(key: string): DbExamJob | null {
+    if (!key) return null;
+    const row = this.db.prepare('SELECT * FROM exam_jobs WHERE idempotency_key = ?').get(key) as any;
+    if (!row) return null;
+    return this.mapJob(row);
+  }
+
+  public updateStatus(
+    id: string,
+    status: ExamJobStatus,
+    progress?: number,
+    resultSummary?: Record<string, any>,
+    errorMessage?: string
+  ): DbExamJob | null {
+    const now = new Date().toISOString();
+    const resultSummaryJson = resultSummary !== undefined ? JSON.stringify(resultSummary) : null;
+
+    let query = 'UPDATE exam_jobs SET status = ?, updated_at = ?';
+    const params: any[] = [status, now];
+
+    if (progress !== undefined) {
+      query += ', progress = ?';
+      params.push(progress);
+    }
+    if (resultSummaryJson !== null) {
+      query += ', result_summary_json = ?';
+      params.push(resultSummaryJson);
+    }
+    if (errorMessage !== undefined) {
+      query += ', error_message = ?';
+      params.push(errorMessage);
+    }
+
+    query += ' WHERE id = ?';
+    params.push(id);
+
+    this.db.prepare(query).run(...params);
+    return this.findById(id);
+  }
+
+  private mapJob(row: any): DbExamJob {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      examId: row.exam_id ?? null,
+      jobType: row.job_type as ExamJobType,
+      status: row.status as ExamJobStatus,
+      progress: Number(row.progress || 0),
+      totalItems: Number(row.total_items || 0),
+      errorMessage: row.error_message ?? null,
+      idempotencyKey: row.idempotency_key ?? null,
+      resultSummaryJson: row.result_summary_json ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+}
+
 

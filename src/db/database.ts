@@ -464,7 +464,90 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_uploaded_files_created_at ON uploaded_files(created_at);
     `,
   },
+  {
+    id: 15,
+    name: '015_exam_bank_tables',
+    sql: `
+      -- 1. EXAM PAPERS (Provas cadastradas com metadados)
+      CREATE TABLE IF NOT EXISTS exam_papers (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        institution TEXT NOT NULL,
+        exam_year INTEGER NOT NULL,
+        file_id TEXT,
+        total_questions INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'READY' CHECK (
+          status IN ('QUEUED', 'PROCESSING', 'READY', 'ERROR', 'NEEDS_REVIEW')
+        ),
+        primary_disciplines_json TEXT,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (file_id) REFERENCES uploaded_files(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_exam_papers_user_id ON exam_papers(user_id);
+      CREATE INDEX IF NOT EXISTS idx_exam_papers_status ON exam_papers(status);
+      CREATE INDEX IF NOT EXISTS idx_exam_papers_year ON exam_papers(exam_year);
+      CREATE INDEX IF NOT EXISTS idx_exam_papers_created_at ON exam_papers(created_at);
+
+      -- 2. EXAM QUESTIONS (Questões extraídas, classificadas e com resolução)
+      CREATE TABLE IF NOT EXISTS exam_questions (
+        id TEXT PRIMARY KEY,
+        exam_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        question_number INTEGER NOT NULL,
+        statement TEXT NOT NULL,
+        support_text TEXT,
+        options_json TEXT NOT NULL,
+        correct_option TEXT CHECK (correct_option IN ('A', 'B', 'C', 'D', 'E') OR correct_option IS NULL),
+        discipline TEXT NOT NULL,
+        topic TEXT NOT NULL,
+        subtopic TEXT NOT NULL,
+        difficulty TEXT NOT NULL DEFAULT 'Médio' CHECK (difficulty IN ('Fácil', 'Médio', 'Difícil')),
+        difficulty_score REAL NOT NULL DEFAULT 0.5,
+        confidence_score REAL NOT NULL DEFAULT 0.95,
+        images_json TEXT,
+        ai_solution_json TEXT,
+        status TEXT NOT NULL DEFAULT 'READY',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (exam_id) REFERENCES exam_papers(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_exam_questions_exam_id ON exam_questions(exam_id);
+      CREATE INDEX IF NOT EXISTS idx_exam_questions_user_id ON exam_questions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_exam_questions_discipline ON exam_questions(discipline);
+      CREATE INDEX IF NOT EXISTS idx_exam_questions_difficulty ON exam_questions(difficulty);
+      CREATE INDEX IF NOT EXISTS idx_exam_questions_number ON exam_questions(exam_id, question_number);
+
+      -- 3. EXAM JOBS (Controle de Processamento Assíncrono e Idempotência)
+      CREATE TABLE IF NOT EXISTS exam_jobs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        exam_id TEXT,
+        job_type TEXT NOT NULL CHECK (job_type IN ('EXTRACTION', 'AI_SOLVE')),
+        status TEXT NOT NULL DEFAULT 'queued' CHECK (
+          status IN ('queued', 'processing', 'reviewing', 'completed', 'failed')
+        ),
+        progress INTEGER NOT NULL DEFAULT 0,
+        total_items INTEGER NOT NULL DEFAULT 0,
+        error_message TEXT,
+        idempotency_key TEXT,
+        result_summary_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (exam_id) REFERENCES exam_papers(id) ON DELETE SET NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_jobs_idempotency ON exam_jobs(idempotency_key) WHERE idempotency_key IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_exam_jobs_user_id ON exam_jobs(user_id);
+      CREATE INDEX IF NOT EXISTS idx_exam_jobs_status ON exam_jobs(status);
+    `,
+  },
 ];
+
 
 
 
