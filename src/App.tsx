@@ -119,6 +119,10 @@ export default function App() {
   const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
   const [activeAlertPopup, setActiveAlertPopup] = useState<NotificationItem | null>(null);
 
+  const canViewSecurityAlertIp = userProfile?.role === 'admin'
+    || userProfile?.role === 'support'
+    || ['admin', 'support'].includes(localStorage.getItem('cfo_terminal_role') || '');
+
   const unreadNotificationsCount = useMemo(
     () => notifications.filter((n) => !n.isRead).length,
     [notifications]
@@ -134,8 +138,13 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.items)) {
-          setNotifications(data.items);
-          return data.items as NotificationItem[];
+          const items = data.items as NotificationItem[];
+          setNotifications(items);
+          setActiveAlertPopup((current) => {
+            if (current && items.some((item) => item.id === current.id && !item.isRead)) return current;
+            return items.find((item) => item.type === 'CADET_SECURITY_ALERT' && !item.isRead) || null;
+          });
+          return items;
         }
       }
     } catch (_) {}
@@ -145,6 +154,7 @@ export default function App() {
   const handleMarkNotificationAsRead = useCallback(async (id: string) => {
     const token = localStorage.getItem('cfo_terminal_session');
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+    setActiveAlertPopup((current) => (current?.id === id ? null : current));
     if (!token) return;
     try {
       await fetch(`/api/admin/notifications/${id}/read`, {
@@ -157,6 +167,7 @@ export default function App() {
   const handleMarkAllNotificationsAsRead = useCallback(async () => {
     const token = localStorage.getItem('cfo_terminal_session');
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    setActiveAlertPopup(null);
     if (!token) return;
     try {
       await fetch('/api/admin/notifications/read-all', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
@@ -1964,6 +1975,7 @@ export default function App() {
           setIsNotificationDrawerOpen(true);
         }}
         onMarkAsRead={handleMarkNotificationAsRead}
+        canViewIp={canViewSecurityAlertIp}
         theme={theme}
       />
     </div>
