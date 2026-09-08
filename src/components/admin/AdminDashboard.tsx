@@ -969,13 +969,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* Main Layout: Sidebar + Content */}
-      <div className="flex-1 flex w-full">
+      <div className="flex-1 flex flex-col md:flex-row w-full min-w-0">
         
         {/* Sidebar */}
-        <aside className={`w-64 shrink-0 border-r p-4 flex flex-col gap-1 select-none ${
+        <aside className={`w-full md:w-64 shrink-0 border-b md:border-b-0 md:border-r p-3 sm:p-4 flex flex-row md:flex-col gap-1.5 overflow-x-auto select-none scrollbar-thin ${
           isDark ? 'bg-[#080D18] border-slate-800/80' : 'bg-white border-slate-200'
         }`}>
-          <p className="text-[10px] font-mono uppercase tracking-widest text-slate-500 font-bold px-3 py-1">
+          <p className="text-[10px] font-mono uppercase tracking-widest text-slate-500 font-bold px-3 py-1 hidden md:block">
             Menu Operacional
           </p>
 

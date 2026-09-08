@@ -1227,6 +1227,7 @@ export default function App() {
           isOpen={isSidebarOpen}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={handleToggleCollapse}
+          onClose={() => setIsSidebarOpen(false)}
           pendingRevisionsCount={pendingRevisionsCount}
           canAccessNotion={canAccessNotion}
         />

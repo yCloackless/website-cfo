@@ -351,7 +351,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
             />
 
             {/* Card Inner Body Container */}
-            <div className="px-8 sm:px-11 pt-8 pb-10 flex flex-col items-center relative">
+            <div className="px-5 sm:px-11 pt-6 sm:pt-8 pb-8 sm:pb-10 flex flex-col items-center relative">
               {onBackToLanding && (
                 <button
                   type="button"
@@ -672,12 +672,14 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
 
                   {/* Cloudflare Turnstile Container (apenas para IPs não-administradores) */}
                   {securityStatus?.turnstileRequired && (
-                    <div className="pt-2 flex flex-col items-center justify-center">
-                      <div
-                        ref={turnstileContainerRef}
-                        id="turnstile-container"
-                        className="flex justify-center min-h-[65px] w-full"
-                      />
+                    <div className="pt-2 flex flex-col items-center justify-center overflow-hidden max-w-full">
+                      <div className="transform scale-[0.82] min-[380px]:scale-100 origin-center max-w-full">
+                        <div
+                          ref={turnstileContainerRef}
+                          id="turnstile-container"
+                          className="flex justify-center min-h-[65px] w-full"
+                        />
+                      </div>
                       <span className="text-[10.5px] text-slate-400 mt-1 flex items-center gap-1.5 font-medium">
                         <svg className="w-3.5 h-3.5 text-[#f38020]" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M18.8 11.2c-.4-3.1-3.1-5.5-6.3-5.5-2.7 0-5.1 1.7-6 4.2C3.7 10.4 1.5 12.7 1.5 15.5c0 3.3 2.7 6 6 6h11.2c2.6 0 4.8-2.1 4.8-4.8 0-2.5-1.9-4.6-4.4-4.8l-.3-.7z" />

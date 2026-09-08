@@ -114,13 +114,13 @@ export const Header: React.FC<HeaderProps> = ({
                 className="w-full h-full object-contain drop-shadow-[0_4px_10px_rgba(0,86,210,0.4)]"
               />
             </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.25em] text-blue-500 font-extrabold">
+            <div className="hidden min-[380px]:block">
+              <p className="text-[9px] sm:text-[10px] uppercase tracking-[0.2em] sm:tracking-[0.25em] text-blue-500 font-extrabold line-clamp-1">
                 RUMO AO CFO
               </p>
               <div className="flex items-baseline gap-2">
                 <h1
-                  className={`text-lg font-black tracking-tight ${
+                  className={`text-sm sm:text-lg font-black tracking-tight whitespace-nowrap ${
                     isDark ? 'text-white' : 'text-slate-950'
                   }`}
                 >
@@ -138,7 +138,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Action buttons & Utilities - Aligned to the right with generous spacing */}
-          <div className="ml-auto flex items-center gap-2 sm:gap-2.5 flex-nowrap shrink-0">
+          <div className="ml-auto flex items-center gap-1.5 sm:gap-2.5 flex-nowrap shrink-0 overflow-x-auto max-w-full py-0.5 scrollbar-none">
             {/* Smart Revisions Button */}
             <button
               id="btn-revisoes-inteligentes"

@@ -32,6 +32,7 @@ interface TacticalSidebarProps {
   isOpen: boolean;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  onClose?: () => void;
   pendingRevisionsCount?: number;
   canAccessNotion?: boolean;
 }
@@ -52,6 +53,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
   isOpen,
   isCollapsed,
   onToggleCollapse,
+  onClose,
   pendingRevisionsCount = 0,
   canAccessNotion = true,
 }) => {
@@ -132,16 +134,24 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
   }
 
   return (
-    <aside
-      aria-label="Navegação Principal do Sistema"
-      className={`shrink-0 z-20 transition-all duration-300 select-none flex flex-col border-r ${
-        isCollapsed ? 'w-16' : 'w-60'
-      } ${
-        isDark
-          ? 'bg-[#070D18]/95 border-slate-800/80 text-slate-200 backdrop-blur-md'
-          : 'bg-white/95 border-slate-200 text-slate-800 shadow-sm backdrop-blur-md'
-      }`}
-    >
+    <>
+      {/* Mobile Drawer Overlay Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 md:hidden"
+        onClick={onClose || onToggleCollapse}
+        aria-hidden="true"
+      />
+
+      <aside
+        aria-label="Navegação Principal do Sistema"
+        className={`fixed inset-y-0 left-0 z-50 md:static md:z-20 shrink-0 transition-all duration-300 select-none flex flex-col border-r h-full md:h-auto ${
+          isCollapsed ? 'w-16' : 'w-64 md:w-60'
+        } ${
+          isDark
+            ? 'bg-[#070D18] md:bg-[#070D18]/95 border-slate-800/80 text-slate-200 backdrop-blur-md'
+            : 'bg-white md:bg-white/95 border-slate-200 text-slate-800 shadow-sm backdrop-blur-md'
+        }`}
+      >
       {/* Top Header of Sidebar */}
       <div
         className={`p-3 border-b flex items-center ${
@@ -187,7 +197,10 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
               key={item.id}
               type="button"
               id={`sidebar-tab-${item.id}`}
-              onClick={() => onSelectTab(item.id)}
+              onClick={() => {
+                onSelectTab(item.id);
+                if (onClose) onClose();
+              }}
               className={`w-full group flex items-center rounded-xl transition-all cursor-pointer ${
                 isCollapsed
                   ? 'justify-center p-2.5'
@@ -256,5 +269,6 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         )}
       </div>
     </aside>
+    </>
   );
 };

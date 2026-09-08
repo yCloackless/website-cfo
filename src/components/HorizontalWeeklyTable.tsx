@@ -53,8 +53,8 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
       }`}
     >
       {/* Scrollable Horizontal Container */}
-      <div className="overflow-x-auto w-full">
-        <table className="w-full text-left border-collapse min-w-[960px]">
+      <div className="overflow-x-auto w-full scrollbar-thin">
+        <table className="w-full text-left border-collapse min-w-[700px] md:min-w-[960px]">
           <thead>
             <tr
               className={`border-b text-xs font-bold uppercase tracking-wider transition-colors ${
@@ -65,16 +65,16 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
             >
               {/* Sticky Subject Column */}
               <th
-                className={`sticky left-0 z-20 backdrop-blur-xs py-3.5 px-4 w-64 min-w-[240px] border-r transition-colors ${
+                className={`sticky left-0 z-20 backdrop-blur-xs py-3.5 px-2.5 sm:px-4 w-36 min-w-[130px] md:w-64 md:min-w-[240px] border-r transition-colors ${
                   isDark
                     ? 'bg-[#070D18]/95 border-slate-800 text-slate-300'
                     : 'bg-slate-50/95 border-slate-200 text-slate-800'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span>Matérias CFO CBMERJ</span>
+                  <span className="truncate">Matérias CFO</span>
                   <span
-                    className={`text-[10px] font-medium normal-case ${
+                    className={`text-[10px] font-medium normal-case hidden sm:inline ${
                       isDark ? 'text-slate-500' : 'text-slate-400'
                     }`}
                   >
@@ -89,7 +89,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                 return (
                   <th
                     key={day.index}
-                    className={`py-3.5 px-3 min-w-[125px] text-center border-r transition-colors ${
+                    className={`py-3.5 px-2 sm:px-3 min-w-[95px] md:min-w-[125px] text-center border-r transition-colors ${
                       isDark ? 'border-slate-800/80' : 'border-slate-200'
                     } ${
                       day.isToday
@@ -103,13 +103,13 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                       <div className="flex items-center gap-1">
                         <span>{dayMeta.short}</span>
                         {day.isToday && (
-                          <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-[#0056D2] text-white uppercase tracking-tighter">
+                          <span className="px-1 py-0.2 rounded-full text-[8px] sm:text-[9px] font-bold bg-[#0056D2] text-white uppercase tracking-tighter">
                             Hoje
                           </span>
                         )}
                       </div>
                       <span
-                        className={`text-[11px] font-medium mt-0.5 ${
+                        className={`text-[10px] sm:text-[11px] font-medium mt-0.5 ${
                           day.isToday
                             ? 'text-blue-400 font-semibold'
                             : isDark
@@ -126,7 +126,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
 
               {/* Summary Column */}
               <th
-                className={`py-3.5 px-3 w-28 min-w-[110px] text-center font-bold ${
+                className={`py-3.5 px-2 sm:px-3 w-24 md:w-28 min-w-[90px] md:min-w-[110px] text-center font-bold ${
                   isDark ? 'text-slate-400' : 'text-slate-600'
                 }`}
               >
@@ -153,7 +153,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                 >
                   {/* Fixed Subject Column */}
                   <td
-                    className={`sticky left-0 z-10 py-3 px-4 border-r transition-colors ${
+                    className={`sticky left-0 z-10 py-3 px-2.5 sm:px-4 border-r transition-colors ${
                       isDark
                         ? 'bg-[#0B1528] group-hover:bg-[#0F1D38] border-slate-800'
                         : 'bg-white group-hover:bg-slate-50 border-slate-200'
