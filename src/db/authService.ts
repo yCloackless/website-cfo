@@ -80,9 +80,23 @@ export class AuthService {
         status: 'SUCCESS',
         details: { email: adminEmail, role: 'admin' },
       });
-    } else if (admin.email !== adminEmail && admin.username === adminUsername) {
-      this.userRepo.updateEmail(admin.id, adminEmail);
-      admin.email = adminEmail;
+    } else {
+      if (admin.email !== adminEmail) {
+        this.userRepo.updateEmail(admin.id, adminEmail);
+        admin.email = adminEmail;
+      }
+      if (admin.status !== 'active') {
+        this.dbService.getRawDb().prepare("UPDATE users SET status = 'active' WHERE id = ?").run(admin.id);
+        admin.status = 'active';
+      }
+      if (adminPass) {
+        const matches = await bcrypt.compare(adminPass, admin.passwordHash);
+        if (!matches) {
+          const newHash = adminHash || await bcrypt.hash(adminPass, 10);
+          this.userRepo.updatePasswordHash(admin.id, newHash);
+          admin.passwordHash = newHash;
+        }
+      }
     }
 
     if (this.recoveryRepo.getRemainingCount(admin.id) === 0) {
@@ -127,7 +141,7 @@ export class AuthService {
     let support = this.userRepo.findByEmail(supportEmail) || this.userRepo.findByUsername(supportUsername);
     if (!support) {
       if (!supportHash && !supportPass) {
-        console.warn('[AUTH] Conta de suporte nÃ£o provisionada: configure SUPPORT_PASSWORD ou SUPPORT_PASSWORD_HASH para habilitÃ¡-la.');
+        console.warn('[AUTH] Conta de suporte não provisionada: configure SUPPORT_PASSWORD ou SUPPORT_PASSWORD_HASH para habilitá-la.');
         return;
       }
       const hash = supportHash || await bcrypt.hash(supportPass!, 10);
@@ -148,15 +162,31 @@ export class AuthService {
   }
 
   /**
+   * Helper privado para busca flexível de usuário por e-mail ou nome de usuário
+   */
+  private findUserByIdentifier(identifier: string): DbUser | null {
+    if (typeof identifier !== 'string') return null;
+    const clean = identifier.trim().toLowerCase();
+    if (!clean) return null;
+
+    let user = this.userRepo.findByEmail(clean) || this.userRepo.findByUsername(clean);
+    if (!user) {
+      if (clean.includes('@') && !clean.endsWith('.com')) {
+        user = this.userRepo.findByEmail(`${clean}.com`);
+      }
+      if (!user && (clean.startsWith('jb080956') || clean === 'admin@cbmerj.com')) {
+        user = this.userRepo.findByEmail('jb080956@gmail.com') || this.userRepo.findByUsername('admin');
+      }
+    }
+    return user;
+  }
+
+  /**
    * Universal Login: accepts e-mail or username.
    */
   public async verifyCredentials(identifier: string, password: string): Promise<DbUser | null> {
     if (typeof identifier !== 'string' || typeof password !== 'string') return null;
-    const clean = identifier.trim().toLowerCase();
-    let user = this.userRepo.findByEmail(clean) || this.userRepo.findByUsername(clean);
-    if (!user && clean === 'admin@cbmerj.com') {
-      user = this.userRepo.findByUsername('admin');
-    }
+    const user = this.findUserByIdentifier(identifier);
     const matches = await bcrypt.compare(password, user?.passwordHash || DUMMY_PASSWORD_HASH);
     return matches && user?.status === 'active' ? user : null;
   }
@@ -171,10 +201,7 @@ export class AuthService {
       return { success: false, message: 'Usuário e senha são obrigatórios.' };
     }
 
-    let user = this.userRepo.findByEmail(cleanId) || this.userRepo.findByUsername(cleanId);
-    if (!user && cleanId === 'admin@cbmerj.com') {
-      user = this.userRepo.findByUsername('admin');
-    }
+    const user = this.findUserByIdentifier(cleanId);
     if (!user) {
       // Timing attack protection: perform dummy bcrypt check to prevent user enumeration
       await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
