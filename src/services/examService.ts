@@ -117,6 +117,9 @@ export class ExamService {
           if (asText.trim()) {
             extractedQuestions = await this.extractQuestionsFromText(asText);
           }
+          if (extractedQuestions.length === 0 && file.mimeType === 'application/pdf') {
+            extractedQuestions = await this.extractQuestionsFromPdfBuffer(rawBuffer);
+          }
         } catch {}
       }
     }
@@ -557,6 +560,36 @@ Retorne APENAS um array JSON de questões com a estrutura:
       strings.push(match[1].replace(/\\([\\()])/g, '$1').replace(/\\n/g, '\n'));
     }
     return strings.join(' ');
+  }
+
+  private async extractQuestionsFromPdfBuffer(buffer: Buffer): Promise<ExtractedQuestionDraft[]> {
+    if (!this.genAI) return [];
+    try {
+      const response = await this.genAI.models.generateContent({
+        model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+        contents: [
+          { inlineData: { mimeType: 'application/pdf', data: buffer.toString('base64') } },
+          { text: `Leia visualmente o PDF inteiro, incluindo páginas escaneadas. Extraia SOMENTE as questões que realmente aparecem no documento, sem inventar ou completar conteúdo ausente. Preserve a numeração original e extraia todas as alternativas visíveis. Retorne apenas JSON neste formato: [{"questionNumber":1,"statement":"enunciado completo","supportText":null,"options":[{"letter":"A","text":"..."},{"letter":"B","text":"..."}],"correctOption":null,"discipline":"Conhecimentos Gerais","topic":"Geral","subtopic":"Geral","difficulty":"Médio"}]. Use correctOption somente se houver gabarito explícito no PDF.` },
+        ],
+        config: { responseMimeType: 'application/json', temperature: 0.1 },
+      });
+      const parsed = JSON.parse(response.text || '[]');
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map((item, idx) => ({
+        questionNumber: Number(item.questionNumber) || idx + 1,
+        statement: String(item.statement || '').trim(),
+        supportText: item.supportText ? String(item.supportText).trim() : null,
+        options: Array.isArray(item.options) ? item.options.filter((option: any) => ['A', 'B', 'C', 'D', 'E'].includes(option?.letter)).map((option: any) => ({ letter: option.letter, text: String(option.text || '').trim() })) : [],
+        correctOption: ['A', 'B', 'C', 'D', 'E'].includes(item.correctOption) ? item.correctOption : null,
+        discipline: this.normalizeDiscipline(item.discipline || 'Conhecimentos Gerais'),
+        topic: String(item.topic || 'Geral').trim(),
+        subtopic: String(item.subtopic || 'Geral').trim(),
+        difficulty: (['Fácil', 'Médio', 'Difícil'].includes(item.difficulty) ? item.difficulty : 'Médio') as ExamDifficulty,
+      })).filter((item) => item.statement.length > 0 && item.options.length >= 2);
+    } catch (err) {
+      console.warn('[PDF Extraction Warning]:', err);
+      return [];
+    }
   }
 
   /**
