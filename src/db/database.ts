@@ -376,7 +376,39 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_cadet_locks_until ON cadet_session_locks(locked_until);
     `,
   },
+  {
+    id: 10,
+    name: '010_cadet_security_alerts_and_source_blocks',
+    sql: `
+      -- 1. Bloqueio temporário de origem por 5 horas (em caso de violações atômicas de segurança)
+      CREATE TABLE IF NOT EXISTS cadet_temporary_source_blocks (
+        id TEXT PRIMARY KEY,
+        ip TEXT NOT NULL,
+        user_id TEXT,
+        reason TEXT NOT NULL,
+        locked_until TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_source_blocks_ip_until ON cadet_temporary_source_blocks(ip, locked_until);
+
+      -- 2. Central de Notificações com persistência e estado de leitura server-side
+      CREATE TABLE IF NOT EXISTS security_notifications (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        is_read INTEGER NOT NULL DEFAULT 0 CHECK (is_read IN (0, 1)),
+        read_at TEXT,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON security_notifications(user_id, is_read);
+      CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON security_notifications(created_at);
+    `,
+  },
 ];
+
 
 
 export class DatabaseService {

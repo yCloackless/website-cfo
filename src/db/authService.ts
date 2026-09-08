@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { DatabaseService, getDb } from './database';
 import { sendPasswordResetEmail } from '../services/emailService';
+import { adminRealtimeHub } from '../services/realtimeHub';
 import {
   UserRepository,
   SessionRepository,
@@ -15,8 +16,10 @@ import {
   AuditRepository,
   RecoveryCodeRepository,
   CadetSessionLockRepository,
+  TemporarySourceBlockRepository,
+  SecurityNotificationRepository,
 } from './repositories';
-import { DbUser, DbSession, UserRole } from './schema';
+import { DbUser, DbSession, UserRole, DbSecurityNotification } from './schema';
 
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
 
@@ -26,6 +29,7 @@ export interface AuthConfig {
 
 export interface LoginResult {
   success: boolean;
+  code?: 'CADET_SESSION_LOCKED' | 'SOURCE_IP_BLOCKED';
   token?: string;
   expiresAt?: string;
   user?: {
@@ -44,6 +48,8 @@ export class AuthService {
   private auditRepo: AuditRepository;
   private recoveryRepo: RecoveryCodeRepository;
   private cadetLockRepo: CadetSessionLockRepository;
+  private sourceBlockRepo: TemporarySourceBlockRepository;
+  private notificationRepo: SecurityNotificationRepository;
 
   constructor(private dbService: DatabaseService = getDb(), private config?: AuthConfig) {
     const db = this.dbService.getRawDb();
@@ -53,6 +59,8 @@ export class AuthService {
     this.auditRepo = new AuditRepository(db);
     this.recoveryRepo = new RecoveryCodeRepository(db);
     this.cadetLockRepo = new CadetSessionLockRepository(db);
+    this.sourceBlockRepo = new TemporarySourceBlockRepository(db);
+    this.notificationRepo = new SecurityNotificationRepository(db);
   }
 
   /**
@@ -204,6 +212,7 @@ export class AuthService {
       return { success: false, message: 'Usuário e senha são obrigatórios.' };
     }
 
+    // 0. Verifica se o IP possui um bloqueio temporário de origem de 5 horas
     const user = this.findUserByIdentifier(cleanId);
     if (!user) {
       // Timing attack protection: perform dummy bcrypt check to prevent user enumeration
@@ -242,6 +251,19 @@ export class AuthService {
     // =========================================================================
     // 🛡️ REGRA DE NEGÓCIO EXCLUSIVA PARA A CONTA CADETE
     // =========================================================================
+    // Evaluate source blocks only for a verified cadet: admin/support remain unaffected.
+    if (user.role === 'cadet' && meta?.ip) {
+      const ipCheck = this.sourceBlockRepo.isIpBlocked(meta.ip);
+      if (ipCheck.isBlocked) {
+        this.auditRepo.log({
+          action: 'CADET_TEMPORARY_SOURCE_BLOCKED', actor: user.username, actorUserId: user.id,
+          resource: '/api/v2/auth/login', status: 'FAILED', ip: meta.ip, userAgent: meta.userAgent,
+          userId: user.id, details: { reason: ipCheck.block?.reason, lockedUntil: ipCheck.block?.lockedUntil },
+        });
+        return { success: false, code: 'SOURCE_IP_BLOCKED', message: 'Acesso temporariamente suspenso para esta origem. Tente novamente mais tarde.' };
+      }
+    }
+
     if (user.role === 'cadet') {
       const db = this.dbService.getRawDb();
       const now = new Date();
@@ -264,9 +286,11 @@ export class AuthService {
             userId: user.id,
             details: { reason: 'Locked for 24h due to session replacement attempt' },
           });
+          this.maybeBlockCadetSource(user, meta, now);
           db.exec('COMMIT;');
           return {
             success: false,
+            code: 'CADET_SESSION_LOCKED',
             message: 'Esta conta já possui uma sessão exclusiva ativa. Uma nova sessão poderá ser iniciada após o período de segurança.',
           };
         }
@@ -318,9 +342,56 @@ export class AuthService {
             details: { lockedUntil: lockedUntil24h },
           });
 
+          // Aplica bloqueio temporário de 5 horas para o IP suspeito
+          if (meta?.ip && this.auditRepo.countActionsFromIpSince(
+            ['CADET_SESSION_REPLACEMENT_ATTEMPT', 'CADET_LOGIN_BLOCKED'],
+            meta.ip,
+            new Date(now.getTime() - 15 * 60 * 1000).toISOString(),
+          ) >= 3) {
+            const block5h = this.sourceBlockRepo.blockIp(meta.ip, 'Tentativa de substituição de sessão do cadete', 5, user.id);
+            this.auditRepo.log({
+              action: 'CADET_TEMPORARY_SOURCE_BLOCKED',
+              actor: user.username,
+              actorUserId: user.id,
+              resource: '/api/v2/auth/login',
+              status: 'WARNING',
+              ip: meta.ip,
+              userAgent: meta.userAgent,
+              userId: user.id,
+              details: { reason: block5h.reason, lockedUntil: block5h.lockedUntil },
+            });
+          }
+
+          // Cria notificação de alerta de segurança persistente no banco de dados
+          const notif = this.notificationRepo.createNotification({
+            userId: user.id,
+            type: 'CADET_SECURITY_ALERT',
+            title: 'Tentativa de acesso bloqueada',
+            message: 'Uma tentativa suspeita de acesso à conta cadete foi impedida.',
+            metadata: {
+              ip: meta?.ip,
+              userAgent: meta?.userAgent,
+              timestamp: nowIso,
+              reason: 'Tentativa de login concorrente com sessão ativa',
+            },
+          });
+
+          // Dispara evento realtime via Server-Sent Events (SSE)
+          adminRealtimeHub.publish('SECURITY_ALERT', {
+            action: 'CADET_SECURITY_ALERT',
+            userId: user.id,
+            notificationId: notif.id,
+            title: notif.title,
+            message: notif.message,
+            ip: meta?.ip,
+            userAgent: meta?.userAgent,
+            timestamp: nowIso,
+          });
+
           db.exec('COMMIT;');
           return {
             success: false,
+            code: 'CADET_SESSION_LOCKED',
             message: 'Esta conta já possui uma sessão exclusiva ativa. Uma nova sessão poderá ser iniciada após o período de segurança.',
           };
         }
@@ -417,6 +488,24 @@ export class AuthService {
   /**
    * Reset/Desbloqueio manual da conta cadete por administrador autorizado.
    */
+  private maybeBlockCadetSource(user: DbUser, meta: { ip?: string; userAgent?: string } | undefined, now: Date): void {
+    if (!meta?.ip) return;
+    const ip = meta.ip.trim().replace(/^::ffff:/, '');
+    if (this.sourceBlockRepo.isIpBlocked(ip).isBlocked) return;
+    const attempts = this.auditRepo.countActionsFromIpSince(
+      ['CADET_SESSION_REPLACEMENT_ATTEMPT', 'CADET_LOGIN_BLOCKED'],
+      ip,
+      new Date(now.getTime() - 15 * 60 * 1000).toISOString(),
+    );
+    if (attempts < 3) return;
+    const block = this.sourceBlockRepo.blockIp(ip, 'CADET_REPEATED_CONCURRENT_SESSION_ATTEMPTS', 5, user.id);
+    this.auditRepo.log({
+      action: 'CADET_TEMPORARY_SOURCE_BLOCKED', actor: user.username, actorUserId: user.id,
+      resource: '/api/v2/auth/login', status: 'WARNING', ip, userAgent: meta.userAgent, userId: user.id,
+      details: { reason: block.reason, lockedUntil: block.lockedUntil, attempts },
+    });
+  }
+
   public async resetCadetLock(
     adminUserId: string,
     targetUserId: string,
@@ -661,5 +750,57 @@ export class AuthService {
     });
 
     return { success: true, message: 'E-mail atualizado com sucesso.' };
+  }
+
+  /**
+   * Desbloqueio manual de IP suspenso por 5h por administrador autorizado.
+   */
+  public async unblockTemporarySourceIp(
+    adminUserId: string,
+    targetIp: string,
+    actorIp?: string,
+    userAgent?: string
+  ): Promise<{ success: boolean; message: string }> {
+    const admin = this.userRepo.findById(adminUserId);
+    if (!admin || admin.role !== 'admin' || admin.status !== 'active') {
+      return { success: false, message: 'Acesso negado: Requer privilégios de administrador.' };
+    }
+
+    const unblocked = this.sourceBlockRepo.unblockIp(targetIp);
+    if (!unblocked) {
+      return { success: false, message: 'IP informado não possui bloqueio temporário ativo.' };
+    }
+
+    this.auditRepo.log({
+      action: 'CADET_TEMPORARY_SOURCE_BLOCK_EXPIRED',
+      actor: admin.username,
+      actorUserId: admin.id,
+      resource: `/security/source-blocks/${targetIp}`,
+      status: 'SUCCESS',
+      ip: actorIp,
+      userAgent,
+      details: { targetIp, resetByAdminId: admin.id },
+    });
+
+    return { success: true, message: `Bloqueio temporário do IP ${targetIp} foi removido com sucesso.` };
+  }
+
+  /**
+   * Consulta de Notificações com filtro e estado de leitura server-side.
+   */
+  public getNotifications(options: {
+    userId?: string | null;
+    filter?: 'ALL' | 'SECURITY' | 'UNREAD';
+    limit?: number;
+  } = {}): { items: DbSecurityNotification[]; unreadCount: number } {
+    return this.notificationRepo.listNotifications(options);
+  }
+
+  /**
+   * Marcar notificação como lida.
+   */
+  public markNotificationAsRead(id: string): { success: boolean } {
+    const updated = this.notificationRepo.markAsRead(id);
+    return { success: updated };
   }
 }

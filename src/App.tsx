@@ -69,6 +69,8 @@ import { TacticalSidebar } from './components/TacticalSidebar';
 const ErrorNotebookTab = lazy(() => import('./components/ErrorNotebookTab').then(({ ErrorNotebookTab }) => ({ default: ErrorNotebookTab })));
 import { MyAccountModal } from './components/MyAccountModal';
 import { AdminSecurityPanelModal } from './components/AdminSecurityPanelModal';
+import { NotificationCenterDrawer, NotificationItem } from './components/NotificationCenterDrawer';
+import { SecurityAlertPopup } from './components/SecurityAlertPopup';
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard').then(({ AdminDashboard }) => ({ default: AdminDashboard })));
 
 export default function App() {
@@ -111,6 +113,102 @@ export default function App() {
 
   // 🛡️ Monitoramento de Segurança e Auditoria (Admin)
   const [isAdminSecurityOpen, setIsAdminSecurityOpen] = useState(false);
+
+  // 🔔 Central de Notificações & Alertas em Tempo Real
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
+  const [activeAlertPopup, setActiveAlertPopup] = useState<NotificationItem | null>(null);
+
+  const unreadNotificationsCount = useMemo(
+    () => notifications.filter((n) => !n.isRead).length,
+    [notifications]
+  );
+
+  const fetchNotifications = useCallback(async () => {
+    const token = localStorage.getItem('cfo_terminal_session');
+    if (!token) return;
+    try {
+      const res = await fetch('/api/admin/notifications', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.items)) {
+          setNotifications(data.items);
+          return data.items as NotificationItem[];
+        }
+      }
+    } catch (_) {}
+    return [] as NotificationItem[];
+  }, []);
+
+  const handleMarkNotificationAsRead = useCallback(async (id: string) => {
+    const token = localStorage.getItem('cfo_terminal_session');
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+    if (!token) return;
+    try {
+      await fetch(`/api/admin/notifications/${id}/read`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    } catch (_) {}
+  }, []);
+
+  const handleMarkAllNotificationsAsRead = useCallback(async () => {
+    const token = localStorage.getItem('cfo_terminal_session');
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    if (!token) return;
+    try {
+      await fetch('/api/admin/notifications/read-all', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    } catch (_) {
+      fetchNotifications();
+    }
+  }, [fetchNotifications]);
+
+  useEffect(() => {
+    if (isTerminalUnlocked) {
+      fetchNotifications();
+
+      const token = localStorage.getItem('cfo_terminal_session');
+      if (token) {
+        const abortController = new AbortController();
+        const connect = async () => {
+          try {
+            const response = await fetch('/api/admin/realtime/stream', {
+              headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
+              signal: abortController.signal,
+            });
+            if (!response.ok || !response.body) return;
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            while (!abortController.signal.aborted) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const events = buffer.split('\n\n');
+              buffer = events.pop() || '';
+              for (const event of events) {
+                const dataLine = event.split('\n').find((line) => line.startsWith('data:'));
+                if (!dataLine) continue;
+                const payload = JSON.parse(dataLine.slice(5).trim());
+                if (payload.type !== 'SECURITY_ALERT' || !payload.data?.notificationId) continue;
+                const latest = await fetchNotifications();
+                const alert = latest.find((item) => item.id === payload.data.notificationId) || null;
+                if (alert) setActiveAlertPopup(alert);
+              }
+            }
+          } catch (_) {
+            // Authentication stays server-side; reconnect happens on the next application mount.
+          }
+        };
+        connect();
+        return () => {
+          abortController.abort();
+        };
+      }
+    }
+  }, [isTerminalUnlocked, fetchNotifications]);
 
   // 🧭 Estado do Menu Lateral de Abas Táticas (expandido, recolhido ou oculto)
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
@@ -1230,7 +1328,8 @@ export default function App() {
         calendarEmail={backendCalendar.email || user?.email}
         calendarName={backendCalendar.name || user?.displayName}
         isPermanentCalendar={backendCalendar.permanent}
-
+        unreadNotificationsCount={unreadNotificationsCount}
+        onOpenNotifications={() => setIsNotificationDrawerOpen(true)}
         onSignIn={handleSignIn}
         onSignOut={handleSignOut}
         isSigningIn={isSigningIn}
@@ -1840,6 +1939,28 @@ export default function App() {
 
       {/* Banner LGPD de Cookies de Sessão */}
       <CookieConsent />
+
+      {/* Central de Notificações & Alertas de Segurança */}
+      <NotificationCenterDrawer
+        isOpen={isNotificationDrawerOpen}
+        onClose={() => setIsNotificationDrawerOpen(false)}
+        notifications={notifications}
+        unreadCount={unreadNotificationsCount}
+        onMarkAsRead={handleMarkNotificationAsRead}
+        onMarkAllAsRead={handleMarkAllNotificationsAsRead}
+        theme={theme}
+      />
+
+      <SecurityAlertPopup
+        alert={activeAlertPopup}
+        onClose={() => setActiveAlertPopup(null)}
+        onOpenCenter={() => {
+          setActiveAlertPopup(null);
+          setIsNotificationDrawerOpen(true);
+        }}
+        onMarkAsRead={handleMarkNotificationAsRead}
+        theme={theme}
+      />
     </div>
   );
 }

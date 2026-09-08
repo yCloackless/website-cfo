@@ -19,6 +19,9 @@ import {
   DbSession,
   DbRecoveryCode,
   DbCadetSessionLock,
+  DbTemporarySourceBlock,
+  DbSecurityNotification,
+  SecurityNotificationType,
   OrderStatus,
   RefundRequestStatus,
   UserRole,
@@ -1028,6 +1031,16 @@ export class AuditRepository {
       createdAt: row.created_at,
     }));
   }
+
+  public countActionsFromIpSince(actions: string[], ip: string, since: string): number {
+    if (!actions.length || !ip) return 0;
+    const placeholders = actions.map(() => '?').join(', ');
+    const row = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM audit_events
+       WHERE action IN (${placeholders}) AND ip = ? AND created_at >= ?`
+    ).get(...actions, ip.trim().replace(/^::ffff:/, ''), since) as { count?: number } | undefined;
+    return Number(row?.count || 0);
+  }
 }
 
 export class PasswordResetRepository {
@@ -1439,6 +1452,168 @@ export class CadetSessionLockRepository {
       SET active_session_id = NULL, locked_until = NULL, updated_at = ?
       WHERE user_id = ?
     `).run(now, userId);
+  }
+}
+
+export class TemporarySourceBlockRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public isIpBlocked(ip: string): { isBlocked: boolean; block?: DbTemporarySourceBlock } {
+    if (!ip) return { isBlocked: false };
+    const cleanIp = ip.trim().replace(/^::ffff:/, '');
+    const now = new Date().toISOString();
+
+    const row = this.db.prepare(`
+      SELECT id, ip, user_id, reason, locked_until, created_at
+      FROM cadet_temporary_source_blocks
+      WHERE ip = ? AND locked_until > ?
+      ORDER BY locked_until DESC LIMIT 1
+    `).get(cleanIp, now) as any;
+
+    if (!row) return { isBlocked: false };
+
+    return {
+      isBlocked: true,
+      block: {
+        id: row.id,
+        ip: row.ip,
+        userId: row.user_id,
+        reason: row.reason,
+        lockedUntil: row.locked_until,
+        createdAt: row.created_at,
+      },
+    };
+  }
+
+  public blockIp(ip: string, reason: string, hours: number = 5, userId?: string | null): DbTemporarySourceBlock {
+    const cleanIp = ip.trim().replace(/^::ffff:/, '');
+    const id = crypto.randomUUID();
+    const now = new Date();
+    const createdAt = now.toISOString();
+    const lockedUntil = new Date(now.getTime() + hours * 3600 * 1000).toISOString();
+
+    this.db.prepare(`
+      INSERT INTO cadet_temporary_source_blocks (id, ip, user_id, reason, locked_until, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, cleanIp, userId ?? null, reason, lockedUntil, createdAt);
+
+    return {
+      id,
+      ip: cleanIp,
+      userId: userId ?? null,
+      reason,
+      lockedUntil,
+      createdAt,
+    };
+  }
+
+  public unblockIp(ip: string): boolean {
+    const cleanIp = ip.trim().replace(/^::ffff:/, '');
+    const now = new Date().toISOString();
+    const res = this.db.prepare(`
+      UPDATE cadet_temporary_source_blocks
+      SET locked_until = ?
+      WHERE ip = ? AND locked_until > ?
+    `).run(now, cleanIp, now);
+
+    return Number(res.changes) > 0;
+  }
+}
+
+export class SecurityNotificationRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public createNotification(data: {
+    userId?: string | null;
+    type: SecurityNotificationType;
+    title: string;
+    message: string;
+    metadata?: Record<string, any> | null;
+  }): DbSecurityNotification {
+    const id = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    const metadataJson = data.metadata ? JSON.stringify(data.metadata) : null;
+
+    this.db.prepare(`
+      INSERT INTO security_notifications (id, user_id, type, title, message, is_read, metadata_json, created_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+    `).run(id, data.userId ?? null, data.type, data.title, data.message, metadataJson, createdAt);
+
+    return {
+      id,
+      userId: data.userId ?? null,
+      type: data.type,
+      title: data.title,
+      message: data.message,
+      isRead: false,
+      readAt: null,
+      metadataJson,
+      createdAt,
+    };
+  }
+
+  public listNotifications(options: {
+    userId?: string | null;
+    filter?: 'ALL' | 'SECURITY' | 'UNREAD';
+    limit?: number;
+  } = {}): { items: DbSecurityNotification[]; unreadCount: number } {
+    const limit = Math.min(100, Math.max(1, options.limit || 50));
+    const clauses: string[] = [];
+    const params: any[] = [];
+
+    if (options.filter === 'UNREAD') {
+      clauses.push('is_read = 0');
+    } else if (options.filter === 'SECURITY') {
+      clauses.push("type = 'CADET_SECURITY_ALERT'");
+    }
+
+    const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+    const rows = this.db.prepare(`
+      SELECT id, user_id, type, title, message, is_read, read_at, metadata_json, created_at
+      FROM security_notifications
+      ${whereSql}
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(...params, limit) as any[];
+
+    const unreadRow = this.db.prepare(`
+      SELECT COUNT(*) as count FROM security_notifications WHERE is_read = 0
+    `).get() as { count: number } | undefined;
+
+    const items = rows.map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      type: r.type as SecurityNotificationType,
+      title: r.title,
+      message: r.message,
+      isRead: Boolean(r.is_read),
+      readAt: r.read_at ?? null,
+      metadataJson: r.metadata_json ?? null,
+      createdAt: r.created_at,
+    }));
+
+    return { items, unreadCount: Number(unreadRow?.count || 0) };
+  }
+
+  public markAsRead(id: string): boolean {
+    const now = new Date().toISOString();
+    const res = this.db.prepare(`
+      UPDATE security_notifications
+      SET is_read = 1, read_at = ?
+      WHERE id = ? AND is_read = 0
+    `).run(now, id);
+
+    return Number(res.changes) > 0;
+  }
+
+  public markAllAsRead(): void {
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      UPDATE security_notifications
+      SET is_read = 1, read_at = ?
+      WHERE is_read = 0
+    `).run(now);
   }
 }
 

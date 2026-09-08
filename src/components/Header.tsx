@@ -17,6 +17,7 @@ import {
   PanelLeft,
   User as UserIcon,
   Shield,
+  Bell,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
@@ -26,6 +27,8 @@ interface HeaderProps {
   onOpenAccount?: () => void;
   isAdmin?: boolean;
   onOpenAdminSecurity?: () => void;
+  onOpenNotifications?: () => void;
+  unreadNotificationsCount?: number;
   hasCalendarAccess?: boolean;
   calendarEmail?: string | null;
   calendarName?: string | null;
@@ -54,6 +57,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAccount,
   isAdmin = false,
   onOpenAdminSecurity,
+  onOpenNotifications,
+  unreadNotificationsCount = 0,
   hasCalendarAccess = false,
   calendarEmail = null,
   calendarName = null,
@@ -98,41 +103,23 @@ export const Header: React.FC<HeaderProps> = ({
                 className={`p-2 rounded-xl border transition-all cursor-pointer ${
                   isDark
                     ? 'border-slate-800 bg-[#0B1528] text-slate-300 hover:text-white hover:border-blue-500/50'
-                    : 'border-slate-300 bg-slate-100 text-slate-700 hover:text-black hover:border-blue-500'
+                    : 'border-slate-200 bg-slate-100 text-slate-700 hover:text-slate-900 hover:border-blue-500/50'
                 }`}
-                title={isSidebarOpen ? 'Recolher / Ocultar Abas' : 'Expandir Abas Laterais'}
-                aria-label="Alternar abas laterais"
+                title={isSidebarOpen ? 'Recolher menu lateral' : 'Expandir menu lateral'}
               >
-                <PanelLeft className="w-4 h-4 text-[#0056D2]" />
+                <PanelLeft className="w-5 h-5" />
               </button>
             )}
 
-            <div className="w-10 h-10 rounded-xl bg-[#0B1528] border border-blue-500/30 flex items-center justify-center p-1 shadow-md shrink-0">
-              <img
-                src="/phoenix-logo-cropped.png"
-                alt="Logo Fênix RUMO ao CFO"
-                className="w-full h-full object-contain drop-shadow-[0_4px_10px_rgba(0,86,210,0.4)]"
-              />
-            </div>
-            <div className="hidden min-[380px]:block">
-              <p className="text-[9px] sm:text-[10px] uppercase tracking-[0.2em] sm:tracking-[0.25em] text-blue-500 font-extrabold line-clamp-1">
-                RUMO AO CFO
-              </p>
-              <div className="flex items-baseline gap-2">
-                <h1
-                  className={`text-sm sm:text-lg font-black tracking-tight whitespace-nowrap ${
-                    isDark ? 'text-white' : 'text-slate-950'
-                  }`}
-                >
-                  Área de Alunos
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                <Flame className="w-5 h-5 text-white" />
+              </div>
+              <div className="hidden sm:block">
+                <h1 className="font-extrabold text-sm tracking-tight leading-none bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">
+                  CFO CBMERJ
                 </h1>
-                <span
-                  className={`italic text-xs font-normal hidden md:inline ${
-                    isDark ? 'text-slate-400' : 'text-slate-500'
-                  }`}
-                >
-                  {cycleLabel}
-                </span>
+                <span className="text-[10px] text-slate-400 font-mono">ESTUDOS TÁTICOS</span>
               </div>
             </div>
           </div>
@@ -143,17 +130,21 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="btn-revisoes-inteligentes"
               onClick={onOpenRevisions}
-              className={`relative inline-flex items-center min-h-11 sm:min-h-0 gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors border shadow-2xs cursor-pointer ${
-                isDark
-                  ? 'bg-[#0B1528] hover:bg-[#0F1D38] text-blue-400 border-slate-800 hover:border-blue-500/40'
-                  : 'bg-white hover:bg-slate-50 text-blue-600 border-slate-200 hover:border-blue-300'
+              className={`relative inline-flex items-center min-h-11 sm:min-h-0 gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                pendingRevisionsCount > 0
+                  ? isDark
+                    ? 'bg-blue-600/20 text-blue-400 border-blue-500/50 hover:bg-blue-600/30'
+                    : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                  : isDark
+                  ? 'text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border-slate-800'
+                  : 'text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border-slate-200'
               }`}
-              title="Gerenciador de revisões de 1 semana e mensais"
+              title="Acessar painel de revisões espaçadas ativas"
             >
-              <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-              <span className="hidden sm:inline">Revisões</span>
+              <Sparkles className={`w-3.5 h-3.5 ${pendingRevisionsCount > 0 ? 'text-blue-400 animate-pulse' : ''}`} />
+              <span>Revisões</span>
               {pendingRevisionsCount > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#0056D2] text-white animate-pulse">
+                <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-blue-600 text-white">
                   {pendingRevisionsCount}
                 </span>
               )}
@@ -163,10 +154,14 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="btn-adicionar-materia"
               onClick={onOpenAddSubject}
-              className="inline-flex items-center min-h-11 sm:min-h-0 gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#0056D2] hover:bg-[#0047B3] border border-blue-400/30 shadow-xs transition-colors cursor-pointer"
-              title="Adicionar nova disciplina à grade"
+              className={`inline-flex items-center min-h-11 sm:min-h-0 gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors border ${
+                isDark
+                  ? 'text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border-slate-800'
+                  : 'text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border-slate-200'
+              }`}
+              title="Adicionar disciplina personalizada ao seu ciclo"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-3.5 h-3.5 text-blue-400" />
               <span className="hidden sm:inline">Matéria</span>
             </button>
 
@@ -223,6 +218,28 @@ export const Header: React.FC<HeaderProps> = ({
                 </>
               )}
             </button>
+
+            {/* Notification Bell 🔔 */}
+            {onOpenNotifications && (
+              <button
+                type="button"
+                id="btn-open-notifications"
+                onClick={onOpenNotifications}
+                className={`relative p-2 rounded-xl border transition-all cursor-pointer ${
+                  isDark
+                    ? 'border-slate-800 bg-[#0B1528] text-slate-300 hover:text-white hover:border-blue-500/50'
+                    : 'border-slate-200 bg-slate-100 text-slate-700 hover:text-slate-900 hover:border-blue-500/50'
+                }`}
+                title="Central de Notificações"
+              >
+                <Bell className="w-4 h-4" />
+                {unreadNotificationsCount > 0 && (
+                  <span className="absolute -top-1 -right-1 px-1.5 py-0.5 text-[10px] font-black rounded-full bg-red-500 text-white leading-none shadow-md shadow-red-500/40 animate-pulse">
+                    {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
+                  </span>
+                )}
+              </button>
+            )}
 
             {/* Google Calendar Connection Area */}
             <div

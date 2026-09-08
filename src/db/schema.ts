@@ -204,4 +204,26 @@ export interface DbCadetSessionLock {
   updatedAt: string;
 }
 
+export interface DbTemporarySourceBlock {
+  id: string;
+  ip: string;
+  userId?: string | null;
+  reason: string;
+  lockedUntil: string;
+  createdAt: string;
+}
+
+export type SecurityNotificationType = 'CADET_SECURITY_ALERT' | 'SYSTEM_ALERT' | 'INFO';
+
+export interface DbSecurityNotification {
+  id: string;
+  userId?: string | null;
+  type: SecurityNotificationType;
+  title: string;
+  message: string;
+  isRead: boolean;
+  readAt?: string | null;
+  metadataJson?: string | null;
+  createdAt: string;
+}
 

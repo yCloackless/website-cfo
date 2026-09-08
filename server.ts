@@ -51,7 +51,7 @@ import {
 import { logAuditEvent, readRecentAuditLogs } from "./src/services/auditLogger";
 import { AuthService } from "./src/db/authService";
 import { getDb } from "./src/db/database";
-import { UserRepository, ProfileRepository, AuditRepository, SessionRepository, RecoveryCodeRepository, UserStateRepository } from "./src/db/repositories";
+import { UserRepository, ProfileRepository, AuditRepository, SessionRepository, RecoveryCodeRepository, UserStateRepository, SecurityNotificationRepository } from "./src/db/repositories";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
 import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtimeHub";
 import { createAuthMiddlewares } from "./src/middleware/auth";
@@ -2104,6 +2104,65 @@ app.post("/api/admin/cadet-lock/reset", requireAdminWriteAuth, async (req: Reque
     return res.status(500).json({ success: false, message: "Erro ao resetar bloqueio do cadete." });
   }
 });
+
+// 17.3. Desbloqueio Manual de IP Bloqueado por 5 Horas (Requer Admin)
+app.post("/api/admin/temporary-block/reset", requireAdminWriteAuth, async (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    const { ip } = req.body || {};
+    if (!ip || typeof ip !== 'string') {
+      return res.status(400).json({ success: false, error: "MISSING_IP", message: "IP é obrigatório." });
+    }
+
+    const clientIp = getClientIp(req);
+    const userAgent = (req.headers["user-agent"] as string) || undefined;
+
+    const result = await authServiceInstance.unblockTemporarySourceIp(adminUser.userId || adminUser.username, ip, clientIp, userAgent);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    return res.json(result);
+  } catch (err: any) {
+    console.error("[Admin Reset Source Block Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao desbloquear origem temporária." });
+  }
+});
+
+// 17.4. Consulta de Notificações de Segurança & Alertas (Requer Autenticação Administrativa)
+app.get("/api/admin/notifications", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const filter = (req.query.filter as 'ALL' | 'SECURITY' | 'UNREAD') || 'ALL';
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || "50"), 10)));
+    const notifications = authServiceInstance.getNotifications({ filter, limit });
+    return res.json({ success: true, ...notifications });
+  } catch (err: any) {
+    console.error("[Admin Notifications Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao consultar notificações." });
+  }
+});
+
+// 17.5. Marcar Notificação como Lida (Requer Autenticação Administrativa)
+app.post("/api/admin/notifications/:id/read", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const notificationId = req.params.id;
+    const result = authServiceInstance.markNotificationAsRead(notificationId);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error("[Admin Mark Notification Read Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao marcar notificação como lida." });
+  }
+});
+
+app.post("/api/admin/notifications/read-all", requireAdminAuth, (_req: Request, res: Response) => {
+  try {
+    new SecurityNotificationRepository(getDb().getRawDb()).markAllAsRead();
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("[Admin Mark All Notifications Read Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao marcar notificações como lidas." });
+  }
+});
+
 
 
 // 18. Listagem de Sessões Ativas (Admin)
