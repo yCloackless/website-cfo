@@ -1162,7 +1162,7 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen flex flex-col antialiased selection:bg-[#0056D2] selection:text-white transition-colors duration-200 relative ${
+      className={`min-h-screen min-h-[100dvh] w-full max-w-full flex flex-col antialiased selection:bg-[#0056D2] selection:text-white transition-colors duration-200 relative ${
         isDark ? 'bg-[#070D18] text-slate-100' : 'bg-[#F1F4F9] text-slate-900'
       }`}
     >
@@ -1219,7 +1219,7 @@ export default function App() {
       />
 
       {/* App Body: Collapsible Tactical Sidebar + Main Content */}
-      <div className="flex-1 flex w-full relative overflow-x-hidden">
+      <div className="flex-1 flex w-full relative min-w-0">
         <TacticalSidebar
           activeTab={activeTab}
           onSelectTab={setActiveTab}
@@ -1233,7 +1233,7 @@ export default function App() {
         />
 
         {/* Main Content Area */}
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 min-w-0">
+        <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6 min-w-0">
         
         {/* Render Tab 1: Cronograma Semanal */}
         {activeTab === 'table' && (

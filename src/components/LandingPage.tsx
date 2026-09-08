@@ -6,7 +6,7 @@ interface LandingPageProps {
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
   return (
-    <div className="font-sans antialiased bg-[#070D18] text-white selection:bg-[#0056D2] selection:text-white min-h-screen overflow-x-hidden">
+    <div className="font-sans antialiased bg-[#070D18] text-white selection:bg-[#0056D2] selection:text-white min-h-screen w-full max-w-full min-w-0">
       <style>{`
         .bg-navy-950 { background-color: #070D18; }
         .bg-navy-900 { background-color: #0B1528; }
