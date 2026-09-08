@@ -125,7 +125,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Action buttons & Utilities - Aligned to the right with generous spacing */}
-          <div className="ml-0 sm:ml-auto basis-full sm:basis-auto min-w-0 sm:flex-1 justify-start sm:justify-end flex items-center gap-1.5 sm:gap-2.5 flex-nowrap overflow-x-auto max-w-full py-0.5 scrollbar-none [&_button]:min-h-11 sm:[&_button]:min-h-0">
+          <div className="ml-0 sm:ml-auto basis-full sm:basis-auto min-w-0 sm:flex-1 grid grid-cols-5 sm:flex items-center gap-1.5 sm:gap-2.5 sm:flex-nowrap overflow-visible sm:overflow-x-auto max-w-full py-0.5 scrollbar-none [&>button]:min-h-10 sm:[&>button]:min-h-0">
             {/* Smart Revisions Button */}
             <button
               id="btn-revisoes-inteligentes"
@@ -142,9 +142,9 @@ export const Header: React.FC<HeaderProps> = ({
               title="Acessar painel de revisões espaçadas ativas"
             >
               <Sparkles className={`w-3.5 h-3.5 ${pendingRevisionsCount > 0 ? 'text-blue-400 animate-pulse' : ''}`} />
-              <span>Revisões</span>
+              <span className="hidden sm:inline">Revisões</span>
               {pendingRevisionsCount > 0 && (
-                <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-blue-600 text-white">
+                <span className="absolute -top-1 -right-1 sm:static sm:ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-blue-600 text-white">
                   {pendingRevisionsCount}
                 </span>
               )}
@@ -243,13 +243,13 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Google Calendar Connection Area */}
             <div
-              className={`border-l pl-2 ml-1 ${
+              className={`min-w-0 sm:border-l sm:pl-2 sm:ml-1 ${
                 isDark ? 'border-slate-800' : 'border-slate-200'
               }`}
             >
               {hasCalendarAccess ? (
                 <div
-                  className={`flex items-center justify-center gap-2 border rounded-full p-1.5 sm:px-2.5 sm:py-1 text-xs ${
+                  className={`relative w-full min-h-10 sm:min-h-0 flex items-center justify-center gap-2 border rounded-lg sm:rounded-full p-1.5 sm:px-2.5 sm:py-1 text-xs ${
                     isDark
                       ? 'bg-slate-900/80 border-slate-800 text-slate-300'
                       : 'bg-slate-100 border-slate-200 text-slate-800'
@@ -260,7 +260,7 @@ export const Header: React.FC<HeaderProps> = ({
                       : 'Google Agenda Conectado e Sincronizado'
                   }
                 >
-                  <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shrink-0"></div>
+                  <div className="hidden sm:block w-2 h-2 bg-emerald-500 rounded-full animate-pulse shrink-0"></div>
                   <span
                     className="hidden sm:block truncate max-w-[125px] font-semibold text-[11px]"
                     title={
@@ -284,10 +284,13 @@ export const Header: React.FC<HeaderProps> = ({
                   <button
                     id="btn-google-signout"
                     onClick={onSignOut}
-                    className="text-slate-400 hover:text-red-500 p-0.5 rounded transition-colors"
+                    className="absolute inset-0 sm:static flex items-center justify-center text-slate-400 hover:text-red-500 p-0.5 rounded transition-colors"
                     title="Desconectar do Google Agenda"
+                    aria-label="Google Agenda conectada. Desconectar"
                   >
-                    <LogOut className="w-3.5 h-3.5" />
+                    <Calendar className="w-4 h-4 sm:hidden" />
+                    <span className="sm:hidden absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/60" aria-hidden="true" />
+                    <LogOut className="hidden sm:block w-3.5 h-3.5" />
                   </button>
                 </div>
               ) : (
@@ -295,14 +298,15 @@ export const Header: React.FC<HeaderProps> = ({
                   id="btn-google-signin"
                   onClick={onSignIn}
                   disabled={isSigningIn}
-                  className={`inline-flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-2.5 sm:py-1.5 rounded-full text-xs font-medium border shadow-2xs transition-all active:scale-[0.98] disabled:opacity-50 ${
+                  className={`relative inline-flex items-center justify-center gap-1.5 w-full min-h-10 sm:w-auto sm:min-h-0 sm:px-2.5 sm:py-1.5 rounded-lg sm:rounded-full text-xs font-medium border shadow-2xs transition-all active:scale-[0.98] disabled:opacity-50 ${
                     isDark
                       ? 'text-slate-200 bg-slate-900/80 hover:bg-slate-800 border-slate-800 hover:border-slate-700'
                       : 'text-slate-800 bg-white hover:bg-slate-50 border-slate-300'
                   }`}
                   title="Conectar com o Google Agenda para sincronizar seus estudos permanentemente"
                 >
-                  <span className="sm:hidden w-2.5 h-2.5 rounded-full bg-red-500 shadow-sm shadow-red-500/60" aria-hidden="true" />
+                  <Calendar className="w-4 h-4 sm:hidden" />
+                  <span className="sm:hidden absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 shadow-sm shadow-red-500/60" aria-hidden="true" />
                   <svg className="hidden sm:block w-3.5 h-3.5" viewBox="0 0 24 24">
                     <path
                       fill="#4285F4"
