@@ -108,6 +108,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
   const [selectedQuestionIdsForSolve, setSelectedQuestionIdsForSolve] = useState<string[]>([]);
   const [userAnswers, setUserAnswers] = useState<Record<string, 'A' | 'B' | 'C' | 'D' | 'E'>>({});
+  const [answeredQuestionIds, setAnsweredQuestionIds] = useState<string[]>([]);
   const [activeDisciplineFilter, setActiveDisciplineFilter] = useState<string>('Todas');
   const [activeTabFilter, setActiveTabFilter] = useState<'mine' | 'recent' | 'popular'>('mine');
   const [searchQuery, setSearchQuery] = useState('');
@@ -293,6 +294,14 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
     } catch {
       return [];
     }
+  }, [selectedQuestion]);
+
+  const selectedQuestionImages: string[] = useMemo(() => {
+    if (!selectedQuestion?.imagesJson) return [];
+    try {
+      const parsed = JSON.parse(selectedQuestion.imagesJson);
+      return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+    } catch { return []; }
   }, [selectedQuestion]);
 
   // Solução de IA da Questão Selecionada
@@ -851,7 +860,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
         {/* COLUNA 1: LISTA DAS PROVAS (lg:col-span-4)                     */}
         {/* ============================================================== */}
         <div
-          className={`lg:col-span-4 rounded-2xl border p-3.5 space-y-3 shadow-xl ${
+          className={`lg:col-span-3 rounded-2xl border p-3.5 space-y-3 shadow-xl ${
             isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200'
           }`}
         >
@@ -957,7 +966,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
         {/* COLUNA 2: QUESTÕES DA PROVA SELECIONADA (lg:col-span-4)         */}
         {/* ============================================================== */}
         <div
-          className={`lg:col-span-4 rounded-2xl border p-3.5 space-y-3 shadow-xl ${
+          className={`lg:col-span-3 rounded-2xl border p-3.5 space-y-3 shadow-xl ${
             isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200'
           }`}
         >
@@ -1125,7 +1134,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
         {/* COLUNA 3: PAINEL DA QUESTÃO E RESOLUÇÃO IA (lg:col-span-4)       */}
         {/* ============================================================== */}
         <div
-          className={`lg:col-span-4 rounded-2xl border p-4 space-y-4 shadow-xl ${
+          className={`lg:col-span-6 rounded-2xl border p-5 space-y-5 shadow-xl ${
             isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200'
           }`}
         >
@@ -1170,7 +1179,21 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
               )}
 
               {/* Enunciado da Questão com KaTeX / LaTeX */}
-              <div className={`text-xs leading-relaxed font-normal ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
+              {selectedQuestionImages.length > 0 && (
+                <div className={`rounded-2xl border p-3 space-y-2 ${isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-blue-400">Imagem da prova</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {selectedQuestionImages.map((image, index) => (
+                      <button key={`${image}-${index}`} type="button" onClick={() => setZoomedImage(image)} className="group relative rounded-xl overflow-hidden border border-slate-700/70 bg-black/20 cursor-zoom-in">
+                        <img src={image} alt={`Imagem da questão ${selectedQuestion.questionNumber} ${index + 1}`} className="w-full max-h-80 object-contain group-hover:scale-[1.02] transition-transform" />
+                        <span className="absolute bottom-2 right-2 rounded-lg bg-[#0056D2]/90 px-2 py-1 text-[10px] font-bold text-white"><Maximize2 className="inline w-3 h-3 mr-1" />Ampliar</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className={`text-sm leading-7 font-normal ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
                 <Latex content={selectedQuestion.statement} />
               </div>
 
@@ -1215,7 +1238,11 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
                 })}
               </div>
 
-              {userAnswers[selectedQuestion.id] && (
+              {userAnswers[selectedQuestion.id] && !answeredQuestionIds.includes(selectedQuestion.id) && (
+                <button type="button" onClick={() => setAnsweredQuestionIds((prev) => [...prev, selectedQuestion.id])} className="w-full rounded-xl bg-[#0056D2] hover:bg-blue-600 px-4 py-3 text-sm font-black text-white transition-colors cursor-pointer">Responder</button>
+              )}
+
+              {userAnswers[selectedQuestion.id] && answeredQuestionIds.includes(selectedQuestion.id) && (
                 <div className={`rounded-xl border p-3 text-xs ${selectedQuestion.correctOption && userAnswers[selectedQuestion.id] === selectedQuestion.correctOption ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : selectedQuestion.correctOption ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-300'}`}>
                   {!selectedQuestion.correctOption ? 'Resposta registrada. O gabarito ainda não foi localizado.' : userAnswers[selectedQuestion.id] === selectedQuestion.correctOption ? 'Você acertou!' : `Você errou. A alternativa correta é ${selectedQuestion.correctOption}.`}
                 </div>
@@ -1515,6 +1542,13 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {zoomedImage && (
+        <div className="fixed inset-0 z-[70] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setZoomedImage(null)}>
+          <button type="button" onClick={() => setZoomedImage(null)} className="absolute top-4 right-4 w-10 h-10 rounded-full bg-[#0B1528] border border-slate-700 text-slate-200 flex items-center justify-center cursor-pointer" aria-label="Fechar imagem ampliada"><X className="w-5 h-5" /></button>
+          <img src={zoomedImage} alt="Imagem ampliada da prova" className="max-w-full max-h-[92vh] object-contain rounded-xl" onClick={(event) => event.stopPropagation()} />
         </div>
       )}
     </div>

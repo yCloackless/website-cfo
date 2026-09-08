@@ -585,6 +585,7 @@ Retorne APENAS um array JSON de questões com a estrutura:
         topic: String(item.topic || 'Geral').trim(),
         subtopic: String(item.subtopic || 'Geral').trim(),
         difficulty: (['Fácil', 'Médio', 'Difícil'].includes(item.difficulty) ? item.difficulty : 'Médio') as ExamDifficulty,
+        images: Array.isArray(item.images) ? item.images.filter((image: any) => typeof image === 'string') : [],
       })).filter((item) => item.statement.length > 0 && item.options.length >= 2);
     } catch (err) {
       console.warn('[PDF Extraction Warning]:', err);
