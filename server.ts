@@ -60,11 +60,11 @@ import { createAuthMiddlewares } from "./src/middleware/auth";
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-// 1. Proxy reverso: somente IPs/CIDRs explicitamente configurados são confiáveis.
-// Nunca aceitar '*' ou 'true', pois isso permite spoof de X-Forwarded-For.
+// 1. Proxy reverso: suporte automático para Render (1 hop confiável) ou TRUSTED_PROXIES
+const isRenderHost = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
 const trustedProxyEntries = (process.env.TRUSTED_PROXIES || '')
   .split(',').map(value => value.trim()).filter(value => value && value !== '*' && value !== 'true');
-app.set("trust proxy", trustedProxyEntries.length > 0 ? trustedProxyEntries : false);
+app.set("trust proxy", trustedProxyEntries.length > 0 ? trustedProxyEntries : (isRenderHost ? 1 : false));
 
 // 2. Rota de Health Check ultraleve para UptimeRobot / anti-sleep do Render
 app.get("/api/health", (_req: Request, res: Response) => {
