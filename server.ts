@@ -11,7 +11,7 @@ import QRCode from "qrcode";
 import helmet from "helmet";
 import cors from "cors";
 import compression from "compression";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import bcrypt from "bcryptjs";
 
 dotenv.config();
@@ -438,6 +438,21 @@ const twoFactorLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "TOO_MANY_2FA_ATTEMPTS", message: "Muitas tentativas de 2FA. Acesso bloqueado por 15 minutos." },
+});
+
+const aiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => {
+    const userId = String((req as any).user?.userId || '').trim();
+    return userId ? `user:${userId}` : `ip:${ipKeyGenerator(req.ip || getClientIp(req))}`;
+  },
+  message: {
+    error: "AI_RATE_LIMITED",
+    message: "Limite de gerações por IA atingido. Tente novamente em alguns minutos.",
+  },
 });
 
 app.use(express.json({ limit: "10mb" }));
@@ -980,7 +995,13 @@ interface TimerState {
 
 app.use('/api/timer', requireUserAuth);
 function timerStateFile(userId: string): string {
-  return path.join(process.cwd(), 'data', 'timer-' + crypto.createHash('sha256').update(userId).digest('hex') + '.json');
+  const hash = crypto.createHash('sha256').update(String(userId || '')).digest('hex');
+  const baseDir = path.resolve(process.cwd(), 'data');
+  const target = path.resolve(baseDir, `timer-${hash}.json`);
+  if (!target.startsWith(baseDir + path.sep)) {
+    throw new Error('INVALID_TIMER_PATH');
+  }
+  return target;
 }
 
 function readTimerState(userId: string): TimerState {
@@ -2895,7 +2916,7 @@ app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
       name: String(profile.name || ''),
       targetOrigin: pending.origin,
     };
-    const safeJson = JSON.stringify(safeData).replace(/</g, '\\u003c');
+    const safeJson = JSON.stringify(safeData).replace(/[<>/]/g, c => ({ '<': '\\u003c', '>': '\\u003e', '/': '\\u002f' }[c] || c));
     return res.send(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Google Agenda conectado</title></head><body><h1>Google Agenda conectado</h1><p>Você pode fechar esta janela.</p><script id="oauth-payload" type="application/json">${safeJson}</script><script>
       (function() {
         try {
@@ -3138,15 +3159,36 @@ app.post("/api/calendar/batch-sync", async (req: Request, res: Response) => {
 });
 
 // AI identity is derived solely from the authenticated server session.
-app.use('/api/ai', requireUserAuth);
+app.use('/api/ai', requireUserAuth, aiLimiter);
+
+function validateAiTextFields(
+  res: Response,
+  fields: Array<{ name: string; value: unknown; maxBytes: number }>,
+): boolean {
+  for (const field of fields) {
+    if (field.value !== undefined && typeof field.value !== 'string') {
+      res.status(400).json({ error: 'INVALID_AI_INPUT', message: `${field.name} deve ser texto.` });
+      return false;
+    }
+    if (typeof field.value === 'string' && Buffer.byteLength(field.value, 'utf8') > field.maxBytes) {
+      res.status(413).json({ error: 'AI_INPUT_TOO_LARGE', message: `${field.name} excede o limite permitido.` });
+      return false;
+    }
+  }
+  return true;
+}
 
 // AI Study Analysis Endpoint
 app.post("/api/ai/study-analysis", async (req: Request, res: Response) => {
   try {
     const { weeklySummary } = req.body;
 
-    if (!weeklySummary) {
+    if (!weeklySummary || typeof weeklySummary !== 'object' || Array.isArray(weeklySummary)) {
       return res.status(400).json({ error: "weeklySummary is required" });
+    }
+
+    if (Buffer.byteLength(JSON.stringify(weeklySummary), 'utf8') > 64 * 1024) {
+      return res.status(413).json({ error: 'AI_INPUT_TOO_LARGE', message: 'weeklySummary excede o limite permitido.' });
     }
 
     const {
@@ -3491,6 +3533,14 @@ app.post("/api/ai/bizu-notes", async (req: Request, res: Response) => {
       promptHint = "",
     } = req.body;
 
+    if (!validateAiTextFields(res, [
+      { name: 'title', value: title, maxBytes: 500 },
+      { name: 'subject', value: subject, maxBytes: 200 },
+      { name: 'category', value: category, maxBytes: 200 },
+      { name: 'existingNotes', value: existingNotes, maxBytes: 20 * 1024 },
+      { name: 'promptHint', value: promptHint, maxBytes: 2 * 1024 },
+    ])) return;
+
     if (!title && !subject) {
       return res.status(400).json({ error: "Título ou matéria são obrigatórios." });
     }
@@ -3795,6 +3845,10 @@ app.post("/api/ai/flashcards", async (req: Request, res: Response) => {
         message: "Por favor, informe a matéria ou tópico para gerar os flashcards.",
       });
     }
+
+    if (!validateAiTextFields(res, [
+      { name: 'subjectOrTopic', value: subjectOrTopic, maxBytes: 500 },
+    ])) return;
 
     const topic = subjectOrTopic.trim();
     const promptText = `Atue como um especialista em criação de materiais de estudo focado em revisão rápida (bate e pronto). 

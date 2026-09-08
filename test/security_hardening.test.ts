@@ -102,7 +102,7 @@ test('F-03: Notion rejects a page outside the server-known revision set', async 
   assert.equal(notionFetches, before, 'Rejected identifiers must never reach the provider API');
 });
 
-test.skip('F-04: AI prompt fields are bounded before provider invocation', async () => {
+test('F-04: AI prompt fields are bounded before provider invocation', async () => {
   const oversized = await request('/api/ai/flashcards', {
     method: 'POST',
     headers: { Authorization: `Bearer ${cadetToken}` },
@@ -112,7 +112,7 @@ test.skip('F-04: AI prompt fields are bounded before provider invocation', async
   assert.equal(oversized.body.error, 'AI_INPUT_TOO_LARGE');
 });
 
-test.skip('F-04: AI routes enforce a dedicated authenticated-account quota', async () => {
+test('F-04: AI routes enforce a dedicated authenticated-account quota', async () => {
   let lastStatus = 0;
   for (let index = 0; index < 35; index += 1) {
     const result = await request('/api/ai/flashcards', {
