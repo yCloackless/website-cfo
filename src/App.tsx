@@ -1956,6 +1956,14 @@ export default function App() {
           />
         )}
 
+        {/* Render Tab: Simulados & Métricas Táticas */}
+        {activeTab === 'simulations' && (
+          <TacticalSimulations
+            theme={theme}
+            showToast={showToast}
+          />
+        )}
+
         {/* Render Tab: Caderno de Erros & Flashcards (Anki Style) */}
         {activeTab === 'flashcards' && (
           <ErrorNotebookTab
