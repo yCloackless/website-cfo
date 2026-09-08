@@ -225,7 +225,7 @@ export const Header: React.FC<HeaderProps> = ({
                 type="button"
                 id="btn-open-notifications"
                 onClick={onOpenNotifications}
-                className={`relative p-2 rounded-xl border transition-all cursor-pointer ${
+                className={`relative min-w-11 sm:min-w-0 p-2 rounded-xl border transition-all cursor-pointer ${
                   isDark
                     ? 'border-slate-800 bg-[#0B1528] text-slate-300 hover:text-white hover:border-blue-500/50'
                     : 'border-slate-200 bg-slate-100 text-slate-700 hover:text-slate-900 hover:border-blue-500/50'
