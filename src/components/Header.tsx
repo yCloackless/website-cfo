@@ -81,10 +81,15 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleSidebar,
 }) => {
   const isDark = theme === 'dark';
+  const mobileSurface = isDark
+    ? 'border-slate-800 bg-[#0B1528] text-slate-200 hover:border-blue-500/60 hover:bg-slate-900'
+    : 'border-slate-200 bg-slate-100 text-slate-800 hover:border-blue-500 hover:bg-slate-200';
+  const mobileCircle = 'flex min-w-0 flex-col items-center gap-1.5 rounded-2xl border p-1.5 transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400';
+  const mobileLabel = 'max-w-full truncate text-center text-[10px] font-semibold leading-none';
 
   return (
     <header
-      className={`sticky top-0 z-30 shadow-xl border-b backdrop-blur-md transition-colors ${
+      className={`sticky top-0 z-30 border-b pt-[env(safe-area-inset-top)] shadow-xl backdrop-blur-md transition-colors ${
         isDark
           ? 'bg-[#070D18]/95 border-slate-800/80 text-slate-100'
           : 'bg-white/95 border-slate-200 text-slate-900 shadow-slate-200/50'
@@ -124,8 +129,172 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Action buttons & Utilities - Aligned to the right with generous spacing */}
-          <div className="ml-0 sm:ml-auto basis-full sm:basis-auto min-w-0 sm:flex-1 grid grid-cols-5 sm:flex items-center gap-1.5 sm:gap-2.5 sm:flex-nowrap overflow-visible sm:overflow-x-auto max-w-full py-0.5 scrollbar-none [&>button]:min-h-10 sm:[&>button]:min-h-0">
+          {/* Mobile action panel: primary pills and secondary icon shortcuts. */}
+          <div className="basis-full min-w-0 sm:hidden">
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                id="btn-revisoes-inteligentes-mobile"
+                onClick={onOpenRevisions}
+                aria-label="Abrir revisões inteligentes"
+                className={`relative flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-full border px-2 text-[11px] font-bold transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
+                  pendingRevisionsCount > 0
+                    ? isDark
+                      ? 'border-blue-500/50 bg-blue-600/20 text-blue-300'
+                      : 'border-blue-200 bg-blue-50 text-blue-700'
+                    : mobileSurface
+                }`}
+                title="Acessar painel de revisões espaçadas ativas"
+              >
+                <Sparkles className="h-4 w-4 shrink-0 text-blue-400" />
+                <span className="truncate">Revisões</span>
+                {pendingRevisionsCount > 0 && (
+                  <span className="absolute -right-0.5 -top-1 min-w-4 rounded-full bg-blue-600 px-1 py-0.5 text-[9px] font-black leading-none text-white">
+                    {pendingRevisionsCount > 99 ? '99+' : pendingRevisionsCount}
+                  </span>
+                )}
+              </button>
+              <button
+                id="btn-adicionar-materia-mobile"
+                onClick={onOpenAddSubject}
+                aria-label="Adicionar matéria"
+                className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-full border px-2 text-[11px] font-bold transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${mobileSurface}`}
+                title="Adicionar disciplina personalizada ao seu ciclo"
+              >
+                <Plus className="h-4 w-4 shrink-0 text-blue-400" />
+                <span className="truncate">Adicionar</span>
+              </button>
+              <button
+                id="btn-historico-ciclos-mobile"
+                onClick={onOpenHistory}
+                aria-label="Abrir histórico de ciclos"
+                className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-full border px-2 text-[11px] font-bold transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${mobileSurface}`}
+                title="Ver histórico de semanas anteriores"
+              >
+                <Clock className="h-4 w-4 shrink-0" />
+                <span className="truncate">Histórico</span>
+              </button>
+            </div>
+
+            <div className="mt-2 grid grid-cols-4 gap-x-1.5 gap-y-2">
+              {onOpenNotifications && (
+                <button
+                  type="button"
+                  id="btn-open-notifications-mobile"
+                  onClick={onOpenNotifications}
+                  aria-label={`Alertas${unreadNotificationsCount > 0 ? `, ${unreadNotificationsCount} não lidas` : ''}`}
+                  className={`${mobileCircle} relative ${mobileSurface}`}
+                  title="Central de notificações"
+                >
+                  <span className="relative flex h-12 w-12 items-center justify-center rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-300">
+                    <Bell className="h-5 w-5" />
+                    {unreadNotificationsCount > 0 && (
+                      <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-500 px-1 py-0.5 text-[9px] font-black leading-none text-white shadow-md shadow-red-500/40">
+                        {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
+                      </span>
+                    )}
+                  </span>
+                  <span className={mobileLabel}>Alertas</span>
+                </button>
+              )}
+
+              <div className={`${mobileCircle} ${hasCalendarAccess ? 'border-emerald-500/40 bg-emerald-500/5 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.12)]' : 'border-red-500/40 bg-red-500/5 text-red-300 shadow-[0_0_12px_rgba(239,68,68,0.1)]'}`}>
+                {hasCalendarAccess ? (
+                  <button
+                    id="btn-google-signout-mobile"
+                    onClick={onSignOut}
+                    aria-label="Agenda conectada. Desconectar"
+                    className="flex h-12 w-12 items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-500/10 text-emerald-300 transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                    title="Agenda conectada. Tocar para desconectar"
+                  >
+                    <span className="relative"><Calendar className="h-5 w-5" /><span className="absolute -right-2 -top-1 h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/60" /></span>
+                  </button>
+                ) : (
+                  <button
+                    id="btn-google-signin-mobile"
+                    onClick={onSignIn}
+                    disabled={isSigningIn}
+                    aria-label="Agenda desconectada. Conectar"
+                    className="flex h-12 w-12 items-center justify-center rounded-full border border-red-400/40 bg-red-500/10 text-red-300 transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-50"
+                    title="Agenda desconectada. Tocar para conectar"
+                  >
+                    <span className="relative"><Calendar className="h-5 w-5" /><span className="absolute -right-2 -top-1 h-2.5 w-2.5 rounded-full bg-red-400 shadow-sm shadow-red-400/60" /></span>
+                  </button>
+                )}
+                <span className={mobileLabel}>Agenda</span>
+              </div>
+
+              {(isAdmin || userProfile?.role === 'admin') && onOpenAdminSecurity && (
+                <button
+                  type="button"
+                  id="btn-admin-security-mobile"
+                  onClick={onOpenAdminSecurity}
+                  aria-label="Abrir segurança e auditoria"
+                  className={`${mobileCircle} border-amber-500/40 bg-amber-500/10 text-amber-300 hover:border-amber-400`}
+                  title="Painel de monitoramento de segurança e auditoria"
+                >
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full border border-amber-400/40 bg-amber-500/10"><Shield className="h-5 w-5" /></span>
+                  <span className={mobileLabel}>Segurança</span>
+                </button>
+              )}
+
+              {onLockTerminal && (
+                <button
+                  type="button"
+                  id="btn-lock-terminal-mobile"
+                  onClick={onLockTerminal}
+                  aria-label="Bloquear terminal"
+                  className={`${mobileCircle} border-blue-500/40 bg-blue-500/10 text-blue-300 hover:border-blue-400`}
+                  title="Bloquear terminal e retornar à página inicial"
+                >
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full border border-blue-400/40 bg-blue-500/10"><Lock className="h-5 w-5" /></span>
+                  <span className={mobileLabel}>Bloqueio</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                id="btn-alternar-tema-mobile"
+                onClick={onToggleTheme}
+                aria-label="Alternar tema de cores"
+                className={`${mobileCircle} ${mobileSurface}`}
+                title={isDark ? 'Alternar para modo claro' : 'Alternar para modo escuro'}
+              >
+                <span className="flex h-12 w-12 items-center justify-center rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-300">{isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}</span>
+                <span className={mobileLabel}>Tema</span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-reiniciar-ciclo-mobile"
+                onClick={onForceReset}
+                aria-label="Reiniciar ciclo"
+                className={`${mobileCircle} ${mobileSurface}`}
+                title="Iniciar novo ciclo semanal agora"
+              >
+                <span className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-500/30 bg-slate-500/10"><RotateCcw className="h-5 w-5" /></span>
+                <span className={mobileLabel}>Reiniciar</span>
+              </button>
+
+              {onOpenAccount && (
+                <button
+                  type="button"
+                  id="btn-open-account-mobile"
+                  onClick={onOpenAccount}
+                  aria-label="Abrir minha conta e perfil"
+                  className={`${mobileCircle} ${mobileSurface}`}
+                  title="Minha conta e perfil do aluno"
+                >
+                  <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-blue-500/30 bg-blue-600 text-white">
+                    {userProfile?.avatarUrl ? <img src={userProfile.avatarUrl} alt="" className="h-full w-full object-cover" /> : <UserIcon className="h-5 w-5" />}
+                  </span>
+                  <span className={mobileLabel}>Perfil</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Desktop action buttons and utilities. Kept unchanged for desktop. */}
+          <div className="ml-0 hidden min-w-0 max-w-full basis-full items-center gap-1.5 overflow-visible py-0.5 sm:ml-auto sm:flex sm:basis-auto sm:flex-1 sm:flex-nowrap sm:gap-2.5 sm:overflow-x-auto scrollbar-none [&>button]:min-h-10 sm:[&>button]:min-h-0">
             {/* Smart Revisions Button */}
             <button
               id="btn-revisoes-inteligentes"
