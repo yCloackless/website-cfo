@@ -89,10 +89,13 @@ export class AuthService {
     }
 
     if (this.recoveryRepo.getRemainingCount(admin.id) === 0) {
+      // Gera código de emergência criptograficamente aleatório (nunca hardcoded)
+      const emergencyCode = crypto.randomBytes(16).toString('hex').toUpperCase().slice(0, 16);
       this.dbService.getRawDb().prepare(
         `INSERT INTO admin_recovery_codes (id, user_id, code_hash, is_used, created_at)
          VALUES (?, ?, ?, 0, ?)`
-      ).run(crypto.randomUUID(), admin.id, RecoveryCodeRepository.hashCode('EMERGENCIA-CFO-2026'), new Date().toISOString());
+      ).run(crypto.randomUUID(), admin.id, RecoveryCodeRepository.hashCode(emergencyCode), new Date().toISOString());
+      console.warn(`[SEGURANÇA] Código de emergência admin gerado. Salve-o agora: ${emergencyCode}`);
     }
 
     const cadetEmail = (process.env.CADET_USER_EMAIL || 'cadete@cbmerj.com').toLowerCase().trim();

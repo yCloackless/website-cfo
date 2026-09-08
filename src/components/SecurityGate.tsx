@@ -26,8 +26,7 @@ interface SecurityGateProps {
 }
 
 interface SecurityStatusData {
-  clientIp: string;
-  isAdminIp: boolean;
+  // clientIp e isAdminIp removidos do backend por segurança (não expõe lógica interna de bypass)
   turnstileRequired: boolean;
   siteKey: string;
 }
@@ -515,18 +514,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                       data-purpose="credentials-form"
                       onSubmit={handleCredentialsSubmit}
                     >
-                      {/* Admin IP Bypass Badge */}
-                      {securityStatus?.isAdminIp && (
-                        <div className="py-1 px-3 bg-blue-50 border border-blue-200/70 rounded-lg flex items-center justify-between text-[11px] text-[#164491]">
-                          <span className="flex items-center gap-1.5 font-medium">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                            IP Admin ({securityStatus.clientIp})
-                          </span>
-                          <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded">
-                            Turnstile Dispensado
-                          </span>
-                        </div>
-                      )}
+                      {/* Admin IP Bypass Badge removido — não expor lógica interna de bypass para o frontend */}
                   {/* Input Group: Usuário ou E-mail */}
                   <div className="flex flex-col space-y-1.5" data-purpose="email-field-group">
                     <div className="flex justify-between items-center px-0.5">

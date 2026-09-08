@@ -51,7 +51,7 @@ import {
 import { logAuditEvent, readRecentAuditLogs } from "./src/services/auditLogger";
 import { AuthService } from "./src/db/authService";
 import { getDb } from "./src/db/database";
-import { UserRepository, ProfileRepository, AuditRepository, SessionRepository, RecoveryCodeRepository } from "./src/db/repositories";
+import { UserRepository, ProfileRepository, AuditRepository, SessionRepository, RecoveryCodeRepository, UserStateRepository } from "./src/db/repositories";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
 import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtimeHub";
 
@@ -484,7 +484,7 @@ function readCalendarSession(): CalendarSession | null {
     return {
       access_token: "",
       refresh_token: envRefreshToken,
-      email: process.env.CALENDAR_EMAIL || "jb080956@gmail.com",
+      email: process.env.CALENDAR_EMAIL || undefined,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -679,6 +679,7 @@ const authServiceInstance = new AuthService(getDb());
 const auditRepoInstance = new AuditRepository(getDb().getRawDb());
 const userRepoInstance = new UserRepository(getDb().getRawDb());
 const profileRepoInstance = new ProfileRepository(getDb().getRawDb());
+const userStateRepoInstance = new UserStateRepository(getDb().getRawDb());
 const sessionRepoInstance = new SessionRepository(getDb().getRawDb());
 const recoveryCodeRepoInstance = new RecoveryCodeRepository(getDb().getRawDb());
 
@@ -1074,7 +1075,7 @@ app.post("/api/timer/reset", (req: Request, res: Response) => {
 // 🛡️ AUTENTICAÇÃO E SECURITY GATE (Dragão Carmesim - 2FA TOTP)
 // ============================================================================
 
-// 2.7. Rota de Status de Segurança do Cliente (Turnstile & IP Check)
+// 2.7. Rota de Status de Segurança do Cliente (Turnstile check - sem revelar lógica interna)
 app.get("/api/auth/security-status", (req: Request, res: Response) => {
   const clientIp = getClientIp(req);
   const isAdm = isAdminIp(clientIp);
@@ -1082,9 +1083,8 @@ app.get("/api/auth/security-status", (req: Request, res: Response) => {
     process.env.TURNSTILE_SITE_KEY || "0x4AAAAAAEq86txU4BLgFVmp";
 
   return res.json({
-    clientIp,
-    isAdminIp: isAdm,
-    turnstileRequired: !isAdm, // Admin no seu IP não precisa rodar Turnstile!
+    // Não expor clientIp nem isAdminIp — revelaria lógica interna de bypass
+    turnstileRequired: !isAdm,
     siteKey,
   });
 });
@@ -3669,6 +3669,38 @@ function requireUserAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 // 1. Sincronização de Progresso do Usuário (Backup em Nuvem Privada do Aluno/Cadete)
+app.get("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const userId = String((req as any).user.userId || '');
+    if (!userId) return res.status(401).json({ error: 'UNAUTHORIZED' });
+    const saved = userStateRepoInstance.get(userId);
+    return res.json({ success: true, state: saved?.payload || {}, updatedAt: saved?.updatedAt || null });
+  } catch (err) {
+    console.error('[User State] Falha ao carregar estado:', err);
+    return res.status(500).json({ error: 'STATE_READ_ERROR' });
+  }
+});
+
+app.put("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const userId = String((req as any).user.userId || '');
+    const state = req.body?.state;
+    if (!userId || !state || typeof state !== 'object' || Array.isArray(state)) return res.status(400).json({ error: 'INVALID_STATE' });
+    const sanitized: Record<string, string> = {};
+    for (const [key, value] of Object.entries(state)) {
+      if (!/^(cfo_[a-zA-Z0-9_.-]+|.*anki_[a-zA-Z0-9_.-]+)$/.test(key)) continue;
+      if (typeof value !== 'string' || value.length > 2_000_000) return res.status(413).json({ error: 'STATE_VALUE_TOO_LARGE' });
+      sanitized[key] = value;
+    }
+    const savedAt = userStateRepoInstance.upsert(userId, sanitized);
+    logAuditEvent({ action: 'USER_STATE_SYNC', actor: (req as any).user.username || userId, resource: 'user_state_snapshots', status: 'SUCCESS', ip: getClientIp(req), details: { userId, keys: Object.keys(sanitized).length } });
+    return res.json({ success: true, savedAt });
+  } catch (err) {
+    console.error('[User State] Falha ao salvar estado:', err);
+    return res.status(500).json({ error: 'STATE_WRITE_ERROR' });
+  }
+});
+
 app.post("/api/user/sync-backup", requireUserAuth, (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
@@ -3680,6 +3712,23 @@ app.post("/api/user/sync-backup", requireUserAuth, (req: Request, res: Response)
         message: "Dados de backup de estudo inválidos.",
       });
     }
+
+    // Proteção anti-DoS: limitar tamanho do snapshot a 2MB serializado
+    const snapshotJson = JSON.stringify(snapshot);
+    const MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024; // 2 MB
+    if (Buffer.byteLength(snapshotJson, 'utf-8') > MAX_SNAPSHOT_BYTES) {
+      return res.status(413).json({
+        error: "SNAPSHOT_TOO_LARGE",
+        message: "O tamanho do backup de progresso excede o limite de 2MB. Reduza os dados antes de sincronizar.",
+      });
+    }
+
+    // Compatibility endpoint: persist the legacy snapshot in SQLite as well,
+    // keyed by the authenticated user id. Do not derive ownership from username.
+    const userId = String(user.userId || '');
+    if (!userId) return res.status(401).json({ error: 'UNAUTHORIZED' });
+    const savedAt = userStateRepoInstance.upsert(userId, { cfo_legacy_snapshot: JSON.stringify(snapshot) });
+    return res.json({ success: true, message: "Progresso sincronizado no banco de dados.", savedAt });
 
     const userBackupDir = path.join(process.cwd(), "data", "user-backups");
     if (!fs.existsSync(userBackupDir)) {
@@ -3726,31 +3775,11 @@ app.post("/api/user/sync-backup", requireUserAuth, (req: Request, res: Response)
 app.get("/api/user/restore-backup", requireUserAuth, (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const sanitizedUsername = String(user.username || "cadete").replace(/[^a-zA-Z0-9_-]/g, "_");
-    const userBackupFile = path.join(process.cwd(), "data", "user-backups", `${sanitizedUsername}.json`);
-
-    if (!fs.existsSync(userBackupFile)) {
-      return res.status(404).json({
-        error: "NO_BACKUP_FOUND",
-        message: "Nenhum backup em nuvem encontrado para este operador.",
-      });
+    const state = userStateRepoInstance.get(String(user.userId || ''));
+    if (state?.payload?.cfo_legacy_snapshot) {
+      return res.json({ success: true, backup: { snapshot: JSON.parse(state.payload.cfo_legacy_snapshot), savedAt: state.updatedAt } });
     }
-
-    const raw = fs.readFileSync(userBackupFile, "utf-8");
-    const parsed = JSON.parse(raw);
-
-    logAuditEvent({
-      action: "USER_BACKUP_RESTORE",
-      actor: user.username,
-      resource: `/data/user-backups/${sanitizedUsername}.json`,
-      status: "SUCCESS",
-      ip: getClientIp(req),
-    });
-
-    return res.json({
-      success: true,
-      backup: parsed,
-    });
+    return res.status(404).json({ error: "NO_BACKUP_FOUND", message: "Nenhum estado persistente encontrado para este usuário." });
   } catch (err: any) {
     console.error("[User Backup] Falha ao ler backup do usuário:", err);
     return res.status(500).json({
