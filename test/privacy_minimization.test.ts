@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { app } from '../server';
 import { getDb } from '../src/db/database';
 import { AuthService } from '../src/db/authService';
-import { UserRepository } from '../src/db/repositories';
+import { UserRepository, SessionRepository, CadetSessionLockRepository } from '../src/db/repositories';
 
 let server: any;
 let baseUrl = '';
@@ -31,6 +31,12 @@ test.after(async () => {
 
 // Helper: Get token for cadet or admin
 async function getCadetToken(): Promise<string> {
+  const db = getDb().getRawDb();
+  const cadet = new UserRepository(db).findByUsername('cadete');
+  if (cadet) {
+    new SessionRepository(db).revokeAllUserSessions(cadet.id);
+    new CadetSessionLockRepository(db).clearLock(cadet.id);
+  }
   const res = await fetch(`${baseUrl}/api/auth/check-credentials`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

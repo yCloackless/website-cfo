@@ -18,6 +18,7 @@ import {
   DbPasswordReset,
   DbSession,
   DbRecoveryCode,
+  DbCadetSessionLock,
   OrderStatus,
   RefundRequestStatus,
   UserRole,
@@ -1379,3 +1380,65 @@ export class UserStateRepository {
     return now;
   }
 }
+
+export class CadetSessionLockRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public getLock(userId: string): DbCadetSessionLock | null {
+    const row = this.db.prepare(
+      'SELECT user_id, active_session_id, locked_until, created_at, updated_at FROM cadet_session_locks WHERE user_id = ?'
+    ).get(userId) as any;
+    if (!row) return null;
+    return {
+      userId: row.user_id,
+      activeSessionId: row.active_session_id ?? null,
+      lockedUntil: row.locked_until ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  public getActiveSessionForUser(userId: string): DbSession | null {
+    const now = new Date().toISOString();
+    const row = this.db.prepare(
+      `SELECT id, user_id, token_hash, role, ip, user_agent, expires_at, revoked_at, created_at
+       FROM sessions
+       WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ?
+       ORDER BY created_at DESC LIMIT 1`
+    ).get(userId, now) as any;
+    if (!row) return null;
+    return {
+      id: row.id,
+      userId: row.user_id,
+      tokenHash: row.token_hash,
+      role: row.role as UserRole,
+      ip: row.ip,
+      userAgent: row.user_agent,
+      expiresAt: row.expires_at,
+      revokedAt: row.revoked_at,
+      createdAt: row.created_at,
+    };
+  }
+
+  public setLock(userId: string, activeSessionId: string | null, lockedUntil: string | null): void {
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO cadet_session_locks (user_id, active_session_id, locked_until, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET
+        active_session_id = excluded.active_session_id,
+        locked_until = excluded.locked_until,
+        updated_at = excluded.updated_at
+    `).run(userId, activeSessionId ?? null, lockedUntil ?? null, now, now);
+  }
+
+  public clearLock(userId: string): void {
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      UPDATE cadet_session_locks
+      SET active_session_id = NULL, locked_until = NULL, updated_at = ?
+      WHERE user_id = ?
+    `).run(now, userId);
+  }
+}
+

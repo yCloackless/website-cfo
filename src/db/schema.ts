@@ -196,3 +196,12 @@ export interface DbRecoveryCode {
   createdAt: string;
 }
 
+export interface DbCadetSessionLock {
+  userId: string;
+  activeSessionId?: string | null;
+  lockedUntil?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+

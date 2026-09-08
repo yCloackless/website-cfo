@@ -55,6 +55,9 @@ test('1. Criação e Login com e-mail ou username', async () => {
   assert.ok(loginUser.token);
   assert.equal(loginUser.user?.role, 'cadet');
 
+  // Faz logout da sessão para permitir novo login no teste de case-insensitivity
+  authService.logout(loginUser.token!);
+
   // 1.3 Login case-insensitive
   const loginUpper = await authService.login('CADETE@CBMERJ.COM', 'fixture-cadet-password-2026');
   assert.equal(loginUpper.success, true);

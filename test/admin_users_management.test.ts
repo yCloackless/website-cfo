@@ -274,7 +274,7 @@ test('5. Admin altera papel do usuário para support e depois para cadet com aud
   let updated = userRepo.findById(testUserId);
   assert.equal(updated?.role, 'support');
 
-  // Retorna para 'cadet'
+  // Retorna para 'support' para permitir teste de múltiplas sessões
   const roleRes2 = await fetch(`${baseUrl}/api/admin/users/${testUserId}/role`, {
     method: 'PATCH',
     headers: {
@@ -282,12 +282,12 @@ test('5. Admin altera papel do usuário para support e depois para cadet com aud
       Authorization: `Bearer ${adminToken}`,
       'x-admin-step-up-token': stepUpToken,
     },
-    body: JSON.stringify({ role: 'cadet' }),
+    body: JSON.stringify({ role: 'support' }),
   });
 
   assert.equal(roleRes2.status, 200);
   updated = userRepo.findById(testUserId);
-  assert.equal(updated?.role, 'cadet');
+  assert.equal(updated?.role, 'support');
 });
 
 // ============================================================================

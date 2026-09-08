@@ -359,7 +359,25 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_user_state_snapshots_updated_at ON user_state_snapshots(updated_at);
     `,
   },
+  {
+    id: 9,
+    name: '009_cadet_exclusive_session_locks',
+    sql: `
+      -- Controle de sessão exclusiva e trava de 24h para a conta cadete
+      CREATE TABLE IF NOT EXISTS cadet_session_locks (
+        user_id TEXT PRIMARY KEY,
+        active_session_id TEXT,
+        locked_until TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (active_session_id) REFERENCES sessions(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_cadet_locks_until ON cadet_session_locks(locked_until);
+    `,
+  },
 ];
+
 
 export class DatabaseService {
   private db: DatabaseSync;
@@ -368,6 +386,10 @@ export class DatabaseService {
   constructor(customPath?: string) {
     if (customPath) {
       this.dbPath = customPath;
+      const dir = path.dirname(this.dbPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
     } else {
       const dataDir = path.join(process.cwd(), 'data');
       if (!fs.existsSync(dataDir)) {

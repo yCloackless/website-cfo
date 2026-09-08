@@ -1131,9 +1131,23 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
       return res.status(401).json({ success: false, error: 'INVALID_CREDENTIALS', message: 'Credenciais de acesso inválidas.' });
     }
     if (dbUser.role !== 'admin') {
-      const session = createTerminalSession(dbUser.username, req.body.rememberMe === true, dbUser.role);
-      logSecurityEvent(req, { action: 'LOGIN_SUCCESS', actor: dbUser.username, resource: '/api/auth/check-credentials', status: 'SUCCESS' });
-      return res.json({ success: true, directLogin: true, ...session, username: dbUser.username });
+      const loginResult = await authServiceInstance.login(inputUser, password, {
+        ip: clientIp,
+        userAgent: (req.headers["user-agent"] as string) || undefined,
+        rememberMe: req.body.rememberMe === true,
+      });
+      if (!loginResult.success) {
+        return res.status(403).json({ success: false, error: 'LOGIN_BLOCKED', message: loginResult.message });
+      }
+      return res.json({
+        success: true,
+        directLogin: true,
+        token: loginResult.token,
+        expiresAt: loginResult.expiresAt ? Date.parse(loginResult.expiresAt) : undefined,
+        username: dbUser.username,
+        role: dbUser.role,
+        canAccessNotion: false,
+      });
     }
 
     // 2. Geo-fencing: Conta Admin só é acessível a partir do Brasil
@@ -2065,6 +2079,32 @@ app.post("/api/admin/users/:id/revoke-sessions", requireAdminWriteAuth, requireS
     return res.status(500).json({ success: false, message: "Erro ao revogar sessões do usuário." });
   }
 });
+
+// 17.2. Desbloqueio/Reset Manual do Lock de Sessão Exclusiva do Cadete (Requer Admin)
+app.post("/api/admin/cadet-lock/reset", requireAdminWriteAuth, async (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    const { cadetUserId, targetUserId } = req.body || {};
+    const targetId = cadetUserId || targetUserId;
+
+    if (!targetId) {
+      return res.status(400).json({ success: false, error: "MISSING_CADET_USER_ID", message: "Identificador do cadete é obrigatório." });
+    }
+
+    const clientIp = getClientIp(req);
+    const userAgent = (req.headers["user-agent"] as string) || undefined;
+
+    const result = await authServiceInstance.resetCadetLock(adminUser.userId || adminUser.username, targetId, clientIp, userAgent);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    return res.json(result);
+  } catch (err: any) {
+    console.error("[Admin Reset Cadet Lock Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao resetar bloqueio do cadete." });
+  }
+});
+
 
 // 18. Listagem de Sessões Ativas (Admin)
 app.get("/api/admin/sessions", requireAdminAuth, (req: Request, res: Response) => {

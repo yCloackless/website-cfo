@@ -14,6 +14,7 @@ import {
   PasswordResetRepository,
   AuditRepository,
   RecoveryCodeRepository,
+  CadetSessionLockRepository,
 } from './repositories';
 import { DbUser, DbSession, UserRole } from './schema';
 
@@ -42,6 +43,7 @@ export class AuthService {
   private resetRepo: PasswordResetRepository;
   private auditRepo: AuditRepository;
   private recoveryRepo: RecoveryCodeRepository;
+  private cadetLockRepo: CadetSessionLockRepository;
 
   constructor(private dbService: DatabaseService = getDb(), private config?: AuthConfig) {
     const db = this.dbService.getRawDb();
@@ -50,6 +52,7 @@ export class AuthService {
     this.resetRepo = new PasswordResetRepository(db);
     this.auditRepo = new AuditRepository(db);
     this.recoveryRepo = new RecoveryCodeRepository(db);
+    this.cadetLockRepo = new CadetSessionLockRepository(db);
   }
 
   /**
@@ -225,12 +228,156 @@ export class AuthService {
       this.auditRepo.log({
         action: 'LOGIN_FAILED',
         actor: user.username,
+        actorUserId: user.id,
         resource: '/api/v2/auth/login',
         status: 'FAILED',
         ip: meta?.ip,
+        userAgent: meta?.userAgent,
+        userId: user.id,
         details: { reason: 'Password mismatch' },
       });
       return { success: false, message: 'Credenciais de acesso inválidas.' };
+    }
+
+    // =========================================================================
+    // 🛡️ REGRA DE NEGÓCIO EXCLUSIVA PARA A CONTA CADETE
+    // =========================================================================
+    if (user.role === 'cadet') {
+      const db = this.dbService.getRawDb();
+      const now = new Date();
+      const nowIso = now.toISOString();
+
+      db.exec('BEGIN IMMEDIATE TRANSACTION;');
+      try {
+        const lock = this.cadetLockRepo.getLock(user.id);
+
+        // 1. Verifica se a conta possui um lock de 24h ativo
+        if (lock?.lockedUntil && lock.lockedUntil > nowIso) {
+          this.auditRepo.log({
+            action: 'CADET_LOGIN_BLOCKED',
+            actor: user.username,
+            actorUserId: user.id,
+            resource: '/api/v2/auth/login',
+            status: 'FAILED',
+            ip: meta?.ip,
+            userAgent: meta?.userAgent,
+            userId: user.id,
+            details: { reason: 'Locked for 24h due to session replacement attempt' },
+          });
+          db.exec('COMMIT;');
+          return {
+            success: false,
+            message: 'Esta conta já possui uma sessão exclusiva ativa. Uma nova sessão poderá ser iniciada após o período de segurança.',
+          };
+        }
+
+        // 2. Se existia um lock e o tempo de 24h já expirou, registra CADET_LOCK_EXPIRED
+        if (lock?.lockedUntil && lock.lockedUntil <= nowIso) {
+          this.auditRepo.log({
+            action: 'CADET_LOCK_EXPIRED',
+            actor: user.username,
+            actorUserId: user.id,
+            resource: '/api/v2/auth/login',
+            status: 'SUCCESS',
+            ip: meta?.ip,
+            userAgent: meta?.userAgent,
+            userId: user.id,
+            details: { reason: '24h security window elapsed' },
+          });
+        }
+
+        // 3. Verifica se existe uma sessão ativa válida para a conta cadete
+        const activeSession = this.cadetLockRepo.getActiveSessionForUser(user.id);
+        if (activeSession) {
+          // Tentativa de login em outro dispositivo/sessão enquanto existe sessão ativa!
+          // Dispara evento CADET_SESSION_REPLACEMENT_ATTEMPT e inicia trava de 24h (CADET_LOCK_STARTED)
+          this.auditRepo.log({
+            action: 'CADET_SESSION_REPLACEMENT_ATTEMPT',
+            actor: user.username,
+            actorUserId: user.id,
+            resource: '/api/v2/auth/login',
+            status: 'WARNING',
+            ip: meta?.ip,
+            userAgent: meta?.userAgent,
+            userId: user.id,
+            details: { activeSessionId: activeSession.id },
+          });
+
+          const lockedUntil24h = new Date(now.getTime() + 24 * 3600 * 1000).toISOString();
+          this.cadetLockRepo.setLock(user.id, activeSession.id, lockedUntil24h);
+
+          this.auditRepo.log({
+            action: 'CADET_LOCK_STARTED',
+            actor: user.username,
+            actorUserId: user.id,
+            resource: '/api/v2/auth/login',
+            status: 'WARNING',
+            ip: meta?.ip,
+            userAgent: meta?.userAgent,
+            userId: user.id,
+            details: { lockedUntil: lockedUntil24h },
+          });
+
+          db.exec('COMMIT;');
+          return {
+            success: false,
+            message: 'Esta conta já possui uma sessão exclusiva ativa. Uma nova sessão poderá ser iniciada após o período de segurança.',
+          };
+        }
+
+        // 4. Sem sessão ativa e sem trava válida: cria nova sessão exclusiva para o cadete
+        const days = meta?.rememberMe ? 30 : 1;
+        const { rawToken, session } = this.sessionRepo.createSession({
+          userId: user.id,
+          role: user.role,
+          ip: meta?.ip,
+          userAgent: meta?.userAgent,
+          expiresInDays: days,
+        });
+
+        this.cadetLockRepo.setLock(user.id, session.id, null);
+
+        this.auditRepo.log({
+          action: 'CADET_LOGIN_SUCCESS',
+          actor: user.username,
+          actorUserId: user.id,
+          resource: '/api/v2/auth/login',
+          status: 'SUCCESS',
+          ip: meta?.ip,
+          userAgent: meta?.userAgent,
+          userId: user.id,
+          details: { sessionId: session.id, role: user.role, rememberMe: meta?.rememberMe },
+        });
+
+        this.auditRepo.log({
+          action: 'LOGIN_SUCCESS',
+          actor: user.username,
+          actorUserId: user.id,
+          resource: '/api/v2/auth/login',
+          status: 'SUCCESS',
+          ip: meta?.ip,
+          userAgent: meta?.userAgent,
+          userId: user.id,
+          details: { role: user.role, rememberMe: meta?.rememberMe },
+        });
+
+        db.exec('COMMIT;');
+
+        return {
+          success: true,
+          token: rawToken,
+          expiresAt: session.expiresAt,
+          user: {
+            id: user.id,
+            email: user.email,
+            username: user.username,
+            role: user.role,
+          },
+        };
+      } catch (err) {
+        db.exec('ROLLBACK;');
+        throw err;
+      }
     }
 
     const days = meta?.rememberMe ? 30 : 1;
@@ -245,9 +392,12 @@ export class AuthService {
     this.auditRepo.log({
       action: 'LOGIN_SUCCESS',
       actor: user.username,
+      actorUserId: user.id,
       resource: '/api/v2/auth/login',
       status: 'SUCCESS',
       ip: meta?.ip,
+      userAgent: meta?.userAgent,
+      userId: user.id,
       details: { role: user.role, rememberMe: meta?.rememberMe },
     });
 
@@ -262,6 +412,50 @@ export class AuthService {
         role: user.role,
       },
     };
+  }
+
+  /**
+   * Reset/Desbloqueio manual da conta cadete por administrador autorizado.
+   */
+  public async resetCadetLock(
+    adminUserId: string,
+    targetUserId: string,
+    ip?: string,
+    userAgent?: string
+  ): Promise<{ success: boolean; message: string }> {
+    const admin = this.userRepo.findById(adminUserId);
+    if (!admin || admin.role !== 'admin' || admin.status !== 'active') {
+      return { success: false, message: 'Acesso negado: Requer privilégios de administrador.' };
+    }
+
+    const targetUser = this.userRepo.findById(targetUserId);
+    if (!targetUser) {
+      return { success: false, message: 'Usuário não encontrado.' };
+    }
+
+    // Revoga todas as sessões ativas do cadete e limpa a trava de 24h
+    this.sessionRepo.revokeAllUserSessions(targetUserId);
+    this.cadetLockRepo.clearLock(targetUserId);
+
+    this.auditRepo.log({
+      action: 'CADET_LOCK_MANUALLY_RESET',
+      actor: admin.username,
+      actorUserId: admin.id,
+      resource: `/users/${targetUserId}/cadet-lock`,
+      status: 'SUCCESS',
+      ip,
+      userAgent,
+      userId: targetUserId,
+      targetType: 'user',
+      targetId: targetUserId,
+      details: { resetByAdminId: admin.id, resetByAdminUsername: admin.username },
+    });
+
+    return { success: true, message: 'Bloqueio de sessão exclusiva do cadete resetado com sucesso.' };
+  }
+
+  public getCadetLockStatus(userId: string) {
+    return this.cadetLockRepo.getLock(userId);
   }
 
   /**
