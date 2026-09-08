@@ -13,6 +13,7 @@ export interface DbUser {
   passwordHash: string;
   role: UserRole;
   status: UserStatus;
+  canAccessNotion: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -226,4 +227,3 @@ export interface DbSecurityNotification {
   metadataJson?: string | null;
   createdAt: string;
 }
-

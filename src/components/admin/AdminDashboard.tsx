@@ -33,6 +33,7 @@ export type AdminTab =
   | 'sessions'
   | 'audit'
   | 'admins'
+  | 'notion'
   | 'settings';
 
 interface AdminDashboardProps {
@@ -64,6 +65,7 @@ interface UserItem {
   fullName?: string | null;
   avatarUrl?: string | null;
   phone?: string | null;
+  canAccessNotion: boolean;
 }
 
 interface UserDetail {
@@ -72,6 +74,7 @@ interface UserDetail {
   username: string;
   role: 'admin' | 'cadet' | 'support';
   status: 'active' | 'suspended' | 'pending_activation';
+  canAccessNotion: boolean;
   createdAt: string;
   updatedAt: string;
   profile: {
@@ -167,6 +170,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [usersRoleFilter, setUsersRoleFilter] = useState<string>('');
   const [usersStatusFilter, setUsersStatusFilter] = useState<string>('');
   const [isUsersLoading, setIsUsersLoading] = useState(false);
+  const [newAccount, setNewAccount] = useState({ fullName: '', email: '', username: '', password: '', role: 'cadet' as 'cadet' | 'support' | 'admin', canAccessNotion: false });
+  const [isCreatingAccount, setIsCreatingAccount] = useState(false);
 
   // Ficha Detalhada de Usuário
   const [currentAdminRole, setCurrentAdminRole] = useState<string>('admin');
@@ -542,6 +547,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       loadRecoveryCount();
     }
     else if (activeTab === 'admins') loadAdmins();
+    else if (activeTab === 'notion') loadUsers();
   }, [activeTab, isAuthorized, loadDashboard, loadUsers, loadSessions, loadAudit, loadAdmins]);
 
   // Submeter Confirmação de Step-Up
@@ -778,6 +784,68 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Ações de Sessão (Revogar)
+  const handleToggleNotionAccess = async (user: UserItem, overrideStepUp?: string) => {
+    const nextAccess = user.role === 'admin' ? true : !user.canAccessNotion;
+    if (!overrideStepUp && !window.confirm(nextAccess ? `Liberar a aba Notion para @${user.username}?` : `Remover a aba Notion de @${user.username}?`)) return;
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/notion-access`, { method: 'PATCH', headers: getHeaders(overrideStepUp), body: JSON.stringify({ canAccessNotion: nextAccess }) });
+      const data = await res.json();
+      if (res.status === 403 && data.error === 'STEP_UP_REQUIRED') {
+        setPendingAction(() => (token: string) => handleToggleNotionAccess(user, token));
+        setIsStepUpModalOpen(true);
+        return;
+      }
+      setActionFeedback({ type: res.ok ? 'success' : 'error', message: data.message || 'Falha ao alterar acesso ao Notion.' });
+      if (res.ok) loadUsers();
+    } catch {
+      setActionFeedback({ type: 'error', message: 'Erro de comunicacao ao alterar acesso ao Notion.' });
+    }
+  };
+
+  const handleDeleteAccount = async (user: UserItem, overrideStepUp?: string) => {
+    if (!overrideStepUp && !window.confirm(`Excluir definitivamente a conta @${user.username}? Esta acao nao pode ser desfeita.`)) return;
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}`, { method: 'DELETE', headers: getHeaders(overrideStepUp) });
+      const data = await res.json();
+      if (res.status === 403 && data.error === 'STEP_UP_REQUIRED') {
+        setPendingAction(() => (token: string) => handleDeleteAccount(user, token));
+        setIsStepUpModalOpen(true);
+        return;
+      }
+      setActionFeedback({ type: res.ok ? 'success' : 'error', message: data.message || 'Falha ao excluir conta.' });
+      if (res.ok) { loadUsers(); loadDashboard(); }
+    } catch {
+      setActionFeedback({ type: 'error', message: 'Erro de comunicacao ao excluir conta.' });
+    }
+  };
+
+  const handleCreateAccount = async (overrideStepUp?: string) => {
+    if (!overrideStepUp && (!newAccount.email || !newAccount.username || !newAccount.password)) {
+      setActionFeedback({ type: 'error', message: 'Preencha e-mail, username e senha para criar a conta.' });
+      return;
+    }
+    setIsCreatingAccount(true);
+    try {
+      const res = await fetch('/api/admin/users', { method: 'POST', headers: getHeaders(overrideStepUp), body: JSON.stringify(newAccount) });
+      const data = await res.json();
+      if (res.status === 403 && data.error === 'STEP_UP_REQUIRED') {
+        setPendingAction(() => (token: string) => handleCreateAccount(token));
+        setIsStepUpModalOpen(true);
+        return;
+      }
+      setActionFeedback({ type: res.ok ? 'success' : 'error', message: data.message || 'Falha ao criar conta.' });
+      if (res.ok) {
+        setNewAccount({ fullName: '', email: '', username: '', password: '', role: 'cadet', canAccessNotion: false });
+        loadUsers();
+        loadDashboard();
+      }
+    } catch {
+      setActionFeedback({ type: 'error', message: 'Erro de comunicacao ao criar conta.' });
+    } finally {
+      setIsCreatingAccount(false);
+    }
+  };
+
   const handleRevokeSession = async (sessionId: string, overrideStepUp?: string) => {
     if (!overrideStepUp) {
       if (!window.confirm('Deseja realmente revogar esta sessão imediatamente? O usuário será desconectado.')) return;
@@ -931,6 +999,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               else if (activeTab === 'sessions') loadSessions();
               else if (activeTab === 'security' || activeTab === 'audit') loadAudit();
               else if (activeTab === 'admins') loadAdmins();
+              else if (activeTab === 'notion') loadUsers();
             }}
             className={`min-h-11 min-w-11 md:min-h-0 md:min-w-0 p-2 rounded-xl border transition-all cursor-pointer shrink-0 ${
               isDark ? 'border-slate-800 bg-slate-900/60 text-slate-300 hover:text-white' : 'border-slate-300 bg-slate-100 text-slate-700 hover:text-black'
@@ -1076,6 +1145,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </span>
             )}
           </button>
+
+          {currentAdminRole === 'admin' && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('notion')}
+              className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === 'notion'
+                  ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
+              }`}
+            >
+              <Globe className="w-4 h-4 text-cyan-400" />
+              Notion / Contas
+            </button>
+          )}
 
           <div className="mt-0 md:mt-auto pt-0 md:pt-4 border-t border-slate-800/60 shrink-0">
             <button
@@ -1475,6 +1559,68 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {/* ================================================================= */}
           {/* TAB: SEGURANÇA & AUDITORIA                                        */}
           {/* ================================================================= */}
+          {activeTab === 'notion' && currentAdminRole === 'admin' && (
+            <div className="space-y-4">
+              <div className="bg-[#0B1220] border border-cyan-500/20 rounded-2xl p-5 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Globe className="w-5 h-5 text-cyan-400" />
+                  <h2 className="text-lg font-bold text-white">Acesso ao Notion e contas</h2>
+                </div>
+                <p className="text-xs text-slate-400">Somente o administrador pode liberar ou remover a aba Agenda Notion, criar contas e excluir contas.</p>
+              </div>
+
+              <form onSubmit={(e) => { e.preventDefault(); handleCreateAccount(); }} className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-5 space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-bold text-white">Adicionar nova conta</h3>
+                  <UserCheck className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <input value={newAccount.fullName} onChange={(e) => setNewAccount((v) => ({ ...v, fullName: e.target.value }))} placeholder="Nome completo" className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white" />
+                  <input required type="email" value={newAccount.email} onChange={(e) => setNewAccount((v) => ({ ...v, email: e.target.value }))} placeholder="E-mail" className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white" />
+                  <input required value={newAccount.username} onChange={(e) => setNewAccount((v) => ({ ...v, username: e.target.value }))} placeholder="Username" className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white" />
+                  <input required minLength={8} type="password" value={newAccount.password} onChange={(e) => setNewAccount((v) => ({ ...v, password: e.target.value }))} placeholder="Senha (min. 8)" className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white" />
+                  <select value={newAccount.role} onChange={(e) => setNewAccount((v) => ({ ...v, role: e.target.value as 'cadet' | 'support' | 'admin', canAccessNotion: e.target.value === 'admin' ? true : v.canAccessNotion }))} className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+                    <option value="cadet">Cadete</option>
+                    <option value="support">Suporte</option>
+                    <option value="admin">Administrador</option>
+                  </select>
+                  <label className="flex items-center gap-2 text-xs text-slate-300 px-2">
+                    <input type="checkbox" checked={newAccount.role === 'admin' || newAccount.canAccessNotion} disabled={newAccount.role === 'admin'} onChange={(e) => setNewAccount((v) => ({ ...v, canAccessNotion: e.target.checked }))} />
+                    Liberar acesso ao Notion
+                  </label>
+                </div>
+                <button type="submit" disabled={isCreatingAccount} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
+                  <UserCheck className="w-4 h-4" /> {isCreatingAccount ? 'Criando...' : 'Adicionar conta'}
+                </button>
+              </form>
+
+              <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-white">Contas e permissao da aba Notion</h3>
+                  <span className="text-[11px] text-slate-500">{usersTotal} contas</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-900/80 text-slate-400 font-mono text-[11px]"><tr><th className="px-5 py-3">Conta</th><th className="px-5 py-3">Papel</th><th className="px-5 py-3">Notion</th><th className="px-5 py-3 text-right">Acoes</th></tr></thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {users.map((u) => (
+                        <tr key={u.id} className="hover:bg-slate-900/40">
+                          <td className="px-5 py-3"><p className="font-bold text-white">{u.fullName || u.username}</p><p className="text-[11px] text-blue-400 font-mono">@{u.username}</p></td>
+                          <td className="px-5 py-3 text-slate-300">{u.role === 'admin' ? 'Administrador' : u.role === 'support' ? 'Suporte' : 'Cadete'}</td>
+                          <td className="px-5 py-3"><span className={`font-mono text-[10px] font-bold px-2 py-1 rounded-full border ${u.canAccessNotion ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>{u.canAccessNotion ? 'LIBERADO' : 'BLOQUEADO'}</span></td>
+                          <td className="px-5 py-3 text-right"><div className="inline-flex items-center gap-2">
+                            <button type="button" onClick={() => handleToggleNotionAccess(u)} disabled={u.role === 'admin'} className="px-2.5 py-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 disabled:opacity-50 text-[11px] font-semibold cursor-pointer">{u.canAccessNotion ? 'Remover' : 'Liberar'}</button>
+                            <button type="button" onClick={() => handleDeleteAccount(u)} disabled={u.username === 'admin'} className="px-2.5 py-1 rounded-lg border border-red-500/30 bg-red-500/10 text-red-300 disabled:opacity-50 text-[11px] font-semibold cursor-pointer"><UserX className="w-3 h-3 inline mr-1" />Excluir</button>
+                          </div></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
           {(activeTab === 'security' || activeTab === 'audit') && (
             <div className="space-y-4">
               

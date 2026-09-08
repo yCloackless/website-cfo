@@ -407,6 +407,17 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON security_notifications(created_at);
     `,
   },
+  {
+    id: 11,
+    name: '011_user_notion_access',
+    sql: `
+      -- Permissao individual para exibir e usar a aba Agenda Notion.
+      -- Administradores continuam tendo acesso por role; esta flag permite o ADM liberar/remover para outras contas.
+      ALTER TABLE users ADD COLUMN can_access_notion INTEGER NOT NULL DEFAULT 0 CHECK (can_access_notion IN (0, 1));
+      UPDATE users SET can_access_notion = 1 WHERE role = 'admin';
+      CREATE INDEX IF NOT EXISTS idx_users_notion_access ON users(can_access_notion);
+    `,
+  },
 ];
 
 

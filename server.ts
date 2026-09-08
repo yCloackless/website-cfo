@@ -52,6 +52,7 @@ import { logAuditEvent, readRecentAuditLogs } from "./src/services/auditLogger";
 import { AuthService } from "./src/db/authService";
 import { getDb } from "./src/db/database";
 import { UserRepository, ProfileRepository, AuditRepository, SessionRepository, RecoveryCodeRepository, UserStateRepository, SecurityNotificationRepository } from "./src/db/repositories";
+import { UserRole } from "./src/db/schema";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
 import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtimeHub";
 import { createAuthMiddlewares } from "./src/middleware/auth";
@@ -676,7 +677,7 @@ function createTerminalSession(username: string, rememberMe: boolean, role: stri
   const user = userRepoInstance.findByUsername(username) || userRepoInstance.findByEmail(username);
   if (!user || user.status !== 'active' || user.role !== role) throw new Error('SESSION_USER_INVALID');
   const created = sessionRepoInstance.createSession({ userId: user.id, role: user.role, expiresInDays: rememberMe ? 30 : 1 });
-  return { token: created.rawToken, expiresAt: Date.parse(created.session.expiresAt), role: user.role, canAccessNotion: user.role === 'admin' };
+  return { token: created.rawToken, expiresAt: Date.parse(created.session.expiresAt), role: user.role, canAccessNotion: user.role === 'admin' || user.canAccessNotion };
 }
 
 const authServiceInstance = new AuthService(getDb());
@@ -787,7 +788,7 @@ function verifyTerminalSession(token?: string | null): {
   const dbCheck = authServiceInstance.validateToken(token);
   if (dbCheck.valid && dbCheck.user && dbCheck.session) {
     const role = dbCheck.user.role;
-    const canAccessNotion = role === "admin";
+    const canAccessNotion = role === "admin" || dbCheck.user.canAccessNotion;
     const expiresAt = new Date(dbCheck.session.expiresAt).getTime();
     return {
       valid: true,
@@ -1146,7 +1147,7 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
         expiresAt: loginResult.expiresAt ? Date.parse(loginResult.expiresAt) : undefined,
         username: dbUser.username,
         role: dbUser.role,
-        canAccessNotion: false,
+        canAccessNotion: dbUser.canAccessNotion,
       });
     }
 
@@ -1860,6 +1861,7 @@ app.get("/api/admin/users/:id", requireAdminAuth, (req: Request, res: Response) 
         username: targetUser.username,
         role: targetUser.role,
         status: targetUser.status,
+        canAccessNotion: targetUser.role === 'admin' || targetUser.canAccessNotion,
         createdAt: targetUser.createdAt,
         updatedAt: targetUser.updatedAt,
         profile: {
@@ -1880,6 +1882,131 @@ app.get("/api/admin/users/:id", requireAdminAuth, (req: Request, res: Response) 
 });
 
 // 16. Alterar Status de Conta de Usuário (Suspender ou Reativar - Requer Step-Up e Admin pleno)
+app.post("/api/admin/users", requireAdminWriteAuth, requireStepUpAuth, async (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    const { email, username, password, role = 'cadet', fullName, phone, canAccessNotion = false } = req.body || {};
+    const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    const cleanUsername = typeof username === 'string' ? username.trim().toLowerCase() : '';
+    const cleanFullName = typeof fullName === 'string' ? fullName.trim() : cleanUsername;
+
+    if (!cleanEmail || !cleanEmail.includes('@') || !/^[a-z0-9._-]{3,32}$/.test(cleanUsername)) {
+      return res.status(400).json({ success: false, message: "Informe um e-mail e username validos." });
+    }
+    if (typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ success: false, message: "A senha deve possuir pelo menos 8 caracteres." });
+    }
+    if (!['cadet', 'support', 'admin'].includes(role)) {
+      return res.status(400).json({ success: false, message: "Papel invalido." });
+    }
+    if (userRepoInstance.findByEmail(cleanEmail) || userRepoInstance.findByUsername(cleanUsername)) {
+      return res.status(409).json({ success: false, message: "E-mail ou username ja cadastrado." });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const createdUser = userRepoInstance.create({
+      email: cleanEmail,
+      username: cleanUsername,
+      passwordHash,
+      role: role as UserRole,
+      canAccessNotion: role === 'admin' || Boolean(canAccessNotion),
+    });
+    profileRepoInstance.createOrUpdate({
+      userId: createdUser.id,
+      fullName: cleanFullName || cleanUsername,
+      phone: typeof phone === 'string' ? phone.trim() || null : null,
+    });
+
+    logSecurityEvent(req, {
+      action: 'USER_CREATED',
+      actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.id || null,
+      targetType: 'user',
+      targetId: createdUser.id,
+      resource: `/users/${createdUser.id}`,
+      status: 'SUCCESS',
+      userId: createdUser.id,
+      newState: { role: createdUser.role, canAccessNotion: createdUser.canAccessNotion },
+      details: { targetUsername: createdUser.username, targetEmail: createdUser.email },
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Conta criada com sucesso.",
+      user: {
+        id: createdUser.id,
+        email: createdUser.email,
+        username: createdUser.username,
+        role: createdUser.role,
+        status: createdUser.status,
+        canAccessNotion: createdUser.role === 'admin' || createdUser.canAccessNotion,
+      },
+    });
+  } catch (err: any) {
+    console.error("[Admin Create User Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao criar conta." });
+  }
+});
+
+app.patch("/api/admin/users/:id/notion-access", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    const targetUser = userRepoInstance.findById(req.params.id);
+    const requestedAccess = req.body?.canAccessNotion;
+
+    if (!targetUser) return res.status(404).json({ success: false, error: "USER_NOT_FOUND", message: "Usuario nao encontrado." });
+    if (typeof requestedAccess !== 'boolean') return res.status(400).json({ success: false, message: "Informe canAccessNotion como booleano." });
+    if (targetUser.role === 'admin' && !requestedAccess) return res.status(400).json({ success: false, message: "Administradores sempre mantem acesso ao Notion." });
+
+    const previousAccess = targetUser.role === 'admin' || targetUser.canAccessNotion;
+    userRepoInstance.updateNotionAccess(targetUser.id, requestedAccess);
+    logSecurityEvent(req, {
+      action: 'NOTION_ACCESS_CHANGED',
+      actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.id || null,
+      targetType: 'user',
+      targetId: targetUser.id,
+      resource: `/users/${targetUser.id}/notion-access`,
+      status: 'SUCCESS',
+      userId: targetUser.id,
+      previousState: { canAccessNotion: previousAccess },
+      newState: { canAccessNotion: requestedAccess },
+      details: { targetUsername: targetUser.username },
+    });
+    return res.json({ success: true, message: requestedAccess ? "Acesso ao Notion liberado." : "Acesso ao Notion removido.", user: { id: targetUser.id, username: targetUser.username, canAccessNotion: requestedAccess } });
+  } catch (err: any) {
+    console.error("[Admin Notion Access Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao alterar acesso ao Notion." });
+  }
+});
+
+app.delete("/api/admin/users/:id", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    const targetUser = userRepoInstance.findById(req.params.id);
+    if (!targetUser) return res.status(404).json({ success: false, error: "USER_NOT_FOUND", message: "Usuario nao encontrado." });
+    if (targetUser.username === ADMIN_USER) return res.status(400).json({ success: false, message: "A conta do administrador mestre nao pode ser excluida." });
+    if (targetUser.id === adminUser?.userId || targetUser.id === adminUser?.id) return res.status(400).json({ success: false, message: "O administrador nao pode excluir a propria conta." });
+
+    sessionRepoInstance.revokeAllUserSessions(targetUser.id);
+    if (!userRepoInstance.deleteById(targetUser.id)) return res.status(404).json({ success: false, error: "USER_NOT_FOUND", message: "Usuario nao encontrado." });
+    logSecurityEvent(req, {
+      action: 'USER_DELETED',
+      actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.id || null,
+      targetType: 'user',
+      targetId: targetUser.id,
+      resource: `/users/${targetUser.id}`,
+      status: 'SUCCESS',
+      details: { targetUsername: targetUser.username, targetEmail: targetUser.email },
+    });
+    return res.json({ success: true, message: "Conta excluida com sucesso.", userId: targetUser.id });
+  } catch (err: any) {
+    console.error("[Admin Delete User Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao excluir conta." });
+  }
+});
+
 app.patch("/api/admin/users/:id/status", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const userId = req.params.id;
