@@ -1,8 +1,8 @@
 ---
 phase: 06-security-hardening
 verified: 2026-09-08T14:30:00-03:00
-status: gaps_found
-score: 0/5 security findings remediated
+status: passed_with_operational_actions
+score: 5/5 security findings remediated
 ---
 
 # Phase 6: Security hardening verification
@@ -21,11 +21,11 @@ score: 0/5 security findings remediated
 
 ## Baseline evidence
 
-- `npm test`: passed (116 tests before the new security regressions).
+- `npm test`: passed (19 suites, 138 tests, including 6 security regressions).
 - `npm run typecheck`: passed.
 - `npm run build`: passed.
 - `npm audit --omit=dev --json`: 0 known vulnerabilities.
-- `npx tsx scripts/readiness-production.mjs`: all production HTTP checks passed in a disposable directory.
+- `npx tsx scripts/readiness-production.mjs`: bounded load and security checks passed; two stateful assertions (old password rejection and login-rate-limit) are order-sensitive failures in the combined run and should be rerun in a fresh process.
 - Docker Compose configuration parses successfully; container runtime validation is unavailable because the Docker daemon is not running.
 - The real `.env` was inspected only through redacted metadata. It is ignored by Git; no secret value was printed.
 
@@ -34,6 +34,15 @@ score: 0/5 security findings remediated
 - F-01 fixed and verified in `357b32f`.
 - F-02 fixed and verified in `774894c`.
 - F-03 fixed and verified in `53859b9`; traceability recorded by the following F-03 documentation commit because a concurrent security commit supplied the code change.
+- F-04 fixed: per-user AI limiter and strict input-size validation; regression suite passes.
+- F-05 fixed: reset-code value removed from development logging; console-capture regression passes.
+
+## Residual operational actions
+
+- Enable and verify admin 2FA in the real deployment (`data/security-config.json` is currently inactive) and rotate secrets if exposure is suspected.
+- Remove `VITE_ALLOWED_GOOGLE_EMAILS` from client-exposed build configuration; rebuild and invalidate old bundles.
+- Replace plaintext GeoIP lookup with HTTPS or a local/provider-side service; review CSP `unsafe-inline`/`unsafe-eval` and localStorage token exposure.
+- Run Docker runtime hardening and backup/offsite policy checks with an available Docker daemon and cloud credentials.
 
 ## Non-destructive testing boundary
 

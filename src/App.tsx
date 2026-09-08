@@ -23,7 +23,7 @@ import {
   X,
 } from 'lucide-react';
 
-import { Subject, StudyEntry, WeeklyCycle, SmartRevisionItem, AppTheme, AIAnalysisResult, BizuItem } from './types';
+import { Subject, StudyEntry, StudyEntryType, WeeklyCycle, SmartRevisionItem, AppTheme, AIAnalysisResult, BizuItem } from './types';
 import {
   loadSubjects,
   saveSubjects,
