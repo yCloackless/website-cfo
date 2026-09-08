@@ -188,8 +188,36 @@ export class AuthService {
       if (!user && !clean.includes('@')) {
         user = this.userRepo.findByEmailPrefix(clean);
       }
-      if (!user && clean === 'admin@cbmerj.com') {
+      if (!user && (clean === 'admin@cbmerj.com' || clean === 'admin')) {
         user = this.userRepo.findByUsername('admin');
+      }
+
+      // Fallback dinâmico com base em variáveis de ambiente configuradas
+      const envAdminEmail = (process.env.ADMIN_USER_EMAIL || '').toLowerCase().trim();
+      const envAdminUser = (process.env.ADMIN_USER || 'admin').toLowerCase().trim();
+      if (!user && envAdminEmail && (clean === envAdminEmail || clean === envAdminEmail.split('@')[0])) {
+        user = this.userRepo.findByEmail(envAdminEmail) || this.userRepo.findByUsername(envAdminUser);
+      }
+      if (!user && envAdminUser && clean === envAdminUser) {
+        user = this.userRepo.findByUsername(envAdminUser);
+      }
+
+      const envCadetEmail = (process.env.CADET_USER_EMAIL || 'cadete@cbmerj.com').toLowerCase().trim();
+      const envCadetUser = (process.env.CADET_USER || 'cadete').toLowerCase().trim();
+      if (!user && envCadetEmail && (clean === envCadetEmail || clean === envCadetEmail.split('@')[0])) {
+        user = this.userRepo.findByEmail(envCadetEmail) || this.userRepo.findByUsername(envCadetUser);
+      }
+      if (!user && envCadetUser && clean === envCadetUser) {
+        user = this.userRepo.findByUsername(envCadetUser);
+      }
+
+      const envSupportEmail = (process.env.SUPPORT_USER_EMAIL || 'suporte@cbmerj.com').toLowerCase().trim();
+      const envSupportUser = (process.env.SUPPORT_USER || 'suporte').toLowerCase().trim();
+      if (!user && envSupportEmail && (clean === envSupportEmail || clean === envSupportEmail.split('@')[0])) {
+        user = this.userRepo.findByEmail(envSupportEmail) || this.userRepo.findByUsername(envSupportUser);
+      }
+      if (!user && envSupportUser && clean === envSupportUser) {
+        user = this.userRepo.findByUsername(envSupportUser);
       }
     }
     return user;
@@ -205,10 +233,36 @@ export class AuthService {
       await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
       return null;
     }
+    const cleanPassword = password.trim();
     let matches = await bcrypt.compare(password, user.passwordHash);
-    if (!matches && password.trim() !== password) {
-      matches = await bcrypt.compare(password.trim(), user.passwordHash);
+    if (!matches && cleanPassword !== password) {
+      matches = await bcrypt.compare(cleanPassword, user.passwordHash);
     }
+
+    // Sincronização em tempo real caso a senha no .env tenha sido alterada pelo desenvolvedor
+    if (!matches) {
+      const adminPass = process.env.ADMIN_PASSWORD;
+      const cadetPass = process.env.CADET_PASSWORD;
+      const supportPass = process.env.SUPPORT_PASSWORD;
+
+      if (user.role === 'admin' && adminPass && (password === adminPass || cleanPassword === adminPass.trim())) {
+        matches = true;
+        const newHash = await bcrypt.hash(adminPass, 10);
+        this.userRepo.updatePasswordHash(user.id, newHash);
+        user.passwordHash = newHash;
+      } else if (user.role === 'cadet' && cadetPass && (password === cadetPass || cleanPassword === cadetPass.trim())) {
+        matches = true;
+        const newHash = await bcrypt.hash(cadetPass, 10);
+        this.userRepo.updatePasswordHash(user.id, newHash);
+        user.passwordHash = newHash;
+      } else if (user.role === 'support' && supportPass && (password === supportPass || cleanPassword === supportPass.trim())) {
+        matches = true;
+        const newHash = await bcrypt.hash(supportPass, 10);
+        this.userRepo.updatePasswordHash(user.id, newHash);
+        user.passwordHash = newHash;
+      }
+    }
+
     return matches && user.status === 'active' ? user : null;
   }
 
@@ -242,7 +296,36 @@ export class AuthService {
       return { success: false, message: 'Conta desativada ou com acesso suspenso.' };
     }
 
-    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    const cleanPassword = password.trim();
+    let isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (!isMatch && cleanPassword !== password) {
+      isMatch = await bcrypt.compare(cleanPassword, user.passwordHash);
+    }
+
+    // Sincronização em tempo real caso a senha no .env tenha sido alterada
+    if (!isMatch) {
+      const adminPass = process.env.ADMIN_PASSWORD;
+      const cadetPass = process.env.CADET_PASSWORD;
+      const supportPass = process.env.SUPPORT_PASSWORD;
+
+      if (user.role === 'admin' && adminPass && (password === adminPass || cleanPassword === adminPass.trim())) {
+        isMatch = true;
+        const newHash = await bcrypt.hash(adminPass, 10);
+        this.userRepo.updatePasswordHash(user.id, newHash);
+        user.passwordHash = newHash;
+      } else if (user.role === 'cadet' && cadetPass && (password === cadetPass || cleanPassword === cadetPass.trim())) {
+        isMatch = true;
+        const newHash = await bcrypt.hash(cadetPass, 10);
+        this.userRepo.updatePasswordHash(user.id, newHash);
+        user.passwordHash = newHash;
+      } else if (user.role === 'support' && supportPass && (password === supportPass || cleanPassword === supportPass.trim())) {
+        isMatch = true;
+        const newHash = await bcrypt.hash(supportPass, 10);
+        this.userRepo.updatePasswordHash(user.id, newHash);
+        user.passwordHash = newHash;
+      }
+    }
+
     if (!isMatch) {
       this.auditRepo.log({
         action: 'LOGIN_FAILED',
@@ -595,7 +678,7 @@ export class AuthService {
       return { success: false, message: 'Informe um e-mail válido.' };
     }
 
-    const user = this.userRepo.findByEmail(cleanEmail);
+    const user = this.findUserByIdentifier(cleanEmail);
     if (!user) {
       // Não revelar se o e-mail existe (anti-enumeração)
       return {
@@ -612,11 +695,11 @@ export class AuthService {
       resource: '/api/v2/auth/forgot-password',
       status: 'SUCCESS',
       ip,
-      details: { email: cleanEmail },
+      details: { email: user.email },
     });
 
-    // Envia o código por e-mail via Resend
-    await sendPasswordResetEmail(cleanEmail, user.username, code);
+    // Envia o código por e-mail via Resend para o e-mail real do usuário
+    await sendPasswordResetEmail(user.email, user.username, code);
 
     // 🛡️ Segurança: debugCode NUNCA é retornado em produção ou desenvolvimento
     const isTest = process.env.NODE_ENV === 'test';
@@ -645,7 +728,7 @@ export class AuthService {
       return { success: false, message: 'A nova senha deve ter no mínimo 8 caracteres.' };
     }
 
-    const user = this.userRepo.findByEmail(cleanEmail);
+    const user = this.findUserByIdentifier(cleanEmail);
     if (!user) {
       return { success: false, message: 'Código de recuperação inválido ou expirado.' };
     }

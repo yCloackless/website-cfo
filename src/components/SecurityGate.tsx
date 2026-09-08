@@ -168,11 +168,12 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanUser = email.trim();
+    const cleanPass = password.trim();
     if (!cleanUser) {
       setErrorMsg('Por favor, informe seu usuário ou e-mail de acesso.');
       return;
     }
-    if (!password) {
+    if (!cleanPass) {
       setErrorMsg('Por favor, informe sua senha.');
       return;
     }
@@ -192,7 +193,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: cleanUser,
-          password,
+          password: cleanPass,
           turnstileToken,
           rememberMe,
         }),

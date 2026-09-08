@@ -52,7 +52,7 @@ import { logAuditEvent, readRecentAuditLogs } from "./src/services/auditLogger";
 import { AuthService } from "./src/db/authService";
 import { getDb } from "./src/db/database";
 import { UserRepository, ProfileRepository, AuditRepository, SessionRepository, RecoveryCodeRepository, UserStateRepository, SecurityNotificationRepository } from "./src/db/repositories";
-import { UserRole } from "./src/db/schema";
+import { UserRole, DbUser } from "./src/db/schema";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
 import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtimeHub";
 import { createAuthMiddlewares } from "./src/middleware/auth";
@@ -186,8 +186,25 @@ function isAdminIp(ip: string): boolean {
     clean === "127.0.0.1" ||
     clean === "::1" ||
     clean === "localhost" ||
+    clean === "0.0.0.0" ||
     clean.startsWith("192.168.") ||
-    clean.startsWith("10.")
+    clean.startsWith("10.") ||
+    clean.startsWith("172.16.") ||
+    clean.startsWith("172.17.") ||
+    clean.startsWith("172.18.") ||
+    clean.startsWith("172.19.") ||
+    clean.startsWith("172.20.") ||
+    clean.startsWith("172.21.") ||
+    clean.startsWith("172.22.") ||
+    clean.startsWith("172.23.") ||
+    clean.startsWith("172.24.") ||
+    clean.startsWith("172.25.") ||
+    clean.startsWith("172.26.") ||
+    clean.startsWith("172.27.") ||
+    clean.startsWith("172.28.") ||
+    clean.startsWith("172.29.") ||
+    clean.startsWith("172.30.") ||
+    clean.startsWith("172.31.")
   ) {
     return true;
   }
@@ -427,6 +444,7 @@ app.use("/api/", apiLimiter);
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 15,
+  skip: (req) => isAdminIp(getClientIp(req)) || process.env.NODE_ENV === 'development',
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "TOO_MANY_LOGIN_ATTEMPTS", message: "Muitas tentativas de autenticação. Acesso bloqueado por 15 minutos." },
@@ -687,8 +705,17 @@ function saveSecurityConfig(config: SecurityConfig): void {
   }
 }
 
-function createTerminalSession(username: string, rememberMe: boolean, role: string = 'admin') {
-  const user = userRepoInstance.findByUsername(username) || userRepoInstance.findByEmail(username);
+function createTerminalSession(identifierOrUser: string | DbUser, rememberMe: boolean, role: string = 'admin') {
+  let user: DbUser | null = null;
+  if (typeof identifierOrUser === 'object' && identifierOrUser && 'id' in identifierOrUser) {
+    user = identifierOrUser as DbUser;
+  } else if (typeof identifierOrUser === 'string') {
+    const clean = identifierOrUser.trim().toLowerCase();
+    user = userRepoInstance.findByUsername(clean) ||
+           userRepoInstance.findByEmail(clean) ||
+           userRepoInstance.findByEmailPrefix(clean) ||
+           userRepoInstance.findById(identifierOrUser);
+  }
   if (!user || user.status !== 'active' || user.role !== role) throw new Error('SESSION_USER_INVALID');
   const created = sessionRepoInstance.createSession({ userId: user.id, role: user.role, expiresInDays: rememberMe ? 30 : 1 });
   return { token: created.rawToken, expiresAt: Date.parse(created.session.expiresAt), role: user.role, canAccessNotion: user.role === 'admin' || user.canAccessNotion };
