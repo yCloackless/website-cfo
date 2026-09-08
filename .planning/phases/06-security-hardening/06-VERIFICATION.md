@@ -29,6 +29,12 @@ score: 0/5 security findings remediated
 - Docker Compose configuration parses successfully; container runtime validation is unavailable because the Docker daemon is not running.
 - The real `.env` was inspected only through redacted metadata. It is ignored by Git; no secret value was printed.
 
+## Fix progress
+
+- F-01 fixed and verified in `357b32f`.
+- F-02 fixed and verified in `774894c`.
+- F-03 fixed and verified in `53859b9`; traceability recorded by the following F-03 documentation commit because a concurrent security commit supplied the code change.
+
 ## Non-destructive testing boundary
 
 No DoS/DDoS, destructive restore, deletion, production mutation or real provider call was performed. Availability testing is limited to bounded concurrency against disposable localhost processes and synthetic data.
