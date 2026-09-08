@@ -305,55 +305,81 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         })}
       </nav>
 
-      {/* Perfil e troca de conta: a visibilidade da acao e apenas um conforto de UI; o backend autoriza a operacao. */}
+      {/* Perfil e troca de conta: ancorado no final da sidebar */}
       {(userProfile || canReturnToAdmin) && (
-        <div className={`p-2.5 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
+        <div className={`mt-auto p-3 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200/80'}`}>
           {!isCollapsed ? (
-            <div className={`rounded-xl border p-2 ${isDark ? 'bg-slate-900/70 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-              <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
                 {userProfile?.avatarUrl ? (
-                  <img src={userProfile.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover border border-blue-500/50 shrink-0" />
+                  <img
+                    src={userProfile.avatarUrl}
+                    alt=""
+                    className={`w-9 h-9 rounded-full object-cover shrink-0 border ${
+                      isDark ? 'border-slate-700 ring-1 ring-slate-800' : 'border-slate-200 ring-1 ring-slate-100 shadow-sm'
+                    }`}
+                  />
                 ) : (
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 border ${isDark ? 'bg-blue-600/20 border-blue-500/40 text-blue-300' : 'bg-blue-100 border-blue-300 text-blue-700'}`}>
+                  <div
+                    className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 border ${
+                      isDark
+                        ? 'bg-blue-600/20 border-blue-500/30 text-blue-300'
+                        : 'bg-blue-50 border-blue-200 text-blue-700'
+                    }`}
+                  >
                     <UserCircle className="w-5 h-5" />
                   </div>
                 )}
-                <div className="min-w-0">
-                  <p className={`text-[11px] font-bold truncate ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>{userProfile?.fullName || userProfile?.username || 'Perfil'}</p>
-                  <p className={`text-[10px] font-mono font-semibold truncate ${isDark ? 'text-blue-400' : 'text-slate-900'}`}>@{userProfile?.username || 'conta'}</p>
+                <div className="min-w-0 flex-1">
+                  <p className={`text-xs font-bold truncate leading-snug ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    {userProfile?.fullName || userProfile?.username || 'Perfil'}
+                  </p>
+                  <p className={`text-[11px] font-mono truncate leading-snug ${isDark ? 'text-slate-400' : 'text-slate-700'}`}>
+                    @{userProfile?.username || 'conta'}
+                  </p>
                 </div>
               </div>
-              <div className="mt-2 grid grid-cols-1 gap-1">
-                {isAdmin && onOpenAccountSwitcher && (
-                  <button
-                    type="button"
-                    onClick={onOpenAccountSwitcher}
-                    className={`w-full min-h-10 inline-flex items-center justify-center gap-2 rounded-lg border text-[11px] font-bold cursor-pointer transition-colors ${
-                      isDark ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20' : 'border-cyan-500/40 bg-cyan-50 text-cyan-900 hover:bg-cyan-100'
-                    }`}
-                  >
-                    <ArrowLeftRight className="w-3.5 h-3.5 text-cyan-700 dark:text-cyan-300" /> Trocar de conta
-                  </button>
-                )}
-                {canReturnToAdmin && onReturnToAdmin && (
-                  <button
-                    type="button"
-                    onClick={onReturnToAdmin}
-                    className={`w-full min-h-10 inline-flex items-center justify-center gap-2 rounded-lg border text-[11px] font-bold cursor-pointer transition-colors ${
-                      isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20' : 'border-amber-500/40 bg-amber-50 text-amber-900 hover:bg-amber-100'
-                    }`}
-                  >
-                    <ArrowLeftRight className="w-3.5 h-3.5 text-amber-700 dark:text-amber-300" /> Voltar ao ADM
-                  </button>
-                )}
-              </div>
+
+              {isAdmin && onOpenAccountSwitcher && (
+                <button
+                  type="button"
+                  onClick={onOpenAccountSwitcher}
+                  className={`min-h-9 min-w-9 p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer border shrink-0 ${
+                    isDark
+                      ? 'border-slate-800 bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-800 hover:border-slate-700'
+                      : 'border-slate-200 bg-white text-slate-700 hover:text-slate-900 hover:bg-slate-100 hover:border-slate-300 shadow-sm'
+                  }`}
+                  title="Trocar de conta"
+                  aria-label="Trocar de conta"
+                >
+                  <ArrowLeftRight className="w-4 h-4" />
+                </button>
+              )}
+              {canReturnToAdmin && onReturnToAdmin && (
+                <button
+                  type="button"
+                  onClick={onReturnToAdmin}
+                  className={`min-h-9 px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer border shrink-0 ${
+                    isDark
+                      ? 'border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20'
+                      : 'border-amber-500/30 bg-amber-50 text-amber-900 hover:bg-amber-100 shadow-sm'
+                  }`}
+                  title="Voltar ao ADM"
+                  aria-label="Voltar ao ADM"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                  <span className="text-[11px]">ADM</span>
+                </button>
+              )}
             </div>
           ) : (
             <button
               type="button"
               onClick={canReturnToAdmin ? onReturnToAdmin : onOpenAccountSwitcher}
-              className={`w-full min-h-11 flex items-center justify-center rounded-xl border cursor-pointer ${
-                isDark ? 'border-slate-800 text-cyan-300 hover:bg-slate-800/50' : 'border-slate-200 text-cyan-800 bg-cyan-50 hover:bg-cyan-100'
+              className={`w-full min-h-10 flex items-center justify-center rounded-xl border cursor-pointer transition-colors ${
+                isDark
+                  ? 'border-slate-800 text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                  : 'border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900'
               }`}
               title={canReturnToAdmin ? 'Voltar ao ADM' : 'Trocar de conta'}
             >
