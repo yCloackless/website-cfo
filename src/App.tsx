@@ -993,6 +993,7 @@ export default function App() {
       dateStr,
       completed: true,
       completedAt: new Date().toISOString(),
+      entryType: existingEntry?.entryType || 'studied',
       topic: existingEntry?.topic || '',
       durationMinutes: cleanDuration,
       notes: existingEntry?.notes || '',
@@ -1010,16 +1011,10 @@ export default function App() {
           token,
           subject,
           newEntry,
-          true // schedule smart revisions: 1d (próximo dia), 7d (1 semana) e mensais (30d, 60d, 90d)
+          false
         );
         newEntry.googleCalendarSynced = true;
         newEntry.calendarEventId = calendarResult.studyEventId;
-        newEntry.calendarRevision1dId = calendarResult.revision1dId;
-        newEntry.calendarRevision7dId = calendarResult.revision7dId;
-        newEntry.calendarRevision30dId = calendarResult.revision30dId;
-        newEntry.calendarRevision60dId = calendarResult.revision60dId;
-        newEntry.calendarRevision90dId = calendarResult.revision90dId;
-        newEntry.revisionScheduled = true;
       } catch (err: any) {
         if (err?.code === 'TOKEN_EXPIRED' || err?.name === 'GoogleCalendarAuthError') {
           const status = await refreshCalendarStatus();
@@ -1043,18 +1038,14 @@ export default function App() {
     setCurrentCycle(updatedCycle);
     saveActiveCycle(updatedCycle);
 
-    // Register smart revisions (+7d, +30d, +60d) in local tracker
-    registerSmartRevisionsForEntry(newEntry, subject, calendarResult);
-    setRevisions(loadRevisions());
-
     if (newEntry.googleCalendarSynced) {
       showToast(
-        `✅ ${subject.name} concluído! Evento criado no Google Calendar com revisões inteligentes agendadas!`,
+        `✅ ${subject.name} registrado no Google Calendar (${newEntry.entryType === 'reviewing' ? 'Verde • Revisando' : 'Azul • Estudado'})!`,
         'success'
       );
     } else {
       showToast(
-        `✅ ${subject.name} marcado como concluído! Revisões inteligentes registradas.`,
+        `✅ ${subject.name} marcado como ${newEntry.entryType === 'reviewing' ? 'Revisando' : 'Estudado'}!`,
         'success'
       );
     }
@@ -1063,6 +1054,7 @@ export default function App() {
   // Save from detailed StudyDetailModal
   const handleSaveStudyDetail = async (data: {
     completed: boolean;
+    entryType: StudyEntryType;
     topic: string;
     durationMinutes: number;
     notes: string;
@@ -1081,11 +1073,12 @@ export default function App() {
       dateStr: selectedCell.dateStr,
       completed: data.completed,
       completedAt: data.completed ? (existingEntry?.completedAt || new Date().toISOString()) : undefined,
+      entryType: data.entryType,
       topic: data.topic,
       durationMinutes: data.durationMinutes,
       notes: data.notes,
       googleCalendarSynced: existingEntry?.googleCalendarSynced || false,
-      revisionScheduled: existingEntry?.revisionScheduled || false,
+      revisionScheduled: false,
     };
 
     let calendarResult: any = null;
@@ -1098,16 +1091,10 @@ export default function App() {
             token,
             selectedCell.subject,
             newEntry,
-            true
+            false
           );
           newEntry.googleCalendarSynced = true;
           newEntry.calendarEventId = calendarResult.studyEventId;
-          newEntry.calendarRevision1dId = calendarResult.revision1dId;
-          newEntry.calendarRevision7dId = calendarResult.revision7dId;
-          newEntry.calendarRevision30dId = calendarResult.revision30dId;
-          newEntry.calendarRevision60dId = calendarResult.revision60dId;
-          newEntry.calendarRevision90dId = calendarResult.revision90dId;
-          newEntry.revisionScheduled = true;
         } catch (err: any) {
           if (err?.code === 'TOKEN_EXPIRED' || err?.name === 'GoogleCalendarAuthError') {
             const status = await refreshCalendarStatus();
@@ -1131,18 +1118,13 @@ export default function App() {
     setCurrentCycle(updatedCycle);
     saveActiveCycle(updatedCycle);
 
-    if (data.completed) {
-      registerSmartRevisionsForEntry(newEntry, selectedCell.subject, calendarResult);
-      setRevisions(loadRevisions());
-    }
-
     setIsSavingStudy(false);
     setIsStudyModalOpen(false);
 
     if (newEntry.googleCalendarSynced) {
-      showToast('Estudo e revisões inteligentes sincronizados na Google Agenda!', 'success');
+      showToast(`Evento sincronizado no Google Agenda (${data.entryType === 'reviewing' ? 'Verde • Revisando' : 'Azul • Estudado'})!`, 'success');
     } else {
-      showToast('Estudo salvo com sucesso!', 'success');
+      showToast('Registro salvo com sucesso!', 'success');
     }
   };
 

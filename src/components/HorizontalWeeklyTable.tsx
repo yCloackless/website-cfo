@@ -241,24 +241,38 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                       >
                         {isCompleted ? (
                           <div
-                            className={`w-full h-full min-h-[52px] sm:min-h-[56px] p-1.5 sm:p-2 rounded-lg border border-l-2 border-l-blue-600 flex flex-col justify-between items-start text-left shadow-sm group/cell transition-all ${
-                              isDark
-                                ? 'bg-[#0F1D38]/80 border-slate-800 hover:border-slate-700'
-                                : 'bg-white border-slate-200 hover:border-slate-300'
+                            className={`w-full h-full min-h-[52px] sm:min-h-[56px] p-1.5 sm:p-2 rounded-lg border flex flex-col justify-between items-start text-left shadow-sm group/cell transition-all ${
+                              entry?.entryType === 'reviewing'
+                                ? isDark
+                                  ? 'bg-[#062018]/80 border-emerald-800/80 border-l-2 border-l-emerald-500 hover:border-emerald-600'
+                                  : 'bg-emerald-50/50 border-emerald-200 border-l-2 border-l-emerald-600 hover:border-emerald-300'
+                                : isDark
+                                ? 'bg-[#0F1D38]/80 border-slate-800 border-l-2 border-l-blue-600 hover:border-slate-700'
+                                : 'bg-white border-slate-200 border-l-2 border-l-blue-600 hover:border-slate-300'
                             }`}
                           >
                             {/* Top badge row */}
                             <div className="w-full flex items-center justify-between gap-0.5">
-                              <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] font-bold text-blue-400 bg-blue-500/15 border border-blue-500/30 px-1 py-0.2 rounded uppercase tracking-wider">
-                                Concluído
-                              </span>
+                              {entry?.entryType === 'reviewing' ? (
+                                <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1 py-0.2 rounded uppercase tracking-wider">
+                                  Revisando
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] font-bold text-blue-400 bg-blue-500/15 border border-blue-500/30 px-1 py-0.2 rounded uppercase tracking-wider">
+                                  Estudado
+                                </span>
+                              )}
 
                               <div className="flex items-center gap-0.5">
                                 {/* Quick toggle checkmark */}
                                 <button
                                   onClick={(e) => onQuickToggle(subject, day.index, day.dateStr, e)}
-                                  title="Desmarcar estudo"
-                                  className="w-4 h-4 sm:w-5 sm:h-5 rounded text-blue-400 hover:bg-blue-500/20 flex items-center justify-center transition-colors cursor-pointer"
+                                  title="Desmarcar registro"
+                                  className={`w-4 h-4 sm:w-5 sm:h-5 rounded flex items-center justify-center transition-colors cursor-pointer ${
+                                    entry?.entryType === 'reviewing'
+                                      ? 'text-emerald-400 hover:bg-emerald-500/20'
+                                      : 'text-blue-400 hover:bg-blue-500/20'
+                                  }`}
                                 >
                                   <Check className="w-3 h-3 stroke-[3]" />
                                 </button>

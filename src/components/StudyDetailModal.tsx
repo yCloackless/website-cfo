@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Calendar, Clock, BookOpen, FileText, CheckCircle2, Sparkles, AlertCircle, Trash2 } from 'lucide-react';
-import { Subject, StudyEntry } from '../types';
-import { formatBRDate, formatBRDateShort, addDays } from '../utils/dateUtils';
+import { X, Calendar, Clock, BookOpen, FileText, CheckCircle2, RotateCw, Sparkles, AlertCircle, Trash2 } from 'lucide-react';
+import { Subject, StudyEntry, StudyEntryType } from '../types';
+import { formatBRDate, formatBRDateShort } from '../utils/dateUtils';
 import { CFO_INCIDENCE_DATA } from '../data/cfoIncidenceData';
 
 interface StudyDetailModalProps {
@@ -14,6 +14,7 @@ interface StudyDetailModalProps {
   initialDurationMinutes?: number;
   onSave: (data: {
     completed: boolean;
+    entryType: StudyEntryType;
     topic: string;
     durationMinutes: number;
     notes: string;
@@ -35,7 +36,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
   onClearEntry,
   isSaving,
 }) => {
-  const [completed, setCompleted] = useState(true);
+  const [statusSelection, setStatusSelection] = useState<'studied' | 'reviewing' | 'pending'>('studied');
   const [topic, setTopic] = useState('');
   const [durationHours, setDurationHours] = useState<number>(1);
   const [notes, setNotes] = useState('');
@@ -57,7 +58,13 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
 
   useEffect(() => {
     if (existingEntry) {
-      setCompleted(existingEntry.completed);
+      if (!existingEntry.completed) {
+        setStatusSelection('pending');
+      } else if (existingEntry.entryType === 'reviewing') {
+        setStatusSelection('reviewing');
+      } else {
+        setStatusSelection('studied');
+      }
       setTopic(existingEntry.topic || '');
       const mins = initialDurationMinutes || existingEntry.durationMinutes || 60;
       const hours = Math.max(1, Math.round(mins / 60));
@@ -65,7 +72,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
       setNotes(existingEntry.notes || '');
       setSyncWithCalendar(hasGoogleCalendar);
     } else {
-      setCompleted(true);
+      setStatusSelection('studied');
       setTopic('');
       const mins = initialDurationMinutes || 60;
       const hours = Math.max(1, Math.round(mins / 60));
@@ -78,20 +85,18 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
   if (!isOpen || !subject || !dayInfo) return null;
 
   const dateFormatted = formatBRDate(dayInfo.dateStr);
-  const rev1dDate = formatBRDate(addDays(dayInfo.dateStr, 1));
-  const rev7dDate = formatBRDate(addDays(dayInfo.dateStr, 7));
-  const rev30dDate = formatBRDate(addDays(dayInfo.dateStr, 30));
-  const rev60dDate = formatBRDate(addDays(dayInfo.dateStr, 60));
-  const rev90dDate = formatBRDate(addDays(dayInfo.dateStr, 90));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanHours = Math.max(1, Math.round(Number(durationHours) || 1));
     const calculatedMinutes = cleanHours * 60;
-    const canSync = syncWithCalendar && hasGoogleCalendar && topic.trim().length > 0;
+    const isCompleted = statusSelection !== 'pending';
+    const entryType: StudyEntryType = statusSelection === 'reviewing' ? 'reviewing' : 'studied';
+    const canSync = syncWithCalendar && hasGoogleCalendar && topic.trim().length > 0 && isCompleted;
 
     await onSave({
-      completed,
+      completed: isCompleted,
+      entryType,
       topic: topic.trim(),
       durationMinutes: calculatedMinutes,
       notes: notes.trim(),
@@ -131,35 +136,55 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
 
         {/* Content Form */}
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 scrollbar-thin">
-          {/* Status Selection */}
+          {/* Status Selection (Estudado / Revisando / Pendente) */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-2">
-              Status do Estudo neste Dia:
+              Status do Registro neste Dia:
             </label>
-            <div className="grid grid-cols-1 min-[390px]:grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-2">
+              {/* Estudado no Dia (Azul) */}
               <button
                 type="button"
-                onClick={() => setCompleted(true)}
-                className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all ${
-                  completed
-                    ? 'bg-blue-950/60 border-blue-500 text-blue-300 shadow-md shadow-blue-950/40'
+                onClick={() => setStatusSelection('studied')}
+                className={`flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                  statusSelection === 'studied'
+                    ? 'bg-blue-950/70 border-blue-500 text-blue-300 shadow-md shadow-blue-950/50 scale-[1.02]'
                     : 'bg-[#0F1D38]/50 border-blue-900/40 text-slate-400 hover:bg-[#0F1D38]'
                 }`}
               >
-                <CheckCircle2 className={`w-4 h-4 ${completed ? 'text-blue-400' : 'text-slate-500'}`} />
-                <span>Estudado / Concluído</span>
+                <CheckCircle2 className={`w-4 h-4 ${statusSelection === 'studied' ? 'text-blue-400' : 'text-slate-500'}`} />
+                <span className="leading-tight text-center text-[11px]">Estudado</span>
+                <span className="text-[9px] font-normal text-blue-400/80">Google Agenda Azul</span>
               </button>
 
+              {/* Revisando (Verde) */}
               <button
                 type="button"
-                onClick={() => setCompleted(false)}
-                className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-medium transition-all ${
-                  !completed
-                    ? 'bg-slate-800 border-slate-700 text-slate-100 font-bold'
+                onClick={() => setStatusSelection('reviewing')}
+                className={`flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                  statusSelection === 'reviewing'
+                    ? 'bg-emerald-950/70 border-emerald-500 text-emerald-300 shadow-md shadow-emerald-950/50 scale-[1.02]'
+                    : 'bg-[#0F1D38]/50 border-blue-900/40 text-slate-400 hover:bg-[#0F1D38]'
+                }`}
+              >
+                <RotateCw className={`w-4 h-4 ${statusSelection === 'reviewing' ? 'text-emerald-400 animate-spin-slow' : 'text-slate-500'}`} />
+                <span className="leading-tight text-center text-[11px]">Revisando</span>
+                <span className="text-[9px] font-normal text-emerald-400/80">Google Agenda Verde</span>
+              </button>
+
+              {/* Pendente / Não Estudado */}
+              <button
+                type="button"
+                onClick={() => setStatusSelection('pending')}
+                className={`flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-xl border text-xs font-medium transition-all ${
+                  statusSelection === 'pending'
+                    ? 'bg-slate-800 border-slate-600 text-slate-100 font-bold scale-[1.02]'
                     : 'bg-[#0F1D38]/50 border-blue-900/40 text-slate-500 hover:bg-[#0F1D38]'
                 }`}
               >
-                <span>Pendente / Não Estudado</span>
+                <div className="w-4 h-4 rounded-full border-2 border-slate-500 flex items-center justify-center text-[9px] text-slate-500 font-mono">✕</div>
+                <span className="leading-tight text-center text-[11px]">Pendente</span>
+                <span className="text-[9px] font-normal text-slate-500">Sem agendamento</span>
               </button>
             </div>
           </div>
@@ -169,7 +194,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                 <BookOpen className="w-3.5 h-3.5 text-blue-400" />
-                Nome do Conteúdo / Tópico Estudado:
+                Nome do Conteúdo / Tópico {statusSelection === 'reviewing' ? 'Revisado' : 'Estudado'}:
               </label>
               <span className="text-[10px] text-blue-400 font-semibold">
                 (Sincroniza na Google Agenda)
@@ -224,7 +249,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-blue-400" />
-                Carga Horária Estudada (Horas Inteiras):
+                Carga Horária Dedicada (Horas Inteiras):
               </label>
               <span className="text-xs font-bold text-blue-400">
                 {durationHours} {durationHours === 1 ? 'hora' : 'horas'} ({durationHours}h)
@@ -267,7 +292,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
               </div>
             </div>
             <p className="text-[10px] text-slate-400 mt-1">
-              Horas inteiras de estudo (sem decimais). Ex: 2h, 3h, 5h.
+              Horas inteiras (sem decimais). Ex: 2h, 3h, 5h.
             </p>
           </div>
 
@@ -286,13 +311,13 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
             />
           </div>
 
-          {/* Google Calendar & Spaced Review Preview Card */}
+          {/* Google Calendar Card */}
           <div className="bg-[#070D18] rounded-xl p-3.5 border border-blue-900/40 space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-blue-400" />
                 <span className="text-xs font-bold text-slate-200">
-                  Google Agenda &amp; Revisões Inteligentes
+                  Google Agenda
                 </span>
               </div>
               {hasGoogleCalendar ? (
@@ -315,7 +340,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
               )}
             </div>
 
-            {syncWithCalendar && !topic.trim() && (
+            {syncWithCalendar && !topic.trim() && statusSelection !== 'pending' && (
               <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/30 text-[11px] text-blue-300 flex items-start gap-1.5">
                 <AlertCircle className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
                 <span>
@@ -324,35 +349,31 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
               </div>
             )}
 
-            <div className="text-[11px] text-slate-400 space-y-1">
-              <p className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-                <span>Registro do Estudo: <strong className="text-slate-200">{dateFormatted}</strong></span>
+            <div className="text-[11px] text-slate-400 space-y-1.5 bg-[#0B1528]/80 p-2.5 rounded-lg border border-blue-900/30">
+              <p className="flex items-center justify-between">
+                <span>Data do Evento:</span>
+                <strong className="text-slate-200">{dateFormatted}</strong>
               </p>
-              <p className="flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3 text-sky-400" />
-                <span>1ª Revisão (+24h / Próx Dia): <strong className="text-slate-200">{rev1dDate}</strong></span>
-              </p>
-              <p className="flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3 text-blue-400" />
-                <span>2ª Revisão (+1 semana / 7D): <strong className="text-slate-200">{rev7dDate}</strong></span>
-              </p>
-              <p className="flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3 text-indigo-400" />
-                <span>3ª Revisão (+1 mês / 30D): <strong className="text-slate-200">{rev30dDate}</strong></span>
-              </p>
-              <p className="flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3 text-emerald-400" />
-                <span>4ª Revisão (+2 meses / 60D): <strong className="text-slate-200">{rev60dDate}</strong></span>
-              </p>
-              <p className="flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3 text-purple-400" />
-                <span>5ª Revisão (+3 meses / 90D): <strong className="text-slate-200">{rev90dDate}</strong></span>
+              <p className="flex items-center justify-between">
+                <span>Cor na Agenda:</span>
+                {statusSelection === 'reviewing' ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 font-bold text-[10px]">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    Verde (Revisando)
+                  </span>
+                ) : statusSelection === 'studied' ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-950/80 border border-blue-500/50 text-blue-300 font-bold text-[10px]">
+                    <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+                    Azul (Estudado no dia)
+                  </span>
+                ) : (
+                  <span className="text-slate-500 italic text-[10px]">Não sincronizará (Pendente)</span>
+                )}
               </p>
             </div>
             {!hasGoogleCalendar && (
               <p className="text-[10px] text-slate-500 italic">
-                💡 Conecte sua conta do Google no topo para sincronizar os eventos e revisões com seu Google Calendar sem duplicidades.
+                💡 Conecte sua conta do Google no topo para sincronizar os eventos com seu Google Calendar sem duplicidades.
               </p>
             )}
           </div>

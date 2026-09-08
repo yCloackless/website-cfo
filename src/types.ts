@@ -6,6 +6,8 @@ export interface Subject {
   isCustom?: boolean;
 }
 
+export type StudyEntryType = 'studied' | 'reviewing';
+
 export interface StudyEntry {
   id: string;
   subjectId: string;
@@ -13,6 +15,7 @@ export interface StudyEntry {
   dateStr: string; // YYYY-MM-DD
   completed: boolean;
   completedAt?: string;
+  entryType?: StudyEntryType; // 'studied' = Estudado no dia (Azul), 'reviewing' = Revisando (Verde)
   topic?: string;
   durationMinutes?: number;
   notes?: string;

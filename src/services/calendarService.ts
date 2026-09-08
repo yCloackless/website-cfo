@@ -350,14 +350,16 @@ export async function createGoogleCalendarEvent(
 }
 
 /**
- * Registra a sessão de estudo e agenda revisões inteligentes (1D, 7D, 30D, 60D, 90D).
- * Usa o endpoint batch do backend com auto-refresh e atomicidade.
+ * Registra a sessão no Google Agenda:
+ * - Se 'studied' (Estudado no dia): marcado em Azul (colorId: '9' - Blueberry/Royal Blue)
+ * - Se 'reviewing' (Revisando): marcado em Verde (colorId: '2' - Sage/Green)
+ * Sem criação de cascata de revisões espaçadas extras.
  */
 export async function syncStudySessionAndRevisions(
   accessToken: string | null | undefined,
   subject: Subject,
   entry: Partial<StudyEntry> & { dateStr: string },
-  createRevisions: boolean = true
+  _createRevisions: boolean = false
 ): Promise<{
   studyEventId: string;
   revision1dId?: string;
@@ -372,135 +374,33 @@ export async function syncStudySessionAndRevisions(
     );
   }
 
+  const isReview = entry.entryType === 'reviewing';
   const topicLabel = ` - ${entry.topic.trim()}`;
   const wholeHours = entry.durationMinutes ? Math.max(1, Math.round(entry.durationMinutes / 60)) : 1;
   const durationLabel = `\n⏱️ Carga horária: ${wholeHours}h (${wholeHours === 1 ? '1 hora' : `${wholeHours} horas`})`;
   const notesLabel = entry.notes ? `\n📝 Anotações: ${entry.notes}` : '';
-  const studiedDateFormatted = formatBRDate(entry.dateStr);
 
-  // 1. Prepare main study event
-  const studySummary = `🔥 [CFO CBMERJ] Estudado: ${subject.name}${topicLabel}`;
-  const studyDescription = `Sessão de estudos concluída para o CFO CBMERJ.\n📚 Matéria: ${subject.name} (${subject.category})${entry.topic ? `\n📌 Conteúdo: ${entry.topic}` : ''}${durationLabel}${notesLabel}\n\nAgendado via Aplicativo de Cronograma CFO CBMERJ.`;
+  // Configuração de cores e títulos:
+  // Estudado no dia = Azul (colorId: '9')
+  // Revisando = Verde (colorId: '2')
+  const summaryPrefix = isReview ? '📗 [CFO CBMERJ] Revisando' : '📘 [CFO CBMERJ] Estudado';
+  const summary = `${summaryPrefix}: ${subject.name}${topicLabel}`;
+  const description = isReview
+    ? `Sessão de revisão para o CFO CBMERJ.\n📚 Matéria: ${subject.name} (${subject.category})${entry.topic ? `\n📌 Tópico Revisado: ${entry.topic}` : ''}${durationLabel}${notesLabel}\n\nAgendado via Aplicativo de Cronograma CFO CBMERJ.`
+    : `Sessão de estudos concluída para o CFO CBMERJ.\n📚 Matéria: ${subject.name} (${subject.category})${entry.topic ? `\n📌 Conteúdo: ${entry.topic}` : ''}${durationLabel}${notesLabel}\n\nAgendado via Aplicativo de Cronograma CFO CBMERJ.`;
+
+  const colorId = isReview ? '2' : '9'; // '9' = Azul (Blueberry / Royal Blue), '2' = Verde (Sage / Green)
 
   const studyEventPayload: CalendarEventPayload = {
-    summary: studySummary,
-    description: studyDescription,
+    summary,
+    description,
     dateStr: entry.dateStr,
-    colorId: '11', // Red
+    colorId,
   };
 
-  // 2. Prepare spaced revisions
-  const revisionsList: CalendarEventPayload[] = [];
-  if (createRevisions) {
-    // 1 day (Próximo dia / 24h)
-    revisionsList.push({
-      summary: `⚡ [Revisão 24h / Próx Dia • CFO CBMERJ] ${subject.name}${topicLabel}`,
-      description: `Revisão do próximo dia (Fixação imediata pós-estudo).\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado em: ${studiedDateFormatted}\n\nObjetivo: Revisar conceitos fundamentais e anotações para consolidar o aprendizado do dia anterior.`,
-      dateStr: addDays(entry.dateStr, 1),
-      colorId: '9', // Blueberry / Deep Blue
-      tag: '1d',
-    });
-
-    // 7 days (1 semana)
-    revisionsList.push({
-      summary: `🎯 [Revisão 7D • CFO CBMERJ] ${subject.name}${topicLabel}`,
-      description: `Revisão de 1 semana (Curva do Esquecimento de Ebbinghaus).\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado originalmente em: ${studiedDateFormatted}\n\nObjetivo: Revisar pontos-chave, resolver questões de fixação e flashcards.`,
-      dateStr: addDays(entry.dateStr, 7),
-      colorId: '9', // Blueberry / Royal Blue
-      tag: '7d',
-    });
-
-    // 30 days (1 mês)
-    revisionsList.push({
-      summary: `⭐ [Revisão 30D • CFO CBMERJ] ${subject.name}${topicLabel}`,
-      description: `Revisão mensal de 30 dias (Consolidação de memória de longo prazo).\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado em: ${studiedDateFormatted}\n\nObjetivo: Bateria de questões de bancas anteriores (FGV / UERJ / CBMERJ) e resumo de erros.`,
-      dateStr: addDays(entry.dateStr, 30),
-      colorId: '5', // Yellow / Banana
-      tag: '30d',
-    });
-
-    // 60 days (2 meses - de mês em mês)
-    revisionsList.push({
-      summary: `🏆 [Revisão 60D • CFO CBMERJ] ${subject.name}${topicLabel}`,
-      description: `Revisão mensal de 2 meses (Ciclo recorrente de mês em mês).\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado em: ${studiedDateFormatted}\n\nObjetivo: Manter o conteúdo na memória até a prova do concurso.`,
-      dateStr: addDays(entry.dateStr, 60),
-      colorId: '2', // Sage / Green
-      tag: '60d',
-    });
-
-    // 90 days (3 meses - de mês em mês)
-    revisionsList.push({
-      summary: `🚀 [Revisão 90D • CFO CBMERJ] ${subject.name}${topicLabel}`,
-      description: `Revisão mensal de 3 meses (Ciclo recorrente de mês em mês).\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado em: ${studiedDateFormatted}\n\nObjetivo: Manutenção e retenção de longo prazo.`,
-      dateStr: addDays(entry.dateStr, 90),
-      colorId: '3', // Grape / Purple
-      tag: '90d',
-    });
-  }
-
-  // Try backend batch sync first (com suporte a credenciais persistentes do backend)
-  try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (accessToken) {
-      headers['Authorization'] = `Bearer ${accessToken}`;
-    }
-
-    const batchResp = await apiFetch('/api/calendar/batch-sync', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        studyEvent: studyEventPayload,
-        revisions: revisionsList,
-      }),
-    });
-
-    if (batchResp.ok) {
-      const batchData = await batchResp.json();
-      return {
-        studyEventId: batchData.studyEventId,
-        revision1dId: batchData.revisionIds?.['1d'],
-        revision7dId: batchData.revisionIds?.['7d'],
-        revision30dId: batchData.revisionIds?.['30d'],
-        revision60dId: batchData.revisionIds?.['60d'],
-        revision90dId: batchData.revisionIds?.['90d'],
-      };
-    } else if (batchResp.status === 401) {
-      throw new GoogleCalendarAuthError();
-    }
-  } catch (err: any) {
-    if (err instanceof GoogleCalendarAuthError) throw err;
-    console.warn('Batch sync no backend falhou, executando em fallback individual:', err?.message);
-  }
-
-  // Fallback: Individual creation
   const studyEventId = await createGoogleCalendarEvent(accessToken, studyEventPayload);
-  let revision1dId: string | undefined;
-  let revision7dId: string | undefined;
-  let revision30dId: string | undefined;
-  let revision60dId: string | undefined;
-  let revision90dId: string | undefined;
-
-  for (const rev of revisionsList) {
-    try {
-      const revId = await createGoogleCalendarEvent(accessToken, rev);
-      if (rev.tag === '1d') revision1dId = revId;
-      if (rev.tag === '7d') revision7dId = revId;
-      if (rev.tag === '30d') revision30dId = revId;
-      if (rev.tag === '60d') revision60dId = revId;
-      if (rev.tag === '90d') revision90dId = revId;
-    } catch (revErr) {
-      console.warn(`Aviso: Falha ao criar revisão ${rev.tag}:`, revErr);
-    }
-  }
 
   return {
     studyEventId,
-    revision1dId,
-    revision7dId,
-    revision30dId,
-    revision60dId,
-    revision90dId,
   };
 }
