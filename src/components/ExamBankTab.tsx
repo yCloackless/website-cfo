@@ -76,6 +76,7 @@ interface ExamPaper {
   examYear: number;
   totalQuestions: number;
   status: 'QUEUED' | 'PROCESSING' | 'READY' | 'ERROR' | 'NEEDS_REVIEW';
+  fileId?: string | null;
   primaryDisciplinesJson?: string | null;
   createdAt: string;
 }
@@ -134,6 +135,25 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
   const [mobileView, setMobileView] = useState<'papers' | 'questions' | 'detail'>('papers');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleOpenOriginalPdf = async () => {
+    if (!selectedPaper?.fileId) return;
+    const popup = window.open('', '_blank');
+    try {
+      const token = getAuthToken();
+      const response = await fetch(`/api/files/${selectedPaper.fileId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!response.ok) throw new Error('PDF indisponível');
+      const url = URL.createObjectURL(await response.blob());
+      if (popup) popup.location.href = url;
+      else window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      popup?.close();
+      showToast?.('Não foi possível abrir o PDF original.', 'error');
+    }
+  };
 
   // Carrega Provas e Estatísticas
   const fetchPapersAndStats = async () => {
@@ -883,8 +903,8 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
                           <h4 className={`text-xs font-bold truncate ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
                             {paper.title}
                           </h4>
-                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
-                            Processada
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border shrink-0 ${paper.status === 'READY' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
+                            {paper.status === 'READY' ? 'Processada' : 'Revisão necessária'}
                           </span>
                         </div>
 
@@ -946,6 +966,16 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
               <Sparkles className="w-3 h-3 text-indigo-400" />
               <span>Revisar prova</span>
             </button>
+            {selectedPaper?.fileId && (
+              <button
+                onClick={handleOpenOriginalPdf}
+                className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border transition-all flex items-center gap-1 cursor-pointer ${isDark ? 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+                title="Abrir o arquivo original da prova"
+              >
+                <Eye className="w-3 h-3" />
+                <span>Ver PDF</span>
+              </button>
+            )}
           </div>
 
           {/* Tabs de Disciplinas Dinâmicas */}
@@ -1133,9 +1163,9 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
               {/* Lista de Alternativas (A, B, C, D, E) */}
               <div className="space-y-1.5 pt-1">
                 {selectedQuestionOptions.map((opt) => {
-                  const isCorrect =
-                    (selectedQuestionAISolution && selectedQuestionAISolution.selectedOption === opt.letter) ||
-                    selectedQuestion.correctOption === opt.letter;
+                  const isCorrect = selectedQuestion.correctOption
+                    ? selectedQuestion.correctOption === opt.letter
+                    : selectedQuestionAISolution?.selectedOption === opt.letter;
 
                   return (
                     <div

@@ -113,8 +113,8 @@ export class ExamService {
       if (file && fs.existsSync(file.storagePath)) {
         try {
           const rawBuffer = fs.readFileSync(file.storagePath);
-          const asText = rawBuffer.toString('utf-8');
-          if (asText.includes('Questão') || asText.includes('QUESTÃO')) {
+          const asText = file.mimeType === 'application/pdf' ? this.extractPdfText(rawBuffer) : rawBuffer.toString('utf-8');
+          if (asText.trim()) {
             extractedQuestions = await this.extractQuestionsFromText(asText);
           }
         } catch {}
@@ -123,7 +123,15 @@ export class ExamService {
 
     // Se nenhuma questão foi extraída automaticamente, gera conjunto tático estruturado de questões modelo CFO
     if (extractedQuestions.length === 0) {
-      extractedQuestions = this.generateFallbackExamQuestions(params.title, params.institution, params.examYear);
+      return getDb().transaction(() => ({
+        paper: this.examPaperRepo.create({
+          userId: params.userId, title: params.title, institution: params.institution,
+          examYear: params.examYear, fileId: params.fileId, totalQuestions: 0,
+          status: 'NEEDS_REVIEW', primaryDisciplines: [],
+          metadata: { extractedAt: new Date().toISOString(), extractionError: 'Nenhuma questão foi extraída com segurança.' },
+        }),
+        questions: [],
+      }));
     }
 
     // Identifica disciplinas presentes
@@ -239,7 +247,11 @@ export class ExamService {
         });
       } catch (err: any) {
         console.warn(`[Exam AI Solve Warning] Falha na questão ${question.id}:`, err?.message);
-        // Fallback robusto garantido
+        if (!question.correctOption) {
+          results.push({ questionId: question.id, solution: {} as AISolutionPayload, status: 'FAILED', error: 'Questão não pôde ser validada com segurança.' });
+          continue;
+        }
+        // Fallback determinístico: só usa um gabarito oficial já armazenado.
         const fallback = this.solveWithTacticalHeuristic(question);
         this.examQuestionRepo.updateAISolution(
           question.id,
@@ -323,9 +335,13 @@ JSON OUTPUT SCHEMA:
 
     const text = response.text || '';
     const parsed = JSON.parse(text);
+    const validLetters = ['A', 'B', 'C', 'D', 'E'];
+    const parsedSelected = validLetters.includes(parsed.selectedOption) ? parsed.selectedOption : null;
+    const selectedOption = question.correctOption || parsedSelected;
+    if (!selectedOption) throw new Error('A IA não retornou uma alternativa válida.');
 
     return {
-      selectedOption: parsed.selectedOption || (question.correctOption || 'A'),
+      selectedOption: selectedOption as AISolutionPayload['selectedOption'],
       steps: Array.isArray(parsed.steps) ? parsed.steps : [],
       concepts: Array.isArray(parsed.concepts) ? parsed.concepts : [question.topic],
       explanationSummary: parsed.explanationSummary || 'Resolução validada pelo assistente de IA pedagógico.',
@@ -442,14 +458,30 @@ JSON OUTPUT SCHEMA:
    * Extracts questions from raw text using AI
    */
   private async extractQuestionsFromText(text: string): Promise<ExtractedQuestionDraft[]> {
-    if (!this.genAI) return [];
+    if (!text.trim()) return [];
+    if (!this.genAI) return this.extractQuestionsWithTextParser(text);
+    if (text.length > 14000) {
+      const chunks: string[] = [];
+      let remaining = text;
+      while (remaining.length > 14000) {
+        let cut = remaining.lastIndexOf('\n', 14000);
+        if (cut < 7000) cut = 14000;
+        chunks.push(remaining.slice(0, cut));
+        remaining = remaining.slice(cut);
+      }
+      if (remaining.trim()) chunks.push(remaining);
+      const parts = await Promise.all(chunks.map((chunk) => this.extractQuestionsFromText(chunk)));
+      const unique = new Map<number, ExtractedQuestionDraft>();
+      for (const part of parts.flat()) if (!unique.has(part.questionNumber)) unique.set(part.questionNumber, part);
+      return [...unique.values()].sort((a, b) => a.questionNumber - b.questionNumber);
+    }
 
     try {
       const prompt = `Analise o texto a seguir de uma prova de concurso e extraia todas as questões com suas alternativas e classificação.
 
 TEXTO DA PROVA:
 <<<DOCUMENT_CONTENT>>>
-${text.slice(0, 20000)}
+${text}
 <<<END_DOCUMENT_CONTENT>>>
 
 Retorne APENAS um array JSON de questões com a estrutura:
@@ -499,7 +531,32 @@ Retorne APENAS um array JSON de questões com a estrutura:
     } catch (err) {
       console.warn('[Exam Extraction Warning]:', err);
     }
-    return [];
+    return this.extractQuestionsWithTextParser(text);
+  }
+
+  private extractQuestionsWithTextParser(text: string): ExtractedQuestionDraft[] {
+    const result: ExtractedQuestionDraft[] = [];
+    const matches = [...text.matchAll(/(?:Quest(?:ão|Ã£o)|Q\.?)\s*[:#.-]?\s*(\d+)\s*[:.-]?([\s\S]*?)(?=(?:\n\s*(?:Quest(?:ão|Ã£o)|Q\.?)\s*\d+)|$)/gi)];
+    for (const match of matches) {
+      const body = match[2].trim();
+      const options = [...body.matchAll(/(?:^|\s)([A-E])\s*[)\].:-]\s*([\s\S]*?)(?=\s+[A-E]\s*[)\].:-]|$)/gi)];
+      if (options.length < 2) continue;
+      result.push({
+        questionNumber: Number(match[1]), statement: body.slice(0, options[0].index).trim(),
+        options: options.map((option) => ({ letter: option[1].toUpperCase() as any, text: option[2].trim() })),
+        correctOption: null, discipline: 'Conhecimentos Gerais', topic: 'Geral', subtopic: 'Geral', difficulty: 'Médio',
+      });
+    }
+    return result;
+  }
+
+  private extractPdfText(buffer: Buffer): string {
+    const source = buffer.toString('latin1');
+    const strings: string[] = [];
+    for (const match of source.matchAll(/\(([^()\\]*(?:\\.[^()\\]*)*)\)\s*T[Jj]/g)) {
+      strings.push(match[1].replace(/\\([\\()])/g, '$1').replace(/\\n/g, '\n'));
+    }
+    return strings.join(' ');
   }
 
   /**
