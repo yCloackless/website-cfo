@@ -4659,35 +4659,24 @@ app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async 
     }
 
     // Extrai e cadastra a prova e suas questões
-    const result = await examServiceInstance.extractAndRegisterExam({
+    const job = examJobRepoInstance.create({ userId: user.userId, jobType: 'EXTRACTION', status: 'processing', totalItems: 1 });
+    void examServiceInstance.extractAndRegisterExam({
       userId: user.userId,
       fileId,
       title: cleanTitle,
       institution: cleanInstitution,
       examYear: parsedYear,
       rawTextContent: typeof rawTextContent === 'string' ? rawTextContent : undefined,
+    }).then((result) => {
+      examJobRepoInstance.updateStatus(job.id, 'completed', 1, { paperId: result.paper.id, questionsCount: result.questions.length });
+      logSecurityEvent(req, { action: 'EXAM_PAPER_CREATED', actor: user.username || user.userId, actorUserId: user.userId, resource: 'exam_papers', status: 'SUCCESS', targetType: 'exam_paper', targetId: result.paper.id, details: { totalQuestions: result.paper.totalQuestions } });
+    }).catch((err) => {
+      console.error('[Background Exam Extraction Error]:', err?.message || err);
+      examJobRepoInstance.updateStatus(job.id, 'failed', 0, undefined, err?.message || 'Falha ao processar a prova.');
     });
 
-    logSecurityEvent(req, {
-      action: 'EXAM_PAPER_CREATED',
-      actor: user.username || user.userId,
-      actorUserId: user.userId,
-      resource: 'exam_papers',
-      status: 'SUCCESS',
-      targetType: 'exam_paper',
-      targetId: result.paper.id,
-      details: {
-        totalQuestions: result.paper.totalQuestions,
-        disciplines: result.paper.primaryDisciplinesJson,
-      },
-    });
+    return res.status(202).json({ success: true, processing: true, jobId: job.id, message: 'Prova recebida. A extração continuará em segundo plano.' });
 
-    return res.status(201).json({
-      success: true,
-      message: "Prova cadastrada e processada com sucesso.",
-      paper: result.paper,
-      questionsCount: result.questions.length,
-    });
   } catch (err: any) {
     console.error("[Exam Upload & Process Error]:", err?.message || err);
     return res.status(500).json({
@@ -4698,6 +4687,13 @@ app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async 
 });
 
 // 2. Listagem de Provas do Usuário com Filtros: GET /api/exams
+app.get("/api/exams/jobs/:id", requireUserAuth, (req: Request, res: Response) => {
+  const user = (req as any).user;
+  const job = examJobRepoInstance.findById(req.params.id);
+  if (!job || (job.userId !== user.userId && user.role !== 'admin')) return res.status(404).json({ error: 'JOB_NOT_FOUND' });
+  return res.json({ success: true, job });
+});
+
 app.get("/api/exams", requireUserAuth, (req: Request, res: Response) => {
   try {
     const user = (req as any).user;

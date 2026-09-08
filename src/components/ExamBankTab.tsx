@@ -351,6 +351,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
       const data = await res.json();
 
       if (res.ok && data.success) {
+        if (!data.paper) data.paper = { title: uploadTitle || 'Prova' };
         showToast?.(`✅ ${data.totalSolved} questões corrigidas com sucesso pela IA!`, 'success');
         // Recarrega as questões
         if (selectedPaperId) {
@@ -425,8 +426,20 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
         setUploadTitle('');
         setSelectedFile(null);
         await fetchPapersAndStats();
-        if (data.paper?.id) {
-          setSelectedPaperId(data.paper.id);
+        if (data.jobId) {
+          const poll = window.setInterval(async () => {
+            try {
+              const token = getAuthToken();
+              const jobRes = await fetch(`/api/exams/jobs/${data.jobId}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+              const jobData = await jobRes.json();
+              if (jobData.job?.status === 'completed' || jobData.job?.status === 'failed') {
+                window.clearInterval(poll);
+                await fetchPapersAndStats();
+                showToast?.(jobData.job.status === 'completed' ? 'Prova processada. As questões já estão disponíveis.' : 'A leitura da prova falhou. Ela ficou disponível para revisão.', jobData.job.status === 'completed' ? 'success' : 'warning');
+              }
+            } catch { /* tenta novamente */ }
+          }, 2500);
+          window.setTimeout(() => window.clearInterval(poll), 30 * 60 * 1000);
         }
       } else {
         showToast?.(data.message || 'Falha no processamento da prova.', 'error');
