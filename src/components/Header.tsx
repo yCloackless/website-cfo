@@ -86,7 +86,7 @@ export const Header: React.FC<HeaderProps> = ({
       }`}
     >
       <div className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-2.5 min-w-0">
-        <div className="flex items-center justify-between gap-2 sm:gap-4 min-w-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-4 min-w-0">
           
           {/* Brand & Toggle Sidebar Button */}
           <div className="flex items-center gap-3 shrink-0">
@@ -138,7 +138,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Action buttons & Utilities - Aligned to the right with generous spacing */}
-          <div className="ml-auto min-w-0 flex-1 justify-end flex items-center gap-1.5 sm:gap-2.5 flex-nowrap overflow-x-auto max-w-full py-0.5 scrollbar-none [&_button]:min-h-11 sm:[&_button]:min-h-0">
+          <div className="ml-0 sm:ml-auto basis-full sm:basis-auto min-w-0 sm:flex-1 justify-start sm:justify-end flex items-center gap-1.5 sm:gap-2.5 flex-nowrap overflow-x-auto max-w-full py-0.5 scrollbar-none [&_button]:min-h-11 sm:[&_button]:min-h-0">
             {/* Smart Revisions Button */}
             <button
               id="btn-revisoes-inteligentes"
