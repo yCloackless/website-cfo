@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile para CFO CBMERJ
 # Estágio 1: Build da aplicação (Vite + TypeScript + Esbuild)
-FROM node:22-alpine AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ RUN npm run build
 RUN npx esbuild scripts/backup-cli.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/backup-cli.mjs
 
 # Estágio 2: Runner ultraleve para produção
-FROM node:22-alpine AS runner
+FROM node:22-slim AS runner
 
 WORKDIR /app
 
