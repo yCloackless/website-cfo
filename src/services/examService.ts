@@ -106,6 +106,7 @@ export class ExamService {
     rawTextContent?: string;
   }): Promise<{ paper: DbExamPaper; questions: DbExamQuestion[] }> {
     let extractedQuestions: ExtractedQuestionDraft[] = [];
+    let pdfPageTexts: string[] = [];
 
     // Tenta extração via AI caso o buffer/texto esteja disponível
     if (params.rawTextContent) {
@@ -115,7 +116,10 @@ export class ExamService {
       if (file && fs.existsSync(file.storagePath)) {
         try {
           const rawBuffer = fs.readFileSync(file.storagePath);
-          const asText = file.mimeType === 'application/pdf' ? await this.extractPdfText(rawBuffer) : '';
+          if (file.mimeType === 'application/pdf') {
+            pdfPageTexts = await this.extractPdfPageTexts(rawBuffer);
+          }
+          const asText = file.mimeType === 'application/pdf' ? pdfPageTexts.join('\n') : '';
           if (asText.trim()) {
             extractedQuestions = await this.extractQuestionsFromText(asText);
           }
@@ -146,8 +150,13 @@ export class ExamService {
       const sourceFile = this.fileRepo.findById(params.fileId);
       if (sourceFile?.mimeType === 'application/pdf' && fs.existsSync(sourceFile.storagePath)) {
         try {
+          if (pdfPageTexts.length === 0) pdfPageTexts = await this.extractPdfPageTexts(fs.readFileSync(sourceFile.storagePath));
+          extractedQuestions = extractedQuestions.map((question) => ({
+            ...question,
+            pageNumber: question.pageNumber || this.findQuestionPage(question.questionNumber, pdfPageTexts),
+          }));
           const pageImages = await this.renderQuestionPages(fs.readFileSync(sourceFile.storagePath), extractedQuestions);
-          extractedQuestions = extractedQuestions.map((question) => ({ ...question, images: pageImages.get(question.questionNumber) || question.images }));
+          extractedQuestions = extractedQuestions.map((question) => ({ ...question, images: question.pageNumber ? pageImages.get(question.pageNumber) || question.images : question.images }));
         } catch (err) { console.warn('[PDF Page Render Warning]:', err); }
       }
     }
@@ -593,6 +602,30 @@ Retorne APENAS um array JSON de questões com a estrutura:
       strings.push(match[1].replace(/\\([\\()])/g, '$1').replace(/\\n/g, '\n'));
     }
     return strings.join(' ');
+  }
+
+  private async extractPdfPageTexts(buffer: Buffer): Promise<string[]> {
+    try {
+      const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      const document = await pdfjs.getDocument({ data: new Uint8Array(buffer), disableWorker: true }).promise;
+      const pages: string[] = [];
+      for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+        const page = await document.getPage(pageNumber);
+        const content = await page.getTextContent();
+        pages.push((content.items || []).map((item: any) => item.str || '').join(' '));
+      }
+      return pages;
+    } catch (err) {
+      console.warn('[PDF Page Text Warning]:', err);
+      return [];
+    }
+  }
+
+  private findQuestionPage(questionNumber: number, pageTexts: string[]): number | undefined {
+    const escapedNumber = String(questionNumber).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const heading = new RegExp(`(?:Quest(?:ão|ao|Ã£o)|Q\\.?)\\s*[:#.-]?\\s*${escapedNumber}\\s*(?:[:.-]|$)`, 'i');
+    const pageIndex = pageTexts.findIndex((page) => heading.test(page));
+    return pageIndex >= 0 ? pageIndex + 1 : undefined;
   }
 
   private async extractQuestionsFromImageBuffer(buffer: Buffer, mimeType: string): Promise<ExtractedQuestionDraft[]> {
