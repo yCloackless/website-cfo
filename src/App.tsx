@@ -798,6 +798,8 @@ export default function App() {
 
     // Listen for OAuth callback messages if completed in popup
     const handleAuthMessage = (event: MessageEvent) => {
+      // 🛡️ Segurança: Validação estrita de origem para proteção contra Cross-Site Scripting (XSS)
+      if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'GOOGLE_CALENDAR_CONNECTED') {
         const newStatus = {
           connected: true,

@@ -177,8 +177,9 @@ export async function initiateGoogleCalendarAuth(): Promise<{ success: boolean; 
     };
     window.addEventListener('storage', handleStorage);
 
-    // 3. Window postMessage listener
+    // 3. Window postMessage listener com validação estrita de origem
     const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'GOOGLE_CALENDAR_CONNECTED') {
         finish(true, event.data.email, event.data.name);
       }

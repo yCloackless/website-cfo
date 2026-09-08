@@ -31,7 +31,9 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 
 function backupPath(filename: string): string {
   if (path.basename(filename) !== filename || !/^backup_[\w.-]+\.json\.gz$/.test(filename)) throw new Error('INVALID_BACKUP_NAME');
-  return path.join(BACKUP_DIR, filename);
+  const target = path.resolve(BACKUP_DIR, filename);
+  if (!target.startsWith(path.resolve(BACKUP_DIR) + path.sep)) throw new Error('INVALID_BACKUP_NAME');
+  return target;
 }
 
 function dataPath(name: string): string {

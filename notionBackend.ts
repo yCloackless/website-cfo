@@ -291,13 +291,18 @@ export async function updateCheckinInNotion(
   const index = items.findIndex((it) => it.id === pageId);
   const targetItem = index >= 0 ? { ...items[index] } : null;
 
-  if (targetItem) {
-    targetItem[cycleKey] = checkedValue;
-    targetItem.proximaRevisao = calculateNextRevision(targetItem);
-    targetItem.updatedAt = new Date().toISOString();
-    items[index] = targetItem;
-    saveLocalRevisoes(items);
+  // Authorization boundary: the integration credential may access more pages than
+  // this application exposes. Only operate on an item previously loaded from the
+  // configured database/cache; never forward an arbitrary client-controlled path.
+  if (!targetItem) {
+    return { success: false, error: "NOTION_PAGE_NOT_FOUND" };
   }
+
+  targetItem[cycleKey] = checkedValue;
+  targetItem.proximaRevisao = calculateNextRevision(targetItem);
+  targetItem.updatedAt = new Date().toISOString();
+  items[index] = targetItem;
+  saveLocalRevisoes(items);
 
   const { isConfigured, apiKey } = getNotionConfig();
 
@@ -305,7 +310,7 @@ export async function updateCheckinInNotion(
   if (!isConfigured || pageId.startsWith("notion_")) {
     return {
       success: true,
-      item: targetItem || undefined,
+      item: targetItem,
     };
   }
 
@@ -346,7 +351,7 @@ export async function updateCheckinInNotion(
 
   return {
     success: true,
-    item: targetItem || undefined,
+    item: targetItem,
   };
 }
 

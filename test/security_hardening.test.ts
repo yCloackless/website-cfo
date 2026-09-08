@@ -95,7 +95,7 @@ test('F-02: active 2FA secret cannot be retrieved with a bearer session', async 
   assert.equal('qrCode' in setup.body, false);
 });
 
-test.skip('F-03: Notion rejects a page outside the server-known revision set', async () => {
+test('F-03: Notion rejects a page outside the server-known revision set', async () => {
   const before = notionFetches;
   const result = await updateCheckinInNotion('../databases/arbitrary-target', 'semana', true);
   assert.equal(result.success, false);

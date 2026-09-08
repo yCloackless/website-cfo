@@ -3942,6 +3942,13 @@ app.patch("/api/notion/checkin", async (req: Request, res: Response) => {
     const checkedVal = checked !== undefined ? Boolean(checked) : true;
     const result = await updateCheckinInNotion(pageId, cycleKey, checkedVal);
 
+    if (!result.success) {
+      return res.status(404).json({
+        error: result.error || "NOTION_PAGE_NOT_FOUND",
+        message: "A revisão informada não pertence ao conjunto autorizado.",
+      });
+    }
+
     return res.json({
       success: result.success,
       item: result.item,
