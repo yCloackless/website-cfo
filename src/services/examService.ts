@@ -313,7 +313,7 @@ JSON OUTPUT SCHEMA:
 }`;
 
     const response = await this.genAI.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -474,7 +474,7 @@ Retorne APENAS um array JSON de questões com a estrutura:
 ]`;
 
       const response = await this.genAI.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',

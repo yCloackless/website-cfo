@@ -93,6 +93,10 @@ interface ExamBankTabProps {
   showToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
 }
 
+function getAuthToken(): string | null {
+  return localStorage.getItem('cfo_terminal_session') || localStorage.getItem('cfo_terminal_token') || null;
+}
+
 export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) => {
   const isDark = theme === 'dark';
 
@@ -135,7 +139,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
   const fetchPapersAndStats = async () => {
     try {
       setIsLoadingPapers(true);
-      const token = localStorage.getItem('cfo_terminal_token');
+      const token = getAuthToken();
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
@@ -181,7 +185,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
     const fetchQuestions = async () => {
       try {
         setIsLoadingQuestions(true);
-        const token = localStorage.getItem('cfo_terminal_token');
+        const token = getAuthToken();
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -309,7 +313,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
 
     try {
       setIsSolvingAI(true);
-      const token = localStorage.getItem('cfo_terminal_token');
+      const token = getAuthToken();
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
@@ -363,7 +367,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
 
     try {
       setIsUploading(true);
-      const token = localStorage.getItem('cfo_terminal_token');
+      const token = getAuthToken();
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
