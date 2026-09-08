@@ -361,7 +361,6 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
       const data = await res.json().catch(() => ({ message: `Servidor respondeu com HTTP ${res.status}.` }));
 
       if (res.ok && data.success) {
-        if (!data.paper) data.paper = { title: uploadTitle || 'Prova' };
         showToast?.(`✅ ${data.totalSolved} questões corrigidas com sucesso pela IA!`, 'success');
         // Recarrega as questões
         if (selectedPaperId) {
@@ -431,7 +430,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
       const data = await res.json();
 
       if (res.ok && data.success) {
-        showToast?.(`✅ Prova "${data.paper.title}" cadastrada com ${data.questionsCount} questões!`, 'success');
+        showToast?.('Prova recebida. A leitura continuará em segundo plano.', 'info');
         setIsUploadModalOpen(false);
         setUploadTitle('');
         setSelectedFile(null);
