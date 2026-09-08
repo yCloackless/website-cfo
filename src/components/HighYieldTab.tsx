@@ -161,7 +161,7 @@ export const HighYieldTab: React.FC<HighYieldTabProps> = ({
     <div className="space-y-6 pb-12 animate-in fade-in duration-200">
       {/* Top Banner Hero */}
       <div
-        className={`p-6 rounded-2xl border transition-all shadow-xl relative overflow-hidden ${
+        className={`p-4 sm:p-6 rounded-2xl border transition-all shadow-xl relative overflow-hidden min-w-0 ${
           isDark
             ? 'bg-[#111218] border-slate-800 shadow-black/40'
             : 'bg-white border-slate-200 shadow-slate-200/50'
@@ -218,7 +218,7 @@ export const HighYieldTab: React.FC<HighYieldTabProps> = ({
         </div>
 
         {/* Global 4 Key Metrics */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-800/80">
+        <div className="grid grid-cols-1 min-[390px]:grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-800/80">
           <div
             className={`p-3 rounded-xl border ${
               isDark ? 'bg-slate-900/60 border-slate-800/80' : 'bg-slate-50 border-slate-200'
@@ -484,10 +484,10 @@ export const HighYieldTab: React.FC<HighYieldTabProps> = ({
                 </div>
 
                 {/* Topics Layout: Macroassuntos on Left, Microassuntos on Right */}
-                <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 min-w-0">
                   {/* Left Column: Macroassuntos (Top Cobrados) */}
                   <div className="lg:col-span-6 space-y-3">
-                    <div className="flex items-center justify-between pb-2 border-b border-slate-800/60">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800/60">
                       <div className="flex items-center gap-2">
                         <BarChart3 className="w-4 h-4 text-[#0056D2]" />
                         <h4

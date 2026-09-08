@@ -1175,8 +1175,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 
                 {/* Sessões Ativas Relevantes */}
-                <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-5 space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-4 sm:p-5 space-y-4 min-w-0">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <h3 className="text-sm font-bold text-white flex items-center gap-2">
                       <KeyRound className="w-4 h-4 text-emerald-400" />
                       Sessões Recentes em Aberto
@@ -1195,8 +1195,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <p className="text-xs text-slate-500 py-4 text-center">Nenhuma sessão ativa encontrada.</p>
                     ) : (
                       recentSessions.slice(0, 5).map((s) => (
-                        <div key={s.id} className="p-3 bg-slate-900/50 rounded-xl border border-slate-800/60 flex items-center justify-between text-xs">
-                          <div>
+                        <div key={s.id} className="p-3 bg-slate-900/50 rounded-xl border border-slate-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs min-w-0">
+                          <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="font-bold text-white">@{s.username}</span>
                               <span className="text-[10px] font-mono text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
@@ -1207,7 +1207,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               IP: {s.ip || '127.0.0.1'}
                             </p>
                           </div>
-                          <span className="text-[10px] text-slate-500 font-mono">
+                          <span className="text-[10px] text-slate-500 font-mono break-words sm:text-right">
                             Expira: {new Date(s.expiresAt).toLocaleDateString('pt-BR')}
                           </span>
                         </div>
@@ -1217,8 +1217,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
 
                 {/* Atividade de Segurança Recente */}
-                <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-5 space-y-4">
-                  <div className="flex items-center justify-between">
+                <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-4 sm:p-5 space-y-4 min-w-0">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <h3 className="text-sm font-bold text-white flex items-center gap-2">
                       <Activity className="w-4 h-4 text-amber-400" />
                       Últimos Eventos Registrados
@@ -1237,8 +1237,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <p className="text-xs text-slate-500 py-4 text-center">Nenhum evento recente.</p>
                     ) : (
                       recentEvents.slice(0, 5).map((e) => (
-                        <div key={e.id} className="p-3 bg-slate-900/50 rounded-xl border border-slate-800/60 flex items-center justify-between text-xs">
-                          <div>
+                        <div key={e.id} className="p-3 bg-slate-900/50 rounded-xl border border-slate-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs min-w-0">
+                          <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <span className={`font-bold font-mono text-[11px] ${
                                 e.status === 'SUCCESS' ? 'text-emerald-400' : 'text-red-400'
@@ -1253,7 +1253,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               {e.ip || 'IP não informado'}
                             </p>
                           </div>
-                          <span className="text-[10px] text-slate-500 font-mono">
+                          <span className="text-[10px] text-slate-500 font-mono break-words sm:text-right">
                             {new Date(e.createdAt).toLocaleTimeString('pt-BR')}
                           </span>
                         </div>
@@ -2229,8 +2229,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* MODAL DE CONFIRMAÇÃO DE STEP-UP (AÇÕES CRÍTICAS)                       */}
       {/* ===================================================================== */}
       {isStepUpModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-[#0B1220] border border-red-500/40 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 min-[380px]:p-4 bg-black/80 backdrop-blur-xs animate-fadeIn overflow-y-auto">
+          <div className="bg-[#0B1220] border border-red-500/40 rounded-2xl w-full max-w-md p-4 sm:p-6 shadow-2xl space-y-4 my-auto max-h-[90dvh] overflow-y-auto min-w-0">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400">
                 <ShieldAlert className="w-5 h-5" />
@@ -2313,8 +2313,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* MODAL: INSPEÇÃO FORENSE DE AUDITORIA & DELTA                          */}
       {/* ===================================================================== */}
       {isAuditModalOpen && selectedAuditEvent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-[#0B1220] border border-blue-500/40 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 min-[380px]:p-4 bg-black/80 backdrop-blur-xs animate-fadeIn overflow-y-auto">
+          <div className="bg-[#0B1220] border border-blue-500/40 rounded-2xl w-full max-w-2xl max-h-[90vh] max-h-[90dvh] overflow-y-auto p-4 sm:p-6 shadow-2xl space-y-4 my-auto min-w-0">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400">

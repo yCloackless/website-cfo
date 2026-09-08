@@ -301,7 +301,7 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
       {/* 🚀 CABEÇALHO DA CENTRAL DE INTELIGÊNCIA & SIMULADOS */}
       {/* ========================================================================= */}
       <div
-        className={`p-6 rounded-2xl border transition-colors shadow-xl relative overflow-hidden ${
+        className={`p-4 sm:p-6 rounded-2xl border transition-colors shadow-xl relative overflow-hidden min-w-0 ${
           isDark
             ? 'bg-gradient-to-br from-[#0B1528] via-slate-950 to-black border-slate-800'
             : 'bg-white border-slate-200 shadow-slate-200/60'
@@ -337,7 +337,7 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
           </div>
 
           {/* Cards de Métricas Reais do Topo */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 min-[390px]:grid-cols-2 sm:grid-cols-4 gap-3">
             <div
               className={`p-3 rounded-xl border shadow-sm flex items-center gap-3 ${
                 isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-50 border-slate-300'
@@ -543,7 +543,7 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
       {/* ========================================================================= */}
       <section className="space-y-6 pt-2">
         <div
-          className={`p-6 rounded-2xl border shadow-xl space-y-5 ${
+          className={`p-4 sm:p-6 rounded-2xl border shadow-xl space-y-5 min-w-0 ${
             isDark ? 'border-slate-800 bg-[#0B1528]' : 'border-slate-200 bg-white shadow-slate-200/50'
           }`}
         >
@@ -1026,7 +1026,7 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
 
                       {/* Bloco de Contabilização: Total, Acertos, Erradas e % */}
                       <div
-                        className={`p-2.5 rounded-xl border grid grid-cols-3 gap-2 text-center ${
+                        className={`p-2.5 rounded-xl border grid grid-cols-1 min-[390px]:grid-cols-3 gap-2 text-center ${
                           isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
                         }`}
                       >

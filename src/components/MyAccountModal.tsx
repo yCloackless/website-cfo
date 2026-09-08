@@ -387,7 +387,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
         </div>
 
         {/* Modal Body with Scroll */}
-        <div className="p-6 overflow-y-auto space-y-5">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-5 min-w-0">
           {/* Status Message Alert */}
           {statusMessage && (
             <div
@@ -417,7 +417,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
               {activeSubTab === 'profile' && (
                 <form onSubmit={handleSaveProfile} className="space-y-5">
                   {/* Seção Avatar */}
-                  <div className="flex items-center gap-5 p-4 rounded-xl border border-slate-800/60 bg-slate-900/30">
+                  <div className="flex flex-col min-[390px]:flex-row items-start min-[390px]:items-center gap-4 sm:gap-5 p-4 rounded-xl border border-slate-800/60 bg-slate-900/30 min-w-0">
                     <div className="relative group">
                       <div className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-blue-500/50 bg-slate-800 flex items-center justify-center shadow-lg">
                         {avatarPreview ? (
@@ -444,7 +444,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                       </button>
                     </div>
 
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 w-full">
                       <h4 className="text-sm font-bold text-slate-200">Foto de Perfil</h4>
                       <p className="text-xs text-slate-400 mt-0.5">
                         JPG, PNG ou WEBP reais. Máximo 3MB. A validação é realizada server-side por assinatura binária.
@@ -565,7 +565,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                     />
                   </div>
 
-                  <div className="pt-2 flex justify-end">
+                  <div className="pt-2 flex justify-end sm:justify-end">
                     <button
                       type="submit"
                       disabled={loading}
@@ -755,7 +755,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
 
         {/* Footer info */}
         <div
-          className={`px-6 py-2.5 border-t flex items-center justify-between text-[11px] ${
+          className={`px-4 sm:px-6 py-2.5 border-t flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-[11px] ${
             isDark ? 'border-slate-800/80 bg-[#070D18] text-slate-500' : 'border-slate-200 bg-slate-50 text-slate-500'
           }`}
         >

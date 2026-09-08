@@ -180,9 +180,9 @@ export const AdminSecurityPanelModal: React.FC<AdminSecurityPanelModalProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 min-[380px]:p-3 sm:p-5 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
       <div
-        className={`rounded-2xl max-w-5xl w-full shadow-2xl border overflow-hidden flex flex-col transition-colors max-h-[92vh] ${
+        className={`rounded-2xl max-w-5xl w-full shadow-2xl border overflow-hidden flex flex-col transition-colors my-auto max-h-[92vh] max-h-[92dvh] min-w-0 ${
           isDark ? 'bg-[#0B1528] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
         }`}
         onClick={(e) => e.stopPropagation()}

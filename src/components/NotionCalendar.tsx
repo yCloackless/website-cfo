@@ -416,27 +416,27 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
       <div className={`border rounded-2xl p-4 sm:p-5 shadow-2xl backdrop-blur-md ${isDark ? "bg-slate-950/90 border-slate-800/90" : "bg-white border-slate-300 shadow-sm"}`}>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           {/* Título & Identificador Tático */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-start gap-3 min-w-0">
             <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shadow-lg ${isDark ? "bg-green-950/70 border-green-700/50 text-green-400 shadow-green-950/30" : "bg-emerald-100 border-emerald-300 text-emerald-800"}`}>
               <CalendarIcon className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h2 className={`text-base sm:text-lg font-black tracking-wider uppercase font-mono ${isDark ? "text-white" : "text-black"}`}>
+                <h2 className={`text-base sm:text-lg font-black tracking-wider uppercase font-mono break-words ${isDark ? "text-white" : "text-black"}`}>
                   Calendário de Revisões Tático
                 </h2>
                 <span className={`px-2 py-0.5 rounded text-[9.5px] font-mono font-bold uppercase border ${isDark ? "bg-green-950/60 text-green-400 border-green-800/60" : "bg-emerald-100 text-emerald-950 border-emerald-400"}`}>
                   Notion Sync
                 </span>
               </div>
-              <p className={`text-xs font-mono mt-0.5 ${isDark ? "text-slate-400" : "text-slate-700 font-semibold"}`}>
+              <p className={`text-xs font-mono mt-0.5 break-words ${isDark ? "text-slate-400" : "text-slate-700 font-semibold"}`}>
                 Exibição exclusiva de matérias agendadas em <strong className={isDark ? "text-green-400 font-semibold" : "text-emerald-800 font-black"}>Próxima Revisão</strong> no Notion
               </p>
             </div>
           </div>
 
           {/* Navegação de Mês & Ações Rápidas */}
-          <div className="flex items-center gap-2 self-end md:self-center">
+          <div className="flex flex-wrap items-center justify-end gap-2 self-end md:self-center max-w-full">
             <button
               onClick={() => fetchNotionReviews(true)}
               disabled={isSyncing}
@@ -478,7 +478,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
 
         {/* Linha de Filtros e Busca Tática */}
         <div className={`mt-4 pt-3.5 border-t flex flex-wrap items-center justify-between gap-3 text-xs font-mono ${isDark ? "border-slate-800/80" : "border-slate-200"}`}>
-          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-[280px]">
+          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
             {/* Campo de Busca */}
             <div className="relative w-full sm:w-56">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -524,7 +524,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
           </div>
 
           {/* Badges Táticos de Resumo do Mês */}
-          <div className="flex items-center gap-2 text-[11px] font-mono">
+          <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
             <span className={`px-2 py-0.5 rounded border ${isDark ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-100 border-slate-300 text-slate-800 font-semibold"}`}>
               No Mês: <strong className={isDark ? "text-white" : "text-black font-black"}>{monthStats.totalMonth}</strong>
             </span>
@@ -536,7 +536,9 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
       </div>
 
       {/* 2. Grid do Calendário Mensal Tático */}
-      <div className={`border rounded-2xl overflow-hidden shadow-2xl ${isDark ? "bg-slate-950 border-slate-800" : "bg-white border-slate-300 shadow-sm"}`}>
+      <div className={`border rounded-2xl overflow-hidden shadow-2xl min-w-0 ${isDark ? "bg-slate-950 border-slate-800" : "bg-white border-slate-300 shadow-sm"}`}>
+        <div className="overflow-x-auto">
+        <div className="min-w-[560px]">
         {/* Cabeçalho dos Dias da Semana */}
         <div className={`grid grid-cols-7 border-b text-center py-2.5 text-[10px] sm:text-[11px] font-mono font-bold tracking-widest ${isDark ? "border-slate-800 bg-black text-slate-400" : "border-slate-300 bg-slate-100 text-slate-900 font-black"}`}>
           {WEEK_DAYS.map((dayName, idx) => (
@@ -675,6 +677,8 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
             );
           })}
         </div>
+        </div>
+      </div>
       </div>
 
       {/* 3. Modal Tático de Detalhes do Dia (caso clique em +X mais) */}

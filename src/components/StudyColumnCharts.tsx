@@ -192,27 +192,27 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
 
   return (
     <div
-      className={`p-5 sm:p-6 rounded-2xl border transition-colors shadow-xl space-y-6 ${
+      className={`p-4 sm:p-6 rounded-2xl border transition-colors shadow-xl space-y-6 min-w-0 ${
         isDark ? 'bg-[#111218] border-slate-800' : 'bg-white border-slate-200 shadow-slate-200/50'
       }`}
     >
       {/* Header & Main Period Mode Switcher */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-4 border-b border-slate-800/60">
         <div className="space-y-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-start gap-2 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-blue-600/10 text-blue-500 border border-blue-500/20 flex items-center justify-center">
               <BarChart3 className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h3
-                className={`text-base sm:text-lg font-bold tracking-tight ${
+                className={`text-base sm:text-lg font-bold tracking-tight break-words ${
                   isDark ? 'text-slate-100' : 'text-slate-900'
                 }`}
               >
                 Gráfico em Coluna de Matérias Estudadas
               </h3>
               <p
-                className={`text-xs ${
+                className={`text-xs break-words ${
                   isDark ? 'text-slate-400' : 'text-slate-600'
                 }`}
               >
@@ -448,7 +448,7 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
 
         {/* 4. Total Controls */}
         {periodMode === 'total' && (
-          <div className="flex items-center justify-between w-full">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 w-full">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-blue-400 shrink-0" />
               <span className="text-xs font-bold text-slate-200">
@@ -481,7 +481,7 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
       </div>
 
       {/* Summary Stat Cards for this period */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 min-[390px]:grid-cols-2 sm:grid-cols-4 gap-3">
         <div
           className={`p-3.5 rounded-xl border flex flex-col justify-between ${
             isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
@@ -559,11 +559,11 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
       </div>
 
       {/* Main Column Chart Container */}
-      <div className="p-4 sm:p-5 rounded-xl bg-slate-950 border border-slate-800/90 space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+      <div className="p-4 sm:p-5 rounded-xl bg-slate-950 border border-slate-800/90 space-y-3 min-w-0">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-w-0">
+          <div className="flex items-start gap-2 min-w-0">
             <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider break-words min-w-0">
               {periodMode === 'daily' && dailyViewType === 'bySubject' && `Horas Estudadas por Matéria (${dayNamesFull[selectedDayIndex]})`}
               {periodMode === 'daily' && dailyViewType === 'dayComparison' && 'Comparativo Diário da Semana (Segunda a Domingo)'}
               {periodMode === 'weekly' && `Horas por Matéria na ${selectedCycle?.label || 'Semana Selecionada'}`}
@@ -572,7 +572,7 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
             </span>
           </div>
 
-          <span className="text-[11px] font-mono font-semibold text-slate-400">
+          <span className="text-[11px] font-mono font-semibold text-slate-400 break-words">
             Eixo Vertical: Horas (h)
           </span>
         </div>

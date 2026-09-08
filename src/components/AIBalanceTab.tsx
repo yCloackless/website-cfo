@@ -146,22 +146,22 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
         
         {/* Card 1: Matéria Mais Estudada na Semana (Takes 2 cols) */}
         <div
-          className={`lg:col-span-2 p-6 rounded-2xl border transition-colors shadow-xl flex flex-col justify-between ${
+          className={`lg:col-span-2 p-4 sm:p-6 rounded-2xl border transition-colors shadow-xl flex flex-col justify-between min-w-0 ${
             isDark ? 'bg-[#111218] border-slate-800' : 'bg-white border-slate-200 shadow-slate-200/50'
           }`}
         >
           <div>
-            <div className="flex items-center justify-between gap-3 mb-4">
-              <div className="flex items-center gap-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+              <div className="flex items-start gap-2.5 min-w-0">
                 <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-[#0056D2] dark:text-sky-400 border border-blue-500/20 flex items-center justify-center">
                   <Trophy className="w-5 h-5" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-[10px] uppercase tracking-wider font-bold text-[#0056D2] dark:text-sky-400">
                     Maior Carga Horária na Semana
                   </p>
                   <h3
-                    className={`text-lg font-bold ${
+                    className={`text-lg font-bold break-words ${
                       isDark ? 'text-slate-100' : 'text-slate-900'
                     }`}
                   >
@@ -170,13 +170,13 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
                 </div>
               </div>
 
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-[#0056D2] dark:text-sky-400 border border-blue-500/30">
+              <span className="self-start px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-[#0056D2] dark:text-sky-400 border border-blue-500/30 break-words">
                 {analysis?.topStudiedSubject?.status || 'Foco Líder'}
               </span>
             </div>
 
             {/* Metrics Row */}
-            <div className="grid grid-cols-3 gap-3 my-4">
+            <div className="grid grid-cols-1 min-[390px]:grid-cols-3 gap-3 my-4">
               <div
                 className={`p-3 rounded-xl border text-center ${
                   isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
@@ -282,21 +282,21 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
 
         {/* Card 2: Termômetro de Equilíbrio & Pontuação */}
         <div
-          className={`p-6 rounded-2xl border transition-colors shadow-xl flex flex-col justify-between ${
+          className={`p-4 sm:p-6 rounded-2xl border transition-colors shadow-xl flex flex-col justify-between min-w-0 ${
             isDark ? 'bg-[#111218] border-slate-800' : 'bg-white border-slate-200 shadow-slate-200/50'
           }`}
         >
           <div>
-            <div className="flex items-center gap-2.5 mb-3">
+            <div className="flex items-start gap-2.5 mb-3">
               <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-[#0056D2] dark:text-sky-400 border border-blue-500/20 flex items-center justify-center">
                 <TrendingUp className="w-5 h-5" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-[10px] uppercase tracking-wider font-bold text-[#0056D2] dark:text-sky-400">
                   Termômetro de Equilíbrio
                 </p>
                 <h3
-                  className={`text-base font-bold ${
+                  className={`text-base font-bold break-words ${
                     isDark ? 'text-slate-100' : 'text-slate-900'
                   }`}
                 >
@@ -366,18 +366,18 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
 
       {/* Section 2: Matérias a Priorizar na Próxima Semana (O que o usuário pediu explicitamente) */}
       <div
-        className={`p-6 rounded-2xl border transition-colors shadow-xl ${
+        className={`p-4 sm:p-6 rounded-2xl border transition-colors shadow-xl min-w-0 ${
           isDark ? 'bg-[#111218] border-slate-800' : 'bg-white border-slate-200 shadow-slate-200/50'
         }`}
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 mb-4 border-b border-slate-800/80">
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-start gap-2.5 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-[#0056D2] dark:text-sky-400 border border-blue-500/20 flex items-center justify-center">
               <Target className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h3
-                className={`text-base font-bold ${
+                className={`text-base font-bold break-words ${
                   isDark ? 'text-slate-100' : 'text-slate-900'
                 }`}
               >

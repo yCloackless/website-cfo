@@ -907,7 +907,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
             {/* Controles Estilo Anki: 3 Botões de Avaliação */}
             {isAnswerRevealed ? (
               <div className="space-y-2 animate-in slide-in-from-bottom-3 duration-200">
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 min-[390px]:grid-cols-3 gap-3">
                   <button
                     type="button"
                     onClick={() => handleRateCard(1)}
@@ -1150,7 +1150,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     <div className="space-y-7 animate-in fade-in duration-300 pb-12">
       {/* Cabeçalho do Caderno de Erros & Flashcards */}
       <div
-        className={`p-6 rounded-2xl border transition-colors shadow-xl relative overflow-hidden ${
+        className={`p-4 sm:p-6 rounded-2xl border transition-colors shadow-xl relative overflow-hidden min-w-0 ${
           isDark
             ? 'bg-gradient-to-br from-[#0B1528] via-slate-950 to-black border-slate-800'
             : 'bg-white border-slate-200 shadow-slate-200/60'
@@ -1314,7 +1314,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 
                   {/* Placar de Cards Estilo Anki (Novos, Aprendendo, Dominados) */}
                   <div
-                    className={`p-2.5 rounded-xl border grid grid-cols-3 gap-2 text-center text-xs font-mono ${
+                    className={`p-2.5 rounded-xl border grid grid-cols-1 min-[390px]:grid-cols-3 gap-2 text-center text-xs font-mono ${
                       isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
                     }`}
                   >
