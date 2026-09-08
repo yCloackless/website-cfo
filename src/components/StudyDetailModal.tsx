@@ -98,9 +98,9 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 min-[380px]:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300 overflow-y-auto">
       <div 
-        className="bg-[#0B1528] rounded-2xl max-w-lg w-full shadow-2xl border border-blue-900/50 overflow-hidden flex flex-col max-h-[92vh] text-slate-100 animate-in fade-in zoom-in-95 slide-in-from-bottom-5 duration-300"
+        className="bg-[#0B1528] rounded-2xl max-w-lg w-full shadow-2xl border border-blue-900/50 overflow-hidden flex flex-col max-h-[92vh] max-h-[92dvh] text-slate-100 animate-in fade-in zoom-in-95 slide-in-from-bottom-5 duration-300 my-auto min-w-0"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

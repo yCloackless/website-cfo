@@ -44,9 +44,9 @@ export const SmartRevisionsModal: React.FC<SmartRevisionsModalProps> = ({
   const sortedRevisions = [...filteredRevisions].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 min-[380px]:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
       <div
-        className="bg-[#111218] rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-800 overflow-hidden flex flex-col max-h-[90vh] text-slate-100"
+        className="bg-[#111218] rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-800 overflow-hidden flex flex-col max-h-[90vh] max-h-[90dvh] text-slate-100 my-auto min-w-0"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

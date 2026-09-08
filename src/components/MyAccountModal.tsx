@@ -305,16 +305,16 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 min-[380px]:p-4 bg-black/80 backdrop-blur-xs animate-in fade-in overflow-y-auto">
       <div
-        className={`rounded-2xl max-w-2xl w-full shadow-2xl border overflow-hidden flex flex-col transition-colors max-h-[90vh] ${
+        className={`rounded-2xl max-w-2xl w-full shadow-2xl border overflow-hidden flex flex-col transition-colors my-auto max-h-[90vh] max-h-[90dvh] min-w-0 ${
           isDark ? 'bg-[#0B1528] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div
-          className={`px-6 py-4 border-b flex items-center justify-between ${
+          className={`px-4 sm:px-6 py-4 border-b flex items-center justify-between ${
             isDark ? 'border-slate-800/80 bg-[#070D18]' : 'border-slate-200 bg-slate-50'
           }`}
         >
@@ -341,7 +341,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
         </div>
 
         {/* Sub-Navigation Tabs */}
-        <div className={`px-6 pt-3 flex gap-2 border-b text-xs font-semibold ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
+        <div className={`px-3 sm:px-6 pt-3 flex gap-1 sm:gap-2 border-b text-xs font-semibold overflow-x-auto scrollbar-none ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
           <button
             onClick={() => {
               setActiveSubTab('profile');
