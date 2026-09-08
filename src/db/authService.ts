@@ -92,7 +92,7 @@ export class AuthService {
         details: { email: adminEmail, role: 'admin' },
       });
     } else {
-      if (admin.email !== adminEmail) {
+      if (process.env.ADMIN_USER_EMAIL && admin.email !== adminEmail) {
         this.userRepo.updateEmail(admin.id, adminEmail);
         admin.email = adminEmail;
       }
