@@ -1460,7 +1460,7 @@ app.post("/api/auth/verify-session", (req: Request, res: Response) => {
 });
 
 // 6. Rota de Logout (Revogação Segura de Sessão)
-app.post("/api/admin/impersonation/start", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
+app.post("/api/admin/impersonation/start", requireAdminWriteAuth, (req: Request, res: Response) => {
   try {
     const adminSession = (req as any).user;
     const targetUserId = typeof req.body?.targetUserId === 'string' ? req.body.targetUserId.trim() : '';
