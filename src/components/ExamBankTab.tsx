@@ -107,6 +107,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
   const [questions, setQuestions] = useState<ExamQuestion[]>([]);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
   const [selectedQuestionIdsForSolve, setSelectedQuestionIdsForSolve] = useState<string[]>([]);
+  const [userAnswers, setUserAnswers] = useState<Record<string, 'A' | 'B' | 'C' | 'D' | 'E'>>({});
   const [activeDisciplineFilter, setActiveDisciplineFilter] = useState<string>('Todas');
   const [activeTabFilter, setActiveTabFilter] = useState<'mine' | 'recent' | 'popular'>('mine');
   const [searchQuery, setSearchQuery] = useState('');
@@ -1181,10 +1182,14 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
                     : selectedQuestionAISolution?.selectedOption === opt.letter;
 
                   return (
-                    <div
+                    <button
                       key={opt.letter}
+                      type="button"
+                      onClick={() => setUserAnswers((prev) => ({ ...prev, [selectedQuestion.id]: opt.letter }))}
                       className={`p-2.5 rounded-xl border transition-all flex items-start gap-2.5 ${
-                        isCorrect
+                        userAnswers[selectedQuestion.id] === opt.letter
+                          ? selectedQuestion.correctOption === opt.letter ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300 font-medium' : 'bg-rose-500/10 border-rose-500/40 text-rose-300 font-medium'
+                          : isCorrect
                           ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300 font-medium'
                           : isDark
                           ? 'bg-[#111218] border-slate-800/70 text-slate-300 hover:border-slate-700'
@@ -1205,10 +1210,16 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
                       <div className="text-xs leading-tight flex-1 pt-0.5">
                         <Latex content={opt.text} />
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
+
+              {userAnswers[selectedQuestion.id] && (
+                <div className={`rounded-xl border p-3 text-xs ${selectedQuestion.correctOption && userAnswers[selectedQuestion.id] === selectedQuestion.correctOption ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : selectedQuestion.correctOption ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-300'}`}>
+                  {!selectedQuestion.correctOption ? 'Resposta registrada. O gabarito ainda não foi localizado.' : userAnswers[selectedQuestion.id] === selectedQuestion.correctOption ? 'Você acertou!' : `Você errou. A alternativa correta é ${selectedQuestion.correctOption}.`}
+                </div>
+              )}
 
               {/* Abas Inferiores de Correção */}
               <div className="border-t border-slate-800/60 pt-3 space-y-3">
