@@ -45,6 +45,30 @@ import {
   PaymentStatus,
 } from './schema';
 
+function normalizeExamOptions(raw: unknown): ExamOption[] {
+  if (!Array.isArray(raw)) return [];
+
+  const valid = new Set(['A', 'B', 'C', 'D', 'E']);
+  const seen = new Set<string>();
+  const result: ExamOption[] = [];
+
+  for (const item of raw as any[]) {
+    const letter = typeof item?.letter === 'string'
+      ? item.letter.trim().toUpperCase().match(/[A-E]/)?.[0]
+      : undefined;
+    const text = typeof item?.text === 'string'
+      ? item.text.replace(/\t/g, ' ').replace(/\s+/g, ' ').trim()
+      : '';
+
+    if (!letter || !valid.has(letter) || !text || seen.has(letter)) continue;
+    seen.add(letter);
+    result.push({ letter: letter as ExamOption['letter'], text });
+    if (result.length === 5) break;
+  }
+
+  return result;
+}
+
 export class UserRepository {
   constructor(private db: DatabaseSync) {}
 
@@ -2092,7 +2116,7 @@ export class ExamQuestionRepository {
   }): DbExamQuestion {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    const optionsJson = data.options !== undefined && data.options !== null ? JSON.stringify(data.options) : '[]';
+    const optionsJson = JSON.stringify(normalizeExamOptions(data.options));
     const topic = data.topic || 'Geral';
     const subtopic = data.subtopic || 'Geral';
     const difficulty = data.difficulty || 'Médio';
@@ -2225,7 +2249,7 @@ export class ExamQuestionRepository {
     }
     if (partial.options !== undefined) {
       sets.push('options_json = ?');
-      values.push(JSON.stringify(partial.options));
+      values.push(JSON.stringify(normalizeExamOptions(partial.options)));
     }
     if (partial.correctOption !== undefined) {
       sets.push('correct_option = ?');
@@ -2280,6 +2304,13 @@ export class ExamQuestionRepository {
   }
 
   private mapQuestion(row: any): DbExamQuestion {
+    let normalizedOptionsJson = '[]';
+    try {
+      normalizedOptionsJson = JSON.stringify(normalizeExamOptions(JSON.parse(row.options_json || '[]')));
+    } catch {
+      normalizedOptionsJson = '[]';
+    }
+
     return {
       id: row.id,
       examId: row.exam_id,
@@ -2287,7 +2318,7 @@ export class ExamQuestionRepository {
       questionNumber: Number(row.question_number),
       statement: row.statement,
       supportText: row.support_text ?? null,
-      optionsJson: row.options_json,
+      optionsJson: normalizedOptionsJson,
       correctOption: row.correct_option as any,
       discipline: row.discipline,
       topic: row.topic,
@@ -2768,6 +2799,4 @@ export class QuestionAuditRepository {
     };
   }
 }
-
-
 

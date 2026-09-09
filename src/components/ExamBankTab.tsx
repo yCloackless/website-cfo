@@ -140,6 +140,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
   const [mobileView, setMobileView] = useState<'papers' | 'questions' | 'detail'>('papers');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const questionsRequestRef = useRef(0);
 
   const handleOpenOriginalPdf = async () => {
     if (!selectedPaper?.fileId) return;
@@ -201,6 +202,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
 
   // Carrega Questões da Prova
   const fetchQuestionsForPaper = async (paperId: string, keepSelectedId = false) => {
+    const requestId = ++questionsRequestRef.current;
     try {
       setIsLoadingQuestions(true);
       const token = getAuthToken();
@@ -208,7 +210,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
       const res = await fetch(`/api/exams/${paperId}/questions`, { headers });
-      if (res.ok) {
+      if (res.ok && requestId === questionsRequestRef.current) {
         const data = await res.json();
         const qList: ExamQuestion[] = data.questions || [];
         setQuestions(qList);
@@ -225,7 +227,9 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
     } catch (err) {
       console.warn('Falha ao carregar questões da prova:', err);
     } finally {
-      setIsLoadingQuestions(false);
+      if (requestId === questionsRequestRef.current) {
+        setIsLoadingQuestions(false);
+      }
     }
   };
 
@@ -269,6 +273,13 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
     if (activeDisciplineFilter === 'Todas') return questions;
     return questions.filter((q) => q.discipline === activeDisciplineFilter);
   }, [questions, activeDisciplineFilter]);
+
+  // Keep the detail panel inside the currently visible discipline filter.
+  useEffect(() => {
+    if (filteredQuestions.length > 0 && !filteredQuestions.some((q) => q.id === selectedQuestionId)) {
+      setSelectedQuestionId(filteredQuestions[0].id);
+    }
+  }, [filteredQuestions, selectedQuestionId]);
 
   // Provas Filtradas
   const filteredPapers = useMemo(() => {
@@ -348,9 +359,9 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
   };
 
   // Correção com IA das Questões Selecionadas
-  const handleSolveSelectedWithAI = async () => {
-    if (selectedQuestionIdsForSolve.length === 0) return;
-    if (selectedQuestionIdsForSolve.length > 10) {
+  const handleSolveSelectedWithAI = async (questionIds = selectedQuestionIdsForSolve) => {
+    if (questionIds.length === 0) return;
+    if (questionIds.length > 10) {
       showToast?.('Você pode corrigir até 10 questões por vez.', 'error');
       return;
     }
@@ -367,8 +378,8 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
         method: 'POST',
         headers,
         body: JSON.stringify({
-          questionIds: selectedQuestionIdsForSolve,
-          idempotencyKey: `solve-${Date.now()}-${selectedQuestionIdsForSolve.join('-')}`,
+          questionIds,
+          idempotencyKey: `solve-${Date.now()}-${questionIds.join('-')}`,
         }),
       });
 
@@ -1399,8 +1410,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
                         </p>
                         <button
                           onClick={() => {
-                            setSelectedQuestionIdsForSolve([selectedQuestion.id]);
-                            handleSolveSelectedWithAI();
+                            handleSolveSelectedWithAI([selectedQuestion.id]);
                           }}
                           className="px-3 py-1.5 rounded-xl bg-[#0056D2] hover:bg-blue-600 text-white font-bold text-xs shadow-sm cursor-pointer"
                         >

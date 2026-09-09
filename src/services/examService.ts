@@ -129,6 +129,36 @@ export class ExamService {
   }
 
   /**
+   * Sanitizes extractor output before it reaches SQLite/UI. AI and OCR can
+   * occasionally repeat option letters or return more than the supported
+   * A-E alternatives; persisting that payload makes one question render as a
+   * mixture of several questions.
+   */
+  private normalizeOptions(raw: unknown): { letter: 'A' | 'B' | 'C' | 'D' | 'E'; text: string }[] {
+    if (!Array.isArray(raw)) return [];
+
+    const valid = new Set(['A', 'B', 'C', 'D', 'E']);
+    const seen = new Set<string>();
+    const normalized: { letter: 'A' | 'B' | 'C' | 'D' | 'E'; text: string }[] = [];
+
+    for (const option of raw as any[]) {
+      const letter = typeof option?.letter === 'string'
+        ? option.letter.trim().toUpperCase().match(/[A-E]/)?.[0]
+        : undefined;
+      const text = typeof option?.text === 'string'
+        ? option.text.replace(/\t/g, ' ').replace(/\s+/g, ' ').trim()
+        : '';
+
+      if (!letter || !valid.has(letter) || !text || seen.has(letter)) continue;
+      seen.add(letter);
+      normalized.push({ letter: letter as 'A' | 'B' | 'C' | 'D' | 'E', text });
+      if (normalized.length === 5) break;
+    }
+
+    return normalized;
+  }
+
+  /**
    * Executa o detector determinístico em Python (PyMuPDF)
    */
   public async runDeterministicPythonDetector(
@@ -201,12 +231,7 @@ export class ExamService {
             pageNumber: q.segments && q.segments.length > 0 ? Number(q.segments[0].page) : 1,
             statement: String(q.statement || '').trim(),
             supportText: null,
-            options: Array.isArray(q.options)
-              ? q.options.map((opt: any) => ({
-                  letter: opt.letter as 'A' | 'B' | 'C' | 'D' | 'E',
-                  text: String(opt.text || '').replace(/\t/g, ' ').trim(),
-                }))
-              : [],
+            options: this.normalizeOptions(q.options),
             correctOption: null,
             discipline: this.normalizeDiscipline(q.discipline || 'Conhecimentos Gerais'),
             topic: q.discipline || 'Geral',
@@ -940,7 +965,7 @@ Retorne APENAS um array JSON de questões com a estrutura:
           pageNumber: Number(item.pageNumber) || undefined,
           statement: String(item.statement || '').trim(),
           supportText: item.supportText ? String(item.supportText).trim() : null,
-          options: Array.isArray(item.options) ? item.options : [],
+          options: this.normalizeOptions(item.options),
           correctOption: ['A', 'B', 'C', 'D', 'E'].includes(item.correctOption) ? item.correctOption : null,
           discipline: this.normalizeDiscipline(item.discipline || 'Matemática'),
           topic: String(item.topic || 'Geral').trim(),
@@ -966,7 +991,7 @@ Retorne APENAS um array JSON de questões com a estrutura:
       result.push({
         questionNumber: Number(match[1]),
         statement: body.slice(0, options[0].index).trim(),
-        options: options.map((option) => ({ letter: option[1].toUpperCase() as any, text: option[2].replace(/\t/g, ' ').trim() })),
+        options: this.normalizeOptions(options.map((option) => ({ letter: option[1], text: option[2] }))),
         correctOption: null,
         discipline: 'Conhecimentos Gerais',
         topic: 'Geral',
@@ -986,10 +1011,7 @@ Retorne APENAS um array JSON de questões com a estrutura:
           altResult.push({
             questionNumber: Number(match[1]),
             statement: body.slice(0, options[0].index).trim(),
-            options: options.slice(0, 5).map((opt) => ({
-              letter: opt[1].toUpperCase() as any,
-              text: opt[2].replace(/\t/g, ' ').trim(),
-            })),
+            options: this.normalizeOptions(options.map((opt) => ({ letter: opt[1], text: opt[2] }))),
             correctOption: null,
             discipline: 'Conhecimentos Gerais',
             topic: 'Geral',
@@ -1073,7 +1095,7 @@ Retorne APENAS um array JSON de questões com a estrutura:
         questionNumber: Number(item.questionNumber) || idx + 1,
         statement: String(item.statement || '').trim(),
         supportText: item.supportText ? String(item.supportText).trim() : null,
-        options: Array.isArray(item.options) ? item.options.filter((option: any) => ['A', 'B', 'C', 'D', 'E'].includes(option?.letter)).map((option: any) => ({ letter: option.letter, text: String(option.text || '').trim() })) : [],
+        options: this.normalizeOptions(item.options),
         correctOption: ['A', 'B', 'C', 'D', 'E'].includes(item.correctOption) ? item.correctOption : null,
         discipline: this.normalizeDiscipline(item.discipline || 'Conhecimentos Gerais'),
         topic: String(item.topic || 'Geral').trim(),
@@ -1121,7 +1143,7 @@ Retorne APENAS um array JSON de questões com a estrutura:
         pageNumber: Number(item.pageNumber) || undefined,
         statement: String(item.statement || '').trim(),
         supportText: item.supportText ? String(item.supportText).trim() : null,
-        options: Array.isArray(item.options) ? item.options.filter((option: any) => ['A', 'B', 'C', 'D', 'E'].includes(option?.letter)).map((option: any) => ({ letter: option.letter, text: String(option.text || '').trim() })) : [],
+        options: this.normalizeOptions(item.options),
         correctOption: ['A', 'B', 'C', 'D', 'E'].includes(item.correctOption) ? item.correctOption : null,
         discipline: this.normalizeDiscipline(item.discipline || 'Conhecimentos Gerais'),
         topic: String(item.topic || 'Geral').trim(),

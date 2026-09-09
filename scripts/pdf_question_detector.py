@@ -189,34 +189,42 @@ def extract_ordered_blocks(page: fitz.Page, num_columns: int, divider_x: Optiona
     - Se 2 colunas: processa coluna esquerda de cima para baixo, depois coluna direita de cima para baixo.
     - Se 1 coluna: processa de cima para baixo.
     """
-    raw_blocks = page.get_text("blocks")
+    # Work at line level. PDF block extraction may group multiple questions
+    # in one block; inspecting only its first line then swallows the rest.
+    raw_blocks = page.get_text("dict").get("blocks", [])
     structured = []
 
     for b in raw_blocks:
-        if b[6] != 0:  # Ignora blocos que não sejam texto direto nesta etapa
-            continue
-        text = b[4].strip()
-        if not text:
+        if b.get("type") != 0:
             continue
 
-        x0, y0, x1, y1 = b[0], b[1], b[2], b[3]
-        col_idx = 0
-        if num_columns == 2 and divider_x is not None:
-            # Se a média do bloco está à direita do divisor
-            block_center_x = (x0 + x1) / 2.0
-            if block_center_x >= divider_x:
-                col_idx = 1
-
-        structured.append({
-            "x0": x0,
-            "y0": y0,
-            "x1": x1,
-            "y1": y1,
-            "text": text,
-            "column": col_idx,
-            "page": page.number + 1,
-            "lines": [line.strip() for line in text.splitlines() if line.strip()]
-        })
+        # Emit one structured item per visual line. PDF blocks can contain
+        # multiple questions, so block-level parsing swallows later ones.
+        for line in b.get("lines", []):
+            spans = line.get("spans", [])
+            text = "".join(str(span.get("text", "")) for span in spans).strip()
+            if not text:
+                continue
+            line_bbox = line.get("bbox") or b.get("bbox")
+            if not line_bbox or len(line_bbox) < 4:
+                continue
+            x0, y0, x1, y1 = line_bbox[:4]
+            col_idx = 0
+            if num_columns == 2 and divider_x is not None:
+                block_center_x = (x0 + x1) / 2.0
+                if block_center_x >= divider_x:
+                    col_idx = 1
+            structured.append({
+                "x0": x0,
+                "y0": y0,
+                "x1": x1,
+                "y1": y1,
+                "text": text,
+                "column": col_idx,
+                "page": page.number + 1,
+                "lines": [text]
+            })
+        continue
 
     if num_columns == 2:
         # Ordena: primeiro por coluna (0 antes de 1), depois por coordenada y0
@@ -412,6 +420,16 @@ def analyze_pdf(pdf_path: str, output_dir: str, dpi: int = DEFAULT_DPI) -> Dict[
             "FOLHA DE RESPOSTAS" in page_raw_text
         )
 
+        # A cover may share its header with the beginning of the questions.
+        # Never discard a page that already contains a valid question anchor.
+        if is_cover_page:
+            has_question_anchor = any(
+                check_question_anchor(block["lines"][0]) is not None
+                for block in ordered_blocks
+                if block.get("lines")
+            )
+            is_cover_page = not has_question_anchor
+
         # Determina os limites x das colunas
         col_bounds = {}
         if num_cols == 2 and divider_x is not None:
@@ -434,6 +452,11 @@ def analyze_pdf(pdf_path: str, output_dir: str, dpi: int = DEFAULT_DPI) -> Dict[
 
             # Se for página de capa/instruções, pula detecção de âncoras de questão
             if is_cover_page:
+                continue
+
+            # Repeated page headers must not be appended to the previous
+            # question when a new page starts.
+            if any(hf.search(clean_block_text) for hf in HEADER_FOOTER_PATTERNS):
                 continue
 
             # Ignora blocos muito colados no topo ou no rodapé extremo
