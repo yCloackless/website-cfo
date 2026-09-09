@@ -65,7 +65,6 @@ import { AddCustomSubjectModal } from './components/AddCustomSubjectModal';
 import { CycleHistoryModal } from './components/CycleHistoryModal';
 import { WeeklyGoalModal } from './components/WeeklyGoalModal';
 import { SecurityGate } from './components/SecurityGate';
-import { Setup2FAModal } from './components/Setup2FAModal';
 import { LandingPage } from './components/LandingPage';
 const TimerTab = lazy(() => import('./components/TimerTab').then(({ TimerTab }) => ({ default: TimerTab })));
 const NotionAgendaTab = lazy(() => import('./components/NotionAgendaTab').then(({ NotionAgendaTab }) => ({ default: NotionAgendaTab })));
@@ -107,7 +106,6 @@ export default function App() {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [isPersistentStateReady, setIsPersistentStateReady] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const [needs2FASetup, setNeeds2FASetup] = useState(false);
   const [canAccessNotion, setCanAccessNotion] = useState<boolean>(() => {
     const saved = localStorage.getItem('cfo_can_access_notion');
     return saved === null ? true : saved === 'true';
@@ -332,7 +330,6 @@ export default function App() {
             setIsTerminalUnlocked(true);
             localStorage.setItem('cfo_terminal_session', 'cookie');
             if (data.expiresAt) localStorage.setItem('cfo_terminal_expires_at', String(data.expiresAt));
-            setNeeds2FASetup(data.role === 'admin' && data.is2faActive !== true);
             if (data.canAccessNotion !== undefined) {
               setCanAccessNotion(Boolean(data.canAccessNotion));
               localStorage.setItem('cfo_can_access_notion', String(Boolean(data.canAccessNotion)));
@@ -1392,7 +1389,6 @@ export default function App() {
             onAuthenticated={(_token, _expiresAt, is2faActive) => {
               setIsTerminalUnlocked(true);
               setShowLoginModal(false);
-              setNeeds2FASetup(localStorage.getItem('cfo_terminal_role') === 'admin' && !is2faActive);
               const notionAccess = localStorage.getItem('cfo_can_access_notion') === 'true';
               setCanAccessNotion(notionAccess);
               if (!notionAccess && activeTab === 'calendar') {
@@ -2147,11 +2143,6 @@ export default function App() {
         sessionToken={localStorage.getItem('cfo_terminal_session')}
       />
 
-      <Setup2FAModal
-        isOpen={needs2FASetup}
-        sessionToken={localStorage.getItem('cfo_terminal_session')}
-        onActivated={() => setNeeds2FASetup(false)}
-      />
 
       {/* Banner LGPD de Cookies de Sessão */}
       <CookieConsent />

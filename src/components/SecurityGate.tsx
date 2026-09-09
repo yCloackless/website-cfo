@@ -213,7 +213,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
 
       const data = await res.json();
 
-      if (res.ok && data.success && data.requireTotp) {
+      if (false && res.ok && data.success && data.requireTotp) {
         setRequiresTotp(true);
         setLoginChallenge(data.challenge || '');
         setSecondFactor('');
