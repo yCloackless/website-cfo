@@ -73,6 +73,7 @@ import { UserRole, DbUser, DbExamPaper } from "./src/db/schema";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
 import { secureUploadService, SecureUploadService } from "./src/services/secureUploadService";
 import { ExamService } from "./src/services/examService";
+import { getBoardIntelligenceService } from "./src/services/boardIntelligenceService";
 import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtimeHub";
 import { createAuthMiddlewares } from "./src/middleware/auth";
 
@@ -770,6 +771,7 @@ const examServiceInstance = new ExamService(
   supportMaterialRepoInstance,
   questionAuditRepoInstance
 );
+const boardIntelligenceServiceInstance = getBoardIntelligenceService();
 
 function logSecurityEvent(
   req: Request,
@@ -4764,6 +4766,266 @@ app.get("/api/files", requireUserAuth, async (req: Request, res: Response) => {
 // ============================================================================
 // 📚 ROTAS DO BANCO DE PROVAS (EXAM BANK) & INTELIGÊNCIA ARTIFICIAL
 // ============================================================================
+
+function ensureBoardIntelligenceEnabled(res: Response): boolean {
+  if (boardIntelligenceServiceInstance.isEnabled()) return true;
+  res.status(404).json({
+    error: 'FEATURE_DISABLED',
+    message: 'Inteligencia da Banca esta desativada pela feature flag ADMIN_BOARD_INTELLIGENCE.',
+  });
+  return false;
+}
+
+app.get("/api/admin/board-intelligence/profiles", requireAdminAuth, (_req: Request, res: Response) => {
+  if (!ensureBoardIntelligenceEnabled(res)) return;
+  return res.json({ success: true, profiles: boardIntelligenceServiceInstance.listProfiles() });
+});
+
+app.post("/api/admin/board-intelligence/profiles", requireAdminWriteAuth, (req: Request, res: Response) => {
+  if (!ensureBoardIntelligenceEnabled(res)) return;
+  try {
+    const user = (req as any).user;
+    const { name, institution, board, contest, roleName, periodStart, periodEnd, description } = req.body || {};
+    if (!name || typeof name !== 'string' || name.trim().length < 2) {
+      return res.status(400).json({ error: 'INVALID_PROFILE_NAME', message: 'Nome do perfil e obrigatorio.' });
+    }
+    const profile = boardIntelligenceServiceInstance.createProfile({
+      name,
+      institution,
+      board,
+      contest,
+      roleName,
+      periodStart: periodStart ? Number(periodStart) : null,
+      periodEnd: periodEnd ? Number(periodEnd) : null,
+      description,
+      actorUserId: user.userId,
+    });
+    logSecurityEvent(req, {
+      action: 'BOARD_INTELLIGENCE_PROFILE_CREATED',
+      actor: user.username || user.userId,
+      actorUserId: user.userId,
+      resource: 'board_intelligence_profiles',
+      status: 'SUCCESS',
+      targetType: 'board_intelligence_profile',
+      targetId: profile.id,
+      details: { name: profile.name, board: profile.board },
+    });
+    return res.status(201).json({ success: true, profile });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'CREATE_BOARD_PROFILE_FAILED', message: err?.message || 'Falha ao criar perfil da banca.' });
+  }
+});
+
+app.get("/api/admin/board-intelligence/profiles/:id", requireAdminAuth, (req: Request, res: Response) => {
+  if (!ensureBoardIntelligenceEnabled(res)) return;
+  const overview = boardIntelligenceServiceInstance.getOverview(req.params.id);
+  if (!overview) return res.status(404).json({ error: 'PROFILE_NOT_FOUND' });
+  return res.json({ success: true, ...overview });
+});
+
+app.post("/api/admin/board-intelligence/profiles/:id/import-exam", requireAdminWriteAuth, uploadLimiter, async (req: Request, res: Response) => {
+  if (!ensureBoardIntelligenceEnabled(res)) return;
+  try {
+    const user = (req as any).user;
+    const profile = boardIntelligenceServiceInstance.getProfile(req.params.id);
+    if (!profile) return res.status(404).json({ error: 'PROFILE_NOT_FOUND' });
+    const { title, institution, examYear, fileName, declaredMime, contentBase64, rawTextContent, board, roleName, phase, discipline, examType, officialAnswerKey, notes } = req.body || {};
+    if (!title || typeof title !== 'string') {
+      return res.status(400).json({ error: 'INVALID_TITLE', message: 'O titulo da prova e obrigatorio.' });
+    }
+    const cleanTitle = title.trim();
+    const parsedYear = Number(examYear) || new Date().getFullYear();
+    let fileId: string | undefined;
+
+    if (contentBase64 && typeof contentBase64 === 'string') {
+      let buffer: Buffer;
+      try {
+        buffer = Buffer.from(contentBase64.replace(/^data:[^;]+;base64,/, ''), 'base64');
+      } catch {
+        return res.status(400).json({ error: 'INVALID_ENCODING', message: 'Buffer base64 corrompido.' });
+      }
+      const uploadRes = await secureUploadService.processUpload({
+        buffer,
+        originalName: fileName || `${cleanTitle}.pdf`,
+        declaredMime: declaredMime || 'application/pdf',
+        userId: user.userId,
+        ip: getClientIp(req),
+        userAgent: (req.headers['user-agent'] as string) || undefined,
+      });
+      if (!uploadRes.success || !uploadRes.file) {
+        return res.status(400).json({ error: 'UPLOAD_REJECTED', message: uploadRes.error || 'Arquivo rejeitado pelo pipeline seguro.' });
+      }
+      fileId = uploadRes.file.id;
+    }
+
+    const extraction = await examServiceInstance.extractAndRegisterExam({
+      userId: user.userId,
+      fileId,
+      title: cleanTitle,
+      institution: institution || profile.institution,
+      examYear: parsedYear,
+      rawTextContent: typeof rawTextContent === 'string' ? rawTextContent : undefined,
+    });
+    const boardExam = boardIntelligenceServiceInstance.registerImportedExam({
+      profileId: profile.id,
+      examPaperId: extraction.paper.id,
+      name: cleanTitle,
+      examYear: parsedYear,
+      board: board || profile.board,
+      roleName,
+      phase,
+      discipline,
+      examType,
+      officialAnswerKey: officialAnswerKey && typeof officialAnswerKey === 'object' ? officialAnswerKey : null,
+      notes,
+      actorUserId: user.userId,
+    });
+    logSecurityEvent(req, {
+      action: 'BOARD_INTELLIGENCE_EXAM_IMPORTED',
+      actor: user.username || user.userId,
+      actorUserId: user.userId,
+      resource: 'board_intelligence_exams',
+      status: 'SUCCESS',
+      targetType: 'board_intelligence_exam',
+      targetId: boardExam.id,
+      details: { profileId: profile.id, examPaperId: extraction.paper.id, questions: extraction.questions.length },
+    });
+    return res.status(201).json({
+      success: true,
+      exam: boardExam,
+      paper: extraction.paper,
+      questionsCount: extraction.questions.length,
+      message: 'Prova importada e extraida. Revisao administrativa obrigatoria antes do aprendizado.',
+    });
+  } catch (err: any) {
+    const status = String(err?.message || '').includes('UNIQUE constraint failed') ? 409 : 500;
+    return res.status(status).json({ error: 'IMPORT_BOARD_EXAM_FAILED', message: err?.message || 'Falha ao importar prova antiga.' });
+  }
+});
+
+app.get("/api/admin/board-intelligence/exams/:examId/review", requireAdminAuth, (req: Request, res: Response) => {
+  if (!ensureBoardIntelligenceEnabled(res)) return;
+  const review = boardIntelligenceServiceInstance.getReview(req.params.examId);
+  if (!review) return res.status(404).json({ error: 'BOARD_EXAM_NOT_FOUND' });
+  return res.json({ success: true, review });
+});
+
+app.post("/api/admin/board-intelligence/exams/:examId/approve", requireAdminWriteAuth, (req: Request, res: Response) => {
+  if (!ensureBoardIntelligenceEnabled(res)) return;
+  try {
+    const user = (req as any).user;
+    const result = boardIntelligenceServiceInstance.approveExam(req.params.examId, user.userId);
+    logSecurityEvent(req, {
+      action: 'BOARD_INTELLIGENCE_EXAM_APPROVED',
+      actor: user.username || user.userId,
+      actorUserId: user.userId,
+      resource: 'board_intelligence_exams',
+      status: 'SUCCESS',
+      targetType: 'board_intelligence_exam',
+      targetId: result.exam.id,
+      details: { analysesCreated: result.analysesCreated },
+    });
+    return res.json({ success: true, ...result, message: 'Prova aprovada para aprendizado estruturado.' });
+  } catch (err: any) {
+    return res.status(400).json({ error: 'APPROVE_BOARD_EXAM_FAILED', message: err?.message || 'Falha ao aprovar prova.' });
+  }
+});
+
+app.post("/api/admin/board-intelligence/exams/:examId/reject", requireAdminWriteAuth, (req: Request, res: Response) => {
+  if (!ensureBoardIntelligenceEnabled(res)) return;
+  try {
+    const user = (req as any).user;
+    const exam = boardIntelligenceServiceInstance.rejectExam(req.params.examId, user.userId);
+    logSecurityEvent(req, {
+      action: 'BOARD_INTELLIGENCE_EXAM_REJECTED',
+      actor: user.username || user.userId,
+      actorUserId: user.userId,
+      resource: 'board_intelligence_exams',
+      status: 'WARNING',
+      targetType: 'board_intelligence_exam',
+      targetId: exam.id,
+    });
+    return res.json({ success: true, exam });
+  } catch (err: any) {
+    return res.status(400).json({ error: 'REJECT_BOARD_EXAM_FAILED', message: err?.message || 'Falha ao rejeitar prova.' });
+  }
+});
+
+app.post("/api/admin/board-intelligence/profiles/:id/generate-version", requireAdminWriteAuth, (req: Request, res: Response) => {
+  if (!ensureBoardIntelligenceEnabled(res)) return;
+  try {
+    const user = (req as any).user;
+    const version = boardIntelligenceServiceInstance.generateDraftVersion(req.params.id, user.userId);
+    logSecurityEvent(req, {
+      action: 'BOARD_INTELLIGENCE_VERSION_DRAFTED',
+      actor: user.username || user.userId,
+      actorUserId: user.userId,
+      resource: 'board_profile_versions',
+      status: 'SUCCESS',
+      targetType: 'board_profile_version',
+      targetId: version.id,
+      details: { profileId: req.params.id, version: version.version, snapshotId: version.snapshotId },
+    });
+    return res.status(201).json({ success: true, version });
+  } catch (err: any) {
+    return res.status(400).json({ error: 'GENERATE_BOARD_VERSION_FAILED', message: err?.message || 'Falha ao gerar versao draft.' });
+  }
+});
+
+app.post("/api/admin/board-intelligence/versions/:versionId/publish", requireAdminWriteAuth, (req: Request, res: Response) => {
+  if (!ensureBoardIntelligenceEnabled(res)) return;
+  try {
+    const user = (req as any).user;
+    const version = boardIntelligenceServiceInstance.publishVersion(req.params.versionId, user.userId);
+    logSecurityEvent(req, {
+      action: 'BOARD_INTELLIGENCE_VERSION_PUBLISHED',
+      actor: user.username || user.userId,
+      actorUserId: user.userId,
+      resource: 'board_profile_versions',
+      status: 'SUCCESS',
+      targetType: 'board_profile_version',
+      targetId: version.id,
+      details: { profileId: version.profileId, version: version.version },
+    });
+    return res.json({ success: true, version });
+  } catch (err: any) {
+    return res.status(400).json({ error: 'PUBLISH_BOARD_VERSION_FAILED', message: err?.message || 'Falha ao publicar versao.' });
+  }
+});
+
+app.post("/api/admin/board-intelligence/profiles/:id/rollback", requireAdminWriteAuth, (req: Request, res: Response) => {
+  if (!ensureBoardIntelligenceEnabled(res)) return;
+  try {
+    const user = (req as any).user;
+    const targetVersion = Number(req.body?.version);
+    if (!targetVersion) return res.status(400).json({ error: 'INVALID_VERSION' });
+    const version = boardIntelligenceServiceInstance.rollbackToVersion(req.params.id, targetVersion, user.userId);
+    logSecurityEvent(req, {
+      action: 'BOARD_INTELLIGENCE_ROLLBACK',
+      actor: user.username || user.userId,
+      actorUserId: user.userId,
+      resource: 'board_profile_versions',
+      status: 'WARNING',
+      targetType: 'board_profile_version',
+      targetId: version.id,
+      details: { profileId: req.params.id, restoredVersion: version.version },
+    });
+    return res.json({ success: true, version });
+  } catch (err: any) {
+    return res.status(400).json({ error: 'ROLLBACK_BOARD_VERSION_FAILED', message: err?.message || 'Falha ao restaurar versao.' });
+  }
+});
+
+app.get("/api/admin/board-intelligence/profiles/:id/retrieval", requireAdminAuth, (req: Request, res: Response) => {
+  if (!ensureBoardIntelligenceEnabled(res)) return;
+  const query = String(req.query.q || '').trim();
+  if (!query) return res.status(400).json({ error: 'QUERY_REQUIRED' });
+  return res.json({
+    success: true,
+    context: boardIntelligenceServiceInstance.getActiveProfileContext(req.params.id),
+    questions: boardIntelligenceServiceInstance.getRelevantHistoricalQuestions(req.params.id, query, Number(req.query.topK) || 5),
+  });
+});
 
 // 1. Upload Seguro de Prova e Registro Estruturado: POST /api/exams/upload-and-process
 app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async (req: Request, res: Response) => {

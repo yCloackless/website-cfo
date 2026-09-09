@@ -23,11 +23,14 @@ import {
   Activity,
   Laptop,
   X,
+  BrainCircuit,
 } from 'lucide-react';
 import { AppTheme } from '../../types';
+import { BoardIntelligencePanel } from './BoardIntelligencePanel';
 
 export type AdminTab =
   | 'dashboard'
+  | 'boardIntelligence'
   | 'users'
   | 'security'
   | 'sessions'
@@ -1063,6 +1066,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           <button
             type="button"
+            onClick={() => setActiveTab('boardIntelligence')}
+            className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === 'boardIntelligence'
+                ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
+            }`}
+          >
+            <BrainCircuit className="w-4 h-4 text-cyan-400" />
+            Inteligencia da Banca
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab('users')}
             className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               activeTab === 'users'
@@ -1348,6 +1364,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               </div>
             </div>
+          )}
+
+          {activeTab === 'boardIntelligence' && (
+            <BoardIntelligencePanel
+              theme={theme}
+              sessionToken={sessionToken}
+              canWrite={currentAdminRole === 'admin'}
+            />
           )}
 
           {/* ================================================================= */}

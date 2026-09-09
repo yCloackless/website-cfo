@@ -420,3 +420,117 @@ export interface DayStudySummary {
     durationHours: number;
   }>;
 }
+
+export type BoardIntelligenceProfileStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+export type BoardIntelligenceExamStatus =
+  | 'UPLOADED'
+  | 'PROCESSING'
+  | 'EXTRACTED'
+  | 'REVIEW_REQUIRED'
+  | 'APPROVED'
+  | 'REJECTED';
+export type BoardProfileVersionStatus = 'DRAFT' | 'ACTIVE' | 'DISCARDED' | 'SUPERSEDED';
+export type BoardIntelligenceJobStatus =
+  | 'QUEUED'
+  | 'EXTRACTING'
+  | 'CLASSIFYING'
+  | 'ANALYZING'
+  | 'AGGREGATING'
+  | 'GENERATING_PROFILE'
+  | 'REVIEW_REQUIRED'
+  | 'COMPLETED'
+  | 'FAILED';
+
+export interface DbBoardIntelligenceProfile {
+  id: string;
+  name: string;
+  institution: string;
+  board: string;
+  contest?: string | null;
+  roleName?: string | null;
+  periodStart?: number | null;
+  periodEnd?: number | null;
+  description?: string | null;
+  status: BoardIntelligenceProfileStatus;
+  activeVersion: number;
+  examCount: number;
+  questionCount: number;
+  createdByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DbBoardIntelligenceExam {
+  id: string;
+  profileId: string;
+  examPaperId: string;
+  status: BoardIntelligenceExamStatus;
+  name: string;
+  examYear: number;
+  board?: string | null;
+  roleName?: string | null;
+  phase?: string | null;
+  discipline?: string | null;
+  examType?: string | null;
+  officialAnswerKeyJson?: string | null;
+  notes?: string | null;
+  approvedByUserId?: string | null;
+  approvedAt?: string | null;
+  rejectedByUserId?: string | null;
+  rejectedAt?: string | null;
+  createdByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DbBoardQuestionAnalysis {
+  id: string;
+  profileId: string;
+  examId: string;
+  questionId: string;
+  questionHash: string;
+  promptVersion: string;
+  provider: string;
+  model: string;
+  modelVersion: string;
+  taxonomyJson: string;
+  metricsJson: string;
+  confidence: number;
+  status: 'READY' | 'LOW_CONFIDENCE' | 'FAILED';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DbBoardProfileSnapshot {
+  id: string;
+  profileId: string;
+  sourceExamIdsJson: string;
+  sourceQuestionIdsJson: string;
+  sourceAnalysisIdsJson: string;
+  statsJson: string;
+  algorithmVersion: string;
+  promptVersion: string;
+  provider: string;
+  model: string;
+  modelVersion: string;
+  createdByUserId: string;
+  createdAt: string;
+}
+
+export interface DbBoardProfileVersion {
+  id: string;
+  profileId: string;
+  version: number;
+  status: BoardProfileVersionStatus;
+  snapshotId: string;
+  profileJson: string;
+  changeSummaryJson: string;
+  styleSummary: string;
+  confidence: number;
+  generatedByUserId: string;
+  publishedByUserId?: string | null;
+  publishedAt?: string | null;
+  restoredFromVersionId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

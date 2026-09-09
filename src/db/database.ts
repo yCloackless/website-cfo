@@ -649,6 +649,170 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_study_sessions_created_at ON study_sessions(created_at);
     `,
   },
+  {
+    id: 18,
+    name: '018_admin_board_intelligence',
+    sql: `
+      -- Perfis administrativos de banca/concurso. A feature nasce isolada e
+      -- somente o backend admin pode escrever nestas tabelas.
+      CREATE TABLE IF NOT EXISTS board_intelligence_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        institution TEXT NOT NULL,
+        board TEXT NOT NULL,
+        contest TEXT,
+        role_name TEXT,
+        period_start INTEGER,
+        period_end INTEGER,
+        description TEXT,
+        status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'ACTIVE', 'ARCHIVED')),
+        active_version INTEGER NOT NULL DEFAULT 0,
+        exam_count INTEGER NOT NULL DEFAULT 0 CHECK (exam_count >= 0),
+        question_count INTEGER NOT NULL DEFAULT 0 CHECK (question_count >= 0),
+        created_by_user_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE RESTRICT
+      );
+      CREATE INDEX IF NOT EXISTS idx_bi_profiles_status ON board_intelligence_profiles(status);
+      CREATE INDEX IF NOT EXISTS idx_bi_profiles_board ON board_intelligence_profiles(board);
+
+      CREATE TABLE IF NOT EXISTS board_intelligence_exams (
+        id TEXT PRIMARY KEY,
+        profile_id TEXT NOT NULL,
+        exam_paper_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'UPLOADED' CHECK (
+          status IN ('UPLOADED', 'PROCESSING', 'EXTRACTED', 'REVIEW_REQUIRED', 'APPROVED', 'REJECTED')
+        ),
+        name TEXT NOT NULL,
+        exam_year INTEGER NOT NULL,
+        board TEXT,
+        role_name TEXT,
+        phase TEXT,
+        discipline TEXT,
+        exam_type TEXT,
+        official_answer_key_json TEXT,
+        notes TEXT,
+        approved_by_user_id TEXT,
+        approved_at TEXT,
+        rejected_by_user_id TEXT,
+        rejected_at TEXT,
+        created_by_user_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (profile_id) REFERENCES board_intelligence_profiles(id) ON DELETE CASCADE,
+        FOREIGN KEY (exam_paper_id) REFERENCES exam_papers(id) ON DELETE RESTRICT,
+        FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+        FOREIGN KEY (approved_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY (rejected_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_bi_exams_profile_paper ON board_intelligence_exams(profile_id, exam_paper_id);
+      CREATE INDEX IF NOT EXISTS idx_bi_exams_profile_status ON board_intelligence_exams(profile_id, status);
+      CREATE INDEX IF NOT EXISTS idx_bi_exams_year ON board_intelligence_exams(exam_year);
+
+      CREATE TABLE IF NOT EXISTS board_question_analysis (
+        id TEXT PRIMARY KEY,
+        profile_id TEXT NOT NULL,
+        exam_id TEXT NOT NULL,
+        question_id TEXT NOT NULL,
+        question_hash TEXT NOT NULL,
+        prompt_version TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        model_version TEXT NOT NULL,
+        taxonomy_json TEXT NOT NULL,
+        metrics_json TEXT NOT NULL,
+        confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+        status TEXT NOT NULL DEFAULT 'READY' CHECK (status IN ('READY', 'LOW_CONFIDENCE', 'FAILED')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (profile_id) REFERENCES board_intelligence_profiles(id) ON DELETE CASCADE,
+        FOREIGN KEY (exam_id) REFERENCES board_intelligence_exams(id) ON DELETE CASCADE,
+        FOREIGN KEY (question_id) REFERENCES exam_questions(id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_bi_analysis_question_version ON board_question_analysis(profile_id, question_id, prompt_version, model_version);
+      CREATE INDEX IF NOT EXISTS idx_bi_analysis_cache ON board_question_analysis(question_hash, prompt_version, model_version);
+      CREATE INDEX IF NOT EXISTS idx_bi_analysis_profile ON board_question_analysis(profile_id);
+      CREATE INDEX IF NOT EXISTS idx_bi_analysis_exam ON board_question_analysis(exam_id);
+
+      CREATE TABLE IF NOT EXISTS board_profile_snapshots (
+        id TEXT PRIMARY KEY,
+        profile_id TEXT NOT NULL,
+        source_exam_ids_json TEXT NOT NULL,
+        source_question_ids_json TEXT NOT NULL,
+        source_analysis_ids_json TEXT NOT NULL,
+        stats_json TEXT NOT NULL,
+        algorithm_version TEXT NOT NULL,
+        prompt_version TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        model_version TEXT NOT NULL,
+        created_by_user_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (profile_id) REFERENCES board_intelligence_profiles(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE RESTRICT
+      );
+      CREATE TRIGGER IF NOT EXISTS prevent_bi_snapshots_update
+      BEFORE UPDATE ON board_profile_snapshots
+      BEGIN
+        SELECT RAISE(FAIL, 'BOARD_PROFILE_SNAPSHOT_IMMUTABLE');
+      END;
+      CREATE TRIGGER IF NOT EXISTS prevent_bi_snapshots_delete
+      BEFORE DELETE ON board_profile_snapshots
+      BEGIN
+        SELECT RAISE(FAIL, 'BOARD_PROFILE_SNAPSHOT_IMMUTABLE');
+      END;
+
+      CREATE TABLE IF NOT EXISTS board_profile_versions (
+        id TEXT PRIMARY KEY,
+        profile_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'ACTIVE', 'DISCARDED', 'SUPERSEDED')),
+        snapshot_id TEXT NOT NULL,
+        profile_json TEXT NOT NULL,
+        change_summary_json TEXT NOT NULL,
+        style_summary TEXT NOT NULL,
+        confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+        generated_by_user_id TEXT NOT NULL,
+        published_by_user_id TEXT,
+        published_at TEXT,
+        restored_from_version_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (profile_id) REFERENCES board_intelligence_profiles(id) ON DELETE CASCADE,
+        FOREIGN KEY (snapshot_id) REFERENCES board_profile_snapshots(id) ON DELETE RESTRICT,
+        FOREIGN KEY (generated_by_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+        FOREIGN KEY (published_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_bi_versions_profile_version ON board_profile_versions(profile_id, version);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_bi_versions_one_active ON board_profile_versions(profile_id) WHERE status = 'ACTIVE';
+      CREATE INDEX IF NOT EXISTS idx_bi_versions_profile_status ON board_profile_versions(profile_id, status);
+
+      CREATE TABLE IF NOT EXISTS board_intelligence_jobs (
+        id TEXT PRIMARY KEY,
+        profile_id TEXT NOT NULL,
+        job_type TEXT NOT NULL CHECK (job_type IN ('IMPORT', 'ANALYZE', 'AGGREGATE', 'GENERATE_PROFILE', 'REBUILD')),
+        status TEXT NOT NULL DEFAULT 'QUEUED' CHECK (
+          status IN ('QUEUED', 'EXTRACTING', 'CLASSIFYING', 'ANALYZING', 'AGGREGATING', 'GENERATING_PROFILE', 'REVIEW_REQUIRED', 'COMPLETED', 'FAILED')
+        ),
+        progress INTEGER NOT NULL DEFAULT 0 CHECK (progress >= 0),
+        total_items INTEGER NOT NULL DEFAULT 0 CHECK (total_items >= 0),
+        idempotency_key TEXT,
+        checkpoint_json TEXT,
+        result_summary_json TEXT,
+        error_message TEXT,
+        created_by_user_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (profile_id) REFERENCES board_intelligence_profiles(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE RESTRICT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_bi_jobs_idempotency ON board_intelligence_jobs(idempotency_key) WHERE idempotency_key IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_bi_jobs_one_rebuild ON board_intelligence_jobs(profile_id)
+        WHERE job_type = 'REBUILD' AND status NOT IN ('COMPLETED', 'FAILED');
+      CREATE INDEX IF NOT EXISTS idx_bi_jobs_profile_status ON board_intelligence_jobs(profile_id, status);
+    `,
+  },
 ];
 
 

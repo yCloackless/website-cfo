@@ -13,6 +13,7 @@ const files = ['models', 'auth', 'profile', 'audit_security', 'admin_panel',
   'frontend_integration', 'security_review', 'download_functions', 'privacy_minimization',
   'cadet_exclusive_session', 'cadet_security_audit', 'cadet_5h_block_and_alerts',
   'security_hardening', 'secure_uploads', 'exam_bank', 'database_resilience'];
+files.splice(files.indexOf('exam_bank'), 0, 'board_intelligence');
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|HOME|USERPROFILE|COMSPEC|PATHEXT)$/i.test(key)));
 env.NODE_ENV = 'test';
