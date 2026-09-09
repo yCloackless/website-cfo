@@ -162,7 +162,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
           {/* POLICIAL MILITAR (LADO ESQUERDO, ULTRA CRISP) */}
           <div className="relative w-[340px] md:w-[420px] lg:w-[480px] h-[82%] flex items-end ml-[-20px] lg:ml-0">
             <img
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuAT6_FntRj9BUDwxHoxdT8bEjErbwsLuuyMkONyJDZ7b2tb3NGt09yU_2ERRmc50UM2L_V1wYyj3IbTZBVHAHEkK_PI2bt-IEo8ZYPL2-7UxwyMaggSKas7HhntUXyePmqlRVHiPTcLL3s2f8XMf-wmIjOSqb6HNb3sfHFcgVmGS-SBY9PwbteXgSOPhh7obWSUWeZ70aiWvsgOwifcfLTgxuKH7MM_jy4gHmvKijf0o2UqflGQG9Xt"
+              src="/pm-officer.jpg"
               alt="Oficial da Polícia Militar de São Paulo - Rumo ao CFO"
               className="w-full h-full object-contain object-bottom drop-shadow-[0_20px_50px_rgba(0,0,0,0.8)] filter contrast-105"
             />
@@ -178,7 +178,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
           {/* BOMBEIRO MILITAR (LADO DIREITO, ILUMINAÇÃO QUENTE) */}
           <div className="relative w-[320px] md:w-[390px] lg:w-[450px] h-[80%] flex items-end mr-[-20px] lg:mr-0">
             <img
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuBjPsP_tD3yzIt_Kjq8qCY4dW7rX_weQVkI5RubjES3FCw33spU4D3nGLW2q27pKkepO9zqkaHKyYcXzC7Cy76_MftoZDfK_TwwMnjwXAKOfkau8Yub1aNJpLXck0EHDIy2_6m4DzipDwB6eAJkU3Yz2BCU5jLXMih0PjtQYqI7bPncdoKt2RoBqXkcnLmryDxu1tK4WeQn1IKQ2zRl18jVSKxeUrE9x3TOJilTmaVYd-VJ-i9DMoJo"
+              src="/bombeiro-officer.jpg"
               alt="Oficial do Corpo de Bombeiros Militar do Rio de Janeiro - Rumo ao CFO"
               className="w-full h-full object-contain object-bottom drop-shadow-[0_20px_50px_rgba(0,0,0,0.85)] filter contrast-105"
             />
@@ -371,7 +371,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
           {/* LOGO & BRAND */}
           <div className="flex items-center gap-3">
             <img
-              src="https://lh3.googleusercontent.com/aida/AEtjO1WT6g9pUCc4sVuAau0tfC5rGGTPkxXvy7_61hGuvlEIBVg_j6FgW47KImLVQhXJWsCdtDzPhN-cr2JR5dhcaXymf0_e3L-0Ql4Zv4Zg_jtcK-bOkrnc2cwkBtguImHaY9gFk8ihhDg8BMQBcV_2agl6VSFGtH9BMh8KwNyH-KGBWlggcG12EU7jMtexwr_8XCMbgIUcSF3lDBkNcRoL21u9McKZcBDn17mHukoebJscVKsdPb06fVCY8Q"
+              src="/phoenix-logo-cropped.png"
               alt="Logo Fênix RUMO ao CFO"
               className="w-8 h-8 object-contain"
             />
