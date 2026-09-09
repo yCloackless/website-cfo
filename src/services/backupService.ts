@@ -28,6 +28,30 @@ export interface BackupStatus {
 const BACKUP_DIR = path.join(process.cwd(), 'data', 'backups');
 const BACKUP_INDEX_FILE = path.join(BACKUP_DIR, 'backup-index.json');
 const DATA_DIR = path.join(process.cwd(), 'data');
+const BACKUP_MAGIC = Buffer.from('CFOB1');
+
+function backupEncryptionKey(): Buffer {
+  const secret = process.env.BACKUP_ENCRYPTION_KEY || process.env.DATA_ENCRYPTION_KEY || process.env.SESSION_SECRET;
+  if (!secret) throw new Error('BACKUP_ENCRYPTION_KEY_REQUIRED');
+  return crypto.createHash('sha256').update(secret).digest();
+}
+
+function encryptBackup(data: Buffer): Buffer {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', backupEncryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
+  return Buffer.concat([BACKUP_MAGIC, iv, cipher.getAuthTag(), encrypted]);
+}
+
+function decryptBackup(data: Buffer): Buffer {
+  if (!data.subarray(0, BACKUP_MAGIC.length).equals(BACKUP_MAGIC)) throw new Error('LEGACY_UNENCRYPTED_BACKUP_REJECTED');
+  const ivStart = BACKUP_MAGIC.length;
+  const tagStart = ivStart + 12;
+  const contentStart = tagStart + 16;
+  const decipher = crypto.createDecipheriv('aes-256-gcm', backupEncryptionKey(), data.subarray(ivStart, tagStart));
+  decipher.setAuthTag(data.subarray(tagStart, contentStart));
+  return Buffer.concat([decipher.update(data.subarray(contentStart)), decipher.final()]);
+}
 
 function backupPath(filename: string): string {
   if (path.basename(filename) !== filename || !/^backup_[\w.-]+\.json\.gz$/.test(filename)) throw new Error('INVALID_BACKUP_NAME');
@@ -64,7 +88,7 @@ async function snapshotFile(file: string): Promise<string> {
 // Garantir que a pasta de backups exista
 function ensureBackupDir(): void {
   if (!fs.existsSync(BACKUP_DIR)) {
-    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    fs.mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 });
   }
 }
 
@@ -87,10 +111,36 @@ export function loadBackupIndex(): BackupMetadata[] {
 function saveBackupIndex(list: BackupMetadata[]): void {
   try {
     ensureBackupDir();
-    fs.writeFileSync(BACKUP_INDEX_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    fs.writeFileSync(BACKUP_INDEX_FILE, JSON.stringify(list, null, 2), { encoding: 'utf-8', mode: 0o600 });
   } catch (err) {
     console.error('[Backup] Falha ao gravar índice de backups:', err);
   }
+}
+
+export function migrateLegacyBackups(): number {
+  ensureBackupDir();
+  const index = loadBackupIndex();
+  let migrated = 0;
+  for (const filename of fs.readdirSync(BACKUP_DIR).filter((name) => /^backup_[\w.-]+\.json\.gz$/.test(name))) {
+    const filePath = backupPath(filename);
+    const current = fs.readFileSync(filePath);
+    if (current.subarray(0, BACKUP_MAGIC.length).equals(BACKUP_MAGIC)) continue;
+    zlib.gunzipSync(current);
+    const encrypted = encryptBackup(current);
+    const staged = `${filePath}.tmp`;
+    fs.writeFileSync(staged, encrypted, { mode: 0o600 });
+    fs.renameSync(staged, filePath);
+    const sha256 = crypto.createHash('sha256').update(encrypted).digest('hex');
+    fs.writeFileSync(`${filePath}.sha256`, `${sha256}  ${filename}\n`, { encoding: 'utf8', mode: 0o600 });
+    const metadata = index.find((entry) => entry.filename === filename);
+    if (metadata) {
+      metadata.sha256 = sha256;
+      metadata.sizeBytes = encrypted.length;
+    }
+    migrated += 1;
+  }
+  if (migrated) saveBackupIndex(index);
+  return migrated;
 }
 
 /**
@@ -141,20 +191,21 @@ export async function createFullBackup(type: 'manual' | 'scheduled' = 'manual'):
 
   const rawJson = JSON.stringify(snapshot, null, 2);
   const compressed = zlib.gzipSync(Buffer.from(rawJson, 'utf-8'));
+  const encrypted = encryptBackup(compressed);
 
   // Calcula Hash SHA-256
-  const sha256 = crypto.createHash('sha256').update(compressed).digest('hex');
+  const sha256 = crypto.createHash('sha256').update(encrypted).digest('hex');
 
   // Grava arquivo de backup compactado
-  fs.writeFileSync(filePath, compressed);
+  fs.writeFileSync(filePath, encrypted, { mode: 0o600 });
 
   // Grava arquivo com o checksum SHA-256 independente para auditoria
-  fs.writeFileSync(`${filePath}.sha256`, `${sha256}  ${filename}\n`, 'utf-8');
+  fs.writeFileSync(`${filePath}.sha256`, `${sha256}  ${filename}\n`, { encoding: 'utf-8', mode: 0o600 });
 
   const meta: BackupMetadata = {
     id: backupId,
     filename,
-    sizeBytes: compressed.length,
+    sizeBytes: encrypted.length,
     sha256,
     createdAt: new Date().toISOString(),
     type,
@@ -216,7 +267,7 @@ export async function restoreBackup(filename: string): Promise<{ success: boolea
   }
 
   // 2. Descompressão e validação do JSON
-  const compressed = fs.readFileSync(filePath);
+  const compressed = decryptBackup(fs.readFileSync(filePath));
   const decompressed = zlib.gunzipSync(compressed).toString('utf-8');
   const snapshot = JSON.parse(decompressed);
 
@@ -238,13 +289,13 @@ export async function restoreBackup(filename: string): Promise<{ success: boolea
 
   // 4. Restauração dos arquivos
   for (const { target, content } of files) {
-    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
     // No connection may be open; remove stale SQLite sidecars before replacing its main file.
     if (/\.(sqlite|db)$/.test(target)) {
       for (const suffix of ['-wal', '-shm']) if (fs.existsSync(target + suffix)) fs.unlinkSync(target + suffix);
     }
     const staged = target + '.tmp';
-    fs.writeFileSync(staged, content);
+    fs.writeFileSync(staged, content, { mode: 0o600 });
     fs.renameSync(staged, target);
   }
 
@@ -311,6 +362,13 @@ export function getBackupStatus(): BackupStatus {
  * Inicializa o agendamento de backup diário (03:00)
  */
 export function initBackupScheduler(): void {
+  try {
+    const migrated = migrateLegacyBackups();
+    if (migrated) console.info(`[Backup] ${migrated} backup(s) legado(s) migrado(s) para AES-256-GCM.`);
+  } catch (error) {
+    console.error('[Backup] Falha ao migrar backups legados; agendamento nao iniciado:', error);
+    return;
+  }
   // Executa verificação a cada 1 hora se já passou das 03:00 e não houve backup no dia
   setInterval(async () => {
     const now = new Date();

@@ -813,6 +813,134 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_bi_jobs_profile_status ON board_intelligence_jobs(profile_id, status);
     `,
   },
+  {
+    id: 19,
+    name: '019_exam_review_publication_and_job_payloads',
+    sql: `
+      ALTER TABLE exam_papers ADD COLUMN publication_status TEXT NOT NULL DEFAULT 'DRAFT'
+        CHECK (publication_status IN ('DRAFT', 'IN_REVIEW', 'PUBLISHED', 'REJECTED'));
+      ALTER TABLE exam_questions ADD COLUMN review_status TEXT NOT NULL DEFAULT 'PENDING'
+        CHECK (review_status IN ('PENDING', 'APPROVED', 'REJECTED'));
+      ALTER TABLE exam_jobs ADD COLUMN payload_json TEXT;
+      CREATE INDEX IF NOT EXISTS idx_exam_papers_publication_status ON exam_papers(publication_status);
+      CREATE INDEX IF NOT EXISTS idx_exam_questions_review_status ON exam_questions(review_status);
+      CREATE INDEX IF NOT EXISTS idx_exam_jobs_queue ON exam_jobs(status, updated_at);
+    `,
+  },
+  {
+    id: 20,
+    name: '020_student_learning_and_attempts',
+    sql: `
+      CREATE TABLE IF NOT EXISTS student_question_attempts (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        question_id TEXT NOT NULL,
+        exam_id TEXT NOT NULL,
+        discipline TEXT NOT NULL,
+        topic TEXT NOT NULL,
+        subtopic TEXT NOT NULL,
+        selected_option TEXT,
+        is_correct INTEGER NOT NULL CHECK (is_correct IN (0, 1)),
+        response_seconds INTEGER CHECK (response_seconds IS NULL OR response_seconds >= 0),
+        confidence_score REAL CHECK (confidence_score IS NULL OR (confidence_score >= 0 AND confidence_score <= 1)),
+        error_type TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (question_id) REFERENCES exam_questions(id) ON DELETE CASCADE,
+        FOREIGN KEY (exam_id) REFERENCES exam_papers(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_attempts_user_topic ON student_question_attempts(user_id, discipline, topic, subtopic);
+      CREATE INDEX IF NOT EXISTS idx_student_attempts_user_created ON student_question_attempts(user_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS student_knowledge_profiles (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        discipline TEXT NOT NULL,
+        topic TEXT NOT NULL,
+        subtopic TEXT NOT NULL,
+        mastery_score REAL NOT NULL DEFAULT 0 CHECK (mastery_score >= 0 AND mastery_score <= 100),
+        attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+        correct_attempts INTEGER NOT NULL DEFAULT 0 CHECK (correct_attempts >= 0),
+        average_response_seconds REAL,
+        average_confidence REAL,
+        consistency_score REAL NOT NULL DEFAULT 0 CHECK (consistency_score >= 0 AND consistency_score <= 100),
+        last_attempt_at TEXT,
+        updated_at TEXT NOT NULL,
+        UNIQUE (user_id, discipline, topic, subtopic),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_knowledge_user ON student_knowledge_profiles(user_id, mastery_score);
+    `,
+  },
+  {
+    id: 21,
+    name: '021_revisions_and_recommendations',
+    sql: `
+      CREATE TABLE IF NOT EXISTS student_revisions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        question_id TEXT,
+        discipline TEXT NOT NULL,
+        topic TEXT NOT NULL,
+        subtopic TEXT NOT NULL,
+        due_at TEXT NOT NULL,
+        interval_days INTEGER NOT NULL CHECK (interval_days > 0),
+        status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'COMPLETED', 'SKIPPED')),
+        source TEXT NOT NULL DEFAULT 'PERFORMANCE',
+        completed_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (question_id) REFERENCES exam_questions(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_revisions_due ON student_revisions(user_id, status, due_at);
+      CREATE INDEX IF NOT EXISTS idx_student_revisions_topic ON student_revisions(user_id, discipline, topic, subtopic);
+      CREATE TABLE IF NOT EXISTS student_simulations (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        mode TEXT NOT NULL CHECK (mode IN ('TRADITIONAL', 'ADAPTIVE')),
+        status TEXT NOT NULL DEFAULT 'CREATED' CHECK (status IN ('CREATED', 'IN_PROGRESS', 'COMPLETED', 'ABANDONED')),
+        question_ids_json TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_simulations_user ON student_simulations(user_id, created_at);
+    `,
+  },
+  {
+    id: 22,
+    name: '022_simulation_attempt_links',
+    sql: `
+      ALTER TABLE student_question_attempts ADD COLUMN simulation_id TEXT REFERENCES student_simulations(id) ON DELETE SET NULL;
+      CREATE INDEX IF NOT EXISTS idx_student_attempts_simulation ON student_question_attempts(user_id, simulation_id, created_at);
+    `,
+  },
+  {
+    id: 23,
+    name: '023_student_flashcard_state',
+    sql: `
+      CREATE TABLE IF NOT EXISTS student_flashcard_state (
+        user_id TEXT PRIMARY KEY,
+        decks_json TEXT NOT NULL DEFAULT '[]',
+        cards_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `,
+  },
+  {
+    id: 24,
+    name: '024_scope_exam_job_idempotency_per_user',
+    sql: `
+      DROP INDEX IF EXISTS idx_exam_jobs_idempotency;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_jobs_user_idempotency
+        ON exam_jobs(user_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+    `,
+  },
 ];
 
 

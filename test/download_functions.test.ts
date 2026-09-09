@@ -10,6 +10,7 @@
  */
 
 process.env.NODE_ENV = 'test';
+process.env.BACKUP_ENCRYPTION_KEY ||= 'standalone-test-backup-key-never-use-in-production';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -155,11 +156,8 @@ test('4. Backup do Sistema: Criação de arquivo comprimido gzip e checksum sha2
 
     // Valida que o arquivo gzip é descompactável e contém estrutura de snapshot válida
     const rawGzip = fs.readFileSync(backupFilePath);
-    const decompressed = zlib.gunzipSync(rawGzip).toString('utf-8');
-    const snapshot = JSON.parse(decompressed);
-    assert.ok(snapshot.metadata);
-    assert.equal(snapshot.metadata.version, '2.0.0');
-    assert.equal(typeof snapshot.files, 'object');
+    assert.equal(rawGzip.subarray(0, 5).toString('ascii'), 'CFOB1');
+    assert.throws(() => zlib.gunzipSync(rawGzip), 'O backup nao deve revelar dados sem a chave');
 
     // Confirma registro no índice de backups
     const index = loadBackupIndex();

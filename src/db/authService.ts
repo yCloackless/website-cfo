@@ -100,14 +100,9 @@ export class AuthService {
         this.dbService.getRawDb().prepare("UPDATE users SET status = 'active' WHERE id = ?").run(admin.id);
         admin.status = 'active';
       }
-      if (adminPass) {
-        const matches = await bcrypt.compare(adminPass, admin.passwordHash);
-        if (!matches) {
-          const newHash = adminHash || await bcrypt.hash(adminPass, 10);
-          this.userRepo.updatePasswordHash(admin.id, newHash);
-          admin.passwordHash = newHash;
-        }
-      }
+      // Environment credentials are bootstrap-only. Once the account exists, the
+      // database hash is authoritative so a password changed in the UI cannot be
+      // silently reverted on restart by a stale ADMIN_PASSWORD value.
     }
 
     if (this.recoveryRepo.getRemainingCount(admin.id) === 0) {
@@ -239,30 +234,6 @@ export class AuthService {
       matches = await bcrypt.compare(cleanPassword, user.passwordHash);
     }
 
-    // Sincronização em tempo real caso a senha no .env tenha sido alterada pelo desenvolvedor
-    if (!matches) {
-      const adminPass = process.env.ADMIN_PASSWORD;
-      const cadetPass = process.env.CADET_PASSWORD;
-      const supportPass = process.env.SUPPORT_PASSWORD;
-
-      if (user.role === 'admin' && adminPass && (password === adminPass || cleanPassword === adminPass.trim())) {
-        matches = true;
-        const newHash = await bcrypt.hash(adminPass, 10);
-        this.userRepo.updatePasswordHash(user.id, newHash);
-        user.passwordHash = newHash;
-      } else if (user.role === 'cadet' && cadetPass && (password === cadetPass || cleanPassword === cadetPass.trim())) {
-        matches = true;
-        const newHash = await bcrypt.hash(cadetPass, 10);
-        this.userRepo.updatePasswordHash(user.id, newHash);
-        user.passwordHash = newHash;
-      } else if (user.role === 'support' && supportPass && (password === supportPass || cleanPassword === supportPass.trim())) {
-        matches = true;
-        const newHash = await bcrypt.hash(supportPass, 10);
-        this.userRepo.updatePasswordHash(user.id, newHash);
-        user.passwordHash = newHash;
-      }
-    }
-
     return matches && user.status === 'active' ? user : null;
   }
 
@@ -300,30 +271,6 @@ export class AuthService {
     let isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch && cleanPassword !== password) {
       isMatch = await bcrypt.compare(cleanPassword, user.passwordHash);
-    }
-
-    // Sincronização em tempo real caso a senha no .env tenha sido alterada
-    if (!isMatch) {
-      const adminPass = process.env.ADMIN_PASSWORD;
-      const cadetPass = process.env.CADET_PASSWORD;
-      const supportPass = process.env.SUPPORT_PASSWORD;
-
-      if (user.role === 'admin' && adminPass && (password === adminPass || cleanPassword === adminPass.trim())) {
-        isMatch = true;
-        const newHash = await bcrypt.hash(adminPass, 10);
-        this.userRepo.updatePasswordHash(user.id, newHash);
-        user.passwordHash = newHash;
-      } else if (user.role === 'cadet' && cadetPass && (password === cadetPass || cleanPassword === cadetPass.trim())) {
-        isMatch = true;
-        const newHash = await bcrypt.hash(cadetPass, 10);
-        this.userRepo.updatePasswordHash(user.id, newHash);
-        user.passwordHash = newHash;
-      } else if (user.role === 'support' && supportPass && (password === supportPass || cleanPassword === supportPass.trim())) {
-        isMatch = true;
-        const newHash = await bcrypt.hash(supportPass, 10);
-        this.userRepo.updatePasswordHash(user.id, newHash);
-        user.passwordHash = newHash;
-      }
     }
 
     if (!isMatch) {

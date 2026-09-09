@@ -27,6 +27,7 @@ export type TabType =
   | 'bizuario'
   | 'highyield'
   | 'examBank'
+  | 'learning'
   | 'ai'
   | 'calendar'
   | 'simulations'
@@ -165,6 +166,17 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         light: 'bg-emerald-100 text-emerald-900 border-emerald-300',
       },
       description: 'Questões & Resolução IA',
+    },
+    {
+      id: 'learning',
+      label: 'Radar',
+      icon: Target,
+      badge: 'Aluno',
+      badgeClass: {
+        dark: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+        light: 'bg-cyan-100 text-cyan-900 border-cyan-300',
+      },
+      description: 'DomÃ­nio e prioridades',
     },
     {
       id: 'ai',

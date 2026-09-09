@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { getDb } from '../src/db/database';
+import { UserRepository, ExamPaperRepository, ExamQuestionRepository } from '../src/db/repositories';
+import { StudentLearningService } from '../src/services/studentLearningService';
+
+test('Releases 4-5: análise persistida e estado remoto do aluno', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfo-release45-'));
+  const db = getDb(path.join(dir, 'release45.sqlite'));
+  const raw = db.getRawDb();
+  const users = new UserRepository(raw);
+  const papers = new ExamPaperRepository(raw);
+  const questions = new ExamQuestionRepository(raw);
+  const learning = new StudentLearningService(raw);
+  const user = users.create({ username: 'release45', email: 'release45@example.test', passwordHash: 'hash' });
+  const paper = papers.create({ userId: user.id, title: 'Simulado Release 45', institution: 'Banca', examYear: 2026 });
+  const question = questions.create({ examId: paper.id, userId: user.id, questionNumber: 1, statement: 'Quanto e 2 + 2?', options: [{ letter: 'A', text: '4' }, { letter: 'B', text: '5' }], correctOption: 'A', discipline: 'Matematica', topic: 'Aritmetica', subtopic: 'Soma' });
+  const simulation = learning.createSimulation(user.id, 'TRADITIONAL', 1);
+  assert.deepEqual(simulation.questionIds, [question.id]);
+  const attempt = learning.recordAttempt({ userId: user.id, questionId: question.id, selectedOption: 'B', simulationId: simulation.id, responseSeconds: 31, errorType: 'CONTENT_GAP' });
+  assert.equal(attempt.isCorrect, false);
+  const persisted = learning.getSimulation(user.id, simulation.id);
+  assert.equal(persisted.analysis.answered, 1);
+  assert.equal(persisted.analysis.wrong, 1);
+  assert.equal(persisted.analysis.averageResponseSeconds, 31);
+  raw.prepare('INSERT INTO student_flashcard_state (user_id, decks_json, cards_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(user.id, '[{"id":"deck-1"}]', '[{"id":"card-1"}]', new Date().toISOString(), new Date().toISOString());
+  const flashcards = raw.prepare('SELECT decks_json, cards_json FROM student_flashcard_state WHERE user_id = ?').get(user.id) as any;
+  assert.match(flashcards.decks_json, /deck-1/);
+  assert.match(flashcards.cards_json, /card-1/);
+  db.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});

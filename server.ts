@@ -16,6 +16,10 @@ import bcrypt from "bcryptjs";
 
 dotenv.config();
 
+if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
+  throw new Error('SESSION_SECRET e obrigatoria em producao; inicializacao abortada para evitar sessoes e arquivos irrecuperaveis.');
+}
+
 // ============================================================================
 // 🛑 VALIDAÇÃO DE SEGURANÇA E SECRETS NO STARTUP
 // ============================================================================
@@ -73,6 +77,8 @@ import { UserRole, DbUser, DbExamPaper } from "./src/db/schema";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
 import { secureUploadService, SecureUploadService } from "./src/services/secureUploadService";
 import { ExamService } from "./src/services/examService";
+import { ExamJobWorker } from "./src/services/examJobWorker";
+import { StudentLearningService } from "./src/services/studentLearningService";
 import { getBoardIntelligenceService } from "./src/services/boardIntelligenceService";
 import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtimeHub";
 import { createAuthMiddlewares } from "./src/middleware/auth";
@@ -80,8 +86,35 @@ import { createAuthMiddlewares } from "./src/middleware/auth";
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
+const SESSION_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-cfo_session' : 'cfo_session';
+function readSessionCookie(req: Request): string | null {
+  for (const part of String(req.headers.cookie || '').split(';')) {
+    const separator = part.indexOf('=');
+    if (separator < 0 || part.slice(0, separator).trim() !== SESSION_COOKIE_NAME) continue;
+    try { return decodeURIComponent(part.slice(separator + 1).trim()); } catch { return null; }
+  }
+  return null;
+}
+function requestSessionToken(req: Request): string | null {
+  const header = req.headers.authorization;
+  const bearer = header?.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  if (bearer && bearer !== 'cookie') return bearer;
+  const bodyToken = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  if (bodyToken && bodyToken !== 'cookie') return bodyToken;
+  return readSessionCookie(req);
+}
+function setSessionCookie(res: Response, rawToken: string, expiresAt: number): void {
+  const maxAge = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.append('Set-Cookie', `${SESSION_COOKIE_NAME}=${encodeURIComponent(rawToken)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`);
+}
+function clearSessionCookie(res: Response): void {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.append('Set-Cookie', `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`);
+}
+
 // 1. Proxy reverso: suporte automático para Render e produção (1 hop confiável) ou TRUSTED_PROXIES
-const isProxyEnvironment = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID || process.env.NODE_ENV === 'production');
+const isProxyEnvironment = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
 const trustedProxyEntries = (process.env.TRUSTED_PROXIES || '')
   .split(',').map(value => value.trim()).filter(value => value && value !== '*' && value !== 'true');
 app.set("trust proxy", trustedProxyEntries.length > 0 ? trustedProxyEntries : (isProxyEnvironment ? 1 : false));
@@ -94,6 +127,11 @@ app.get("/api/health", (_req: Request, res: Response) => {
     timestamp: Date.now(),
     service: "cfo-cbmerj-backend",
   });
+});
+
+app.get('/oauth-callback.js', (_req: Request, res: Response) => {
+  res.type('application/javascript').setHeader('Cache-Control', 'no-store');
+  return res.send(`(function(){try{var el=document.getElementById('oauth-payload');if(!el)return;var data=JSON.parse(el.textContent||'{}');localStorage.setItem('cfo_calendar_status',JSON.stringify(data));localStorage.setItem('cfo_calendar_auth_success',JSON.stringify(data));if(window.opener&&data.targetOrigin)window.opener.postMessage(data,data.targetOrigin);if(typeof BroadcastChannel!=='undefined'){var channel=new BroadcastChannel('cfo_google_calendar_auth');channel.postMessage(data);channel.close();}}catch(_e){}setTimeout(function(){window.close();},250);}());`);
 });
 
 // ============================================================================
@@ -266,33 +304,8 @@ async function getIpGeoLocation(
     return { country: cached.country, region: cached.region, isRJ: cached.isRJ };
   }
 
-  // 3. Consulta externa a serviço GeoIP com timeout rápido
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
-
-    const resp = await fetch(`http://ip-api.com/json/${ip}?fields=status,countryCode,region,regionName`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (resp.ok) {
-      const data = (await resp.json()) as any;
-      if (data.status === "success") {
-        const country = (data.countryCode || "").toUpperCase();
-        const region = (data.region || "").toUpperCase();
-        const regionName = (data.regionName || "").toUpperCase();
-        const isRJ = country === "BR" && (region === "RJ" || regionName.includes("RIO DE JANEIRO"));
-
-        const result = { country, region, isRJ, timestamp: Date.now() };
-        geoCache.set(ip, result);
-        return result;
-      }
-    }
-  } catch (e) {
-    console.warn(`[GeoIP] Falha na consulta GeoIP para o IP ${ip}:`, e);
-  }
-
+  // Não transmite o IP do cliente a terceiros. Geolocalização somente por
+  // cabeçalhos autenticados da borda; sem borda confiável, falha como UNKNOWN.
   return { country: "UNKNOWN", region: "UNKNOWN", isRJ: false };
 }
 
@@ -356,8 +369,6 @@ app.use(
         defaultSrc: ["'self'"],
         scriptSrc: [
           "'self'",
-          "'unsafe-inline'",
-          "'unsafe-eval'",
           "https://challenges.cloudflare.com",
           "https://accounts.google.com",
         ],
@@ -367,7 +378,7 @@ app.use(
           "https://fonts.googleapis.com",
         ],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
-        imgSrc: ["'self'", "data:", "blob:", "https:"],
+        imgSrc: ["'self'", "data:", "blob:"],
         frameSrc: [
           "'self'",
           "https://challenges.cloudflare.com",
@@ -379,7 +390,6 @@ app.use(
           "https://*.googleapis.com",
           "https://generativelanguage.googleapis.com",
           "https://*.google.com",
-          "http://ip-api.com",
         ],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
@@ -498,7 +508,6 @@ const aiLimiter = rateLimit({
 });
 
 app.use(express.json({ limit: "20mb" }));
-app.use('/avatars', express.static(path.join(process.cwd(), 'data', 'avatars'), { dotfiles: 'deny', index: false }));
 
 // Google OAuth 2.0 Credentials & Storage Configuration
 let defaultClientId = "";
@@ -515,6 +524,36 @@ try {
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || defaultClientId;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const CALENDAR_SESSION_FILE = path.join(process.cwd(), "data", "calendar-session.json");
+
+function dataEncryptionKey(): Buffer {
+  const secret = process.env.DATA_ENCRYPTION_KEY || process.env.SESSION_SECRET;
+  if (!secret) throw new Error('DATA_ENCRYPTION_KEY ou SESSION_SECRET e obrigatoria para persistir segredos');
+  return crypto.createHash('sha256').update(secret).digest();
+}
+
+function encryptStoredJson(value: unknown): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', dataEncryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
+  return JSON.stringify({
+    version: 1,
+    algorithm: 'aes-256-gcm',
+    iv: iv.toString('base64'),
+    tag: cipher.getAuthTag().toString('base64'),
+    data: encrypted.toString('base64'),
+  });
+}
+
+function decryptStoredJson<T>(raw: string): { value: T; legacy: boolean } {
+  const parsed = JSON.parse(raw);
+  if (parsed?.version !== 1 || parsed?.algorithm !== 'aes-256-gcm') {
+    return { value: parsed as T, legacy: true };
+  }
+  const decipher = crypto.createDecipheriv('aes-256-gcm', dataEncryptionKey(), Buffer.from(parsed.iv, 'base64'));
+  decipher.setAuthTag(Buffer.from(parsed.tag, 'base64'));
+  const clear = Buffer.concat([decipher.update(Buffer.from(parsed.data, 'base64')), decipher.final()]).toString('utf8');
+  return { value: JSON.parse(clear) as T, legacy: false };
+}
 
 // Google Calendar is a shared administrative integration.
 const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || process.env.CALENDAR_EMAIL || process.env.ADMIN_USER_EMAIL || '')
@@ -534,7 +573,9 @@ function readCalendarSession(): CalendarSession | null {
   try {
     if (fs.existsSync(CALENDAR_SESSION_FILE)) {
       const raw = fs.readFileSync(CALENDAR_SESSION_FILE, "utf-8");
-      return JSON.parse(raw) as CalendarSession;
+      const stored = decryptStoredJson<CalendarSession>(raw);
+      if (stored.legacy) saveCalendarSession(stored.value);
+      return stored.value;
     }
   } catch (err) {
     console.warn("Falha ao ler sessão do Google Agenda:", err);
@@ -558,9 +599,9 @@ function saveCalendarSession(session: CalendarSession): void {
   try {
     const dir = path.dirname(CALENDAR_SESSION_FILE);
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
-    fs.writeFileSync(CALENDAR_SESSION_FILE, JSON.stringify(session, null, 2), "utf-8");
+    fs.writeFileSync(CALENDAR_SESSION_FILE, encryptStoredJson(session), { encoding: 'utf-8', mode: 0o600 });
     if (session.refresh_token) {
       console.log(`[Google Agenda Resiliente] Sessão sincronizada. Token preservado para persistência perpétua.`);
     }
@@ -644,6 +685,8 @@ async function getValidCalendarAccessToken(clientToken?: string): Promise<string
 // Lazy initialization of Gemini client
 let aiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI | null {
+  const externalAiEnabled = process.env.ENABLE_EXTERNAL_AI === 'true' || process.env.NODE_ENV !== 'production';
+  if (!externalAiEnabled) return null;
   if (!aiClient && process.env.GEMINI_API_KEY) {
     aiClient = new GoogleGenAI({
       apiKey: process.env.GEMINI_API_KEY,
@@ -682,7 +725,9 @@ function getSecurityConfig(): SecurityConfig {
   try {
     if (fs.existsSync(SECURITY_CONFIG_FILE)) {
       const raw = fs.readFileSync(SECURITY_CONFIG_FILE, "utf-8");
-      const parsed = JSON.parse(raw);
+      const stored = decryptStoredJson<SecurityConfig>(raw);
+      const parsed = stored.value;
+      if (stored.legacy) saveSecurityConfig(parsed);
       const secret = process.env.TOTP_SECRET || parsed.totpSecret || generateSecret();
       const sessionSecret = process.env.SESSION_SECRET || parsed.sessionSecret || CONFIGURED_SESSION_SECRET;
 
@@ -722,8 +767,8 @@ function getSecurityConfig(): SecurityConfig {
 function saveSecurityConfig(config: SecurityConfig): void {
   try {
     const dir = path.dirname(SECURITY_CONFIG_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(SECURITY_CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(SECURITY_CONFIG_FILE, encryptStoredJson(config), { encoding: 'utf-8', mode: 0o600 });
   } catch (e) {
     console.warn("Falha ao gravar security-config.json:", e);
   }
@@ -771,6 +816,9 @@ const examServiceInstance = new ExamService(
   supportMaterialRepoInstance,
   questionAuditRepoInstance
 );
+const examJobWorker = new ExamJobWorker(examJobRepoInstance, examServiceInstance);
+const studentLearningService = new StudentLearningService(getDb().getRawDb());
+const rawDb = getDb().getRawDb();
 const boardIntelligenceServiceInstance = getBoardIntelligenceService();
 
 function logSecurityEvent(
@@ -897,7 +945,30 @@ function verifyTerminalSession(token?: string | null): {
 // ==========================================
 // 🛡️ STEP-UP AUTHENTICATION (Tokens Assinados de Curta Duração - 5 Minutos)
 // ==========================================
-const { requireAdminAuth, requireAdminWriteAuth, requireUserAuth } = createAuthMiddlewares(verifyTerminalSession);
+const {
+  requireAdminAuth: baseRequireAdminAuth,
+  requireAdminWriteAuth: baseRequireAdminWriteAuth,
+  requireUserAuth,
+} = createAuthMiddlewares(verifyTerminalSession);
+
+function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
+  return baseRequireAdminAuth(req, res, () => {
+    if (!getSecurityConfig().is2faActive) {
+      return res.status(403).json({ error: 'MFA_ENROLLMENT_REQUIRED', message: 'Ative o 2FA antes de acessar recursos administrativos.' });
+    }
+    return next();
+  });
+}
+
+function requireAdminWriteAuth(req: Request, res: Response, next: NextFunction) {
+  return baseRequireAdminWriteAuth(req, res, () => {
+    if (!getSecurityConfig().is2faActive) {
+      return res.status(403).json({ error: 'MFA_ENROLLMENT_REQUIRED', message: 'Ative o 2FA antes de executar acoes administrativas.' });
+    }
+    return next();
+  });
+}
+app.use('/avatars', requireUserAuth, express.static(path.join(process.cwd(), 'data', 'avatars'), { dotfiles: 'deny', index: false }));
 
 function createStepUpToken(username: string, userId?: string): { token: string; expiresIn: number } {
   const config = getSecurityConfig();
@@ -943,6 +1014,30 @@ function verifyStepUpToken(token?: string | null): { valid: boolean; username?: 
     };
   } catch {
     return { valid: false };
+  }
+}
+
+function createLoginChallenge(user: DbUser): string {
+  const payload = Buffer.from(JSON.stringify({ userId: user.id, purpose: 'admin_login_2fa', exp: Date.now() + 300_000 })).toString('base64url');
+  const signature = crypto.createHmac('sha256', getSecurityConfig().sessionSecret).update(`login2fa:${payload}`).digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+function verifyLoginChallenge(challenge?: unknown): DbUser | null {
+  if (typeof challenge !== 'string') return null;
+  const [payload, signature, extra] = challenge.split('.');
+  if (!payload || !signature || extra) return null;
+  const expected = crypto.createHmac('sha256', getSecurityConfig().sessionSecret).update(`login2fa:${payload}`).digest('base64url');
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (decoded.purpose !== 'admin_login_2fa' || !decoded.exp || Date.now() > decoded.exp) return null;
+    const user = userRepoInstance.findById(String(decoded.userId || ''));
+    return user?.role === 'admin' && user.status === 'active' ? user : null;
+  } catch {
+    return null;
   }
 }
 
@@ -999,8 +1094,7 @@ app.get("/api/auth/2fa-status", (_req: Request, res: Response) => {
 
 // 2. Rota de Obtenção de QR Code (Apenas com sessão de admin autenticada)
 app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const token = requestSessionToken(req);
   const sessionResult = verifyTerminalSession(token);
 
   if (!sessionResult.valid || sessionResult.role !== "admin") {
@@ -1372,6 +1466,9 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
       if (!loginResult.success) {
         return res.status(403).json({ success: false, error: 'LOGIN_BLOCKED', message: loginResult.message });
       }
+      if (loginResult.token && loginResult.expiresAt) {
+        setSessionCookie(res, loginResult.token, Date.parse(loginResult.expiresAt));
+      }
       return res.json({
         success: true,
         directLogin: true,
@@ -1413,10 +1510,12 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
         success: true,
         message: "Credenciais válidas. Prossiga para o código Authenticator.",
         requireTotp: true,
+        challenge: createLoginChallenge(dbUser),
       });
     }
 
     const session = createTerminalSession(dbUser.username, req.body.rememberMe !== false, dbUser.role);
+    setSessionCookie(res, session.token, session.expiresAt);
     logSecurityEvent(req, {
       action: 'LOGIN_SUCCESS',
       actor: dbUser.username,
@@ -1447,10 +1546,11 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
 // 3. Rota de Validação de Código Authenticator / Recovery Code (com twoFactorLimiter anti-força bruta)
 app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Response) => {
   try {
-    const { username, email, password, token, recoveryCode, rememberMe, turnstileToken } = req.body || {};
+    const { username, email, password, token, recoveryCode, rememberMe, turnstileToken, challenge } = req.body || {};
     const inputUser = (username || email || "").trim().toLowerCase();
     const clientIp = getClientIp(req);
-    const isAdmIp = isAdminIp(clientIp);
+    const challengedUser = verifyLoginChallenge(challenge);
+    const isAdmIp = isAdminIp(clientIp) || Boolean(challengedUser);
 
     if (!inputUser || !password) {
       return res.status(400).json({
@@ -1471,7 +1571,7 @@ app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Res
       }
     }
 
-    const dbUser = await authServiceInstance.verifyCredentials(inputUser, password);
+    const dbUser = challengedUser || await authServiceInstance.verifyCredentials(inputUser, password);
     if (!dbUser || dbUser.role !== 'admin') {
       logSecurityEvent(req, { action: 'ADMIN_LOGIN_FAILED', actor: inputUser, resource: '/api/auth/verify-2fa', status: 'FAILED' });
       return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Credenciais de acesso inválidas.' });
@@ -1555,6 +1655,7 @@ app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Res
     }
 
     const session = createTerminalSession(cleanUser, rememberMe !== false, "admin");
+    setSessionCookie(res, session.token, session.expiresAt);
     logSecurityEvent(req, {
       action: "2FA_SUCCESS",
       actor: cleanUser,
@@ -1592,8 +1693,7 @@ app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Res
 // 4. Rota de Ativação Permanente do 2FA (Ao confirmar o primeiro código dentro do site)
 app.post("/api/auth/activate-2fa", async (req: Request, res: Response) => {
   try {
-    const authHeader = req.headers.authorization;
-    const sessionToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : req.body?.sessionToken;
+    const sessionToken = requestSessionToken(req);
     const sessionResult = verifyTerminalSession(sessionToken);
 
     if (!sessionResult.valid || sessionResult.role !== "admin") {
@@ -1632,9 +1732,7 @@ app.post("/api/auth/activate-2fa", async (req: Request, res: Response) => {
 
 // 5. Rota de Verificação de Sessão Ativa
 app.post("/api/auth/verify-session", (req: Request, res: Response) => {
-  const authHeader = req.headers.authorization;
-  const token =
-    req.body?.token || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null);
+  const token = requestSessionToken(req);
 
   const result = verifyTerminalSession(token);
   if (!result.valid) {
@@ -1642,6 +1740,7 @@ app.post("/api/auth/verify-session", (req: Request, res: Response) => {
   }
 
   const config = getSecurityConfig();
+  if (token && result.expiresAt) setSessionCookie(res, token, result.expiresAt);
 
   return res.json({
     valid: true,
@@ -1657,7 +1756,7 @@ app.post("/api/auth/verify-session", (req: Request, res: Response) => {
 });
 
 // 6. Rota de Logout (Revogação Segura de Sessão)
-app.post("/api/admin/impersonation/start", requireAdminWriteAuth, (req: Request, res: Response) => {
+app.post("/api/admin/impersonation/start", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const adminSession = (req as any).user;
     const targetUserId = typeof req.body?.targetUserId === 'string' ? req.body.targetUserId.trim() : '';
@@ -1676,6 +1775,7 @@ app.post("/api/admin/impersonation/start", requireAdminWriteAuth, (req: Request,
       parentSessionId: adminSession.sessionId,
     });
     const profile = profileRepoInstance.findByUserId(targetUser.id);
+    setSessionCookie(res, created.rawToken, Date.parse(created.session.expiresAt));
     logSecurityEvent(req, {
       action: 'IMPERSONATION_STARTED',
       actor: adminSession.username || 'admin',
@@ -1706,9 +1806,21 @@ app.post("/api/auth/impersonation/stop", requireUserAuth, (req: Request, res: Re
   try {
     const session = (req as any).user;
     if (!session.impersonatedByUserId) return res.status(400).json({ success: false, message: 'Esta sessao nao e uma troca de conta.' });
-    const authHeader = req.headers.authorization;
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    const token = requestSessionToken(req) || '';
     if (token) sessionRepoInstance.revokeSession(token);
+    const adminUser = userRepoInstance.findById(session.impersonatedByUserId);
+    if (!adminUser || adminUser.role !== 'admin' || adminUser.status !== 'active') {
+      clearSessionCookie(res);
+      return res.status(403).json({ success: false, message: 'A sessao administrativa original nao esta mais disponivel.' });
+    }
+    const restored = sessionRepoInstance.createSession({
+      userId: adminUser.id,
+      role: 'admin',
+      ip: getClientIp(req),
+      userAgent: (req.headers['user-agent'] as string) || null,
+      expiresInDays: 1,
+    });
+    setSessionCookie(res, restored.rawToken, Date.parse(restored.session.expiresAt));
     logSecurityEvent(req, {
       action: 'IMPERSONATION_STOPPED',
       actor: session.username || 'impersonated_user',
@@ -1719,7 +1831,7 @@ app.post("/api/auth/impersonation/stop", requireUserAuth, (req: Request, res: Re
       status: 'SUCCESS',
       userId: session.userId || null,
     });
-    return res.json({ success: true, adminUserId: session.impersonatedByUserId });
+    return res.json({ success: true, adminUserId: session.impersonatedByUserId, expiresAt: Date.parse(restored.session.expiresAt) });
   } catch (err: any) {
     console.error('[Impersonation Stop Error]:', err);
     return res.status(500).json({ success: false, message: 'Erro ao voltar para a conta ADM.' });
@@ -1727,8 +1839,7 @@ app.post("/api/auth/impersonation/stop", requireUserAuth, (req: Request, res: Re
 });
 
 app.post("/api/auth/logout", (req: Request, res: Response) => {
-  const authHeader = req.headers.authorization;
-  const token = req.body?.token || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null);
+  const token = requestSessionToken(req);
   if (token) {
     authServiceInstance.logout(token, getClientIp(req));
     try {
@@ -1741,6 +1852,7 @@ app.post("/api/auth/logout", (req: Request, res: Response) => {
       status: "SUCCESS",
     });
   }
+  clearSessionCookie(res);
   return res.json({ success: true, message: "Sessão encerrada com sucesso." });
 });
 
@@ -2308,7 +2420,7 @@ app.delete("/api/admin/users/:id", requireAdminWriteAuth, requireStepUpAuth, (re
       targetId: targetUser.id,
       resource: `/users/${targetUser.id}`,
       status: 'SUCCESS',
-      details: { targetUsername: targetUser.username, targetEmail: targetUser.email },
+      details: { targetUserId: targetUser.id, targetUsername: targetUser.username },
     });
     return res.json({ success: true, message: "Conta excluida com sucesso.", userId: targetUser.id });
   } catch (err: any) {
@@ -2518,7 +2630,7 @@ app.post("/api/admin/users/:id/revoke-sessions", requireAdminWriteAuth, requireS
 });
 
 // 17.2. Desbloqueio/Reset Manual do Lock de Sessão Exclusiva do Cadete (Requer Admin)
-app.post("/api/admin/cadet-lock/reset", requireAdminWriteAuth, async (req: Request, res: Response) => {
+app.post("/api/admin/cadet-lock/reset", requireAdminWriteAuth, requireStepUpAuth, async (req: Request, res: Response) => {
   try {
     const adminUser = (req as any).user;
     const { cadetUserId, targetUserId } = req.body || {};
@@ -2543,7 +2655,7 @@ app.post("/api/admin/cadet-lock/reset", requireAdminWriteAuth, async (req: Reque
 });
 
 // 17.3. Desbloqueio Manual de IP Bloqueado por 5 Horas (Requer Admin)
-app.post("/api/admin/temporary-block/reset", requireAdminWriteAuth, async (req: Request, res: Response) => {
+app.post("/api/admin/temporary-block/reset", requireAdminWriteAuth, requireStepUpAuth, async (req: Request, res: Response) => {
   try {
     const adminUser = (req as any).user;
     const { ip } = req.body || {};
@@ -3068,9 +3180,7 @@ app.get('/api/calendar/auth-url', (req: Request, res: Response) => {
   if (!origin || !normalizedAllowedOrigins.has(origin)) return res.status(403).json({ error: 'INVALID_ORIGIN' });
   for (const [key, value] of calendarOAuthStates) if (value.expiresAt < Date.now()) calendarOAuthStates.delete(key);
   const state = crypto.randomBytes(32).toString('hex');
-  const sessionToken = req.headers.authorization?.startsWith('Bearer ')
-    ? req.headers.authorization.slice(7).trim()
-    : '';
+  const sessionToken = requestSessionToken(req) || '';
   if (!sessionToken) return res.status(401).json({ error: 'UNAUTHORIZED' });
   calendarOAuthStates.set(state, { origin, token: sessionToken, expiresAt: Date.now() + 600000 });
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
@@ -3114,26 +3224,7 @@ app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
       targetOrigin: pending.origin,
     };
     const safeJson = JSON.stringify(safeData).replace(/[<>/]/g, c => ({ '<': '\\u003c', '>': '\\u003e', '/': '\\u002f' }[c] || c));
-    return res.send(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Google Agenda conectado</title></head><body><h1>Google Agenda conectado</h1><p>Você pode fechar esta janela.</p><script id="oauth-payload" type="application/json">${safeJson}</script><script>
-      (function() {
-        try {
-          var el = document.getElementById('oauth-payload');
-          if (!el) return;
-          var data = JSON.parse(el.textContent || '{}');
-          localStorage.setItem('cfo_calendar_status', JSON.stringify(data));
-          localStorage.setItem('cfo_calendar_auth_success', JSON.stringify(data));
-          if (window.opener && data.targetOrigin) {
-            window.opener.postMessage(data, data.targetOrigin);
-          }
-          if (typeof BroadcastChannel !== 'undefined') {
-            var channel = new BroadcastChannel('cfo_google_calendar_auth');
-            channel.postMessage(data);
-            channel.close();
-          }
-        } catch (_) {}
-        setTimeout(function() { window.close(); }, 250);
-      })();
-    </script></body></html>`);
+    return res.send(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Google Agenda conectado</title></head><body><h1>Google Agenda conectado</h1><p>Você pode fechar esta janela.</p><script id="oauth-payload" type="application/json">${safeJson}</script><script src="/oauth-callback.js" defer></script></body></html>`);
   } catch { return res.status(502).send('Falha ao conectar com o Google Calendar.'); }
 });
 
@@ -3376,7 +3467,7 @@ function validateAiTextFields(
 }
 
 // AI Study Analysis Endpoint
-app.post("/api/ai/study-analysis", async (req: Request, res: Response) => {
+app.post("/api/ai/study-analysis", requireUserAuth, aiLimiter, async (req: Request, res: Response) => {
   try {
     const { weeklySummary } = req.body;
 
@@ -3720,7 +3811,7 @@ function parseAiJsonResponse(raw: string): any {
 }
 
 // Endpoint: AI Bizu Notes Generator using Gemini
-app.post("/api/ai/bizu-notes", async (req: Request, res: Response) => {
+app.post("/api/ai/bizu-notes", requireUserAuth, aiLimiter, async (req: Request, res: Response) => {
   try {
     const {
       title = "",
@@ -4033,7 +4124,7 @@ function generateHeuristicFlashcards(topic: string): Array<{ question: string; a
 // ==========================================
 // ROTA DE FLASHCARDS COM IA (ESTILO ANKI)
 // ==========================================
-app.post("/api/ai/flashcards", async (req: Request, res: Response) => {
+app.post("/api/ai/flashcards", requireUserAuth, aiLimiter, async (req: Request, res: Response) => {
   try {
     const { subjectOrTopic } = req.body || {};
     if (!subjectOrTopic || typeof subjectOrTopic !== "string" || !subjectOrTopic.trim()) {
@@ -4063,7 +4154,9 @@ NÃO escreva introduções, resumos ou agradecimentos. Comece diretamente com o 
 
 A MATÉRIA QUE EU QUERO É: ${topic}`;
 
-    const geminiKey = process.env.GEMINI_API_KEY;
+    const geminiKey = (process.env.ENABLE_EXTERNAL_AI === 'true' || process.env.NODE_ENV !== 'production')
+      ? process.env.GEMINI_API_KEY
+      : undefined;
     if (geminiKey) {
       const ai = new GoogleGenAI({ apiKey: geminiKey });
       const candidateModels = [
@@ -4125,10 +4218,7 @@ A MATÉRIA QUE EU QUERO É: ${topic}`;
 
 // 🛑 MIDDLEWARE DE SEGURANÇA NOTION: Acesso exclusivo do Administrador
 app.use("/api/notion", (req: Request, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice(7)
-    : (req.headers["x-terminal-session"] as string);
+  const token = requestSessionToken(req) || (req.headers["x-terminal-session"] as string);
 
   // Valida a sessão e permissão da conta
   const session = verifyTerminalSession(token);
@@ -5027,6 +5117,166 @@ app.get("/api/admin/board-intelligence/profiles/:id/retrieval", requireAdminAuth
   });
 });
 
+app.get('/api/student/knowledge-profile', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    return res.json({ success: true, algorithmVersion: 'mastery_v1', knowledge: studentLearningService.listKnowledge(user.userId) });
+  } catch {
+    return res.status(500).json({ error: 'KNOWLEDGE_PROFILE_FAILED' });
+  }
+});
+
+app.get('/api/student/priority-radar', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const profileId = req.query.boardProfileId ? String(req.query.boardProfileId) : null;
+    return res.json({ success: true, algorithmVersion: 'priority_radar_v1', priorities: studentLearningService.getRadar(user.userId, profileId) });
+  } catch {
+    return res.status(500).json({ error: 'PRIORITY_RADAR_FAILED' });
+  }
+});
+
+app.get('/api/student/coach-plan', requireUserAuth, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const knowledge = studentLearningService.listKnowledge(user.userId).slice(0, 8);
+    const revisions = studentLearningService.listRevisions(user.userId, true).slice(0, 8);
+    const weakest = knowledge[0];
+    const fallback = {
+      headline: weakest ? `Priorize ${weakest.topic} hoje` : 'Comece pelo seu primeiro diagnóstico',
+      diagnosis: weakest ? `Seu domínio estimado em ${weakest.discipline} · ${weakest.topic} está em ${Math.round(weakest.masteryScore)}%.` : 'Ainda faltam tentativas para gerar uma recomendação personalizada.',
+      nextActions: revisions.length ? revisions.slice(0, 3).map((revision) => `Revisar ${revision.topic} (${revision.subtopic})`) : ['Resolver 10 questões do banco de provas', 'Registrar confiança e tempo em cada resposta'],
+      warnings: weakest && weakest.attempts < 3 ? ['A amostra deste tópico ainda é pequena; evite conclusões definitivas.'] : [],
+    };
+    const ai = getGeminiClient();
+    if (ai) {
+      try {
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: `Crie um plano diário curto para um aluno do CFO CBMERJ. Retorne apenas JSON com headline, diagnosis, nextActions (array de 3 strings) e warnings (array de strings). Dados agregados: ${JSON.stringify({ knowledge, revisions })}`,
+          config: { responseMimeType: 'application/json', responseSchema: { type: Type.OBJECT, properties: { headline: { type: Type.STRING }, diagnosis: { type: Type.STRING }, nextActions: { type: Type.ARRAY, items: { type: Type.STRING } }, warnings: { type: Type.ARRAY, items: { type: Type.STRING } } }, required: ['headline', 'diagnosis', 'nextActions', 'warnings'] } },
+        });
+        const parsed = JSON.parse(response.text || '{}');
+        if (parsed.headline && Array.isArray(parsed.nextActions)) return res.json({ success: true, source: 'gemini', coachPlan: parsed });
+      } catch { /* fallback pedagógico determinístico */ }
+    }
+    return res.json({ success: true, source: 'heuristic', coachPlan: fallback });
+  } catch {
+    return res.status(500).json({ error: 'COACH_PLAN_FAILED' });
+  }
+});
+
+app.get('/api/student/analytics', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const days = Math.min(90, Math.max(7, Number(req.query.days) || 30));
+    const since = new Date(Date.now() - days * 86400000).toISOString();
+    const totals = rawDb.prepare('SELECT COUNT(*) AS attempts, COALESCE(SUM(is_correct), 0) AS correct, AVG(response_seconds) AS average_response_seconds FROM student_question_attempts WHERE user_id = ? AND created_at >= ?').get(user.userId, since) as any;
+    const daily = rawDb.prepare("SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS attempts, COALESCE(SUM(is_correct), 0) AS correct FROM student_question_attempts WHERE user_id = ? AND created_at >= ? GROUP BY day ORDER BY day ASC").all(user.userId, since) as any[];
+    const weakTopics = rawDb.prepare("SELECT discipline, topic, subtopic, COUNT(*) AS attempts, COALESCE(SUM(is_correct), 0) AS correct FROM student_question_attempts WHERE user_id = ? AND created_at >= ? GROUP BY discipline, topic, subtopic ORDER BY (CAST(correct AS REAL) / COUNT(*)) ASC, attempts DESC LIMIT 10").all(user.userId, since) as any[];
+    const simulations = rawDb.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END), 0) AS completed FROM student_simulations WHERE user_id = ? AND created_at >= ?").get(user.userId, since) as any;
+    return res.json({ success: true, periodDays: days, summary: { attempts: Number(totals?.attempts || 0), correct: Number(totals?.correct || 0), accuracyPercent: totals?.attempts ? Math.round((Number(totals.correct) / Number(totals.attempts)) * 100) : 0, averageResponseSeconds: totals?.average_response_seconds == null ? null : Math.round(Number(totals.average_response_seconds)), simulationsCreated: Number(simulations?.total || 0), simulationsCompleted: Number(simulations?.completed || 0) }, daily: daily.map((row) => ({ day: row.day, attempts: Number(row.attempts), correct: Number(row.correct), accuracyPercent: row.attempts ? Math.round((Number(row.correct) / Number(row.attempts)) * 100) : 0 })), weakTopics: weakTopics.map((row) => ({ discipline: row.discipline, topic: row.topic, subtopic: row.subtopic, attempts: Number(row.attempts), correct: Number(row.correct), accuracyPercent: row.attempts ? Math.round((Number(row.correct) / Number(row.attempts)) * 100) : 0 })) });
+  } catch {
+    return res.status(500).json({ error: 'STUDENT_ANALYTICS_FAILED' });
+  }
+});
+
+app.post('/api/student/question-attempts', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const result = studentLearningService.recordAttempt({
+      userId: user.userId,
+      questionId: req.body?.questionId,
+      selectedOption: req.body?.selectedOption,
+      simulationId: req.body?.simulationId,
+      responseSeconds: req.body?.responseSeconds,
+      confidenceScore: req.body?.confidenceScore,
+      errorType: req.body?.errorType,
+    });
+    return res.status(201).json({ success: true, ...result });
+  } catch (err: any) {
+    const known = ['QUESTION_NOT_FOUND', 'QUESTION_HAS_NO_OFFICIAL_ANSWER', 'INVALID_SELECTED_OPTION', 'SIMULATION_NOT_FOUND'];
+    return res.status(known.includes(err?.message) ? 422 : 500).json({ error: err?.message || 'ATTEMPT_FAILED' });
+  }
+});
+
+app.get('/api/student/revisions', requireUserAuth, (req: Request, res: Response) => {
+  const user = (req as any).user;
+  return res.json({ success: true, revisions: studentLearningService.listRevisions(user.userId, req.query.dueOnly === 'true') });
+});
+
+app.get('/api/student/flashcards', requireUserAuth, (req: Request, res: Response) => {
+  const user = (req as any).user;
+  const row = rawDb.prepare('SELECT decks_json, cards_json, updated_at FROM student_flashcard_state WHERE user_id = ?').get(user.userId) as any;
+  return res.json({ success: true, decks: row ? JSON.parse(row.decks_json || '[]') : [], cards: row ? JSON.parse(row.cards_json || '[]') : [], updatedAt: row?.updated_at || null });
+});
+
+app.put('/api/student/flashcards', requireUserAuth, (req: Request, res: Response) => {
+  const user = (req as any).user;
+  const decks = Array.isArray(req.body?.decks) ? req.body.decks : [];
+  const cards = Array.isArray(req.body?.cards) ? req.body.cards : [];
+  if (JSON.stringify(decks).length + JSON.stringify(cards).length > 10_000_000) return res.status(413).json({ error: 'FLASHCARD_STATE_TOO_LARGE' });
+  const now = new Date().toISOString();
+  rawDb.prepare(`INSERT INTO student_flashcard_state (user_id, decks_json, cards_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET decks_json = excluded.decks_json, cards_json = excluded.cards_json, updated_at = excluded.updated_at`).run(user.userId, JSON.stringify(decks), JSON.stringify(cards), now, now);
+  return res.json({ success: true, updatedAt: now });
+});
+
+app.post('/api/student/revisions/:id/complete', requireUserAuth, (req: Request, res: Response) => {
+  const user = (req as any).user;
+  const revision = studentLearningService.completeRevision(user.userId, req.params.id);
+  if (!revision) return res.status(404).json({ error: 'REVISION_NOT_FOUND' });
+  return res.json({ success: true, revision });
+});
+
+app.get('/api/student/recommendations', requireUserAuth, (req: Request, res: Response) => {
+  const user = (req as any).user;
+  return res.json({ success: true, recommendations: studentLearningService.recommendQuestions(user.userId, Number(req.query.limit) || 10), algorithmVersion: 'recommendations_v1' });
+});
+
+app.post('/api/student/simulations', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const mode = req.body?.mode === 'ADAPTIVE' ? 'ADAPTIVE' : 'TRADITIONAL';
+    return res.status(201).json({ success: true, simulation: studentLearningService.createSimulation(user.userId, mode, Number(req.body?.count) || 10) });
+  } catch {
+    return res.status(500).json({ error: 'SIMULATION_CREATE_FAILED' });
+  }
+});
+
+app.post('/api/student/simulations/reinforcement', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const questionIds = Array.isArray(req.body?.questionIds) ? req.body.questionIds.map(String) : [];
+    return res.status(201).json({ success: true, simulation: studentLearningService.createReinforcementSimulation(user.userId, questionIds) });
+  } catch (error: any) {
+    return res.status(422).json({ error: error?.message || 'NO_REINFORCEMENT_QUESTIONS' });
+  }
+});
+
+app.get('/api/student/simulations/:id', requireUserAuth, (req: Request, res: Response) => {
+  const user = (req as any).user;
+  const simulation = studentLearningService.getSimulation(user.userId, req.params.id);
+  if (!simulation) return res.status(404).json({ error: 'SIMULATION_NOT_FOUND' });
+  return res.json({ success: true, simulation });
+});
+
+app.post('/api/student/simulations/:id/status', requireUserAuth, (req: Request, res: Response) => {
+  const user = (req as any).user;
+  const allowed = new Set(['IN_PROGRESS', 'COMPLETED', 'ABANDONED']);
+  const status = String(req.body?.status || '');
+  if (!allowed.has(status)) return res.status(422).json({ error: 'INVALID_SIMULATION_STATUS' });
+  const simulation = studentLearningService.updateSimulationStatus(user.userId, req.params.id, status as any);
+  if (!simulation) return res.status(404).json({ error: 'SIMULATION_NOT_FOUND' });
+  return res.json({ success: true, simulation });
+});
+
+app.post('/api/student/simulations/:id/adapt', requireUserAuth, (req: Request, res: Response) => {
+  const user = (req as any).user;
+  const simulation = studentLearningService.adaptSimulation(user.userId, req.params.id, String(req.body?.answeredQuestionId || ''), Boolean(req.body?.isCorrect));
+  if (!simulation) return res.status(404).json({ error: 'ADAPTIVE_SIMULATION_NOT_FOUND' });
+  return res.json({ success: true, simulation });
+});
+
 // 1. Upload Seguro de Prova e Registro Estruturado: POST /api/exams/upload-and-process
 app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async (req: Request, res: Response) => {
   try {
@@ -5073,9 +5323,27 @@ app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async 
     }
 
     // Extrai e cadastra a prova e suas questões
-    const job = examJobRepoInstance.create({ userId: user.userId, jobType: 'EXTRACTION', status: 'processing', totalItems: 1 });
+    const extractionPayload = {
+      userId: user.userId,
+      fileId,
+      title: cleanTitle,
+      institution: cleanInstitution,
+      examYear: parsedYear,
+      rawTextContent: typeof rawTextContent === 'string' ? rawTextContent : undefined,
+    };
+    const job = examJobRepoInstance.create({
+      userId: user.userId,
+      jobType: 'EXTRACTION',
+      status: req.body?.async === true ? 'queued' : 'processing',
+      totalItems: 1,
+      payload: extractionPayload,
+    });
 
     if (req.body?.async === true) {
+      return res.status(202).json({ success: true, processing: true, jobId: job.id, message: 'Prova recebida. A extracao continuara em segundo plano.' });
+    }
+
+    if (false && req.body?.async === true) {
       void examServiceInstance.extractAndRegisterExam({
         userId: user.userId,
         fileId,
@@ -5094,16 +5362,21 @@ app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async 
       return res.status(202).json({ success: true, processing: true, jobId: job.id, message: 'Prova recebida. A extração continuará em segundo plano.' });
     }
 
-    const result = await examServiceInstance.extractAndRegisterExam({
+    let result;
+    try {
+      result = await examServiceInstance.extractAndRegisterExam({
       userId: user.userId,
       fileId,
       title: cleanTitle,
       institution: cleanInstitution,
       examYear: parsedYear,
       rawTextContent: typeof rawTextContent === 'string' ? rawTextContent : undefined,
-    });
-
-    examJobRepoInstance.updateStatus(job.id, 'completed', 1, { paperId: result.paper.id, questionsCount: result.questions.length });
+      });
+      examJobRepoInstance.updateStatus(job.id, 'completed', 1, { paperId: result.paper.id, questionsCount: result.questions.length });
+    } catch (err: any) {
+      examJobRepoInstance.updateStatus(job.id, 'failed', 0, undefined, err?.message || 'Falha ao processar a prova.');
+      throw err;
+    }
     logSecurityEvent(req, { action: 'EXAM_PAPER_CREATED', actor: user.username || user.userId, actorUserId: user.userId, resource: 'exam_papers', status: 'SUCCESS', targetType: 'exam_paper', targetId: result.paper.id, details: { totalQuestions: result.paper.totalQuestions } });
 
     return res.status(201).json({
@@ -5124,6 +5397,43 @@ app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async 
 });
 
 // 2. Listagem de Provas do Usuário com Filtros: GET /api/exams
+app.post("/api/exams/:id/review", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const paper = examPaperRepoInstance.findById(req.params.id);
+    if (!paper) return res.status(404).json({ error: 'EXAM_NOT_FOUND' });
+    if (paper.userId !== user.userId && user.role !== 'admin') return res.status(403).json({ error: 'ACCESS_DENIED' });
+    const questions = examQuestionRepoInstance.findByExamId(paper.id);
+    if (questions.length === 0) return res.status(422).json({ error: 'NO_QUESTIONS_TO_REVIEW' });
+    for (const question of questions) {
+      let options: unknown[] = [];
+      try { options = JSON.parse(question.optionsJson); } catch {}
+      if (!question.statement.trim() || options.length < 2) return res.status(422).json({ error: 'QUESTION_NOT_REVIEWABLE', questionId: question.id });
+    }
+    for (const question of questions) examQuestionRepoInstance.setReviewStatus(question.id, 'APPROVED');
+    const updated = examPaperRepoInstance.setPublicationStatus(paper.id, 'IN_REVIEW');
+    return res.json({ success: true, paper: updated, approvedQuestions: questions.length });
+  } catch {
+    return res.status(500).json({ error: 'REVIEW_FAILED' });
+  }
+});
+
+app.post("/api/exams/:id/publish", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const paper = examPaperRepoInstance.findById(req.params.id);
+    if (!paper) return res.status(404).json({ error: 'EXAM_NOT_FOUND' });
+    if (paper.userId !== user.userId && user.role !== 'admin') return res.status(403).json({ error: 'ACCESS_DENIED' });
+    const questions = examQuestionRepoInstance.findByExamId(paper.id);
+    if (questions.length === 0 || questions.some((question) => question.reviewStatus !== 'APPROVED')) return res.status(409).json({ error: 'REVIEW_REQUIRED' });
+    const updated = examPaperRepoInstance.setPublicationStatus(paper.id, 'PUBLISHED');
+    logSecurityEvent(req, { action: 'EXAM_PAPER_PUBLISHED', actor: user.username || user.userId, actorUserId: user.userId, resource: 'exam_papers', status: 'SUCCESS', targetType: 'exam_paper', targetId: paper.id });
+    return res.json({ success: true, paper: updated });
+  } catch {
+    return res.status(500).json({ error: 'PUBLISH_FAILED' });
+  }
+});
+
 app.get("/api/exams/jobs/:id", requireUserAuth, (req: Request, res: Response) => {
   const user = (req as any).user;
   const job = examJobRepoInstance.findById(req.params.id);
@@ -5177,7 +5487,8 @@ app.get("/api/exams/stats", requireUserAuth, (req: Request, res: Response) => {
         totalQuestions: stats.totalQuestions,
         resolvedQuestions: stats.resolvedQuestions,
         successRatePercent: stats.successRatePercent,
-        averageTimeMinutes: stats.totalPapers > 0 ? 2 : 0,
+        // A Fase 1 ainda nao registra tempo por questao; nao inventar metricas.
+        averageTimeMinutes: 0,
       },
     });
   } catch (err: any) {
@@ -5274,8 +5585,11 @@ app.post("/api/exams/solve-with-ai", requireUserAuth, aiLimiter, async (req: Req
     }
 
     // 🛑 Proteção de Idempotência contra Double-Click / Race Condition
+    if (typeof idempotencyKey === 'string' && idempotencyKey.length > 200) {
+      return res.status(400).json({ error: 'INVALID_IDEMPOTENCY_KEY', message: 'A chave de idempotencia excede 200 caracteres.' });
+    }
     if (idempotencyKey && typeof idempotencyKey === 'string') {
-      const existingJob = examJobRepoInstance.findByIdempotencyKey(idempotencyKey);
+      const existingJob = examJobRepoInstance.findByIdempotencyKey(idempotencyKey, user.userId);
       if (existingJob && existingJob.status === 'completed' && existingJob.resultSummaryJson) {
         try {
           const cachedResult = JSON.parse(existingJob.resultSummaryJson);
@@ -5417,8 +5731,22 @@ app.get("/api/exams/assets/:assetId", requireUserAuth, (req: Request, res: Respo
 app.get("/api/exams/assets/file/:filename", requireUserAuth, (req: Request, res: Response) => {
   try {
     const safeName = path.basename(req.params.filename);
-    if (!safeName || safeName.includes('..')) {
+    if (!safeName || safeName.includes('..') || !/^[a-zA-Z0-9._-]+$/.test(safeName)) {
       return res.status(400).json({ error: "INVALID_FILENAME", message: "Nome de arquivo inválido." });
+    }
+
+    const user = (req as any).user;
+    const matchingAssets = questionAssetRepoInstance.findByFilename(safeName);
+    if (matchingAssets.length === 0) {
+      return res.status(404).json({ error: "IMAGE_NOT_FOUND", message: "Imagem nao encontrada no banco de provas." });
+    }
+    const hasAccess = matchingAssets.some((asset) => {
+      const question = examQuestionRepoInstance.findById(asset.questionId);
+      const paper = question ? examPaperRepoInstance.findById(question.examId) : null;
+      return Boolean(paper && (paper.userId === user.userId || user.role === 'admin'));
+    });
+    if (!hasAccess) {
+      return res.status(403).json({ error: "ACCESS_DENIED", message: "Acesso nao autorizado a este recorte." });
     }
 
     // Busca nas pastas permitidas
@@ -5486,7 +5814,6 @@ app.get("/api/exams/:id/pages/:pageNumber/preview", requireUserAuth, async (req:
       return res.status(500).json({ error: "PAGE_RENDER_FAILED", message: renderResult.error || "Falha ao renderizar página do PDF." });
     }
 
-    const baseName = path.basename(renderResult.imagePath || '');
     return res.json({
       success: true,
       page: pageNum,
@@ -5494,11 +5821,35 @@ app.get("/api/exams/:id/pages/:pageNumber/preview", requireUserAuth, async (req:
       heightPx: renderResult.height,
       pageWidthPt: renderResult.pageWidthPt,
       pageHeightPt: renderResult.pageHeightPt,
-      previewUrl: `/api/exams/assets/file/${baseName}`,
+      previewUrl: `/api/exams/${examId}/pages/${pageNum}/preview/image`,
     });
   } catch (err: any) {
     console.error("[Page Preview Error]:", err?.message || err);
     return res.status(500).json({ error: "RENDER_ERROR", message: "Falha ao gerar visualização da página." });
+  }
+});
+
+app.get("/api/exams/:id/pages/:pageNumber/preview/image", requireUserAuth, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const pageNum = Number(req.params.pageNumber);
+    const paper = examPaperRepoInstance.findById(req.params.id);
+    if (!paper) return res.status(404).json({ error: "EXAM_NOT_FOUND" });
+    if (paper.userId !== user.userId && user.role !== 'admin') {
+      return res.status(403).json({ error: "ACCESS_DENIED" });
+    }
+    if (!Number.isInteger(pageNum) || pageNum < 1) {
+      return res.status(400).json({ error: "INVALID_PAGE" });
+    }
+    const renderResult = await examServiceInstance.renderFullPageForReview(req.params.id, pageNum);
+    if (!renderResult.success || !renderResult.imagePath || !fs.existsSync(renderResult.imagePath)) {
+      return res.status(404).json({ error: "PAGE_PREVIEW_NOT_FOUND" });
+    }
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    return res.sendFile(path.resolve(renderResult.imagePath));
+  } catch {
+    return res.status(500).json({ error: "PAGE_PREVIEW_FAILED" });
   }
 });
 
@@ -5646,6 +5997,7 @@ async function startServer() {
 
   // Inicializa o agendador automático diário de backup às 03:00 com retenção de 30 dias
   initBackupScheduler();
+  examJobWorker.start();
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

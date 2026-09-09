@@ -12,13 +12,17 @@ const files = ['models', 'auth', 'profile', 'audit_security', 'admin_panel',
   'admin_security_2fa', 'admin_realtime', 'admin_users_management', 'admin_audit',
   'frontend_integration', 'security_review', 'download_functions', 'privacy_minimization',
   'cadet_exclusive_session', 'cadet_security_audit', 'cadet_5h_block_and_alerts',
-  'security_hardening', 'secure_uploads', 'exam_bank', 'database_resilience'];
+  'security_hardening', 'secure_uploads', 'exam_bank', 'exam_phase1_workflow', 'student_learning', 'database_resilience'];
+files.push('student_release45');
 files.splice(files.indexOf('exam_bank'), 0, 'board_intelligence');
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|HOME|USERPROFILE|COMSPEC|PATHEXT)$/i.test(key)));
 env.NODE_ENV = 'test';
 Object.assign(env, { ADMIN_PASSWORD: 'fixture-admin-password-2026', CADET_PASSWORD: 'fixture-cadet-password-2026',
   SUPPORT_PASSWORD: 'fixture-support-password-2026', TOTP_SECRET: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',
+  SESSION_SECRET: 'readiness-only-session-secret-64-characters-long-and-not-production',
+  DATA_ENCRYPTION_KEY: 'readiness-only-data-encryption-key-never-use-in-production',
+  BACKUP_ENCRYPTION_KEY: 'readiness-only-backup-encryption-key-never-use-in-production',
   ADMIN_REQUIRE_2FA: 'true' });
 const results = [];
 for (const name of files) {

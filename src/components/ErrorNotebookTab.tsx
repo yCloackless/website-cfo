@@ -225,6 +225,26 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     const isMasterAdmin = !localStorage.getItem('cfo_terminal_user') || localStorage.getItem('cfo_terminal_user') === 'admin';
     return isMasterAdmin ? INITIAL_CARDS : [];
   });
+  const [remoteFlashcardsReady, setRemoteFlashcardsReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void apiFetch('/api/student/flashcards').then(async (response) => {
+      if (!response.ok || cancelled) return;
+      const data = await response.json();
+      if (Array.isArray(data.decks) && data.decks.length > 0) setDecks(data.decks);
+      if (Array.isArray(data.cards) && data.cards.length > 0) setCards(data.cards);
+    }).catch(() => undefined).finally(() => { if (!cancelled) setRemoteFlashcardsReady(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!remoteFlashcardsReady) return;
+    const timer = window.setTimeout(() => {
+      void apiFetch('/api/student/flashcards', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decks, cards }) }).catch(() => undefined);
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [decks, cards, remoteFlashcardsReady]);
 
   // Salva no localStorage
   useEffect(() => {

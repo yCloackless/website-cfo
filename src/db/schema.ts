@@ -256,6 +256,8 @@ export interface DbUploadedFile {
 }
 
 export type ExamPaperStatus = 'QUEUED' | 'PROCESSING' | 'READY' | 'ERROR' | 'NEEDS_REVIEW';
+export type ExamPublicationStatus = 'DRAFT' | 'IN_REVIEW' | 'PUBLISHED' | 'REJECTED';
+export type QuestionReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 export type ExamDifficulty = 'Fácil' | 'Médio' | 'Difícil';
 
 export interface DbExamPaper {
@@ -267,6 +269,7 @@ export interface DbExamPaper {
   fileId?: string | null;
   totalQuestions: number;
   status: ExamPaperStatus;
+  publicationStatus: ExamPublicationStatus;
   primaryDisciplinesJson?: string | null;
   metadataJson?: string | null;
   createdAt: string;
@@ -313,6 +316,7 @@ export interface DbExamQuestion {
   imagesJson?: string | null; // serialized string[] of URLs/Paths
   aiSolutionJson?: string | null; // serialized AISolutionPayload
   status: string;
+  reviewStatus: QuestionReviewStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -331,6 +335,7 @@ export interface DbExamJob {
   errorMessage?: string | null;
   idempotencyKey?: string | null;
   resultSummaryJson?: string | null;
+  payloadJson?: string | null;
   createdAt: string;
   updatedAt: string;
 }

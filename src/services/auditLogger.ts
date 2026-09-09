@@ -16,12 +16,13 @@ export interface AuditEntry {
 }
 
 const AUDIT_LOG_FILE = path.join(process.cwd(), 'data', 'audit.log');
+const MAX_AUDIT_LOG_BYTES = 10 * 1024 * 1024;
 
 export function logAuditEvent(entry: Omit<AuditEntry, 'timestamp'>): void {
   try {
     const dir = path.dirname(AUDIT_LOG_FILE);
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
 
     const eventType = entry.eventType || entry.action || 'SECURITY_ALERT';
@@ -65,7 +66,11 @@ export function logAuditEvent(entry: Omit<AuditEntry, 'timestamp'>): void {
     }
 
     const line = JSON.stringify(fullEntry) + '\n';
-    fs.appendFileSync(AUDIT_LOG_FILE, line, 'utf-8');
+    if (fs.existsSync(AUDIT_LOG_FILE) && fs.statSync(AUDIT_LOG_FILE).size >= MAX_AUDIT_LOG_BYTES) {
+      const rotated = path.join(dir, `audit-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
+      fs.renameSync(AUDIT_LOG_FILE, rotated);
+    }
+    fs.appendFileSync(AUDIT_LOG_FILE, line, { encoding: 'utf-8', mode: 0o600 });
   } catch (err) {
     console.error('[Audit Log] Falha ao registrar evento de auditoria:', err);
   }

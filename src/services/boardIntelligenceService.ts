@@ -458,6 +458,7 @@ export class BoardIntelligenceService {
       imagesJson: row.images_json ?? null,
       aiSolutionJson: row.ai_solution_json ?? null,
       status: row.status,
+      reviewStatus: row.review_status || 'PENDING',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
@@ -489,6 +490,7 @@ export class BoardIntelligenceService {
       imagesJson: row.images_json ?? null,
       aiSolutionJson: row.ai_solution_json ?? null,
       status: row.status,
+      reviewStatus: row.review_status || 'PENDING',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));

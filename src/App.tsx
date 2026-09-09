@@ -65,6 +65,7 @@ import { AddCustomSubjectModal } from './components/AddCustomSubjectModal';
 import { CycleHistoryModal } from './components/CycleHistoryModal';
 import { WeeklyGoalModal } from './components/WeeklyGoalModal';
 import { SecurityGate } from './components/SecurityGate';
+import { Setup2FAModal } from './components/Setup2FAModal';
 import { LandingPage } from './components/LandingPage';
 const TimerTab = lazy(() => import('./components/TimerTab').then(({ TimerTab }) => ({ default: TimerTab })));
 const NotionAgendaTab = lazy(() => import('./components/NotionAgendaTab').then(({ NotionAgendaTab }) => ({ default: NotionAgendaTab })));
@@ -72,6 +73,10 @@ const MonthlyStudyHeatmapTab = lazy(() => import('./components/MonthlyStudyHeatm
 import { CookieConsent } from './components/CookieConsent';
 const TacticalSimulations = lazy(() => import('./components/TacticalSimulations').then(({ TacticalSimulations }) => ({ default: TacticalSimulations })));
 import { TacticalSidebar, TabType } from './components/TacticalSidebar';
+import { StudentRadarTab } from './components/StudentRadarTab';
+import { StudentCoachPanel } from './components/StudentCoachPanel';
+import { StudentAnalyticsPanel } from './components/StudentAnalyticsPanel';
+import { Release3StudyPanel } from './components/Release3StudyPanel';
 const ErrorNotebookTab = lazy(() => import('./components/ErrorNotebookTab').then(({ ErrorNotebookTab }) => ({ default: ErrorNotebookTab })));
 const ExamBankTab = lazy(() => import('./components/ExamBankTab').then(({ ExamBankTab }) => ({ default: ExamBankTab })));
 import { MyAccountModal } from './components/MyAccountModal';
@@ -102,6 +107,7 @@ export default function App() {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [isPersistentStateReady, setIsPersistentStateReady] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [needs2FASetup, setNeeds2FASetup] = useState(false);
   const [canAccessNotion, setCanAccessNotion] = useState<boolean>(() => {
     const saved = localStorage.getItem('cfo_can_access_notion');
     return saved === null ? true : saved === 'true';
@@ -324,6 +330,9 @@ export default function App() {
         if (res.ok && data.valid) {
           if (isMounted) {
             setIsTerminalUnlocked(true);
+            localStorage.setItem('cfo_terminal_session', 'cookie');
+            if (data.expiresAt) localStorage.setItem('cfo_terminal_expires_at', String(data.expiresAt));
+            setNeeds2FASetup(data.role === 'admin' && data.is2faActive !== true);
             if (data.canAccessNotion !== undefined) {
               setCanAccessNotion(Boolean(data.canAccessNotion));
               localStorage.setItem('cfo_can_access_notion', String(Boolean(data.canAccessNotion)));
@@ -338,11 +347,9 @@ export default function App() {
         }
       } catch (err) {
         // Fallback para contingência caso backend offline mas token válido
-        const savedToken = localStorage.getItem('cfo_terminal_session');
-        const expiresAt = Number(localStorage.getItem('cfo_terminal_expires_at'));
-        if (savedToken && expiresAt && Date.now() < expiresAt) {
-          if (isMounted) setIsTerminalUnlocked(true);
-        }
+        // Local storage is not proof of authentication. Fail closed while the
+        // backend cannot validate the HttpOnly session cookie.
+        if (isMounted) setIsTerminalUnlocked(false);
       } finally {
         if (isMounted) setIsCheckingSession(false);
       }
@@ -604,7 +611,7 @@ export default function App() {
       sessionStorage.setItem('cfo_admin_original_role', localStorage.getItem('cfo_terminal_role') || 'admin');
       sessionStorage.setItem('cfo_admin_original_notion', localStorage.getItem('cfo_can_access_notion') || 'true');
 
-      localStorage.setItem('cfo_terminal_session', data.token);
+      localStorage.setItem('cfo_terminal_session', 'cookie');
       localStorage.setItem('cfo_terminal_expires_at', String(data.expiresAt));
       localStorage.setItem('cfo_terminal_user', data.username);
       localStorage.setItem('cfo_terminal_role', data.role);
@@ -657,8 +664,8 @@ export default function App() {
     if (!targetToken || !originalToken) return;
     try {
       await fetch('/api/auth/impersonation/stop', { method: 'POST', headers: { Authorization: `Bearer ${targetToken}` } });
-      localStorage.setItem('cfo_terminal_session', originalToken);
-      localStorage.setItem('cfo_terminal_expires_at', sessionStorage.getItem('cfo_admin_original_expires_at') || '');
+      localStorage.setItem('cfo_terminal_session', 'cookie');
+      localStorage.setItem('cfo_terminal_expires_at', String((await fetch('/api/auth/verify-session', { method: 'POST' }).then((response) => response.json()).catch(() => ({}))).expiresAt || Date.now() + 86400000));
       localStorage.setItem('cfo_terminal_user', sessionStorage.getItem('cfo_admin_original_user') || 'admin');
       localStorage.setItem('cfo_terminal_role', sessionStorage.getItem('cfo_admin_original_role') || 'admin');
       localStorage.setItem('cfo_can_access_notion', sessionStorage.getItem('cfo_admin_original_notion') || 'true');
@@ -1382,9 +1389,10 @@ export default function App() {
       return (
         <>
           <SecurityGate
-            onAuthenticated={() => {
+            onAuthenticated={(_token, _expiresAt, is2faActive) => {
               setIsTerminalUnlocked(true);
               setShowLoginModal(false);
+              setNeeds2FASetup(localStorage.getItem('cfo_terminal_role') === 'admin' && !is2faActive);
               const notionAccess = localStorage.getItem('cfo_can_access_notion') === 'true';
               setCanAccessNotion(notionAccess);
               if (!notionAccess && activeTab === 'calendar') {
@@ -1952,6 +1960,8 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'learning' && <><StudentCoachPanel theme={theme} /><StudentAnalyticsPanel theme={theme} /><StudentRadarTab theme={theme} /></>}
+
         {/* Render Tab 4: Equilíbrio & IA Gemini */}
         {activeTab === 'ai' && (
           <AIBalanceTab
@@ -1970,10 +1980,10 @@ export default function App() {
 
         {/* Render Tab: Simulados & Métricas Táticas */}
         {activeTab === 'simulations' && (
-          <TacticalSimulations
-            theme={theme}
-            showToast={showToast}
-          />
+          <>
+            <Release3StudyPanel theme={theme} showToast={showToast} />
+            <TacticalSimulations theme={theme} showToast={showToast} />
+          </>
         )}
 
         {/* Render Tab: Caderno de Erros & Flashcards (Anki Style) */}
@@ -2135,6 +2145,12 @@ export default function App() {
         onClose={() => setIsAdminSecurityOpen(false)}
         theme={theme}
         sessionToken={localStorage.getItem('cfo_terminal_session')}
+      />
+
+      <Setup2FAModal
+        isOpen={needs2FASetup}
+        sessionToken={localStorage.getItem('cfo_terminal_session')}
+        onActivated={() => setNeeds2FASetup(false)}
       />
 
       {/* Banner LGPD de Cookies de Sessão */}

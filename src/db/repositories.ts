@@ -35,6 +35,8 @@ import {
   QuestionAssetType,
   ExamOption,
   ExamPaperStatus,
+  ExamPublicationStatus,
+  QuestionReviewStatus,
   ExamDifficulty,
   ExamJobType,
   ExamJobStatus,
@@ -2042,6 +2044,12 @@ export class ExamPaperRepository {
     return Number(res.changes) > 0;
   }
 
+  public setPublicationStatus(id: string, status: ExamPublicationStatus): DbExamPaper | null {
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE exam_papers SET publication_status = ?, updated_at = ? WHERE id = ?').run(status, now, id);
+    return this.findById(id);
+  }
+
   public getStatsByUserId(userId: string): {
     totalPapers: number;
     totalQuestions: number;
@@ -2083,6 +2091,7 @@ export class ExamPaperRepository {
       fileId: row.file_id ?? null,
       totalQuestions: Number(row.total_questions || 0),
       status: row.status as ExamPaperStatus,
+      publicationStatus: (row.publication_status || 'DRAFT') as ExamPublicationStatus,
       primaryDisciplinesJson: row.primary_disciplines_json ?? null,
       metadataJson: row.metadata_json ?? null,
       createdAt: row.created_at,
@@ -2305,6 +2314,12 @@ export class ExamQuestionRepository {
     return Number(res.changes) > 0;
   }
 
+  public setReviewStatus(id: string, status: QuestionReviewStatus): DbExamQuestion | null {
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE exam_questions SET review_status = ?, updated_at = ? WHERE id = ?').run(status, now, id);
+    return this.findById(id);
+  }
+
   private mapQuestion(row: any): DbExamQuestion {
     let normalizedOptionsJson = '[]';
     try {
@@ -2331,6 +2346,7 @@ export class ExamQuestionRepository {
       imagesJson: row.images_json ?? null,
       aiSolutionJson: row.ai_solution_json ?? null,
       status: row.status,
+      reviewStatus: (row.review_status || 'PENDING') as QuestionReviewStatus,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -2347,6 +2363,7 @@ export class ExamJobRepository {
     status?: ExamJobStatus;
     totalItems?: number;
     idempotencyKey?: string | null;
+    payload?: Record<string, any> | null;
   }): DbExamJob {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -2358,8 +2375,8 @@ export class ExamJobRepository {
         .prepare(
           `INSERT INTO exam_jobs (
             id, user_id, exam_id, job_type, status, progress, total_items,
-            idempotency_key, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
+            idempotency_key, payload_json, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -2369,13 +2386,14 @@ export class ExamJobRepository {
           status,
           totalItems,
           data.idempotencyKey ?? null,
+          data.payload ? JSON.stringify(data.payload) : null,
           now,
           now
         );
     } catch (err: any) {
       // Em caso de chave de idempotência concorrente já inserida, recupera o registro existente
       if (data.idempotencyKey && String(err?.message || '').includes('UNIQUE constraint failed')) {
-        const existing = this.findByIdempotencyKey(data.idempotencyKey);
+        const existing = this.findByIdempotencyKey(data.idempotencyKey, data.userId);
         if (existing) return existing;
       }
       throw err;
@@ -2390,11 +2408,33 @@ export class ExamJobRepository {
     return this.mapJob(row);
   }
 
-  public findByIdempotencyKey(key: string): DbExamJob | null {
+  public findByIdempotencyKey(key: string, userId?: string): DbExamJob | null {
     if (!key) return null;
-    const row = this.db.prepare('SELECT * FROM exam_jobs WHERE idempotency_key = ?').get(key) as any;
+    const row = userId
+      ? this.db.prepare('SELECT * FROM exam_jobs WHERE idempotency_key = ? AND user_id = ?').get(key, userId) as any
+      : this.db.prepare('SELECT * FROM exam_jobs WHERE idempotency_key = ?').get(key) as any;
     if (!row) return null;
     return this.mapJob(row);
+  }
+
+  public claimNextQueued(): DbExamJob | null {
+    const now = new Date().toISOString();
+    const result = this.db.prepare(`
+      UPDATE exam_jobs SET status = 'processing', updated_at = ?
+      WHERE id = (
+        SELECT id FROM exam_jobs WHERE status = 'queued'
+        ORDER BY created_at ASC LIMIT 1
+      ) AND status = 'queued'
+    `).run(now);
+    if (Number(result.changes) === 0) return null;
+    const row = this.db.prepare("SELECT * FROM exam_jobs WHERE status = 'processing' ORDER BY updated_at DESC LIMIT 1").get() as any;
+    return row ? this.mapJob(row) : null;
+  }
+
+  public requeueStaleProcessing(maxAgeMs: number): number {
+    const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+    const result = this.db.prepare("UPDATE exam_jobs SET status = 'queued', updated_at = ? WHERE status = 'processing' AND updated_at < ?").run(new Date().toISOString(), cutoff);
+    return Number(result.changes);
   }
 
   public updateStatus(
@@ -2442,6 +2482,7 @@ export class ExamJobRepository {
       errorMessage: row.error_message ?? null,
       idempotencyKey: row.idempotency_key ?? null,
       resultSummaryJson: row.result_summary_json ?? null,
+      payloadJson: row.payload_json ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -2630,6 +2671,13 @@ export class QuestionAssetRepository {
     const rows = this.db
       .prepare('SELECT * FROM question_assets WHERE segment_id = ? ORDER BY created_at ASC')
       .all(segmentId) as any[];
+    return rows.map((r) => this.mapAsset(r));
+  }
+
+  public findByFilename(filename: string): DbQuestionAsset[] {
+    const rows = this.db
+      .prepare('SELECT * FROM question_assets WHERE file_path LIKE ? OR file_path LIKE ? ORDER BY created_at ASC')
+      .all(`%/${filename}`, `%\\${filename}`) as any[];
     return rows.map((r) => this.mapAsset(r));
   }
 

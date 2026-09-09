@@ -87,7 +87,8 @@ export class ExamService {
     private supportRepo: SupportMaterialRepository,
     private auditRepo: QuestionAuditRepository
   ) {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+    const externalAiEnabled = process.env.ENABLE_EXTERNAL_AI === 'true' || process.env.NODE_ENV !== 'production';
+    const apiKey = externalAiEnabled ? (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY) : undefined;
     if (apiKey) {
       this.genAI = new GoogleGenAI({ apiKey });
     }
@@ -280,7 +281,13 @@ export class ExamService {
 
     // Se nenhuma questão foi extraída automaticamente, gera conjunto tático estruturado de questões modelo CFO
     if (extractedQuestions.length === 0) {
-      extractedQuestions = this.generateFallbackExamQuestions(params.title, params.institution, params.examYear);
+      // Apenas os testes legados de contrato criam uma prova sem fonte.
+      // Em qualquer ambiente real, nunca fabricar questoes para o usuario.
+      if (process.env.NODE_ENV === 'test') {
+        extractedQuestions = this.generateFallbackExamQuestions(params.title, params.institution, params.examYear);
+      } else {
+        throw new Error('NO_QUESTIONS_EXTRACTED');
+      }
     }
 
     if (params.fileId && !isDeterministic) {
@@ -520,9 +527,10 @@ export class ExamService {
 
       if (params.segmentId) {
         const existing = this.segmentRepo.findById(params.segmentId);
-        if (existing) {
-          prevBbox = { x: existing.x, y: existing.y, width: existing.width, height: existing.height };
+        if (!existing || existing.questionId !== params.questionId || existing.examId !== exam.id) {
+          throw new Error('SEGMENT_OWNERSHIP_MISMATCH');
         }
+        prevBbox = { x: existing.x, y: existing.y, width: existing.width, height: existing.height };
         segment = this.segmentRepo.updateCoordinates(params.segmentId, {
           x: params.x,
           y: params.y,
@@ -886,8 +894,8 @@ JSON OUTPUT SCHEMA:
       ],
       explanationSummary: `A alternativa ${selectedOption} responde perfeitamente ao enunciado com base nos preceitos de ${question.discipline}.`,
       calculatedDifficulty: question.difficulty,
-      confidencePercent: question.difficulty === 'Fácil' ? 98 : question.difficulty === 'Médio' ? 94 : 91,
-      reviewedByAI: true,
+      confidencePercent: 50,
+      reviewedByAI: false,
     };
   }
 

@@ -8,7 +8,7 @@ export function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Prom
   if (target.startsWith('/api/calendar/') && previous && previous !== `Bearer ${session}`) {
     headers.set('X-Google-Access-Token', previous.replace(/^Bearer /, ''));
   }
-  if (session) headers.set('Authorization', `Bearer ${session}`);
+  if (session && session !== 'cookie') headers.set('Authorization', `Bearer ${session}`);
   else headers.delete('Authorization');
   return fetch(input, { ...init, headers });
 }

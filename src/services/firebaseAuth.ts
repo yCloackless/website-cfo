@@ -38,25 +38,6 @@ let cachedAccessToken: string | null = null;
 
 export const getStoredAccessToken = (): string | null => {
   if (cachedAccessToken) return cachedAccessToken;
-  try {
-    const token = localStorage.getItem(STORAGE_TOKEN_KEY);
-    const expiryStr = localStorage.getItem(STORAGE_EXPIRY_KEY);
-    if (token) {
-      if (expiryStr) {
-        const expiry = parseInt(expiryStr, 10);
-        // If not expired (with 30-second buffer)
-        if (Date.now() < expiry - 30000) {
-          cachedAccessToken = token;
-          return token;
-        }
-      } else {
-        cachedAccessToken = token;
-        return token;
-      }
-    }
-  } catch (e) {
-    console.warn('Falha ao ler token salvo:', e);
-  }
   return null;
 };
 
@@ -67,9 +48,10 @@ export const persistAccessToken = (
 ) => {
   cachedAccessToken = token;
   try {
-    localStorage.setItem(STORAGE_TOKEN_KEY, token);
-    const expiresAt = Date.now() + expiresInSeconds * 1000;
-    localStorage.setItem(STORAGE_EXPIRY_KEY, expiresAt.toString());
+    // OAuth access tokens remain memory-only; the refresh token is kept by the
+    // encrypted backend session instead of JavaScript-readable web storage.
+    localStorage.removeItem(STORAGE_TOKEN_KEY);
+    localStorage.removeItem(STORAGE_EXPIRY_KEY);
     if (email) {
       localStorage.setItem(STORAGE_EMAIL_KEY, email);
     }

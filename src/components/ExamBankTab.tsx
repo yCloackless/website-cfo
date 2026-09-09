@@ -78,6 +78,7 @@ interface ExamPaper {
   examYear: number;
   totalQuestions: number;
   status: 'QUEUED' | 'PROCESSING' | 'READY' | 'ERROR' | 'NEEDS_REVIEW';
+  publicationStatus?: 'DRAFT' | 'IN_REVIEW' | 'PUBLISHED' | 'REJECTED';
   fileId?: string | null;
   primaryDisciplinesJson?: string | null;
   createdAt: string;
@@ -521,6 +522,40 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
         setUploadTitle(file.name.replace(/\.[^/.]+$/, ''));
       }
       setIsUploadModalOpen(true);
+    }
+  };
+
+  const reviewSelectedPaper = async () => {
+    if (!selectedPaper) return;
+    try {
+      const token = getAuthToken();
+      const res = await fetch(`/api/exams/${selectedPaper.id}/review`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || 'Falha na revisao');
+      showToast?.('Questoes validadas. A prova pode ser publicada.', 'success');
+      await fetchPapersAndStats();
+    } catch (error: any) {
+      showToast?.(error?.message || 'Nao foi possivel revisar a prova.', 'error');
+    }
+  };
+
+  const publishSelectedPaper = async () => {
+    if (!selectedPaper) return;
+    try {
+      const token = getAuthToken();
+      const res = await fetch(`/api/exams/${selectedPaper.id}/publish`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || 'Falha na publicacao');
+      showToast?.('Prova publicada com sucesso.', 'success');
+      await fetchPapersAndStats();
+    } catch (error: any) {
+      showToast?.(error?.message || 'Nao foi possivel publicar a prova.', 'error');
     }
   };
 
@@ -1011,7 +1046,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
               </p>
             </div>
             <button
-              onClick={() => showToast?.('Todas as questões e classificações estão validadas.', 'info')}
+              onClick={reviewSelectedPaper}
               className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border transition-all flex items-center gap-1 cursor-pointer ${
                 isDark ? 'bg-indigo-950/60 border-indigo-800/60 text-indigo-300 hover:bg-indigo-900/60' : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
               }`}
@@ -1019,6 +1054,14 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
               <Sparkles className="w-3 h-3 text-indigo-400" />
               <span>Revisar prova</span>
             </button>
+            {selectedPaper && selectedPaper.publicationStatus === 'IN_REVIEW' && (
+              <button
+                onClick={publishSelectedPaper}
+                className="px-2.5 py-1 rounded-xl text-[10px] font-bold border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-all cursor-pointer"
+              >
+                Publicar
+              </button>
+            )}
             {selectedPaper?.fileId && (
               <button
                 onClick={handleOpenOriginalPdf}

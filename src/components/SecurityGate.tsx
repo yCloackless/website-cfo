@@ -37,6 +37,10 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
+  const [requiresTotp, setRequiresTotp] = useState(false);
+  const [loginChallenge, setLoginChallenge] = useState('');
+  const [secondFactor, setSecondFactor] = useState('');
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
 
   // Estados de Recuperação de Senha
   const [resetEmail, setResetEmail] = useState('');
@@ -169,11 +173,11 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
     e.preventDefault();
     const cleanUser = email.trim();
     const cleanPass = password.trim();
-    if (!cleanUser) {
+    if (!requiresTotp && !cleanUser) {
       setErrorMsg('Por favor, informe seu usuário ou e-mail de acesso.');
       return;
     }
-    if (!cleanPass) {
+    if (!requiresTotp && !cleanPass) {
       setErrorMsg('Por favor, informe sua senha.');
       return;
     }
@@ -188,7 +192,13 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
     setErrorMsg(null);
 
     try {
-      const res = await fetch('/api/auth/check-credentials', {
+      if (requiresTotp && !secondFactor.trim()) {
+        setErrorMsg(useRecoveryCode ? 'Informe seu codigo de recuperacao.' : 'Informe o codigo de 6 digitos do autenticador.');
+        setLoading(false);
+        return;
+      }
+
+      const res = await fetch(requiresTotp ? '/api/auth/verify-2fa' : '/api/auth/check-credentials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -196,10 +206,21 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
           password: cleanPass,
           turnstileToken,
           rememberMe,
+          ...(requiresTotp ? { [useRecoveryCode ? 'recoveryCode' : 'token']: secondFactor.trim() } : {}),
+          ...(requiresTotp ? { challenge: loginChallenge } : {}),
         }),
       });
 
       const data = await res.json();
+
+      if (res.ok && data.success && data.requireTotp) {
+        setRequiresTotp(true);
+        setLoginChallenge(data.challenge || '');
+        setSecondFactor('');
+        setSuccessMsg('Credenciais confirmadas. Digite o segundo fator para concluir.');
+        setLoading(false);
+        return;
+      }
 
       // Checa se tomou ban imediato
       if (res.status === 403 || data.error === 'IP_BANNED_UNAUTHORIZED_GEO' || data.error === 'IP_BANNED') {
@@ -224,12 +245,13 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
       }
 
       // Login direto concluído
-      localStorage.setItem('cfo_terminal_session', data.token);
+      // The raw bearer token is held only in the HttpOnly cookie set by the server.
+      localStorage.setItem('cfo_terminal_session', 'cookie');
       localStorage.setItem('cfo_terminal_expires_at', String(data.expiresAt));
       localStorage.setItem('cfo_terminal_user', data.username || cleanUser);
       localStorage.setItem('cfo_terminal_role', data.role || 'admin');
       localStorage.setItem('cfo_can_access_notion', String(Boolean(data.canAccessNotion ?? (data.role === 'admin'))));
-      onAuthenticated(data.token, data.expiresAt, false);
+      onAuthenticated('cookie', data.expiresAt, Boolean(data.is2faActive));
       return;
     } catch (err) {
       setErrorMsg('Falha de conexão com o servidor. Verifique sua conexão e tente novamente.');
@@ -656,6 +678,33 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                     </div>
                   </div>
 
+                  {requiresTotp && (
+                    <div className="flex flex-col space-y-2 rounded-xl border border-blue-200 bg-blue-50/60 p-3">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-[#164491]" htmlFor="second-factor-input">
+                        {useRecoveryCode ? 'CODIGO DE RECUPERACAO' : 'CODIGO DO AUTENTICADOR'}
+                      </label>
+                      <input
+                        id="second-factor-input"
+                        type="text"
+                        inputMode={useRecoveryCode ? 'text' : 'numeric'}
+                        autoComplete="one-time-code"
+                        maxLength={useRecoveryCode ? 64 : 6}
+                        value={secondFactor}
+                        onChange={(event) => setSecondFactor(useRecoveryCode ? event.target.value : event.target.value.replace(/\D/g, '').slice(0, 6))}
+                        placeholder={useRecoveryCode ? 'Codigo de uso unico' : '000000'}
+                        className="w-full rounded-xl border border-blue-200 bg-white px-4 py-3 text-center font-mono text-lg tracking-widest text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { setUseRecoveryCode((value) => !value); setSecondFactor(''); setErrorMsg(null); }}
+                        className="text-left text-[11px] font-semibold text-[#164491] hover:underline"
+                      >
+                        {useRecoveryCode ? 'Usar o aplicativo autenticador' : 'Usar um codigo de recuperacao'}
+                      </button>
+                    </div>
+                  )}
+
                   {/* Checkbox: Lembrar este dispositivo por 30 dias */}
                   <div className="pt-0.5">
                     <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -672,7 +721,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                   </div>
 
                   {/* Cloudflare Turnstile Container (apenas para IPs não-administradores) */}
-                  {securityStatus?.turnstileRequired && (
+                  {securityStatus?.turnstileRequired && !requiresTotp && (
                     <div className="pt-2 flex flex-col items-center justify-center overflow-hidden max-w-full">
                       <div className="transform scale-[0.82] min-[380px]:scale-100 origin-center max-w-full">
                         <div
@@ -694,7 +743,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                     <div className="pt-2">
                       <button
                         type="submit"
-                        disabled={loading || (securityStatus?.turnstileRequired && !turnstileToken)}
+                        disabled={loading || (!requiresTotp && securityStatus?.turnstileRequired && !turnstileToken) || (requiresTotp && !secondFactor.trim())}
                         data-purpose="submit-login-button"
                         className="w-full py-3 sm:py-3.5 px-3 sm:px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] active:bg-[#0e2b5c] text-white font-bold text-xs sm:text-[13px] tracking-[0.08em] uppercase transition-all duration-150 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#164491] focus:ring-offset-2 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                       >
@@ -704,7 +753,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                             <span>VERIFICANDO...</span>
                           </>
                         ) : (
-                          <span>ENTRAR</span>
+                          <span>{requiresTotp ? 'VALIDAR 2FA' : 'ENTRAR'}</span>
                         )}
                       </button>
                     </div>
@@ -714,6 +763,14 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                       <button
                         type="button"
                         onClick={() => {
+                          if (requiresTotp) {
+                            setRequiresTotp(false);
+                            setLoginChallenge('');
+                            setSecondFactor('');
+                            setSuccessMsg(null);
+                            setErrorMsg(null);
+                            return;
+                          }
                           setResetEmail(email);
                           setErrorMsg(null);
                           setSuccessMsg(null);
@@ -721,7 +778,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                         }}
                         className="text-[12.5px] font-medium text-[#164491] hover:text-[#0e2b5c] hover:underline transition-colors cursor-pointer"
                       >
-                        Esqueceu sua senha?
+                        {requiresTotp ? 'Voltar e trocar as credenciais' : 'Esqueceu sua senha?'}
                       </button>
                     </div>
                   </form>
