@@ -46,8 +46,8 @@ interface HeaderProps {
   pendingRevisionsCount: number;
   theme: AppTheme;
   onToggleTheme: () => void;
-  activeTab?: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations' | 'flashcards';
-  onSelectTab?: (tab: 'table' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations' | 'flashcards') => void;
+  activeTab?: 'table' | 'monthlyHours' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations' | 'flashcards';
+  onSelectTab?: (tab: 'table' | 'monthlyHours' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations' | 'flashcards') => void;
   onLockTerminal?: () => void;
   isSidebarOpen?: boolean;
   onToggleSidebar?: () => void;

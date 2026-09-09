@@ -38,7 +38,6 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
 }) => {
   const [statusSelection, setStatusSelection] = useState<'studied' | 'reviewing' | 'pending'>('studied');
   const [topic, setTopic] = useState('');
-  const [durationHours, setDurationHours] = useState<number>(1);
   const [notes, setNotes] = useState('');
   const [syncWithCalendar, setSyncWithCalendar] = useState(hasGoogleCalendar);
 
@@ -66,17 +65,11 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
         setStatusSelection('studied');
       }
       setTopic(existingEntry.topic || '');
-      const mins = initialDurationMinutes || existingEntry.durationMinutes || 60;
-      const hours = Math.max(1, Math.round(mins / 60));
-      setDurationHours(hours);
       setNotes(existingEntry.notes || '');
       setSyncWithCalendar(hasGoogleCalendar);
     } else {
       setStatusSelection('studied');
       setTopic('');
-      const mins = initialDurationMinutes || 60;
-      const hours = Math.max(1, Math.round(mins / 60));
-      setDurationHours(hours);
       setNotes('');
       setSyncWithCalendar(hasGoogleCalendar);
     }
@@ -88,8 +81,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanHours = Math.max(1, Math.round(Number(durationHours) || 1));
-    const calculatedMinutes = cleanHours * 60;
+    const calculatedMinutes = existingEntry?.durationMinutes || initialDurationMinutes || 60;
     const isCompleted = statusSelection !== 'pending';
     const entryType: StudyEntryType = statusSelection === 'reviewing' ? 'reviewing' : 'studied';
     const canSync = syncWithCalendar && hasGoogleCalendar && topic.trim().length > 0 && isCompleted;
@@ -242,58 +234,6 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
                 </div>
               </div>
             )}
-          </div>
-
-          {/* Duration in Hours (Whole Hours Only) */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-blue-400" />
-                Carga Horária Dedicada (Horas Inteiras):
-              </label>
-              <span className="text-xs font-bold text-blue-400">
-                {durationHours} {durationHours === 1 ? 'hora' : 'horas'} ({durationHours}h)
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  min="1"
-                  max="24"
-                  step="1"
-                  value={durationHours}
-                  onChange={(e) => {
-                    const parsed = parseInt(e.target.value, 10);
-                    setDurationHours(isNaN(parsed) || parsed < 1 ? 1 : parsed);
-                  }}
-                  className="w-24 px-3 py-2 bg-[#0F1D38] border border-blue-900/60 rounded-xl text-xs font-bold text-slate-100 focus:bg-[#132345] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-center"
-                />
-                <span className="text-xs text-slate-400 font-semibold">h</span>
-              </div>
-
-              {/* Preset whole-hour buttons */}
-              <div className="flex gap-1.5 flex-wrap ml-auto">
-                {[1, 2, 3, 4, 5, 6].map((hrs) => (
-                  <button
-                    key={hrs}
-                    type="button"
-                    onClick={() => setDurationHours(hrs)}
-                    className={`px-2.5 py-1 text-xs rounded-lg border transition-all cursor-pointer ${
-                      durationHours === hrs
-                        ? 'bg-[#0056D2] text-white border-blue-400 font-bold shadow-xs scale-105'
-                        : 'bg-[#0F1D38] border-blue-900/40 text-slate-400 hover:bg-[#132345] hover:text-slate-200'
-                    }`}
-                  >
-                    {hrs}h
-                  </button>
-                ))}
-              </div>
-            </div>
-            <p className="text-[10px] text-slate-400 mt-1">
-              Horas inteiras (sem decimais). Ex: 2h, 3h, 5h.
-            </p>
           </div>
 
           {/* Notes */}

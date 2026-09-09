@@ -192,16 +192,55 @@ export const TimerTab: React.FC<TimerTabProps> = ({
     }
   };
 
-  // Salvar sessão direto no cronograma
-  const handleSaveToSchedule = () => {
-    const minutes = Math.max(1, Math.round(displayMs / 60000));
-    if (onLogStudySession && activeSubject) {
-      onLogStudySession(activeSubject.id, minutes, `Estudo registrado via Cronômetro de Foco`);
-      setSessionSuccessMsg(`Sessão de ${minutes} min registrada em ${activeSubject.name}!`);
-      setTimeout(() => setSessionSuccessMsg(null), 5000);
-    } else {
-      setSessionSuccessMsg(`Sessão de ${minutes} min salva com sucesso!`);
-      setTimeout(() => setSessionSuccessMsg(null), 4000);
+  // Salvar sessão direto no banco de dados e sincronizar com cronograma
+  const [isSavingDb, setIsSavingDb] = useState(false);
+
+  const handleSaveToDatabase = async () => {
+    const durationSeconds = Math.max(1, Math.round(displayMs / 1000));
+    const mins = Math.max(1, Math.round(durationSeconds / 60));
+
+    try {
+      setIsSavingDb(true);
+      if (isRunning) {
+        await handlePause();
+      }
+
+      const res = await apiFetch('/api/timer/save-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subjectId: activeSubject?.id || 'geral',
+          subjectName: activeSubject?.name || 'Estudo Geral',
+          durationSeconds,
+          notes: `Sessão cronometrada em ${activeSubject?.name || 'Estudo Geral'}`,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || 'Falha ao gravar sessão no banco');
+      }
+
+      const data = await res.json();
+      if (data.timerState) {
+        setTimerState(data.timerState);
+      }
+      setDisplayMs(0);
+
+      // Notifica cronograma se handler existir
+      if (onLogStudySession && activeSubject) {
+        onLogStudySession(activeSubject.id, mins, `Estudo registrado via Cronômetro de Foco`);
+      }
+
+      setSessionSuccessMsg(
+        `✅ Sessão de ${mins} min salva com sucesso no Banco de Dados e contabilizada na sua Agenda!`
+      );
+      setTimeout(() => setSessionSuccessMsg(null), 6000);
+    } catch (err: any) {
+      console.error('Falha ao salvar sessão no banco:', err);
+      alert(err.message || 'Erro ao salvar estudo no banco de dados.');
+    } finally {
+      setIsSavingDb(false);
     }
   };
 
@@ -389,23 +428,20 @@ export const TimerTab: React.FC<TimerTabProps> = ({
             <span>ZERAR</span>
           </button>
 
-          {/* Botão de Finalizar e Abrir Modal com Submatérias */}
+          {/* Botão de Finalizar e Gravar no Banco de Dados / Cronograma */}
           <button
             onClick={async () => {
-              if (isRunning) {
-                await handlePause();
+              if (displayMs < 1000) {
+                alert('Inicie o cronômetro para contabilizar o tempo antes de salvar.');
+                return;
               }
-              const mins = Math.max(1, Math.round(displayMs / 60000));
-              if (onOpenStudyModal && activeSubject) {
-                onOpenStudyModal(activeSubject.id, mins);
-              } else {
-                handleSaveToSchedule();
-              }
+              await handleSaveToDatabase();
             }}
-            className="inline-flex items-center gap-2.5 px-7 py-4 rounded-2xl bg-[#0056D2] hover:bg-[#0047B3] text-white text-xs font-extrabold uppercase tracking-wider shadow-[0_10px_25px_rgba(0,86,210,0.5)] hover:shadow-[0_15px_35px_rgba(0,86,210,0.7)] transition-all cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
+            disabled={isSavingDb || displayMs === 0}
+            className="inline-flex items-center gap-2.5 px-7 py-4 rounded-2xl bg-[#0056D2] hover:bg-[#0047B3] text-white text-xs font-extrabold uppercase tracking-wider shadow-[0_10px_25px_rgba(0,86,210,0.5)] hover:shadow-[0_15px_35px_rgba(0,86,210,0.7)] transition-all cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <CheckCircle2 className="w-4 h-4 text-sky-300" />
-            <span>CONCLUIR &amp; REGISTRAR NO CRONOGRAMA →</span>
+            <span>{isSavingDb ? 'GRAVANDO NO BANCO...' : 'CONCLUIR & SALVAR HORAS NO BANCO →'}</span>
           </button>
         </div>
 

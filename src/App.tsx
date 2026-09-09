@@ -68,6 +68,7 @@ import { SecurityGate } from './components/SecurityGate';
 import { LandingPage } from './components/LandingPage';
 const TimerTab = lazy(() => import('./components/TimerTab').then(({ TimerTab }) => ({ default: TimerTab })));
 const NotionAgendaTab = lazy(() => import('./components/NotionAgendaTab').then(({ NotionAgendaTab }) => ({ default: NotionAgendaTab })));
+const MonthlyStudyHeatmapTab = lazy(() => import('./components/MonthlyStudyHeatmapTab').then(({ MonthlyStudyHeatmapTab }) => ({ default: MonthlyStudyHeatmapTab })));
 import { CookieConsent } from './components/CookieConsent';
 const TacticalSimulations = lazy(() => import('./components/TacticalSimulations').then(({ TacticalSimulations }) => ({ default: TacticalSimulations })));
 import { TacticalSidebar, TabType } from './components/TacticalSidebar';
@@ -1888,8 +1889,17 @@ export default function App() {
           </>
         )}
 
-        {/* Render Tab: Agenda Mensal Contínua & Revisões Notion (Restrito ao Admin) */}
         <Suspense fallback={null}>
+        {/* Render Tab: Agenda Mensal de Horas (Heatmap Azul Gradativo) */}
+        {activeTab === 'monthlyHours' && (
+          <MonthlyStudyHeatmapTab
+            theme={theme}
+            showToast={showToast}
+            onNavigateToTimer={() => setActiveTab('timer')}
+          />
+        )}
+
+        {/* Render Tab: Agenda Mensal Contínua & Revisões Notion (Restrito ao Admin) */}
         {activeTab === 'calendar' && canAccessNotion && (
           <NotionAgendaTab
             theme={theme}

@@ -312,19 +312,21 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                               </p>
                             )}
 
-                            {/* Meta footer (duration, google calendar sync, revisions) */}
+                            {/* Meta footer (google calendar sync, revisions) */}
                             <div
                               className={`w-full flex items-center justify-between text-[9px] sm:text-[10px] mt-1 pt-0.5 border-t ${
                                 isDark ? 'border-slate-800/80 text-slate-500' : 'border-slate-100 text-slate-400'
                               }`}
                             >
                               <span
-                                className={`flex items-center gap-0.5 font-medium ${
-                                  isDark ? 'text-slate-300' : 'text-slate-700'
+                                className={`flex items-center gap-1 font-medium text-[9px] ${
+                                  entry?.entryType === 'reviewing'
+                                    ? 'text-emerald-400'
+                                    : isDark ? 'text-blue-400' : 'text-blue-600'
                                 }`}
                               >
-                                <Clock className="w-2.5 h-2.5 text-blue-400" />
-                                {formatDurationHours(entry?.durationMinutes || 60)}
+                                <CheckCircle2 className="w-2.5 h-2.5" />
+                                {entry?.entryType === 'reviewing' ? 'Revisado' : 'Concluído'}
                               </span>
 
                               <div className="flex items-center gap-0.5">
@@ -388,7 +390,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                         {stats.completedCount}/7 dias
                       </span>
                       <div
-                        className={`w-12 sm:w-14 xl:w-16 h-1.5 rounded-full mt-1 overflow-hidden ${
+                        className={`w-12 sm:w-14 xl:w-16 h-1.5 rounded-full mt-1.5 overflow-hidden ${
                           isDark ? 'bg-slate-800' : 'bg-slate-200'
                         }`}
                       >
@@ -401,11 +403,13 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                         />
                       </div>
                       <span
-                        className={`text-[9px] sm:text-[10px] font-bold mt-0.5 ${
-                          isDark ? 'text-slate-400' : 'text-slate-600'
+                        className={`text-[9px] font-semibold mt-1 ${
+                          progressPct === 100
+                            ? 'text-emerald-400'
+                            : isDark ? 'text-slate-400' : 'text-slate-500'
                         }`}
                       >
-                        {formatDurationHours(stats.totalMinutes)}
+                        {progressPct}%
                       </span>
                     </div>
                   </td>

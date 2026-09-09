@@ -394,4 +394,29 @@ export interface DbQuestionAuditLog {
   createdAt: string;
 }
 
+export interface DbStudySession {
+  id: string;
+  userId: string;
+  subjectId: string;
+  subjectName: string;
+  topic?: string | null;
+  dateStr: string; // YYYY-MM-DD
+  durationSeconds: number;
+  startedAt?: string | null;
+  endedAt: string;
+  notes?: string | null;
+  createdAt: string;
+}
 
+export interface DayStudySummary {
+  dateStr: string; // YYYY-MM-DD
+  totalSeconds: number;
+  totalHours: number;
+  sessionsCount: number;
+  subjects: Array<{
+    subjectId: string;
+    subjectName: string;
+    durationSeconds: number;
+    durationHours: number;
+  }>;
+}

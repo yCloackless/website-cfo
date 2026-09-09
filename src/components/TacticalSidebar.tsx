@@ -22,6 +22,7 @@ import { AppTheme } from '../types';
 
 export type TabType =
   | 'table'
+  | 'monthlyHours'
   | 'timer'
   | 'bizuario'
   | 'highyield'
@@ -104,6 +105,17 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
       label: 'Cronograma',
       icon: LayoutGrid,
       description: 'Grade semanal de estudos',
+    },
+    {
+      id: 'monthlyHours',
+      label: 'Agenda de Horas',
+      icon: Calendar,
+      badge: 'Horas',
+      badgeClass: {
+        dark: 'bg-blue-600/30 text-sky-300 border-blue-500/40',
+        light: 'bg-blue-100 text-blue-800 border-blue-300',
+      },
+      description: 'Horas líquidas diárias',
     },
     ...(canAccessNotion
       ? [

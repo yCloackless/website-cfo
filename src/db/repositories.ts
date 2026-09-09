@@ -43,6 +43,8 @@ import {
   UserRole,
   UserStatus,
   PaymentStatus,
+  DbStudySession,
+  DayStudySummary,
 } from './schema';
 
 function normalizeExamOptions(raw: unknown): ExamOption[] {
@@ -2800,3 +2802,156 @@ export class QuestionAuditRepository {
   }
 }
 
+export class StudySessionRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public create(data: {
+    userId: string;
+    subjectId: string;
+    subjectName: string;
+    topic?: string | null;
+    dateStr: string; // YYYY-MM-DD
+    durationSeconds: number;
+    startedAt?: string | null;
+    endedAt: string;
+    notes?: string | null;
+  }): DbStudySession {
+    const id = `session_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const now = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `INSERT INTO study_sessions (
+          id, user_id, subject_id, subject_name, topic,
+          date_str, duration_seconds, started_at, ended_at, notes, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        data.userId,
+        data.subjectId,
+        data.subjectName,
+        data.topic ?? null,
+        data.dateStr,
+        data.durationSeconds,
+        data.startedAt ?? null,
+        data.endedAt,
+        data.notes ?? null,
+        now
+      );
+
+    return {
+      id,
+      userId: data.userId,
+      subjectId: data.subjectId,
+      subjectName: data.subjectName,
+      topic: data.topic ?? null,
+      dateStr: data.dateStr,
+      durationSeconds: data.durationSeconds,
+      startedAt: data.startedAt ?? null,
+      endedAt: data.endedAt,
+      notes: data.notes ?? null,
+      createdAt: now,
+    };
+  }
+
+  public getDailySummaryByMonth(userId: string, yearMonth: string): Record<string, DayStudySummary> {
+    // yearMonth = 'YYYY-MM'
+    const rows = this.db
+      .prepare(
+        `SELECT
+          date_str,
+          subject_id,
+          subject_name,
+          SUM(duration_seconds) as sub_seconds,
+          COUNT(id) as sub_sessions
+         FROM study_sessions
+         WHERE user_id = ? AND date_str LIKE ?
+         GROUP BY date_str, subject_id, subject_name
+         ORDER BY date_str ASC`
+      )
+      .all(userId, `${yearMonth}-%`) as Array<{
+        date_str: string;
+        subject_id: string;
+        subject_name: string;
+        sub_seconds: number;
+        sub_sessions: number;
+      }>;
+
+    const summaryMap: Record<string, DayStudySummary> = {};
+
+    for (const row of rows) {
+      const date = row.date_str;
+      if (!summaryMap[date]) {
+        summaryMap[date] = {
+          dateStr: date,
+          totalSeconds: 0,
+          totalHours: 0,
+          sessionsCount: 0,
+          subjects: [],
+        };
+      }
+
+      const sec = Number(row.sub_seconds) || 0;
+      summaryMap[date].totalSeconds += sec;
+      summaryMap[date].sessionsCount += Number(row.sub_sessions) || 0;
+      summaryMap[date].subjects.push({
+        subjectId: row.subject_id,
+        subjectName: row.subject_name,
+        durationSeconds: sec,
+        durationHours: Math.round((sec / 3600) * 10) / 10,
+      });
+    }
+
+    for (const date in summaryMap) {
+      summaryMap[date].totalHours = Math.round((summaryMap[date].totalSeconds / 3600) * 10) / 10;
+    }
+
+    return summaryMap;
+  }
+
+  public getSessionsByDate(userId: string, dateStr: string): DbStudySession[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM study_sessions
+         WHERE user_id = ? AND date_str = ?
+         ORDER BY created_at ASC`
+      )
+      .all(userId, dateStr) as any[];
+
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      subjectId: r.subject_id,
+      subjectName: r.subject_name,
+      topic: r.topic ?? null,
+      dateStr: r.date_str,
+      durationSeconds: Number(r.duration_seconds),
+      startedAt: r.started_at ?? null,
+      endedAt: r.ended_at,
+      notes: r.notes ?? null,
+      createdAt: r.created_at,
+    }));
+  }
+
+  public getMonthlyTotal(userId: string, yearMonth: string): { totalSeconds: number; totalHours: number; totalSessions: number } {
+    const row = this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(duration_seconds), 0) as total_seconds,
+          COUNT(id) as total_sessions
+         FROM study_sessions
+         WHERE user_id = ? AND date_str LIKE ?`
+      )
+      .get(userId, `${yearMonth}-%`) as any;
+
+    const totalSeconds = row ? Number(row.total_seconds) : 0;
+    const totalSessions = row ? Number(row.total_sessions) : 0;
+
+    return {
+      totalSeconds,
+      totalHours: Math.round((totalSeconds / 3600) * 10) / 10,
+      totalSessions,
+    };
+  }
+}

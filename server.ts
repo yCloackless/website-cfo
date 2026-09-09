@@ -67,6 +67,7 @@ import {
   QuestionAssetRepository,
   SupportMaterialRepository,
   QuestionAuditRepository,
+  StudySessionRepository,
 } from "./src/db/repositories";
 import { UserRole, DbUser, DbExamPaper } from "./src/db/schema";
 import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
@@ -1180,6 +1181,132 @@ app.post("/api/timer/reset", (req: Request, res: Response) => {
     totalElapsedMs: 0,
     serverTime: Date.now(),
   });
+});
+
+// 5. Salvar Sessão do Cronômetro diretamente no Banco de Dados (SQLite)
+const studySessionRepoInstance = new StudySessionRepository(getDb().getRawDb());
+
+app.post("/api/timer/save-session", (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+
+    const { subjectId, subjectName, topic, durationSeconds, notes } = req.body || {};
+
+    const cleanSubjectId = String(subjectId || "geral").slice(0, 80);
+    const cleanSubjectName = String(subjectName || "Estudo Geral").slice(0, 120);
+    const cleanTopic = topic ? String(topic).slice(0, 200) : null;
+    const cleanNotes = notes ? String(notes).slice(0, 1000) : null;
+
+    // Converte e valida durationSeconds
+    const parsedDuration = Math.round(Number(durationSeconds) || 0);
+    if (parsedDuration <= 0) {
+      return res.status(400).json({ error: "INVALID_DURATION", message: "A sessão precisa ter pelo menos 1 segundo." });
+    }
+
+    // Limite razoável de segurança: máx 24 horas por sessão (86400s)
+    if (parsedDuration > 86400) {
+      return res.status(400).json({ error: "DURATION_EXCEEDS_MAX", message: "Duração máxima por sessão é de 24 horas." });
+    }
+
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    const dateStr = `${y}-${m}-${d}`;
+
+    const session = studySessionRepoInstance.create({
+      userId,
+      subjectId: cleanSubjectId,
+      subjectName: cleanSubjectName,
+      topic: cleanTopic,
+      dateStr,
+      durationSeconds: parsedDuration,
+      endedAt: now.toISOString(),
+      notes: cleanNotes,
+    });
+
+    // Ao salvar a sessão com sucesso, reseta o cronômetro ativo
+    const state: TimerState = {
+      status: "STOPPED",
+      accumulatedTime: 0,
+      startTime: null,
+      updatedAt: now.toISOString(),
+    };
+    saveTimerState(userId, state);
+
+    logAuditEvent({
+      action: "STUDY_SESSION_SAVED",
+      actor: (req as any).user.username || userId,
+      resource: "study_sessions",
+      status: "SUCCESS",
+      ip: getClientIp(req),
+      details: {
+        sessionId: session.id,
+        subjectId: cleanSubjectId,
+        durationSeconds: parsedDuration,
+        dateStr,
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      session,
+      timerState: state,
+    });
+  } catch (err: any) {
+    console.error("Erro ao salvar sessão de estudo:", err);
+    return res.status(500).json({ error: "INTERNAL_ERROR", message: "Falha ao salvar sessão de estudo." });
+  }
+});
+
+// 6. Consultar Resumo Mensal de Horas (para a Agenda Mensal / Heatmap Azul)
+app.get("/api/study-sessions/daily-summary", (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+
+    const now = new Date();
+    const currentYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const rawMonth = String(req.query.month || currentYM);
+
+    // Valida formato YYYY-MM
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(rawMonth)) {
+      return res.status(400).json({ error: "INVALID_MONTH_FORMAT", message: "Formato esperado: YYYY-MM" });
+    }
+
+    const summary = studySessionRepoInstance.getDailySummaryByMonth(userId, rawMonth);
+    const totals = studySessionRepoInstance.getMonthlyTotal(userId, rawMonth);
+
+    return res.json({
+      success: true,
+      month: rawMonth,
+      summary,
+      totals,
+    });
+  } catch (err: any) {
+    console.error("Erro ao consultar resumo diário de estudo:", err);
+    return res.status(500).json({ error: "INTERNAL_ERROR" });
+  }
+});
+
+// 7. Consultar Sessões Detalhadas de uma Data Específica
+app.get("/api/study-sessions/day/:dateStr", (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+
+    const dateStr = String(req.params.dateStr || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return res.status(400).json({ error: "INVALID_DATE_FORMAT" });
+    }
+
+    const sessions = studySessionRepoInstance.getSessionsByDate(userId, dateStr);
+    return res.json({ success: true, dateStr, sessions });
+  } catch (err: any) {
+    console.error("Erro ao obter sessões do dia:", err);
+    return res.status(500).json({ error: "INTERNAL_ERROR" });
+  }
 });
 
 // ============================================================================

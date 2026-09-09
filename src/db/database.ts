@@ -625,6 +625,30 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_qaudit_created_at ON question_audit_logs(created_at);
     `,
   },
+  {
+    id: 17,
+    name: '017_study_sessions',
+    sql: `
+      -- SESSÕES DE ESTUDO DO CRONÔMETRO (Auditoria e Persistência de Horas Líquidas)
+      CREATE TABLE IF NOT EXISTS study_sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        subject_id TEXT NOT NULL,
+        subject_name TEXT NOT NULL,
+        topic TEXT,
+        date_str TEXT NOT NULL, -- YYYY-MM-DD
+        duration_seconds INTEGER NOT NULL CHECK (duration_seconds > 0),
+        started_at TEXT,
+        ended_at TEXT NOT NULL,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_study_sessions_user_date ON study_sessions(user_id, date_str);
+      CREATE INDEX IF NOT EXISTS idx_study_sessions_user_subject ON study_sessions(user_id, subject_id);
+      CREATE INDEX IF NOT EXISTS idx_study_sessions_created_at ON study_sessions(created_at);
+    `,
+  },
 ];
 
 

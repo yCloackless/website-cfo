@@ -20,6 +20,7 @@ import {
   EntitlementRepository,
   RefundRepository,
   AuditRepository,
+  StudySessionRepository,
 } from '../src/db/repositories';
 
 function createTempDb(): { dbService: DatabaseService; cleanup: () => void } {
@@ -330,3 +331,76 @@ test('5. Invariantes de REFUND_REQUEST e AUDIT_EVENT', () => {
 
   cleanup();
 });
+
+test('6. Invariantes de STUDY_SESSIONS (Persistência do Cronômetro e Resumo Diário para Heatmap Azul)', () => {
+  const { dbService, cleanup } = createTempDb();
+  const db = dbService.getRawDb();
+  const userRepo = new UserRepository(db);
+  const sessionRepo = new StudySessionRepository(db);
+
+  const cadet = userRepo.create({
+    email: 'cadete.cronometro@cbmerj.com',
+    username: 'cadete_cronometro',
+    passwordHash: 'hash',
+    role: 'cadet',
+  });
+
+  // Grava sessões no mesmo dia e em dias distintos
+  const s1 = sessionRepo.create({
+    userId: cadet.id,
+    subjectId: 'quimica',
+    subjectName: 'Química',
+    topic: 'Estequiometria',
+    dateStr: '2026-09-09',
+    durationSeconds: 3600, // 1h
+    endedAt: '2026-09-09T10:00:00.000Z',
+    notes: 'Sessão 1',
+  });
+
+  const s2 = sessionRepo.create({
+    userId: cadet.id,
+    subjectId: 'fisica',
+    subjectName: 'Física',
+    topic: 'Termologia',
+    dateStr: '2026-09-09',
+    durationSeconds: 5400, // 1.5h
+    endedAt: '2026-09-09T14:00:00.000Z',
+    notes: 'Sessão 2',
+  });
+
+  const s3 = sessionRepo.create({
+    userId: cadet.id,
+    subjectId: 'matematica',
+    subjectName: 'Matemática',
+    dateStr: '2026-09-10',
+    durationSeconds: 7200, // 2h
+    endedAt: '2026-09-10T16:00:00.000Z',
+  });
+
+  assert.ok(s1.id.startsWith('session_'));
+  assert.equal(s1.durationSeconds, 3600);
+
+  // Consulta por dia
+  const day9Sessions = sessionRepo.getSessionsByDate(cadet.id, '2026-09-09');
+  assert.equal(day9Sessions.length, 2);
+
+  // Consulta resumo mensal
+  const summary = sessionRepo.getDailySummaryByMonth(cadet.id, '2026-09');
+  assert.ok(summary['2026-09-09']);
+  assert.equal(summary['2026-09-09'].totalSeconds, 9000); // 3600 + 5400
+  assert.equal(summary['2026-09-09'].totalHours, 2.5);
+  assert.equal(summary['2026-09-09'].sessionsCount, 2);
+  assert.equal(summary['2026-09-09'].subjects.length, 2);
+
+  assert.ok(summary['2026-09-10']);
+  assert.equal(summary['2026-09-10'].totalHours, 2.0);
+
+  // Totais do mês
+  const totals = sessionRepo.getMonthlyTotal(cadet.id, '2026-09');
+  assert.equal(totals.totalSeconds, 16200); // 9000 + 7200
+  assert.equal(totals.totalHours, 4.5);
+  assert.equal(totals.totalSessions, 3);
+
+  cleanup();
+});
+
