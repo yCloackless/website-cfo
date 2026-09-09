@@ -19,6 +19,18 @@ except ImportError as e:
     sys.stderr.write(f"MISSING_DEPENDENCY: {e}\n")
     sys.exit(2)
 
+# Blindagem de codificação UTF-8 para stdout e stderr no Windows
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+if hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 
 # ==============================================================================
 # CONFIGURAÇÃO E CONSTANTES
@@ -37,9 +49,13 @@ QUESTION_PATTERNS = [
     # 1. Padrão explícito: "QUESTÃO 01", "Questão 1", "QUESTAO 14"
     re.compile(r"^(?:QUEST[ÃA]O|Quest[ãa]o|Q\.)\s*0*(\d{1,3})(?:[\.\-\)\s:]|$)", re.IGNORECASE),
     # 2. Padrão numérico no início com separador: "01.", "01 -", "01)", "1."
-    re.compile(r"^0*(\d{1,3})[\.\-\)]\s+"),
+    re.compile(r"^0*([1-9]\d{0,2})[\.\-\)]\s+"),
     # 3. Padrão Q1, Q01:
-    re.compile(r"^Q\s*0*(\d{1,3})[\.\-\)\s:]", re.IGNORECASE),
+    re.compile(r"^Q\s*0*([1-9]\d{0,2})[\.\-\)\s:]", re.IGNORECASE),
+    # 4. Padrão número isolado na linha/bloco (VUNESP, FGV, PMESP, CBMERJ): "01", "06", "62", "80"
+    re.compile(r"^0*([1-9]\d{0,2})$"),
+    # 5. Padrão número seguido de espaço e início de texto: "62 Quando a lâmpada..."
+    re.compile(r"^0*([1-9]\d{0,2})\s+([A-ZÁ-Ú\"'].*)"),
 ]
 
 # Padrões para descartar falsos positivos
@@ -53,7 +69,7 @@ FALSE_POSITIVE_PATTERNS = [
 ]
 
 # Padrão estrito para alternativas: exige delimitador claro como A), (A), A., A -
-OPTION_PATTERN = re.compile(r"^\s*(?:\(([A-Ea-e])\)|([A-Ea-e])[\.\-\)])\s+(.*)$")
+OPTION_PATTERN = re.compile(r"^\s*(?:\(([A-Ea-e])\)|([A-Ea-e])[\.\-\)])(?:\t|\s+)(.*)$")
 
 # Padrões de cabeçalho e rodapé que devem ser ignorados no fluxo da questão
 HEADER_FOOTER_PATTERNS = [
@@ -61,7 +77,28 @@ HEADER_FOOTER_PATTERNS = [
     re.compile(r"^PROVA\s+(?:OBJETIVA|OFICIAL)", re.IGNORECASE),
     re.compile(r"^FOLHA\s+DE\s+RESPOSTAS?", re.IGNORECASE),
     re.compile(r"^CBMERJ\s*[-–]\s*CFO", re.IGNORECASE),
+    re.compile(r"^CADETE\s+PM", re.IGNORECASE),
+    re.compile(r"^PMES\d+", re.IGNORECASE),
+    re.compile(r"Confidencial\s+at[ée]\s+o\s+momento", re.IGNORECASE),
     re.compile(r"^(?:P[áa]gina|P[áa]g\.)\s*\d+(?:\s*(?:de|/)\s*\d+)?$", re.IGNORECASE),
+]
+
+# Mapeamento de cabeçalhos de disciplina presentes nas páginas
+DISCIPLINE_HEADER_PATTERNS = [
+    (re.compile(r"^Hist[oó]ria$", re.IGNORECASE), "História"),
+    (re.compile(r"^Geografia$", re.IGNORECASE), "Geografia"),
+    (re.compile(r"^Filosofia$", re.IGNORECASE), "Filosofia"),
+    (re.compile(r"^Sociologia$", re.IGNORECASE), "Sociologia"),
+    (re.compile(r"^(?:L[íi]ngua\s+Portuguesa|Portugu[êe]s)$", re.IGNORECASE), "Língua Portuguesa"),
+    (re.compile(r"^Literatura$", re.IGNORECASE), "Língua Portuguesa"),
+    (re.compile(r"^(?:L[íi]ngua\s+Inglesa|Ingl[êe]s)$", re.IGNORECASE), "Língua Inglesa"),
+    (re.compile(r"^(?:L[íi]ngua\s+Espanhola|Espanhol)$", re.IGNORECASE), "Língua Espanhola"),
+    (re.compile(r"^Matem[áa]tica$", re.IGNORECASE), "Matemática"),
+    (re.compile(r"^F[íi]sica$", re.IGNORECASE), "Física"),
+    (re.compile(r"^Qu[íi]mica$", re.IGNORECASE), "Química"),
+    (re.compile(r"^Biologia$", re.IGNORECASE), "Biologia"),
+    (re.compile(r"^(?:Direito|Legisla[çc][ãa]o.*)$", re.IGNORECASE), "Legislação"),
+    (re.compile(r"^Inform[áa]tica$", re.IGNORECASE), "Informática"),
 ]
 
 
@@ -297,7 +334,11 @@ def parse_question_content(text_blocks: List[Dict[str, Any]]) -> Dict[str, Any]:
     current_opt_letter = None
     current_opt_text = []
 
-    for line in all_lines:
+    for raw_line in all_lines:
+        line = raw_line.replace("\t", " ").strip()
+        if not line:
+            continue
+
         # Descarta cabeçalhos/rodapés que possam ter sido capturados
         is_hf = any(hf.search(line) for hf in HEADER_FOOTER_PATTERNS)
         if is_hf:
@@ -312,11 +353,12 @@ def parse_question_content(text_blocks: List[Dict[str, Any]]) -> Dict[str, Any]:
                 })
             letter = opt_match.group(1) or opt_match.group(2)
             current_opt_letter = letter.upper()
-            current_opt_text = [opt_match.group(3).strip()]
+            initial_text = opt_match.group(3).strip()
+            current_opt_text = [initial_text] if initial_text else []
         elif current_opt_letter:
-            current_opt_text.append(line.strip())
+            current_opt_text.append(line)
         else:
-            statement_lines.append(line.strip())
+            statement_lines.append(line)
 
     if current_opt_letter:
         options.append({
@@ -350,6 +392,7 @@ def analyze_pdf(pdf_path: str, output_dir: str, dpi: int = DEFAULT_DPI) -> Dict[
     # Estado de extração progressiva
     current_question: Optional[Dict[str, Any]] = None
     last_detected_num = 0
+    current_discipline = "Conhecimentos Gerais"
 
     for page_idx in range(total_pages):
         page = doc[page_idx]
@@ -360,6 +403,14 @@ def analyze_pdf(pdf_path: str, output_dir: str, dpi: int = DEFAULT_DPI) -> Dict[
         num_cols, divider_x = detect_page_columns(page)
 
         ordered_blocks = extract_ordered_blocks(page, num_cols, divider_x)
+
+        # Se for capa ou folha de instruções inicial, não inicia questões
+        page_raw_text = page.get_text("text") or ""
+        is_cover_page = page_num <= 2 and (
+            "CONCURSO PÚBLICO" in page_raw_text or
+            "CADERNO DE QUESTÕES" in page_raw_text or
+            "FOLHA DE RESPOSTAS" in page_raw_text
+        )
 
         # Determina os limites x das colunas
         col_bounds = {}
@@ -374,25 +425,39 @@ def analyze_pdf(pdf_path: str, output_dir: str, dpi: int = DEFAULT_DPI) -> Dict[
             if not lines:
                 continue
 
-            first_line = lines[0]
+            # Atualiza a disciplina corrente se o bloco for um cabeçalho de disciplina
+            clean_block_text = " ".join(lines).strip()
+            for disc_regex, disc_name in DISCIPLINE_HEADER_PATTERNS:
+                if disc_regex.search(clean_block_text):
+                    current_discipline = disc_name
+                    break
+
+            # Se for página de capa/instruções, pula detecção de âncoras de questão
+            if is_cover_page:
+                continue
+
+            # Ignora blocos muito colados no topo ou no rodapé extremo
+            if block["y0"] < 20.0 or block["y1"] > (page_rect.height - 35.0):
+                if any(hf.search(clean_block_text) for hf in HEADER_FOOTER_PATTERNS):
+                    continue
+
+            first_line = lines[0].replace("\t", " ").strip()
             anchor = check_question_anchor(first_line)
 
             if anchor:
                 q_num, base_confidence = anchor
 
-                # Se detectamos uma nova questão com número coerente
-                # (ou primeira questão, ou sequência crescente/razoável)
+                # Validação de sequência rigorosa para evitar falsos positivos
                 is_valid_sequence = False
                 if last_detected_num == 0:
-                    is_valid_sequence = True
+                    if q_num == 1:
+                        is_valid_sequence = True
                 elif q_num == last_detected_num + 1:
                     is_valid_sequence = True
-                    base_confidence = min(1.0, base_confidence + 0.05)
-                elif q_num > last_detected_num and q_num <= last_detected_num + 5:
-                    is_valid_sequence = True  # Pulo pequeno aceitável
-                elif q_num == 1:
-                    # Nova seção da prova reiniciando numeração
-                    is_valid_sequence = True
+                    base_confidence = min(1.0, base_confidence + 0.08)
+                elif q_num > last_detected_num and q_num <= last_detected_num + 3:
+                    is_valid_sequence = True  # Pulo pequeno tolerado
+                # Se q_num <= last_detected_num, descarta (número menor em fração/equação)
 
                 if is_valid_sequence:
                     # Finaliza a questão anterior se houver
@@ -408,7 +473,8 @@ def analyze_pdf(pdf_path: str, output_dir: str, dpi: int = DEFAULT_DPI) -> Dict[
                     current_question = {
                         "questionNumber": q_num,
                         "confidence": base_confidence,
-                        "status": "READY" if base_confidence >= 0.90 else "NEEDS_REVIEW",
+                        "status": "READY" if base_confidence >= 0.88 else "NEEDS_REVIEW",
+                        "discipline": current_discipline,
                         "blocks": [block],
                         "segments": [],
                         "current_page": page_num,
@@ -453,25 +519,16 @@ def analyze_pdf(pdf_path: str, output_dir: str, dpi: int = DEFAULT_DPI) -> Dict[
                     current_question["current_col"] = col_idx
                     current_question["col_min"] = col_min
                     current_question["col_max"] = col_max
-                    current_question["x0"] = block["x0"],
-                    current_question["y0"] = block["y0"],
-                    current_question["x1"] = block["x1"],
-                    current_question["y1"] = block["y1"],
-                    # Correção se tupla acidental
-                    if isinstance(current_question["x0"], tuple):
-                        current_question["x0"] = current_question["x0"][0]
-                    if isinstance(current_question["y0"], tuple):
-                        current_question["y0"] = current_question["y0"][0]
-                    if isinstance(current_question["x1"], tuple):
-                        current_question["x1"] = current_question["x1"][0]
-                    if isinstance(current_question["y1"], tuple):
-                        current_question["y1"] = current_question["y1"][0]
+                    current_question["x0"] = float(block["x0"])
+                    current_question["y0"] = float(block["y0"])
+                    current_question["x1"] = float(block["x1"])
+                    current_question["y1"] = float(block["y1"])
                 else:
                     # Atualiza os limites do segmento atual na mesma coluna
-                    current_question["x0"] = min(current_question["x0"], block["x0"])
-                    current_question["y0"] = min(current_question["y0"], block["y0"])
-                    current_question["x1"] = max(current_question["x1"], block["x1"])
-                    current_question["y1"] = max(current_question["y1"], block["y1"])
+                    current_question["x0"] = min(float(current_question["x0"]), float(block["x0"]))
+                    current_question["y0"] = min(float(current_question["y0"]), float(block["y0"]))
+                    current_question["x1"] = max(float(current_question["x1"]), float(block["x1"]))
+                    current_question["y1"] = max(float(current_question["y1"]), float(block["y1"]))
 
                 current_question["blocks"].append(block)
 
@@ -487,6 +544,7 @@ def analyze_pdf(pdf_path: str, output_dir: str, dpi: int = DEFAULT_DPI) -> Dict[
     for q in detected_questions:
         results.append({
             "questionNumber": q["questionNumber"],
+            "discipline": q.get("discipline", "Conhecimentos Gerais"),
             "confidence": round(q["confidence"], 2),
             "status": q["status"],
             "statement": q["content"]["statement"],

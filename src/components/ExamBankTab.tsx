@@ -305,7 +305,16 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
     if (!selectedQuestion?.imagesJson) return [];
     try {
       const parsed = JSON.parse(selectedQuestion.imagesJson);
-      return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .filter((item) => typeof item === 'string' && item.trim().length > 0)
+        .map((img: string) => {
+          if (img.startsWith('http://') || img.startsWith('https://') || img.startsWith('data:') || img.startsWith('/api/')) {
+            return img;
+          }
+          const baseName = img.split(/[\\/]/).pop();
+          return `/api/exams/assets/file/${baseName}`;
+        });
     } catch { return []; }
   }, [selectedQuestion]);
 
@@ -1261,7 +1270,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
                         {opt.letter}
                       </span>
                       <div className="text-xs leading-tight flex-1 pt-0.5">
-                        <Latex content={opt.text} />
+                        <Latex content={(opt.text || '').replace(/\t/g, ' ').trim()} />
                       </div>
                     </button>
                   );

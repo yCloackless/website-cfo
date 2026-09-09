@@ -158,7 +158,11 @@ export class ExamService {
         outputDir,
         '--dpi',
         String(dpi),
-      ], { maxBuffer: 10 * 1024 * 1024, timeout: 60000 });
+      ], {
+        maxBuffer: 50 * 1024 * 1024,
+        timeout: 180000,
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      });
 
       const parsed = JSON.parse(stdout);
       return parsed;
@@ -200,18 +204,20 @@ export class ExamService {
             options: Array.isArray(q.options)
               ? q.options.map((opt: any) => ({
                   letter: opt.letter as 'A' | 'B' | 'C' | 'D' | 'E',
-                  text: String(opt.text || '').trim(),
+                  text: String(opt.text || '').replace(/\t/g, ' ').trim(),
                 }))
               : [],
             correctOption: null,
-            discipline: this.normalizeDiscipline('Conhecimentos Gerais'),
-            topic: 'Geral',
+            discipline: this.normalizeDiscipline(q.discipline || 'Conhecimentos Gerais'),
+            topic: q.discipline || 'Geral',
             subtopic: 'Geral',
             difficulty: 'Médio' as ExamDifficulty,
             confidenceScore: Number(q.confidence || 0.95),
             status: q.status || (Number(q.confidence || 0) >= 0.9 ? 'READY' : 'NEEDS_REVIEW'),
             images: Array.isArray(q.assets)
-              ? q.assets.filter((a: any) => a.assetType === 'original_crop').map((a: any) => a.filePath)
+              ? q.assets
+                  .filter((a: any) => a.assetType === 'original_crop')
+                  .map((a: any) => `/api/exams/assets/file/${path.basename(a.filePath)}`)
               : [],
             segments: q.segments,
             assets: q.assets,
@@ -402,7 +408,11 @@ export class ExamService {
         outFile,
         '--dpi',
         '120',
-      ], { maxBuffer: 10 * 1024 * 1024, timeout: 30000 });
+      ], {
+        maxBuffer: 15 * 1024 * 1024,
+        timeout: 30000,
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      });
 
       const parsed = JSON.parse(stdout);
       return parsed;
@@ -468,7 +478,11 @@ export class ExamService {
       outputFilePath,
       '--dpi',
       '180',
-    ]);
+    ], {
+      maxBuffer: 15 * 1024 * 1024,
+      timeout: 30000,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+    });
 
     const cropRes = JSON.parse(stdout);
     if (!cropRes.success) {
@@ -537,7 +551,7 @@ export class ExamService {
       this.examQuestionRepo.update(params.questionId, {
         status: 'READY',
         confidenceScore: 1.0,
-        images: [outputFilePath],
+        images: [`/api/exams/assets/file/${baseName}`],
       });
 
       return { success: true, segment, asset };
@@ -942,17 +956,53 @@ Retorne APENAS um array JSON de questões com a estrutura:
 
   private extractQuestionsWithTextParser(text: string): ExtractedQuestionDraft[] {
     const result: ExtractedQuestionDraft[] = [];
+    
+    // 1. Tenta padrão explícito: Questão 01, Q. 01
     const matches = [...text.matchAll(/(?:Quest(?:ão|ao|Ã£o|ÃƒÂ£o)|Q\.?)\s*[:#.-]?\s*(\d+)\s*[:.-]?([\s\S]*?)(?=(?:\n\s*(?:Quest(?:ão|ao|Ã£o|ÃƒÂ£o)|Q\.?)\s*\d+)|$)/gi)];
     for (const match of matches) {
       const body = match[2].trim();
       const options = [...body.matchAll(/(?:^|\s)([A-E])\s*[)\].:-]\s*([\s\S]*?)(?=\s+[A-E]\s*[)\].:-]|$)/gi)];
       if (options.length < 2) continue;
       result.push({
-        questionNumber: Number(match[1]), statement: body.slice(0, options[0].index).trim(),
-        options: options.map((option) => ({ letter: option[1].toUpperCase() as any, text: option[2].trim() })),
-        correctOption: null, discipline: 'Conhecimentos Gerais', topic: 'Geral', subtopic: 'Geral', difficulty: 'Médio',
+        questionNumber: Number(match[1]),
+        statement: body.slice(0, options[0].index).trim(),
+        options: options.map((option) => ({ letter: option[1].toUpperCase() as any, text: option[2].replace(/\t/g, ' ').trim() })),
+        correctOption: null,
+        discipline: 'Conhecimentos Gerais',
+        topic: 'Geral',
+        subtopic: 'Geral',
+        difficulty: 'Médio',
       });
     }
+
+    // 2. Se o padrão explícito não achou pelo menos 3 questões, tenta padrão numérico sequencial (ex: VUNESP: 01, 02...)
+    if (result.length < 3) {
+      const altResult: ExtractedQuestionDraft[] = [];
+      const numMatches = [...text.matchAll(/(?:^|\n)\s*0*([1-9]\d{0,2})\b(?:\s*[\.\-\)]|\s+)([\s\S]*?)(?=(?:\n\s*0*[1-9]\d{0,2}\b(?:\s*[\.\-\)]|\s+))|$)/g)];
+      for (const match of numMatches) {
+        const body = match[2].trim();
+        const options = [...body.matchAll(/(?:^|\s)\(?([A-Ea-e])\)?[)\].:-]?\s+([\s\S]*?)(?=\s+\(?[A-Ea-e]\)?[)\].:-]?\s+|$)/g)];
+        if (options.length >= 2) {
+          altResult.push({
+            questionNumber: Number(match[1]),
+            statement: body.slice(0, options[0].index).trim(),
+            options: options.slice(0, 5).map((opt) => ({
+              letter: opt[1].toUpperCase() as any,
+              text: opt[2].replace(/\t/g, ' ').trim(),
+            })),
+            correctOption: null,
+            discipline: 'Conhecimentos Gerais',
+            topic: 'Geral',
+            subtopic: 'Geral',
+            difficulty: 'Médio',
+          });
+        }
+      }
+      if (altResult.length > result.length) {
+        return altResult;
+      }
+    }
+
     return result;
   }
 
