@@ -183,7 +183,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
     }
 
     // Se o Turnstile for obrigatório para este IP e ainda não foi resolvido
-    if (securityStatus?.turnstileRequired && !turnstileToken) {
+    if (!requiresTotp && securityStatus?.turnstileRequired && !turnstileToken) {
       setErrorMsg('Por favor, complete a verificação de segurança Cloudflare Turnstile.');
       return;
     }
