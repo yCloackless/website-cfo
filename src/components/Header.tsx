@@ -2,10 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Flame,
   Calendar,
+  CalendarDays,
   History,
   RotateCcw,
   Plus,
   BookPlus,
+  Brain,
   Sparkles,
   LogOut,
   CheckCircle2,
@@ -193,7 +195,7 @@ export const Header: React.FC<HeaderProps> = ({
                 }`}
                 title={isSidebarOpen ? 'Recolher menu lateral' : 'Expandir menu lateral'}
               >
-                <PanelLeft className="w-5 h-5" />
+                <PanelLeft className="topbar-icon w-5 h-5" />
               </button>
             )}
 
@@ -242,7 +244,7 @@ export const Header: React.FC<HeaderProps> = ({
                 }`}
                 title="Acessar painel de revisões espaçadas ativas"
               >
-                <Sparkles className="h-4 w-4 shrink-0 text-blue-400" />
+                <Sparkles className="topbar-icon h-4 w-4 shrink-0" />
                 <span className="truncate">Revisões</span>
                 {pendingRevisionsCount > 0 && (
                   <span className="absolute -right-0.5 -top-1 min-w-4 rounded-full bg-blue-600 px-1 py-0.5 text-[9px] font-black leading-none text-white">
@@ -257,7 +259,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-full border px-2 text-[11px] font-bold transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${mobileSurface}`}
                 title="Adicionar disciplina personalizada ao seu ciclo"
               >
-                <Plus className="h-4 w-4 shrink-0 text-blue-400" />
+                <Plus className="topbar-icon h-4 w-4 shrink-0" />
                 <span className="truncate">Adicionar</span>
               </button>
               <button
@@ -267,7 +269,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-full border px-2 text-[11px] font-bold transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${mobileSurface}`}
                 title="Ver histórico de semanas anteriores"
               >
-                <History className="h-4 w-4 shrink-0" />
+                <History className="topbar-icon h-4 w-4 shrink-0" />
                 <span className="truncate">Histórico</span>
               </button>
             </div>
@@ -283,7 +285,7 @@ export const Header: React.FC<HeaderProps> = ({
                   title="Central de notificações"
                 >
                   <span className="relative flex h-12 w-12 items-center justify-center rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-300">
-                    <Bell className="h-5 w-5" />
+                    <Bell className="topbar-icon h-5 w-5" />
                     {unreadNotificationsCount > 0 && (
                       <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-500 px-1 py-0.5 text-[9px] font-black leading-none text-white shadow-md shadow-red-500/40">
                         {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
@@ -329,7 +331,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className={`${mobileCircle} border-amber-500/40 bg-amber-500/10 text-amber-300 hover:border-amber-400`}
                   title="Painel de monitoramento de segurança e auditoria"
                 >
-                  <span className="flex h-12 w-12 items-center justify-center rounded-full border border-amber-400/40 bg-amber-500/10"><ShieldCheck className="h-5 w-5" /></span>
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full border border-amber-400/40 bg-amber-500/10"><ShieldCheck className="topbar-icon h-5 w-5" /></span>
                   <span className={mobileLabel}>Segurança</span>
                 </button>
               )}
@@ -343,7 +345,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className={`${mobileCircle} border-blue-500/40 bg-blue-500/10 text-blue-300 hover:border-blue-400`}
                   title="Bloquear terminal e retornar à página inicial"
                 >
-                  <span className="flex h-12 w-12 items-center justify-center rounded-full border border-blue-400/40 bg-blue-500/10"><LockKeyhole className="h-5 w-5" /></span>
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full border border-blue-400/40 bg-blue-500/10"><LockKeyhole className="topbar-icon h-5 w-5" /></span>
                   <span className={mobileLabel}>Bloqueio</span>
                 </button>
               )}
@@ -356,7 +358,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className={`${mobileCircle} ${mobileSurface}`}
                 title={isDark ? 'Alternar para modo claro' : 'Alternar para modo escuro'}
               >
-                <span className="flex h-12 w-12 items-center justify-center rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-300">{isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}</span>
+                <span className="flex h-12 w-12 items-center justify-center rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-300">{isDark ? <Sun className="topbar-icon h-5 w-5" /> : <Moon className="topbar-icon h-5 w-5" />}</span>
                 <span className={mobileLabel}>Tema</span>
               </button>
 
@@ -368,7 +370,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className={`${mobileCircle} ${mobileSurface}`}
                 title="Iniciar novo ciclo semanal agora"
               >
-                <span className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-500/30 bg-slate-500/10"><RotateCcw className="h-5 w-5" /></span>
+                <span className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-500/30 bg-slate-500/10"><RotateCcw className="topbar-icon h-5 w-5" /></span>
                 <span className={mobileLabel}>Reiniciar</span>
               </button>
 
@@ -382,7 +384,7 @@ export const Header: React.FC<HeaderProps> = ({
                   title="Configurações de sincronização e preferências"
                 >
                   <span className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-500/30 bg-slate-500/10 text-slate-300">
-                    <SettingsIcon className="h-5 w-5 text-blue-400" />
+                    <SettingsIcon className="topbar-icon h-5 w-5" />
                   </span>
                   <span className={mobileLabel}>Ajustes</span>
                 </button>
@@ -450,7 +452,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
               title="Acessar painel de revisões espaçadas ativas"
             >
-              <Sparkles className={`w-3.5 h-3.5 ${pendingRevisionsCount > 0 ? 'text-blue-400 animate-pulse' : ''}`} />
+              <Brain className={`topbar-icon w-3.5 h-3.5 ${pendingRevisionsCount > 0 ? 'text-blue-400 animate-pulse' : ''}`} />
               <span className="hidden sm:inline">Revisões</span>
               {pendingRevisionsCount > 0 && (
                 <span className="absolute -top-1 -right-1 sm:static sm:ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-blue-600 text-white">
@@ -470,7 +472,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
               title="Adicionar disciplina personalizada ao seu ciclo"
             >
-              <BookPlus className="w-3.5 h-3.5 text-blue-400" />
+              <BookPlus className="topbar-icon w-3.5 h-3.5" />
               <span className="hidden sm:inline">Matéria</span>
             </button>
 
@@ -485,7 +487,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
               title="Ver histórico de semanas anteriores"
             >
-              <History className="w-3.5 h-3.5" />
+              <History className="topbar-icon w-3.5 h-3.5" />
               <span className="hidden md:inline">Histórico</span>
             </button>
 
@@ -500,7 +502,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
               title="Iniciar novo ciclo semanal agora"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
+              <RotateCcw className="topbar-icon w-3.5 h-3.5" />
             </button>
 
             {/* Dark / Light Theme Toggle Button */}
@@ -517,12 +519,12 @@ export const Header: React.FC<HeaderProps> = ({
             >
               {isDark ? (
                 <>
-                  <Sun className="w-4 h-4 text-sky-400" />
+                  <Sun className="topbar-icon w-4 h-4" />
                   <span className="hidden xl:inline text-[11px] font-semibold text-slate-300">Claro</span>
                 </>
               ) : (
                 <>
-                  <Moon className="w-4 h-4 text-slate-700" />
+                  <Moon className="topbar-icon w-4 h-4" />
                   <span className="hidden xl:inline text-[11px] font-semibold text-slate-700">Escuro</span>
                 </>
               )}
@@ -542,7 +544,7 @@ export const Header: React.FC<HeaderProps> = ({
                 title="Configurações (Revisão Espaçada, Notificações e Preferências)"
                 aria-label="Abrir configurações"
               >
-                <SettingsIcon className="w-4 h-4 text-slate-400 hover:text-blue-400 transition-colors" />
+                <SettingsIcon className="topbar-icon w-4 h-4" />
               </button>
             )}
 
@@ -559,7 +561,7 @@ export const Header: React.FC<HeaderProps> = ({
                 }`}
                 title="Central de Notificações"
               >
-                <Bell className="w-4 h-4" />
+                <Bell className="topbar-icon w-4 h-4" />
                 {unreadNotificationsCount > 0 && (
                   <span className="absolute top-0 right-0 sm:-top-1 sm:-right-1 px-1.5 py-0.5 text-[10px] font-black rounded-full bg-red-500 text-white leading-none shadow-md shadow-red-500/40 animate-pulse">
                     {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
@@ -634,24 +636,10 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   <Calendar className="w-4 h-4 sm:hidden" />
                   <span className="sm:hidden absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 shadow-sm shadow-red-500/60" aria-hidden="true" />
-                  <svg className="hidden sm:block w-3.5 h-3.5" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                    />
-                  </svg>
+                  <CalendarDays
+                    className={`hidden sm:block w-3.5 h-3.5 ${hasCalendarAccess ? 'text-emerald-400' : 'text-red-400'}`}
+                    aria-hidden="true"
+                  />
                   <span className="hidden md:inline">
                     {isSigningIn ? 'Conectando...' : 'Google Agenda'}
                   </span>
@@ -702,7 +690,7 @@ export const Header: React.FC<HeaderProps> = ({
                 }`}
                 title="Painel de Monitoramento de Segurança e Auditoria (Admin)"
               >
-                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                <ShieldCheck className="topbar-icon w-3.5 h-3.5" />
                 <span className="hidden sm:inline font-mono text-[11px] font-bold">
                   Segurança
                 </span>
@@ -720,7 +708,7 @@ export const Header: React.FC<HeaderProps> = ({
                 }`}
                 title="Bloquear terminal e retornar à Landing Page"
               >
-                <LockKeyhole className="w-3 h-3 text-blue-400" />
+                <LockKeyhole className="topbar-icon w-3 h-3" />
               </button>
             )}
 

@@ -55,6 +55,17 @@ button, a {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Topbar follows the sidebar icon language: neutral at rest, colored on intent. */
+.topbar-icon {
+  color: #94a3b8;
+  transition: color 160ms ease, transform 160ms ease;
+}
+
+button:hover .topbar-icon,
+button:focus-visible .topbar-icon {
+  color: #38bdf8;
+}
+
 /* The desktop topbar uses a clean, touch-friendly horizontal rail. */
 .header-nav-scroll {
   cursor: grab;
