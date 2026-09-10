@@ -907,17 +907,22 @@ export default function App() {
     }
   };
 
-  // Google Sign Out Handler
-  const handleSignOut = async () => {
+  // Google Agenda disconnect keeps the calendar state without ending the app session.
+  const handleDisconnectCalendar = async () => {
     await disconnectBackendCalendar();
-    await logout();
-    setUser(null);
-    setAccessToken(null);
     setBackendCalendar({ connected: false, permanent: false, email: null, name: null });
     try {
       localStorage.removeItem('cfo_calendar_status');
     } catch (_) {}
-    showToast('Desconectado do Google Agenda.', 'info');
+    showToast('Google Agenda desconectada.', 'info');
+  };
+
+  // Account logout keeps the real existing authentication/session invalidation flow.
+  const handleSignOut = async () => {
+    await handleDisconnectCalendar();
+    await logout();
+    setUser(null);
+    setAccessToken(null);
   };
 
 
@@ -1476,6 +1481,7 @@ export default function App() {
         onOpenNotifications={() => setIsNotificationDrawerOpen(true)}
         onSignIn={handleSignIn}
         onSignOut={handleSignOut}
+        onDisconnectCalendar={handleDisconnectCalendar}
         isSigningIn={isSigningIn}
         cycleLabel={currentCycle?.label || 'Ciclo Semanal'}
         onOpenRevisions={() => setIsRevisionsModalOpen(true)}
@@ -1519,6 +1525,7 @@ export default function App() {
           }}
           onOpenNotifications={() => setIsNotificationDrawerOpen(true)}
           onOpenAdminSecurity={() => navigateTo('/admin')}
+          onSignOut={handleSignOut}
         />
 
         {/* Main Content Area */}

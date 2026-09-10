@@ -22,6 +22,7 @@ import {
   ArrowLeftRight,
   Flame,
   Pin,
+  LogOut,
 } from 'lucide-react';
 import { AppTheme } from '../types';
 
@@ -62,6 +63,7 @@ interface TacticalSidebarProps {
   onOpenSettings?: () => void;
   onOpenNotifications?: () => void;
   onOpenAdminSecurity?: () => void;
+  onSignOut?: () => void;
 }
 
 interface SidebarItem {
@@ -100,6 +102,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
   onOpenSettings,
   onOpenNotifications,
   onOpenAdminSecurity,
+  onSignOut,
 }) => {
   const isDark = theme === 'dark';
 
@@ -576,6 +579,12 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                     </button>
                   )}
                 </div>
+                {onSignOut && (
+                  <button type="button" onClick={onSignOut} className="mt-2 flex h-10 w-full items-center gap-2 rounded-lg px-3 text-xs font-semibold text-slate-400 transition-colors hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400" aria-label="Sair da conta">
+                    <LogOut size={16} strokeWidth={1.8} />
+                    Sair da conta
+                  </button>
+                )}
               </div>
             )}
           </aside>
@@ -834,6 +843,15 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {onSignOut && (
+          <div className={`px-2 pb-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            <button type="button" onClick={onSignOut} className={`group flex h-10 w-full items-center rounded-xl transition-colors duration-200 hover:bg-red-500/10 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 ${isExpandedDesktop ? 'text-left' : 'justify-center'}`} title={!isExpandedDesktop ? 'Sair da conta' : undefined} aria-label="Sair da conta">
+              <span className="flex h-10 w-[56px] shrink-0 items-center justify-center"><LogOut size={18} strokeWidth={1.8} /></span>
+              <span className={`truncate text-xs font-semibold transition-all duration-200 ${isExpandedDesktop ? 'opacity-100' : 'pointer-events-none -translate-x-2 opacity-0'}`}>Sair da conta</span>
+            </button>
           </div>
         )}
 

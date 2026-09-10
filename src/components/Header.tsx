@@ -1,34 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Flame,
-  Calendar,
-  CalendarDays,
-  History,
-  RotateCcw,
-  Plus,
-  BookPlus,
-  Brain,
-  Sparkles,
-  LogOut,
-  CheckCircle2,
-  Sun,
-  Moon,
-  LayoutGrid,
-  BookOpen,
-  Target,
-  PanelLeft,
-  User as UserIcon,
-  ShieldCheck,
-  Bell,
-  Settings as SettingsIcon,
-  ChevronDown,
-  ChevronUp,
-  ChevronLeft,
-  ChevronRight,
-  LockKeyhole,
-} from 'lucide-react';
+import React from 'react';
+import { Calendar, Flame, Moon, PanelLeft, ShieldCheck, Sun } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
+
 interface HeaderProps {
   user: User | null;
   userProfile?: { fullName?: string; username?: string; avatarUrl?: string | null; role?: string } | null;
@@ -44,6 +18,7 @@ interface HeaderProps {
   isPermanentCalendar?: boolean;
   onSignIn: () => void;
   onSignOut: () => void;
+  onDisconnectCalendar?: () => void;
   isSigningIn: boolean;
   cycleLabel: string;
   onOpenRevisions: () => void;
@@ -61,671 +36,58 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  user,
   userProfile = null,
-  onOpenAccount,
-  onOpenSettings,
   isAdmin = false,
   onOpenAdminSecurity,
-  onOpenNotifications,
-  unreadNotificationsCount = 0,
   hasCalendarAccess = false,
-  calendarEmail = null,
-  calendarName = null,
-  isPermanentCalendar = false,
   onSignIn,
   onSignOut,
+  onDisconnectCalendar,
   isSigningIn,
-  cycleLabel,
-  onOpenRevisions,
-  onOpenAddSubject,
-  onOpenHistory,
-  onForceReset,
-  pendingRevisionsCount,
   theme,
   onToggleTheme,
-  activeTab,
-  onSelectTab,
-  onLockTerminal,
   isSidebarOpen = true,
   onToggleSidebar,
 }) => {
   const isDark = theme === 'dark';
-  const [isHeaderExpanded, setIsHeaderExpanded] = useState(false);
-  const navScrollRef = useRef<HTMLDivElement>(null);
-  const dragState = useRef({ active: false, startX: 0, startScrollLeft: 0, moved: false });
-  const [navScrollState, setNavScrollState] = useState({ canScrollLeft: false, canScrollRight: false });
-  const updateNavScrollState = useCallback(() => {
-    const element = navScrollRef.current;
-    if (!element) return;
-    const tolerance = 2;
-    setNavScrollState({
-      canScrollLeft: element.scrollLeft > tolerance,
-      canScrollRight: element.scrollLeft + element.clientWidth < element.scrollWidth - tolerance,
-    });
-  }, []);
-
-  useEffect(() => {
-    const element = navScrollRef.current;
-    if (!element) return;
-    updateNavScrollState();
-    const resizeObserver = new ResizeObserver(updateNavScrollState);
-    resizeObserver.observe(element);
-    if (element.parentElement) resizeObserver.observe(element.parentElement);
-    element.addEventListener('scroll', updateNavScrollState, { passive: true });
-    window.addEventListener('resize', updateNavScrollState);
-    return () => {
-      resizeObserver.disconnect();
-      element.removeEventListener('scroll', updateNavScrollState);
-      window.removeEventListener('resize', updateNavScrollState);
-    };
-  }, [updateNavScrollState, isHeaderExpanded, hasCalendarAccess, isAdmin, pendingRevisionsCount, unreadNotificationsCount]);
-
-  const scrollNav = (direction: -1 | 1) => {
-    navScrollRef.current?.scrollBy({ left: direction * 320, behavior: 'smooth' });
-  };
-
-  const handleNavWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    const element = navScrollRef.current;
-    if (!element || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
-    const direction = event.deltaY > 0 ? 1 : -1;
-    const canMove = direction > 0 ? navScrollState.canScrollRight : navScrollState.canScrollLeft;
-    if (!canMove) return;
-    event.preventDefault();
-    element.scrollBy({ left: event.deltaY, behavior: 'auto' });
-  };
-
-  const handleNavPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.pointerType !== 'mouse' || event.button !== 0 || (event.target as HTMLElement).closest('button')) return;
-    dragState.current = { active: true, startX: event.clientX, startScrollLeft: navScrollRef.current?.scrollLeft || 0, moved: false };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const handleNavPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const state = dragState.current;
-    const element = navScrollRef.current;
-    if (!state.active || !element) return;
-    const distance = event.clientX - state.startX;
-    if (Math.abs(distance) > 6) state.moved = true;
-    if (state.moved) element.scrollLeft = state.startScrollLeft - distance;
-  };
-
-  const handleNavPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (dragState.current.active && event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    dragState.current.active = false;
-  };
-
-  const preventClickAfterDrag = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (dragState.current.moved) {
-      event.preventDefault();
-      event.stopPropagation();
-      dragState.current.moved = false;
-    }
-  };
-  const mobileSurface = isDark
-    ? 'border-slate-800 bg-[#0B1528] text-slate-200 hover:border-blue-500/60 hover:bg-slate-900'
-    : 'border-slate-200 bg-slate-100 text-slate-800 hover:border-blue-500 hover:bg-slate-200';
-  const mobileCircle = 'flex min-w-0 flex-col items-center gap-1.5 rounded-2xl border p-1.5 transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400';
-  const mobileLabel = 'max-w-full truncate text-center text-[10px] font-semibold leading-none';
+  const surface = isDark
+    ? 'border-slate-800/80 bg-[#0B1528]/80 text-slate-300 hover:border-sky-500/50 hover:bg-slate-900'
+    : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-400 hover:bg-slate-100';
+  const iconButton = `inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${surface}`;
+  const disconnectCalendar = onDisconnectCalendar || onSignOut;
 
   return (
-    <header
-      className={`sticky top-0 z-30 border-b pt-[env(safe-area-inset-top)] shadow-xl backdrop-blur-md transition-colors ${
-        isDark
-          ? 'bg-[#070D18]/95 border-slate-800/80 text-slate-100'
-          : 'bg-white/95 border-slate-200 text-slate-900 shadow-slate-200/50'
-      }`}
-    >
-      <div className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-2.5 min-w-0">
-        <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-4 min-w-0">
-          
-          {/* Brand & Toggle Sidebar Button */}
-          <div className="flex items-center gap-3 shrink-0">
-            {onToggleSidebar && (
-              <button
-                type="button"
-                id="btn-toggle-sidebar"
-                onClick={onToggleSidebar}
-                className={`p-2 rounded-xl border transition-all cursor-pointer ${
-                  isDark
-                    ? 'border-slate-800 bg-[#0B1528] text-slate-300 hover:text-white hover:border-blue-500/50'
-                    : 'border-slate-200 bg-slate-100 text-slate-700 hover:text-slate-900 hover:border-blue-500/50'
-                }`}
-                title={isSidebarOpen ? 'Recolher menu lateral' : 'Expandir menu lateral'}
-              >
-                <PanelLeft className="topbar-icon w-5 h-5" />
-              </button>
-            )}
-
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
-                <Flame className="w-5 h-5 text-white" />
-              </div>
-              <div className="hidden sm:block">
-                <h1 className="font-extrabold text-sm tracking-tight leading-none bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">
-                  CFO CBMERJ
-                </h1>
-                <span className="text-[10px] text-slate-400 font-mono">ESTUDOS TÁTICOS</span>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setIsHeaderExpanded((current) => !current)}
-              aria-expanded={isHeaderExpanded}
-              aria-controls="desktop-header-actions"
-              className={`hidden sm:inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold transition-all duration-200 ${
-                isDark
-                  ? 'border-slate-800 bg-[#131B2A] text-slate-400 hover:border-sky-500/50 hover:text-sky-300'
-                  : 'border-slate-200 bg-slate-100 text-slate-600 hover:border-blue-400 hover:text-blue-700'
-              }`}
-              title={isHeaderExpanded ? 'Recolher ações do topo' : 'Expandir ações do topo'}
-            >
-              {isHeaderExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-              <span className="hidden lg:inline">{isHeaderExpanded ? 'Recolher' : 'Ações'}</span>
+    <header className={`sticky top-0 z-30 border-b pt-[env(safe-area-inset-top)] backdrop-blur-md transition-colors ${isDark ? 'border-slate-800/80 bg-[#070D18]/95 text-slate-100' : 'border-slate-200 bg-white/95 text-slate-900'}`}>
+      <div className="mx-auto flex min-h-[64px] w-full max-w-[1600px] items-center justify-between gap-3 px-3 py-2.5 sm:px-6 lg:px-8">
+        <div className="flex min-w-0 items-center gap-2.5">
+          {onToggleSidebar && (
+            <button type="button" id="btn-toggle-sidebar" onClick={onToggleSidebar} className={iconButton} title={isSidebarOpen ? 'Recolher menu lateral' : 'Abrir menu lateral'} aria-label={isSidebarOpen ? 'Recolher menu lateral' : 'Abrir menu lateral'}>
+              <PanelLeft className="topbar-icon h-5 w-5" />
             </button>
-          </div>
-
-          {/* Mobile action panel: primary pills and secondary icon shortcuts. */}
-          <div className="basis-full min-w-0 sm:hidden">
-            <div className="grid grid-cols-3 gap-1.5">
-              <button
-                id="btn-revisoes-inteligentes-mobile"
-                onClick={onOpenRevisions}
-                aria-label="Abrir revisões inteligentes"
-                className={`relative flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-full border px-2 text-[11px] font-bold transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
-                  pendingRevisionsCount > 0
-                    ? isDark
-                      ? 'border-blue-500/50 bg-blue-600/20 text-blue-300'
-                      : 'border-blue-200 bg-blue-50 text-blue-700'
-                    : mobileSurface
-                }`}
-                title="Acessar painel de revisões espaçadas ativas"
-              >
-                <Sparkles className="topbar-icon h-4 w-4 shrink-0" />
-                <span className="truncate">Revisões</span>
-                {pendingRevisionsCount > 0 && (
-                  <span className="absolute -right-0.5 -top-1 min-w-4 rounded-full bg-blue-600 px-1 py-0.5 text-[9px] font-black leading-none text-white">
-                    {pendingRevisionsCount > 99 ? '99+' : pendingRevisionsCount}
-                  </span>
-                )}
-              </button>
-              <button
-                id="btn-adicionar-materia-mobile"
-                onClick={onOpenAddSubject}
-                aria-label="Adicionar matéria"
-                className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-full border px-2 text-[11px] font-bold transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${mobileSurface}`}
-                title="Adicionar disciplina personalizada ao seu ciclo"
-              >
-                <Plus className="topbar-icon h-4 w-4 shrink-0" />
-                <span className="truncate">Adicionar</span>
-              </button>
-              <button
-                id="btn-historico-ciclos-mobile"
-                onClick={onOpenHistory}
-                aria-label="Abrir histórico de ciclos"
-                className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-full border px-2 text-[11px] font-bold transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${mobileSurface}`}
-                title="Ver histórico de semanas anteriores"
-              >
-                <History className="topbar-icon h-4 w-4 shrink-0" />
-                <span className="truncate">Histórico</span>
-              </button>
+          )}
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-500/20">
+              <Flame className="h-5 w-5" />
             </div>
-
-            <div className="mt-2 grid grid-cols-4 gap-x-1.5 gap-y-2">
-              {onOpenNotifications && (
-                <button
-                  type="button"
-                  id="btn-open-notifications-mobile"
-                  onClick={onOpenNotifications}
-                  aria-label={`Alertas${unreadNotificationsCount > 0 ? `, ${unreadNotificationsCount} não lidas` : ''}`}
-                  className={`${mobileCircle} relative ${mobileSurface}`}
-                  title="Central de notificações"
-                >
-                  <span className="relative flex h-12 w-12 items-center justify-center rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-300">
-                    <Bell className="topbar-icon h-5 w-5" />
-                    {unreadNotificationsCount > 0 && (
-                      <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-500 px-1 py-0.5 text-[9px] font-black leading-none text-white shadow-md shadow-red-500/40">
-                        {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
-                      </span>
-                    )}
-                  </span>
-                  <span className={mobileLabel}>Alertas</span>
-                </button>
-              )}
-
-              <div className={`${mobileCircle} ${hasCalendarAccess ? 'border-emerald-500/40 bg-emerald-500/5 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.12)]' : 'border-red-500/40 bg-red-500/5 text-red-300 shadow-[0_0_12px_rgba(239,68,68,0.1)]'}`}>
-                {hasCalendarAccess ? (
-                  <button
-                    id="btn-google-signout-mobile"
-                    onClick={onSignOut}
-                    aria-label="Agenda conectada. Desconectar"
-                    className="flex h-12 w-12 items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-500/10 text-emerald-300 transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
-                    title="Agenda conectada. Tocar para desconectar"
-                  >
-                    <span className="relative"><Calendar className="h-5 w-5" /><span className="absolute -right-2 -top-1 h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/60" /></span>
-                  </button>
-                ) : (
-                  <button
-                    id="btn-google-signin-mobile"
-                    onClick={onSignIn}
-                    disabled={isSigningIn}
-                    aria-label="Agenda desconectada. Conectar"
-                    className="flex h-12 w-12 items-center justify-center rounded-full border border-red-400/40 bg-red-500/10 text-red-300 transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-50"
-                    title="Agenda desconectada. Tocar para conectar"
-                  >
-                    <span className="relative"><Calendar className="h-5 w-5" /><span className="absolute -right-2 -top-1 h-2.5 w-2.5 rounded-full bg-red-400 shadow-sm shadow-red-400/60" /></span>
-                  </button>
-                )}
-                <span className={mobileLabel}>Agenda</span>
-              </div>
-
-              {(isAdmin || userProfile?.role === 'admin') && onOpenAdminSecurity && (
-                <button
-                  type="button"
-                  id="btn-admin-security-mobile"
-                  onClick={onOpenAdminSecurity}
-                  aria-label="Abrir segurança e auditoria"
-                  className={`${mobileCircle} border-amber-500/40 bg-amber-500/10 text-amber-300 hover:border-amber-400`}
-                  title="Painel de monitoramento de segurança e auditoria"
-                >
-                  <span className="flex h-12 w-12 items-center justify-center rounded-full border border-amber-400/40 bg-amber-500/10"><ShieldCheck className="topbar-icon h-5 w-5" /></span>
-                  <span className={mobileLabel}>Segurança</span>
-                </button>
-              )}
-
-              {onLockTerminal && (
-                <button
-                  type="button"
-                  id="btn-lock-terminal-mobile"
-                  onClick={onLockTerminal}
-                  aria-label="Bloquear terminal"
-                  className={`${mobileCircle} border-blue-500/40 bg-blue-500/10 text-blue-300 hover:border-blue-400`}
-                  title="Bloquear terminal e retornar à página inicial"
-                >
-                  <span className="flex h-12 w-12 items-center justify-center rounded-full border border-blue-400/40 bg-blue-500/10"><LockKeyhole className="topbar-icon h-5 w-5" /></span>
-                  <span className={mobileLabel}>Bloqueio</span>
-                </button>
-              )}
-
-              <button
-                type="button"
-                id="btn-alternar-tema-mobile"
-                onClick={onToggleTheme}
-                aria-label="Alternar tema de cores"
-                className={`${mobileCircle} ${mobileSurface}`}
-                title={isDark ? 'Alternar para modo claro' : 'Alternar para modo escuro'}
-              >
-                <span className="flex h-12 w-12 items-center justify-center rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-300">{isDark ? <Sun className="topbar-icon h-5 w-5" /> : <Moon className="topbar-icon h-5 w-5" />}</span>
-                <span className={mobileLabel}>Tema</span>
-              </button>
-
-              <button
-                type="button"
-                id="btn-reiniciar-ciclo-mobile"
-                onClick={onForceReset}
-                aria-label="Reiniciar ciclo"
-                className={`${mobileCircle} ${mobileSurface}`}
-                title="Iniciar novo ciclo semanal agora"
-              >
-                <span className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-500/30 bg-slate-500/10"><RotateCcw className="topbar-icon h-5 w-5" /></span>
-                <span className={mobileLabel}>Reiniciar</span>
-              </button>
-
-              {onOpenSettings && (
-                <button
-                  type="button"
-                  id="btn-open-settings-mobile"
-                  onClick={onOpenSettings}
-                  aria-label="Configurações do cronograma e agenda"
-                  className={`${mobileCircle} ${mobileSurface}`}
-                  title="Configurações de sincronização e preferências"
-                >
-                  <span className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-500/30 bg-slate-500/10 text-slate-300">
-                    <SettingsIcon className="topbar-icon h-5 w-5" />
-                  </span>
-                  <span className={mobileLabel}>Ajustes</span>
-                </button>
-              )}
-
-              {onOpenAccount && (
-                <button
-                  type="button"
-                  id="btn-open-account-mobile"
-                  onClick={onOpenAccount}
-                  aria-label="Abrir minha conta e perfil"
-                  className={`${mobileCircle} ${mobileSurface}`}
-                  title="Minha conta e perfil do aluno"
-                >
-                  <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-blue-500/30 bg-blue-600 text-white">
-                    {userProfile?.avatarUrl ? <img src={userProfile.avatarUrl} alt="" className="h-full w-full object-cover" /> : <UserIcon className="h-5 w-5" />}
-                  </span>
-                  <span className={mobileLabel}>Perfil</span>
-                </button>
-              )}
+            <div className="min-w-0">
+              <h1 className="truncate bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-sm font-extrabold leading-none tracking-tight text-transparent">CFO CBMERJ</h1>
+              <span className="hidden text-[10px] font-mono tracking-widest text-slate-400 sm:block">ESTUDOS TÁTICOS</span>
             </div>
           </div>
+        </div>
 
-          {/* Desktop action buttons and utilities. The navigation rail scrolls independently. */}
-          <div className={`ml-0 hidden min-w-0 basis-full items-center gap-1 sm:ml-auto sm:flex sm:basis-auto sm:flex-1 ${
-              isHeaderExpanded ? 'max-w-full opacity-100' : 'max-w-[430px] opacity-85'
-            }`}>
-            {navScrollState.canScrollLeft && (
-              <button
-                type="button"
-                onClick={() => scrollNav(-1)}
-                aria-label="Rolar navegação para esquerda"
-                className={`z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border shadow-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
-                  isDark ? 'border-slate-700 bg-[#0B1528] text-slate-300 hover:border-blue-500/60 hover:text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-blue-400 hover:text-blue-700'
-                }`}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-            )}
-
-            <div
-              id="desktop-header-actions"
-              ref={navScrollRef}
-              onWheel={handleNavWheel}
-              onPointerDown={handleNavPointerDown}
-              onPointerMove={handleNavPointerMove}
-              onPointerUp={handleNavPointerUp}
-              onPointerCancel={handleNavPointerUp}
-              onClickCapture={preventClickAfterDrag}
-              className="header-nav-scroll min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-0.5 sm:flex sm:flex-nowrap sm:gap-2.5 scrollbar-none"
-              style={{ touchAction: 'pan-x' }}
-            >
-            {/* Smart Revisions Button */}
-            <button
-              id="btn-revisoes-inteligentes"
-              onClick={onOpenRevisions}
-              className={`relative inline-flex items-center min-h-11 sm:min-h-0 gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
-                pendingRevisionsCount > 0
-                  ? isDark
-                    ? 'bg-blue-600/20 text-blue-400 border-blue-500/50 hover:bg-blue-600/30'
-                    : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                  : isDark
-                  ? 'text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border-slate-800'
-                  : 'text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border-slate-200'
-              }`}
-              title="Acessar painel de revisões espaçadas ativas"
-            >
-              <Brain className={`topbar-icon w-3.5 h-3.5 ${pendingRevisionsCount > 0 ? 'text-blue-400 animate-pulse' : ''}`} />
-              <span className="hidden sm:inline">Revisões</span>
-              {pendingRevisionsCount > 0 && (
-                <span className="absolute -top-1 -right-1 sm:static sm:ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-blue-600 text-white">
-                  {pendingRevisionsCount}
-                </span>
-              )}
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <button type="button" id="btn-alternar-tema" onClick={onToggleTheme} className={iconButton} title={isDark ? 'Alternar para modo claro' : 'Alternar para modo escuro'} aria-label="Alterar tema">
+            {isDark ? <Sun className="topbar-icon h-5 w-5" /> : <Moon className="topbar-icon h-5 w-5" />}
+          </button>
+          <button type="button" id="btn-google-agenda" onClick={hasCalendarAccess ? disconnectCalendar : onSignIn} disabled={isSigningIn} className={`${iconButton} ${hasCalendarAccess ? 'border-emerald-500/40 text-emerald-300' : 'border-red-500/30 text-red-300'} disabled:cursor-wait disabled:opacity-60`} title={hasCalendarAccess ? 'Google Agenda conectada — desconectar' : 'Conectar Google Agenda'} aria-label={hasCalendarAccess ? 'Desconectar Google Agenda' : 'Conectar Google Agenda'}>
+            <span className="relative"><Calendar className="topbar-icon h-5 w-5" /><span className={`absolute -right-1 -top-1 h-2 w-2 rounded-full ${hasCalendarAccess ? 'bg-emerald-400' : 'bg-red-400'}`} aria-hidden="true" /></span>
+          </button>
+          {(isAdmin || userProfile?.role === 'admin') && onOpenAdminSecurity && (
+            <button type="button" id="btn-admin-security" onClick={onOpenAdminSecurity} className={`${iconButton} border-amber-500/40 text-amber-300`} title="Abrir segurança e auditoria" aria-label="Abrir segurança e auditoria">
+              <ShieldCheck className="topbar-icon h-5 w-5" />
             </button>
-
-            {/* Add Custom Subject Button */}
-            <button
-              id="btn-adicionar-materia"
-              onClick={onOpenAddSubject}
-              className={`inline-flex items-center min-h-11 sm:min-h-0 gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors border ${
-                isDark
-                  ? 'text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border-slate-800'
-                  : 'text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border-slate-200'
-              }`}
-              title="Adicionar disciplina personalizada ao seu ciclo"
-            >
-              <BookPlus className="topbar-icon w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Matéria</span>
-            </button>
-
-            {/* History Button */}
-            <button
-              id="btn-historico-ciclos"
-              onClick={onOpenHistory}
-              className={`inline-flex items-center min-h-11 sm:min-h-0 gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
-                isDark
-                  ? 'text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border-slate-800'
-                  : 'text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border-slate-200'
-              }`}
-              title="Ver histórico de semanas anteriores"
-            >
-              <History className="topbar-icon w-3.5 h-3.5" />
-              <span className="hidden md:inline">Histórico</span>
-            </button>
-
-            {/* Reset Cycle Button */}
-            <button
-              id="btn-reiniciar-ciclo"
-              onClick={onForceReset}
-              className={`inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
-                isDark
-                  ? 'text-slate-400 hover:text-red-400 bg-slate-900/80 hover:bg-red-950/30 border-slate-800 hover:border-red-900/40'
-                  : 'text-slate-500 hover:text-red-600 bg-slate-100 hover:bg-red-50 border-slate-200 hover:border-red-200'
-              }`}
-              title="Iniciar novo ciclo semanal agora"
-            >
-              <RotateCcw className="topbar-icon w-3.5 h-3.5" />
-            </button>
-
-            {/* Dark / Light Theme Toggle Button */}
-            <button
-              id="btn-alternar-tema"
-              onClick={onToggleTheme}
-              className={`p-1.5 rounded-lg text-xs font-medium transition-colors border flex items-center gap-1.5 ${
-                isDark
-                  ? 'text-sky-400 bg-slate-900 hover:bg-slate-800 border-slate-800'
-                  : 'text-slate-700 bg-slate-100 hover:bg-slate-200 border-slate-200'
-              }`}
-              title={isDark ? 'Alternar para Modo Claro' : 'Alternar para Modo Escuro'}
-              aria-label="Alternar tema de cores"
-            >
-              {isDark ? (
-                <>
-                  <Sun className="topbar-icon w-4 h-4" />
-                  <span className="hidden xl:inline text-[11px] font-semibold text-slate-300">Claro</span>
-                </>
-              ) : (
-                <>
-                  <Moon className="topbar-icon w-4 h-4" />
-                  <span className="hidden xl:inline text-[11px] font-semibold text-slate-700">Escuro</span>
-                </>
-              )}
-            </button>
-
-            {/* Settings (Engrenagem / Configurações) */}
-            {onOpenSettings && (
-              <button
-                type="button"
-                id="btn-open-settings"
-                onClick={onOpenSettings}
-                className={`p-2 rounded-xl border transition-all cursor-pointer ${
-                  isDark
-                    ? 'border-slate-800 bg-[#0B1528] text-slate-300 hover:text-white hover:border-blue-500/50'
-                    : 'border-slate-200 bg-slate-100 text-slate-700 hover:text-slate-900 hover:border-blue-500/50'
-                }`}
-                title="Configurações (Revisão Espaçada, Notificações e Preferências)"
-                aria-label="Abrir configurações"
-              >
-                <SettingsIcon className="topbar-icon w-4 h-4" />
-              </button>
-            )}
-
-            {/* Notification Bell 🔔 */}
-            {onOpenNotifications && (
-              <button
-                type="button"
-                id="btn-open-notifications"
-                onClick={onOpenNotifications}
-                className={`relative shrink-0 p-2 rounded-xl border transition-all cursor-pointer ${
-                  isDark
-                    ? 'border-slate-800 bg-[#0B1528] text-slate-300 hover:text-white hover:border-blue-500/50'
-                    : 'border-slate-200 bg-slate-100 text-slate-700 hover:text-slate-900 hover:border-blue-500/50'
-                }`}
-                title="Central de Notificações"
-              >
-                <Bell className="topbar-icon w-4 h-4" />
-                {unreadNotificationsCount > 0 && (
-                  <span className="absolute top-0 right-0 sm:-top-1 sm:-right-1 px-1.5 py-0.5 text-[10px] font-black rounded-full bg-red-500 text-white leading-none shadow-md shadow-red-500/40 animate-pulse">
-                    {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
-                  </span>
-                )}
-              </button>
-            )}
-
-            {/* Google Calendar Connection Area */}
-            <div
-              className={`min-w-0 sm:border-l sm:pl-2 sm:ml-1 ${
-                isDark ? 'border-slate-800' : 'border-slate-200'
-              }`}
-            >
-              {hasCalendarAccess ? (
-                <div
-                  className={`relative w-full min-h-10 sm:min-h-0 flex items-center justify-center gap-2 border rounded-lg sm:rounded-full p-1.5 sm:px-2.5 sm:py-1 text-xs ${
-                    isDark
-                      ? 'bg-slate-900/80 border-slate-800 text-slate-300'
-                      : 'bg-slate-100 border-slate-200 text-slate-800'
-                  }`}
-                  title={
-                    isPermanentCalendar
-                      ? 'Google Agenda Conectado Permanentemente (Auto-renovação de Token via Backend)'
-                      : 'Google Agenda Conectado e Sincronizado'
-                  }
-                >
-                  <div className="hidden sm:block w-2 h-2 bg-emerald-500 rounded-full animate-pulse shrink-0"></div>
-                  <span
-                    className="hidden sm:block truncate max-w-[125px] font-semibold text-[11px]"
-                    title={
-                      calendarName
-                        ? `${calendarName} (${calendarEmail || ''})`
-                        : calendarEmail || 'Google Agenda'
-                    }
-                  >
-                    {calendarName && calendarName.trim().length > 0
-                      ? calendarName.trim().split(' ').slice(0, 2).join(' ')
-                      : user?.displayName && user.displayName.trim().length > 0
-                      ? user.displayName.trim().split(' ').slice(0, 2).join(' ')
-                      : calendarEmail?.split('@')[0] || 'Agenda'}
-                  </span>
-
-                  {isPermanentCalendar && (
-                    <span className="text-[9px] font-bold text-emerald-400 bg-emerald-950/70 px-1.5 py-0.5 rounded border border-emerald-800/60 hidden sm:inline">
-                      Permanente
-                    </span>
-                  )}
-                  <button
-                    id="btn-google-signout"
-                    onClick={onSignOut}
-                    className="absolute inset-0 sm:static flex items-center justify-center text-slate-400 hover:text-red-500 p-0.5 rounded transition-colors"
-                    title="Desconectar do Google Agenda"
-                    aria-label="Google Agenda conectada. Desconectar"
-                  >
-                    <Calendar className="w-4 h-4 sm:hidden" />
-                    <span className="sm:hidden absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/60" aria-hidden="true" />
-                    <LogOut className="hidden sm:block w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  id="btn-google-signin"
-                  onClick={onSignIn}
-                  disabled={isSigningIn}
-                  className={`relative inline-flex items-center justify-center gap-1.5 w-full min-h-10 sm:w-auto sm:min-h-0 sm:px-2.5 sm:py-1.5 rounded-lg sm:rounded-full text-xs font-medium border shadow-2xs transition-all active:scale-[0.98] disabled:opacity-50 ${
-                    isDark
-                      ? 'text-slate-200 bg-slate-900/80 hover:bg-slate-800 border-slate-800 hover:border-slate-700'
-                      : 'text-slate-800 bg-white hover:bg-slate-50 border-slate-300'
-                  }`}
-                  title="Conectar com o Google Agenda para sincronizar seus estudos permanentemente"
-                >
-                  <Calendar className="w-4 h-4 sm:hidden" />
-                  <span className="sm:hidden absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 shadow-sm shadow-red-500/60" aria-hidden="true" />
-                  <CalendarDays
-                    className={`hidden sm:block w-3.5 h-3.5 ${hasCalendarAccess ? 'text-emerald-400' : 'text-red-400'}`}
-                    aria-hidden="true"
-                  />
-                  <span className="hidden md:inline">
-                    {isSigningIn ? 'Conectando...' : 'Google Agenda'}
-                  </span>
-                </button>
-              )}
-            </div>
-
-            {/* Minha Conta / Perfil do Aluno */}
-            {onOpenAccount && (
-              <button
-                type="button"
-                id="btn-open-account"
-                onClick={onOpenAccount}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
-                  isDark
-                    ? 'bg-[#0B1528] border-slate-800 hover:border-blue-500/60 text-slate-200'
-                    : 'bg-slate-100 border-slate-200 hover:border-blue-500 text-slate-800'
-                }`}
-                title="Minha Conta & Perfil do Aluno"
-              >
-                {userProfile?.avatarUrl ? (
-                  <img
-                    src={userProfile.avatarUrl}
-                    alt="Foto do Aluno"
-                    className="w-4 h-4 rounded-full object-cover border border-blue-500 shrink-0"
-                  />
-                ) : (
-                  <div className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[9px] font-black shrink-0">
-                    {(userProfile?.username || userProfile?.fullName || 'A').slice(0, 1).toUpperCase()}
-                  </div>
-                )}
-                <span className="hidden sm:inline font-mono text-[11px] text-blue-400 font-semibold">
-                  @{userProfile?.username || 'perfil'}
-                </span>
-              </button>
-            )}
-
-            {/* Painel de Monitoramento e Segurança (Admin) */}
-            {(isAdmin || userProfile?.role === 'admin') && onOpenAdminSecurity && (
-              <button
-                type="button"
-                id="btn-admin-security"
-                onClick={onOpenAdminSecurity}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
-                  isDark
-                    ? 'bg-amber-500/10 border-amber-500/40 hover:border-amber-400 text-amber-300'
-                    : 'bg-amber-50 border-amber-200 hover:border-amber-400 text-amber-800'
-                }`}
-                title="Painel de Monitoramento de Segurança e Auditoria (Admin)"
-              >
-                <ShieldCheck className="topbar-icon w-3.5 h-3.5" />
-                <span className="hidden sm:inline font-mono text-[11px] font-bold">
-                  Segurança
-                </span>
-              </button>
-            )}
-
-            {/* Lock Terminal 2FA Button */}
-            {onLockTerminal && (
-              <button
-                onClick={onLockTerminal}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-sans font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
-                  isDark
-                    ? 'bg-blue-950/40 border-blue-900/60 text-blue-300 hover:bg-blue-900/50 hover:border-blue-500/50'
-                    : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
-                }`}
-                title="Bloquear terminal e retornar à Landing Page"
-              >
-                <LockKeyhole className="topbar-icon w-3 h-3" />
-              </button>
-            )}
-
-            </div>
-            {navScrollState.canScrollRight && (
-              <button
-                type="button"
-                onClick={() => scrollNav(1)}
-                aria-label="Rolar navegação para direita"
-                className={`z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border shadow-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
-                  isDark ? 'border-slate-700 bg-[#0B1528] text-slate-300 hover:border-blue-500/60 hover:text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-blue-400 hover:text-blue-700'
-                }`}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </div>
     </header>
