@@ -28,6 +28,9 @@ export interface BackendCalendarStatus {
   needsClientSecret: boolean;
   clientIdConfigured: boolean;
   updatedAt?: string;
+  apiOperational?: boolean | null;
+  apiErrorMessage?: string | null;
+  enableUrl?: string | null;
 }
 
 /**
@@ -265,9 +268,14 @@ export async function createGoogleCalendarEvent(
       if (data.eventId) return data.eventId;
     } else if (backendResp.status === 401) {
       throw new GoogleCalendarAuthError();
+    } else {
+      const errData = await backendResp.json().catch(() => ({}));
+      const message = errData.message || `Erro ao criar evento na Google Agenda (${backendResp.status})`;
+      throw new Error(message);
     }
   } catch (err: any) {
     if (err instanceof GoogleCalendarAuthError) throw err;
+    if (err?.message?.includes('Google Calendar API')) throw err;
     console.warn('Backend calendar proxy falhou, tentando fallback direto se token disponível:', err?.message);
     if (!accessToken) throw err;
   }
@@ -368,14 +376,11 @@ export async function syncStudySessionAndRevisions(
   revision60dId?: string;
   revision90dId?: string;
 }> {
-  if (!entry.topic || !entry.topic.trim()) {
-    throw new Error(
-      'Sincronização com Google Agenda cancelada: o evento só é agendado quando o nome do tópico for informado.'
-    );
-  }
+  const rawTopic = entry.topic?.trim() || '';
+  const topicLabel = rawTopic ? ` - ${rawTopic}` : '';
+  const displayTopic = rawTopic || 'Conteúdo Programático';
 
   const isReview = entry.entryType === 'reviewing';
-  const topicLabel = ` - ${entry.topic.trim()}`;
   const wholeHours = entry.durationMinutes ? Math.max(1, Math.round(entry.durationMinutes / 60)) : 1;
   const durationLabel = `\n⏱️ Carga horária: ${wholeHours}h (${wholeHours === 1 ? '1 hora' : `${wholeHours} horas`})`;
   const notesLabel = entry.notes ? `\n📝 Anotações: ${entry.notes}` : '';
@@ -387,8 +392,8 @@ export async function syncStudySessionAndRevisions(
   const summaryPrefix = isReview ? '📗 [CFO CBMERJ] Revisando' : '📘 [CFO CBMERJ] Estudado';
   const summary = `${summaryPrefix}: ${subject.name}${topicLabel}`;
   const description = isReview
-    ? `Sessão de revisão para o CFO CBMERJ.\n📚 Matéria: ${subject.name} (${subject.category})${entry.topic ? `\n📌 Tópico Revisado: ${entry.topic}` : ''}${durationLabel}${notesLabel}\n\nAgendado via Aplicativo de Cronograma CFO CBMERJ.`
-    : `Sessão de estudos concluída para o CFO CBMERJ.\n📚 Matéria: ${subject.name} (${subject.category})${entry.topic ? `\n📌 Conteúdo: ${entry.topic}` : ''}${durationLabel}${notesLabel}\n\nAgendado via Aplicativo de Cronograma CFO CBMERJ.`;
+    ? `Sessão de revisão para o CFO CBMERJ.\n📚 Matéria: ${subject.name} (${subject.category})\n📌 Tópico Revisado: ${displayTopic}${durationLabel}${notesLabel}\n\nAgendado via Aplicativo de Cronograma CFO CBMERJ.`
+    : `Sessão de estudos concluída para o CFO CBMERJ.\n📚 Matéria: ${subject.name} (${subject.category})\n📌 Conteúdo: ${displayTopic}${durationLabel}${notesLabel}\n\nAgendado via Aplicativo de Cronograma CFO CBMERJ.`;
 
   const colorId = isReview ? '2' : '9'; // '9' = Azul (Blueberry / Royal Blue), '2' = Verde (Sage / Green)
 
@@ -404,7 +409,7 @@ export async function syncStudySessionAndRevisions(
     // 1 day (Próximo dia / 24h)
     revisionsList.push({
       summary: `⚡ [Revisão 24h / Próx Dia • CFO CBMERJ] ${subject.name}${topicLabel}`,
-      description: `Revisão do próximo dia (Fixação imediata pós-estudo).\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado em: ${studiedDateFormatted}`,
+      description: `Revisão do próximo dia (Fixação imediata pós-estudo).\n📚 Matéria: ${subject.name}\n📌 Tópico: ${displayTopic}\n📅 Estudado em: ${studiedDateFormatted}`,
       dateStr: addDays(entry.dateStr, 1),
       colorId: '2', // Verde
       tag: '1d',
@@ -413,7 +418,7 @@ export async function syncStudySessionAndRevisions(
     // 7 days (1 semana)
     revisionsList.push({
       summary: `🎯 [Revisão 7D • CFO CBMERJ] ${subject.name}${topicLabel}`,
-      description: `Revisão de 1 semana (Curva do Esquecimento).\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado originalmente em: ${studiedDateFormatted}`,
+      description: `Revisão de 1 semana (Curva do Esquecimento).\n📚 Matéria: ${subject.name}\n📌 Tópico: ${displayTopic}\n📅 Estudado originalmente em: ${studiedDateFormatted}`,
       dateStr: addDays(entry.dateStr, 7),
       colorId: '2', // Verde
       tag: '7d',
@@ -422,7 +427,7 @@ export async function syncStudySessionAndRevisions(
     // 30 days (1 mês)
     revisionsList.push({
       summary: `⭐ [Revisão 30D • CFO CBMERJ] ${subject.name}${topicLabel}`,
-      description: `Revisão mensal de 30 dias (Consolidação de longo prazo).\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado em: ${studiedDateFormatted}`,
+      description: `Revisão mensal de 30 dias (Consolidação de longo prazo).\n📚 Matéria: ${subject.name}\n📌 Tópico: ${displayTopic}\n📅 Estudado em: ${studiedDateFormatted}`,
       dateStr: addDays(entry.dateStr, 30),
       colorId: '2', // Verde
       tag: '30d',
@@ -431,7 +436,7 @@ export async function syncStudySessionAndRevisions(
     // 60 days (2 meses)
     revisionsList.push({
       summary: `🏆 [Revisão 60D • CFO CBMERJ] ${subject.name}${topicLabel}`,
-      description: `Revisão de 2 meses.\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado em: ${studiedDateFormatted}`,
+      description: `Revisão de 2 meses.\n📚 Matéria: ${subject.name}\n📌 Tópico: ${displayTopic}\n📅 Estudado em: ${studiedDateFormatted}`,
       dateStr: addDays(entry.dateStr, 60),
       colorId: '2', // Verde
       tag: '60d',
@@ -440,7 +445,7 @@ export async function syncStudySessionAndRevisions(
     // 90 days (3 meses)
     revisionsList.push({
       summary: `🚀 [Revisão 90D • CFO CBMERJ] ${subject.name}${topicLabel}`,
-      description: `Revisão de 3 meses.\n📚 Matéria: ${subject.name}${entry.topic ? `\n📌 Tópico: ${entry.topic}` : ''}\n📅 Estudado em: ${studiedDateFormatted}`,
+      description: `Revisão de 3 meses.\n📚 Matéria: ${subject.name}\n📌 Tópico: ${displayTopic}\n📅 Estudado em: ${studiedDateFormatted}`,
       dateStr: addDays(entry.dateStr, 90),
       colorId: '2', // Verde
       tag: '90d',

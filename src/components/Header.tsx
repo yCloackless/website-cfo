@@ -13,6 +13,7 @@ interface HeaderProps {
   onOpenNotifications?: () => void;
   unreadNotificationsCount?: number;
   hasCalendarAccess?: boolean;
+  isCalendarApiDisabled?: boolean;
   calendarEmail?: string | null;
   calendarName?: string | null;
   isPermanentCalendar?: boolean;
@@ -40,6 +41,7 @@ export const Header: React.FC<HeaderProps> = ({
   isAdmin = false,
   onOpenAdminSecurity,
   hasCalendarAccess = false,
+  isCalendarApiDisabled = false,
   onSignIn,
   onSignOut,
   onDisconnectCalendar,
@@ -80,8 +82,8 @@ export const Header: React.FC<HeaderProps> = ({
           <button type="button" id="btn-alternar-tema" onClick={onToggleTheme} className={iconButton} title={isDark ? 'Alternar para modo claro' : 'Alternar para modo escuro'} aria-label="Alterar tema">
             {isDark ? <Sun className="topbar-icon h-5 w-5" /> : <Moon className="topbar-icon h-5 w-5" />}
           </button>
-          <button type="button" id="btn-google-agenda" onClick={hasCalendarAccess ? disconnectCalendar : onSignIn} disabled={isSigningIn} className={`${iconButton} ${hasCalendarAccess ? 'border-emerald-500/40 text-emerald-300' : 'border-red-500/30 text-red-300'} disabled:cursor-wait disabled:opacity-60`} title={hasCalendarAccess ? 'Google Agenda conectada — desconectar' : 'Conectar Google Agenda'} aria-label={hasCalendarAccess ? 'Desconectar Google Agenda' : 'Conectar Google Agenda'}>
-            <span className="relative"><Calendar className="topbar-icon h-5 w-5" /><span className={`absolute -right-1 -top-1 h-2 w-2 rounded-full ${hasCalendarAccess ? 'bg-emerald-400' : 'bg-red-400'}`} aria-hidden="true" /></span>
+          <button type="button" id="btn-google-agenda" onClick={hasCalendarAccess ? disconnectCalendar : onSignIn} disabled={isSigningIn} className={`${iconButton} ${hasCalendarAccess ? (isCalendarApiDisabled ? 'border-amber-500/40 text-amber-300' : 'border-emerald-500/40 text-emerald-300') : 'border-red-500/30 text-red-300'} disabled:cursor-wait disabled:opacity-60`} title={hasCalendarAccess ? (isCalendarApiDisabled ? 'Google Agenda conectada — Requer ativação no Google Cloud' : 'Google Agenda conectada — desconectar') : 'Conectar Google Agenda'} aria-label={hasCalendarAccess ? 'Desconectar Google Agenda' : 'Conectar Google Agenda'}>
+            <span className="relative"><Calendar className="topbar-icon h-5 w-5" /><span className={`absolute -right-1 -top-1 h-2 w-2 rounded-full ${hasCalendarAccess ? (isCalendarApiDisabled ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400') : 'bg-red-400'}`} aria-hidden="true" /></span>
           </button>
           {(isAdmin || userProfile?.role === 'admin') && onOpenAdminSecurity && (
             <button type="button" id="btn-admin-security" onClick={onOpenAdminSecurity} className={`${iconButton} border-amber-500/40 text-amber-300`} title="Abrir segurança e auditoria" aria-label="Abrir segurança e auditoria">

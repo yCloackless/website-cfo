@@ -553,6 +553,15 @@ const authLimiter = rateLimit({
 });
 app.use("/api/auth/", authLimiter);
 
+const registrationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 8,
+  validate: { xForwardedForHeader: false },
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: "TOO_MANY_REGISTRATION_ATTEMPTS", message: "Muitas tentativas de cadastro. Aguarde alguns minutos." },
+});
+
 const twoFactorLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -861,7 +870,8 @@ function createTerminalSession(identifierOrUser: string | DbUser, rememberMe: bo
   return { token: created.rawToken, expiresAt: Date.parse(created.session.expiresAt), role: user.role, canAccessNotion: user.role === 'admin' || user.canAccessNotion };
 }
 
-const authServiceInstance = new AuthService(getDb());
+const databaseService = getDb();
+const authServiceInstance = new AuthService(databaseService);
 const auditRepoInstance = new AuditRepository(getDb().getRawDb());
 const userRepoInstance = new UserRepository(getDb().getRawDb());
 const recoveryCodeRepoInstance = new RecoveryCodeRepository(getDb().getRawDb());
@@ -1485,6 +1495,82 @@ app.get("/api/auth/security-status", (req: Request, res: Response) => {
 });
 
 // 2.8. Rota de Verificação Prévia de Credenciais (Passo 1 do Login)
+// Cadastro público protegido por chave de uso único emitida pelo Admin.
+app.post("/api/auth/register", registrationLimiter, async (req: Request, res: Response) => {
+  try {
+    const { key, email, username, password, fullName } = req.body || {};
+    const cleanKey = typeof key === 'string' ? key.trim() : '';
+    const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    const cleanUsername = typeof username === 'string' ? username.trim().toLowerCase() : '';
+    const cleanFullName = typeof fullName === 'string' ? fullName.trim() : cleanUsername;
+
+    if (!cleanKey || !cleanEmail || !cleanEmail.includes('@') || !/^[a-z0-9._-]{3,32}$/.test(cleanUsername)) {
+      return res.status(400).json({ success: false, error: 'INVALID_FIELDS', message: 'Informe uma chave válida, e-mail e username válidos.' });
+    }
+    if (typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ success: false, error: 'WEAK_PASSWORD', message: 'A senha deve possuir pelo menos 8 caracteres.' });
+    }
+
+    const keyHash = crypto.createHash('sha256').update(cleanKey, 'utf8').digest('hex');
+    const now = new Date().toISOString();
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    const createdUser = databaseService.transaction(() => {
+      const keyRow = rawDb.prepare(
+        `SELECT id FROM account_creation_keys
+         WHERE key_hash = ? AND used_at IS NULL
+           AND (expires_at IS NULL OR expires_at > ?)
+         LIMIT 1`
+      ).get(keyHash, now) as any;
+
+      if (!keyRow) throw new Error('INVALID_ACCOUNT_CREATION_KEY');
+      if (userRepoInstance.findByEmail(cleanEmail) || userRepoInstance.findByUsername(cleanUsername)) {
+        throw new Error('ACCOUNT_ALREADY_EXISTS');
+      }
+
+      const created = userRepoInstance.create({
+        email: cleanEmail,
+        username: cleanUsername,
+        passwordHash,
+        role: 'cadet',
+        canAccessNotion: false,
+      });
+      profileRepoInstance.createOrUpdate({ userId: created.id, fullName: cleanFullName || cleanUsername });
+
+      const consumed = rawDb.prepare(
+        `UPDATE account_creation_keys
+         SET used_at = ?, used_by_user_id = ?
+         WHERE id = ? AND used_at IS NULL`
+      ).run(now, created.id, keyRow.id);
+      if (Number(consumed.changes || 0) !== 1) throw new Error('INVALID_ACCOUNT_CREATION_KEY');
+      return created;
+    });
+
+    logSecurityEvent(req, {
+      action: 'ACCOUNT_REGISTERED',
+      actor: createdUser.username,
+      actorUserId: createdUser.id,
+      targetType: 'user',
+      targetId: createdUser.id,
+      userId: createdUser.id,
+      resource: `/users/${createdUser.id}`,
+      status: 'SUCCESS',
+      details: { registration: 'ACCOUNT_CREATION_KEY' },
+    });
+
+    return res.status(201).json({ success: true, message: 'Conta criada com sucesso. Agora entre com seu usuário e senha.' });
+  } catch (err: any) {
+    if (err?.message === 'INVALID_ACCOUNT_CREATION_KEY') {
+      return res.status(403).json({ success: false, error: 'INVALID_ACCOUNT_CREATION_KEY', message: 'Chave inválida, expirada ou já utilizada.' });
+    }
+    if (err?.message === 'ACCOUNT_ALREADY_EXISTS' || /UNIQUE constraint|duplicate key/i.test(String(err?.message || ''))) {
+      return res.status(409).json({ success: false, error: 'ACCOUNT_ALREADY_EXISTS', message: 'E-mail ou username já cadastrado.' });
+    }
+    console.error('[Auth Register]', err);
+    return res.status(500).json({ success: false, error: 'INTERNAL_SERVER_ERROR', message: 'Falha interna ao criar a conta.' });
+  }
+});
+
 app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: Response) => {
   try {
     const { username, email, password, turnstileToken } = req.body || {};
@@ -2276,6 +2362,71 @@ app.get("/api/admin/dashboard", requireAdminAuth, (_req: Request, res: Response)
 });
 
 // 15. Consulta Paginada e Filtrada de Usuários (Admin)
+// Chaves de cadastro: o valor bruto só é retornado no momento da geração.
+app.get("/api/admin/account-keys", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const rows = rawDb.prepare(
+      `SELECT k.id, k.created_at, k.used_at, k.expires_at,
+              k.used_by_user_id, u.username AS used_by_username
+       FROM account_creation_keys k
+       LEFT JOIN users u ON u.id = k.used_by_user_id
+       ORDER BY k.created_at DESC
+       LIMIT 30`
+    ).all() as any[];
+    return res.json({
+      success: true,
+      keys: rows.map((row) => ({
+        id: row.id,
+        createdAt: row.created_at,
+        usedAt: row.used_at,
+        expiresAt: row.expires_at,
+        usedByUsername: row.used_by_username || null,
+        isUsed: Boolean(row.used_at),
+        isExpired: Boolean(row.expires_at && Date.parse(row.expires_at) <= Date.now()),
+      })),
+    });
+  } catch (err: any) {
+    console.error('[Admin Account Keys List]', err);
+    return res.status(500).json({ success: false, message: 'Erro ao listar chaves de cadastro.' });
+  }
+});
+
+app.post("/api/admin/account-keys", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    const rawKey = `CFO-${crypto.randomBytes(18).toString('base64url')}`;
+    const keyHash = crypto.createHash('sha256').update(rawKey, 'utf8').digest('hex');
+    const id = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    rawDb.prepare(
+      `INSERT INTO account_creation_keys (id, key_hash, created_by_user_id, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(id, keyHash, adminUser.userId, createdAt, expiresAt);
+
+    logSecurityEvent(req, {
+      action: 'ACCOUNT_CREATION_KEY_GENERATED',
+      actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.userId || null,
+      targetType: 'account_creation_key',
+      targetId: id,
+      resource: `/account-creation-keys/${id}`,
+      status: 'SUCCESS',
+      details: { expiresAt },
+    });
+
+    return res.status(201).json({
+      success: true,
+      key: { id, rawKey, createdAt, expiresAt },
+      message: 'Chave gerada. Copie agora: ela não será exibida novamente.',
+    });
+  } catch (err: any) {
+    console.error('[Admin Account Key Generate]', err);
+    return res.status(500).json({ success: false, message: 'Erro ao gerar chave de cadastro.' });
+  }
+});
+
 app.get("/api/admin/users", requireAdminAuth, (req: Request, res: Response) => {
   try {
     const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
@@ -3195,7 +3346,7 @@ async function postGoogleCalendarEvent(
 }
 
 // 1. Google Calendar Connection Status endpoint
-app.use("/api/calendar", requireAdminWriteAuth);
+app.use("/api/calendar", requireUserAuth);
 app.get("/api/calendar/status", async (_req: Request, res: Response) => {
   try {
     const session = readCalendarSession();
@@ -3221,6 +3372,31 @@ app.get("/api/calendar/status", async (_req: Request, res: Response) => {
 
     const isConnected = !!activeToken && (!isExpired || canRefresh);
 
+    let apiOperational: boolean | null = null;
+    let apiErrorMessage: string | null = null;
+    let enableUrl: string | null = null;
+
+    if (isConnected && activeToken) {
+      try {
+        const testResp = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=1", {
+          headers: { Authorization: `Bearer ${activeToken}` },
+          signal: AbortSignal.timeout(3500),
+        });
+        if (testResp.ok) {
+          apiOperational = true;
+        } else {
+          const errData = (await testResp.json().catch(() => ({}))) as any;
+          const errMsg = errData?.error?.message || "";
+          if (testResp.status === 403 && errMsg.includes("Google Calendar API has not been used")) {
+            apiOperational = false;
+            apiErrorMessage = errMsg;
+            const projectNumber = (GOOGLE_CLIENT_ID || "").split("-")[0] || "1077493396610";
+            enableUrl = `https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=${projectNumber}`;
+          }
+        }
+      } catch {}
+    }
+
     return res.json({
       connected: isConnected,
       permanent: !!session.refresh_token,
@@ -3230,6 +3406,9 @@ app.get("/api/calendar/status", async (_req: Request, res: Response) => {
       needsClientSecret: !GOOGLE_CLIENT_SECRET,
       clientIdConfigured: !!GOOGLE_CLIENT_ID,
       updatedAt: session.updatedAt,
+      apiOperational,
+      apiErrorMessage,
+      enableUrl,
     });
   } catch (error: any) {
     console.error('[Calendar status]', error);
@@ -3239,7 +3418,7 @@ app.get("/api/calendar/status", async (_req: Request, res: Response) => {
 
 const calendarOAuthStates = new Map<string, { origin: string; token: string; expiresAt: number }>();
 const calendarRedirectUri = process.env.REDIRECT_URI || new URL('/api/auth/google/callback', APP_URL).href;
-app.get('/api/calendar/auth-url', (req: Request, res: Response) => {
+app.get('/api/calendar/auth-url', requireAdminWriteAuth, (req: Request, res: Response) => {
   if (!GOOGLE_CLIENT_ID) return res.status(400).json({ error: 'MISSING_CLIENT_ID' });
   const origin = extractOrigin(String(req.query.origin || APP_URL));
   if (!origin || !normalizedAllowedOrigins.has(origin)) return res.status(403).json({ error: 'INVALID_ORIGIN' });
@@ -3294,7 +3473,7 @@ app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
 });
 
 // 4. Save client token on backend (backup store com whitelist)
-app.post("/api/calendar/save-token", async (req: Request, res: Response) => {
+app.post("/api/calendar/save-token", requireAdminWriteAuth, async (req: Request, res: Response) => {
   try {
     const { token, expiresIn = 3600, email, name } = req.body;
     if (!token) {
@@ -3328,7 +3507,7 @@ app.post("/api/calendar/save-token", async (req: Request, res: Response) => {
 });
 
 // 5. Disconnect Google Calendar endpoint
-app.post("/api/calendar/disconnect", (_req: Request, res: Response) => {
+app.post("/api/calendar/disconnect", requireAdminWriteAuth, (_req: Request, res: Response) => {
   clearCalendarSession();
   return res.json({ success: true, message: "Desconectado do Google Agenda com sucesso." });
 });
@@ -3418,9 +3597,15 @@ app.post("/api/calendar/create-event", async (req: Request, res: Response) => {
       throw apiErr;
     }
   } catch (error: any) {
+    const isApiDisabled = error?.googleError?.error?.message?.includes('Google Calendar API has not been used') ||
+                          error?.message?.includes('Google Calendar API has not been used');
+    const projectNumber = (GOOGLE_CLIENT_ID || "").split("-")[0] || "1077493396610";
+    const message = isApiDisabled
+      ? `A Google Calendar API precisa ser ativada no seu Google Cloud Console: https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=${projectNumber}`
+      : (error?.googleError?.error?.message || error?.message || (error?.status === 401 ? "A autorização do Google Agenda expirou." : "Falha ao criar evento na Google Agenda"));
     return res.status(error?.status || 500).json({
-      error: "CALENDAR_SYNC_FAILED",
-      message: error?.status === 401 ? "A autorização do Google Agenda expirou." : "Falha ao criar evento na Google Agenda",
+      error: isApiDisabled ? "GOOGLE_CALENDAR_API_DISABLED" : "CALENDAR_SYNC_FAILED",
+      message,
     });
   }
 });
@@ -3504,9 +3689,15 @@ app.post("/api/calendar/batch-sync", async (req: Request, res: Response) => {
       throw syncErr;
     }
   } catch (error: any) {
+    const isApiDisabled = error?.googleError?.error?.message?.includes('Google Calendar API has not been used') ||
+                          error?.message?.includes('Google Calendar API has not been used');
+    const projectNumber = (GOOGLE_CLIENT_ID || "").split("-")[0] || "1077493396610";
+    const message = isApiDisabled
+      ? `A Google Calendar API precisa ser ativada no seu Google Cloud Console: https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=${projectNumber}`
+      : (error?.googleError?.error?.message || error?.message || (error?.status === 401 ? "A autorização do Google Agenda expirou." : "Falha ao sincronizar eventos com Google Agenda"));
     return res.status(error?.status || 500).json({
-      error: "CALENDAR_SYNC_FAILED",
-      message: error?.status === 401 ? "A autorização do Google Agenda expirou." : "Falha ao sincronizar eventos com Google Agenda",
+      error: isApiDisabled ? "GOOGLE_CALENDAR_API_DISABLED" : "CALENDAR_SYNC_FAILED",
+      message,
     });
   }
 });

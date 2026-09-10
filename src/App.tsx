@@ -487,6 +487,9 @@ export default function App() {
     permanent: boolean;
     email: string | null;
     name: string | null;
+    apiOperational?: boolean | null;
+    apiErrorMessage?: string | null;
+    enableUrl?: string | null;
   }>(() => {
     try {
       const saved = localStorage.getItem('cfo_calendar_status');
@@ -497,6 +500,9 @@ export default function App() {
       permanent: false,
       email: null,
       name: null,
+      apiOperational: null,
+      apiErrorMessage: null,
+      enableUrl: null,
     };
   });
 
@@ -507,6 +513,9 @@ export default function App() {
       permanent: status.permanent,
       email: status.email,
       name: status.name,
+      apiOperational: status.apiOperational,
+      apiErrorMessage: status.apiErrorMessage,
+      enableUrl: status.enableUrl,
     };
     setBackendCalendar(newStatus);
     try {
@@ -1042,7 +1051,7 @@ export default function App() {
           }
         } else {
           console.warn('Falha ao sincronizar com Google Agenda:', err);
-          showToast('Estudo salvo localmente. Não foi possível conectar ao Google Agenda.', 'info');
+          showToast(err?.message || 'Estudo salvo localmente. Não foi possível conectar ao Google Agenda.', 'error');
         }
       }
     }
@@ -1462,6 +1471,31 @@ export default function App() {
         </div>
       )}
 
+      {backendCalendar.connected && backendCalendar.apiOperational === false && (
+        <div
+          role="alert"
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-[9999] max-w-xl w-[92vw] px-4 py-2.5 rounded-xl shadow-2xl border border-amber-500/50 bg-slate-900/95 text-amber-200 backdrop-blur-md flex items-center justify-between gap-3 text-xs font-sans animate-fade-in"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="truncate">
+              Google Agenda conectado, mas requer ativação da <strong>Google Calendar API</strong> no Google Cloud.
+            </span>
+          </div>
+          {backendCalendar.enableUrl && (
+            <a
+              href={backendCalendar.enableUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-600 text-slate-950 font-semibold text-xs transition-colors shrink-0"
+            >
+              <span>Ativar API</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+        </div>
+      )}
+
       {/* Top Header with Tab Selector and Theme Toggle */}
       <Header
         user={user}
@@ -1477,6 +1511,7 @@ export default function App() {
         isAdmin={userProfile?.role === 'admin' || localStorage.getItem('cfo_terminal_role') === 'admin'}
         onOpenAdminSecurity={() => navigateTo('/admin')}
         hasCalendarAccess={isCalendarLinked}
+        isCalendarApiDisabled={backendCalendar.connected && backendCalendar.apiOperational === false}
         calendarEmail={backendCalendar.email || user?.email}
         calendarName={backendCalendar.name || user?.displayName}
         isPermanentCalendar={backendCalendar.permanent}
