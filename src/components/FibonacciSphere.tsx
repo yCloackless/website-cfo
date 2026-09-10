@@ -5,9 +5,17 @@ interface FibonacciSphereProps {
   className?: string;
   pointCount?: number;
   pointColor?: THREE.ColorRepresentation;
+  scale?: number;
+  openingRadius?: number;
 }
 
-export default function FibonacciSphere({ className = '', pointCount = 6000, pointColor }: FibonacciSphereProps) {
+export default function FibonacciSphere({
+  className = '',
+  pointCount = 6000,
+  pointColor,
+  scale = 0.88,
+  openingRadius = 0.18,
+}: FibonacciSphereProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -46,6 +54,7 @@ export default function FibonacciSphere({ className = '', pointCount = 6000, poi
       uTime: { value: 0 }, uPointSize: { value: 1.65 * pixelRatio },
       uMouse: { value: new THREE.Vector2() }, uHover: { value: 0 }, uAspect: { value: 1 },
       uPointColor: { value: new THREE.Color(themeColor) },
+      uOpeningRadius: { value: openingRadius },
     };
     const material = new THREE.ShaderMaterial({
       uniforms, transparent: true, depthWrite: false, blending: THREE.NormalBlending,
@@ -55,6 +64,7 @@ export default function FibonacciSphere({ className = '', pointCount = 6000, poi
         uniform vec2 uMouse;
         uniform float uHover;
         uniform float uAspect;
+        uniform float uOpeningRadius;
 
         void main() {
           vec3 p = position;
@@ -68,7 +78,7 @@ export default function FibonacciSphere({ className = '', pointCount = 6000, poi
           correctedDelta.x *= uAspect;
           float distanceFromMouse = length(correctedDelta);
 
-          float openingRadius = 0.36;
+          float openingRadius = uOpeningRadius;
           float influence = 1.0 - smoothstep(openingRadius * 0.15, openingRadius, distanceFromMouse);
           vec2 direction = normalize(correctedDelta + vec2(0.00001));
           direction.x /= uAspect;
@@ -96,7 +106,7 @@ export default function FibonacciSphere({ className = '', pointCount = 6000, poi
       `,
     });
     const sphere = new THREE.Points(geometry, material);
-    sphere.scale.setScalar(0.65);
+    sphere.scale.setScalar(scale);
     scene.add(sphere);
 
     const canvas = renderer.domElement;
@@ -167,7 +177,7 @@ export default function FibonacciSphere({ className = '', pointCount = 6000, poi
       geometry.dispose(); material.dispose(); renderer.dispose();
       if (canvas.parentNode === container) container.removeChild(canvas);
     };
-  }, [pointCount]);
+  }, [pointCount, scale, openingRadius]);
 
   return <div ref={containerRef} className={className} style={{ width: '100%', height: '100%', minHeight: 300 }} />;
 }
