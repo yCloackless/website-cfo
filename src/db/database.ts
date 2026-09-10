@@ -7,6 +7,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import fs from 'node:fs';
+import { PostgresSyncDatabase } from './postgresSync';
 
 export interface Migration {
   id: number;
@@ -947,10 +948,12 @@ export const MIGRATIONS: Migration[] = [
 
 
 export class DatabaseService {
-  private db: DatabaseSync;
+  private db: DatabaseSync | PostgresSyncDatabase;
   private dbPath: string;
+  private readonly postgres: boolean;
 
   constructor(customPath?: string) {
+    this.postgres = !customPath && Boolean(process.env.DATABASE_URL);
     if (customPath) {
       this.dbPath = customPath;
       const dir = path.dirname(this.dbPath);
@@ -965,9 +968,11 @@ export class DatabaseService {
       this.dbPath = path.join(dataDir, 'cfo_app.sqlite');
     }
 
-    this.db = new DatabaseSync(this.dbPath);
-    this.configurePragmas();
-    this.runMigrations();
+    this.db = this.postgres ? new PostgresSyncDatabase() : new DatabaseSync(this.dbPath);
+    if (!this.postgres) {
+      this.configurePragmas();
+      this.runMigrations();
+    }
   }
 
   private configurePragmas(): void {
@@ -1014,7 +1019,7 @@ export class DatabaseService {
     }
   }
 
-  public getRawDb(): DatabaseSync {
+  public getRawDb(): any {
     return this.db;
   }
 

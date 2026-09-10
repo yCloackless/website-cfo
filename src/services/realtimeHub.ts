@@ -26,6 +26,35 @@ export interface RealtimeEvent {
   data: Record<string, any>;
 }
 
+function maskIp(value: unknown): string {
+  const ip = String(value || '').trim().replace(/^::ffff:/, '');
+  if (ip.includes('.')) {
+    const parts = ip.split('.');
+    return parts.length === 4 ? `${parts[0]}.${parts[1]}.x.x` : '[PROTECTED]';
+  }
+  if (ip.includes(':')) {
+    const parts = ip.split(':').filter(Boolean);
+    return `${parts.slice(0, 2).join(':') || 'ipv6'}:…`;
+  }
+  return '[PROTECTED]';
+}
+
+function sanitizeRealtimeData(value: any, key = ''): any {
+  const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (['ip', 'clientip', 'targetip', 'remoteip', 'ipaddress'].includes(normalizedKey)) return maskIp(value);
+  if (['password', 'secret', 'token', 'authorization', 'cookie', 'apikey', 'accesstoken', 'refreshtoken', 'useragent'].includes(normalizedKey)) {
+    return '[PROTECTED]';
+  }
+  if (Array.isArray(value)) return value.map((item) => sanitizeRealtimeData(item));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [
+      childKey,
+      sanitizeRealtimeData(childValue, childKey),
+    ]));
+  }
+  return value;
+}
+
 interface RealtimeClient {
   id: string;
   res: Response;
@@ -131,7 +160,7 @@ export class AdminRealtimeHub extends EventEmitter {
       id: crypto.randomUUID(),
       type,
       timestamp: new Date().toISOString(),
-      data,
+      data: sanitizeRealtimeData(data),
     };
 
     // Adiciona ao buffer circular de últimos eventos

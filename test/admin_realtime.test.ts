@@ -164,7 +164,8 @@ test('5. Backend publica evento de segurança e admin conectado recebe com baixa
 
   assert.match(text, /event: LOGIN_FAILED/);
   assert.match(text, /attacker@evil\.com/);
-  assert.match(text, /203\.0\.113\.42/);
+  assert.doesNotMatch(text, /203\.0\.113\.42/);
+  assert.match(text, /203\.0\.x\.x/);
 
   controller.abort();
 });
@@ -310,4 +311,18 @@ test('9. Desconexão do cliente remove-o do hub e decrementa a contagem de clien
   await new Promise((resolve) => setTimeout(resolve, 250));
 
   assert.equal(adminRealtimeHub.getActiveClientsCount(), initialClients);
+});
+
+test('10. Realtime masks IP and removes credentials before transmission', () => {
+  const event = adminRealtimeHub.publish('SECURITY_ALERT', {
+    ip: '198.51.100.77',
+    token: 'segredo-nao-pode-vazar',
+    nested: { authorization: 'Bearer credencial', userAgent: 'fingerprint-completo' },
+  });
+
+  assert.equal(event.data.ip, '198.51.x.x');
+  assert.equal(event.data.token, '[PROTECTED]');
+  assert.equal(event.data.nested.authorization, '[PROTECTED]');
+  assert.equal(event.data.nested.userAgent, '[PROTECTED]');
+  assert.doesNotMatch(JSON.stringify(event), /segredo-nao-pode-vazar|Bearer credencial|fingerprint-completo/);
 });

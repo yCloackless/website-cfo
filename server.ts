@@ -16,6 +16,10 @@ import bcrypt from "bcryptjs";
 
 dotenv.config();
 
+if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL_REQUIRED_IN_PRODUCTION');
+}
+
 if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
   throw new Error('SESSION_SECRET e obrigatoria em producao; inicializacao abortada para evitar sessoes e arquivos irrecuperaveis.');
 }
@@ -83,6 +87,7 @@ import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtim
 import { createAuthMiddlewares } from "./src/middleware/auth";
 
 const app = express();
+app.disable("x-powered-by");
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 const SESSION_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-cfo_session' : 'cfo_session';
@@ -239,7 +244,7 @@ export function getClientIp(req: Request): string {
 function isAdminIp(ip: string): boolean {
   if (!ip) return false;
   const clean = ip.trim().replace(/^::ffff:/, "");
-  if (
+  const isLocalOrPrivate =
     clean === "127.0.0.1" ||
     clean === "::1" ||
     clean === "localhost" ||
@@ -261,8 +266,11 @@ function isAdminIp(ip: string): boolean {
     clean.startsWith("172.28.") ||
     clean.startsWith("172.29.") ||
     clean.startsWith("172.30.") ||
-    clean.startsWith("172.31.")
-  ) {
+    clean.startsWith("172.31.");
+
+  // Redes privadas servem apenas para desenvolvimento local. Em producao,
+  // somente IPs explicitamente configurados podem receber privilegio.
+  if (process.env.NODE_ENV !== "production" && isLocalOrPrivate) {
     return true;
   }
 
@@ -273,6 +281,44 @@ function isAdminIp(ip: string): boolean {
     .filter(Boolean);
 
   return trustedList.includes(clean);
+}
+
+function maskIpForClient(value: unknown): string {
+  const ip = String(value || "").trim().replace(/^::ffff:/, "");
+  if (!ip) return "[PROTECTED]";
+  if (ip.includes(".")) {
+    const parts = ip.split(".");
+    return parts.length === 4 ? `${parts[0]}.${parts[1]}.x.x` : "[PROTECTED]";
+  }
+  if (ip.includes(":")) {
+    const parts = ip.split(":").filter(Boolean);
+    return `${parts.slice(0, 2).join(":") || "ipv6"}:…`;
+  }
+  return "[PROTECTED]";
+}
+
+function sanitizeSecurityPayload(value: any, key = ""): any {
+  const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (["ip", "clientip", "targetip", "remoteip", "ipaddress"].includes(normalizedKey)) {
+    return maskIpForClient(value);
+  }
+  if (["password", "secret", "token", "authorization", "cookie", "apikey", "accesstoken", "refreshtoken", "useragent"].includes(normalizedKey)) {
+    return "[PROTECTED]";
+  }
+  if (Array.isArray(value)) return value.map((item) => sanitizeSecurityPayload(item));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([childKey, childValue]) => [childKey, sanitizeSecurityPayload(childValue, childKey)])
+    );
+  }
+  return value;
+}
+
+function logInternalError(scope: string, err: any): void {
+  console.error(`[${scope}]`, {
+    name: typeof err?.name === "string" ? err.name : "Error",
+    code: typeof err?.code === "string" ? err.code : undefined,
+  });
 }
 
 // Cache de GeoIP para consultas rápidas
@@ -354,6 +400,28 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     });
   }
 
+  next();
+});
+
+// Evita cache de dados autenticados, indexacao de APIs e payloads abusivos
+// antes que o parser JSON aloque memoria. Uploads conhecidos mantem o limite maior.
+app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+
+  const largePayloadRoute = /^\/(uploads|exams)(\/|$)/.test(req.path)
+    || /^\/admin\/board-intelligence(\/|$)/.test(req.path)
+    || /\/avatar(\/|$)/.test(req.path);
+  const maxBytes = largePayloadRoute ? 20 * 1024 * 1024 : 2 * 1024 * 1024;
+  const contentLength = Number(req.headers["content-length"] || 0);
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    return res.status(413).json({
+      error: "PAYLOAD_TOO_LARGE",
+      message: "O conteudo enviado excede o limite permitido.",
+    });
+  }
   next();
 });
 
@@ -474,7 +542,9 @@ app.use("/api/", apiLimiter);
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 15,
-  skip: (req) => isAdminIp(getClientIp(req)) || process.env.NODE_ENV === 'development',
+  // Testes podem exercitar muitos logins no mesmo processo. Producao e
+  // desenvolvimento continuam protegidos, inclusive em IPs administrativos.
+  skip: () => process.env.NODE_ENV === "test",
   validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
@@ -1031,7 +1101,6 @@ function verifyLoginChallenge(challenge?: unknown): DbUser | null {
 }
 
 function requireStepUpAuth(req: Request, res: Response, next: NextFunction) {
-  return next();
   const stepUpHeader = req.headers["x-admin-step-up-token"] || req.headers["x-step-up-token"];
   const token = typeof stepUpHeader === "string" ? String(stepUpHeader).trim() : null;
 
@@ -1097,7 +1166,7 @@ app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
   try {
     const config = getSecurityConfig();
 
-    if (false && config.is2faActive) {
+    if (config.is2faActive) {
       return res.status(409).json({
         error: "2FA_ALREADY_ACTIVE",
         message: "O 2FA já está ativo. O segredo existente não pode ser exibido novamente.",
@@ -1495,7 +1564,7 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
     }
 
     const config = getSecurityConfig();
-    if (false && config.is2faActive) {
+    if (config.is2faActive) {
       return res.json({
         success: true,
         message: "Credenciais válidas. Prossiga para o código Authenticator.",
@@ -1987,10 +2056,12 @@ app.get("/api/admin/security/events", requireAdminAuth, (req: Request, res: Resp
       endDate,
     });
 
+    const safeItems = sanitizeSecurityPayload(result.items);
     return res.json({
       success: true,
       ...result,
-      logs: result.items,
+      items: safeItems,
+      logs: safeItems,
     });
   } catch (err: any) {
     console.error("[Admin Security Events Error]:", err);
@@ -2176,7 +2247,7 @@ app.get("/api/admin/dashboard", requireAdminAuth, (_req: Request, res: Response)
   try {
     const userStats = userRepoInstance.getDashboardStats();
     const securityMetrics = auditRepoInstance.getSecurityMetrics();
-    const activeSessions = sessionRepoInstance.listActiveSessions(10);
+    const activeSessions = sanitizeSecurityPayload(sessionRepoInstance.listActiveSessions(10));
     const recentEvents = auditRepoInstance.findFiltered({ limit: 10 });
 
     return res.json({
@@ -2192,9 +2263,9 @@ app.get("/api/admin/dashboard", requireAdminAuth, (_req: Request, res: Response)
         twoFactorFailed24h: securityMetrics.twoFactorFailed24h,
         anomalousIpsCount: securityMetrics.anomalousIps.length,
       },
-      anomalies: securityMetrics.anomalousIps,
+      anomalies: sanitizeSecurityPayload(securityMetrics.anomalousIps),
       recentSessions: activeSessions,
-      recentEvents: recentEvents.items,
+      recentEvents: sanitizeSecurityPayload(recentEvents.items),
     });
   } catch (err: any) {
     console.error("[Admin Dashboard Error]:", err);
@@ -2244,8 +2315,8 @@ app.get("/api/admin/users/:id", requireAdminAuth, (req: Request, res: Response) 
     }
 
     const profile = profileRepoInstance.findByUserId(targetUser.id);
-    const activeSessions = sessionRepoInstance.listActiveSessionsByUserId(targetUser.id);
-    const securityEvents = auditRepoInstance.findEventsByUserId(targetUser.id, 25);
+    const activeSessions = sanitizeSecurityPayload(sessionRepoInstance.listActiveSessionsByUserId(targetUser.id));
+    const securityEvents = sanitizeSecurityPayload(auditRepoInstance.findEventsByUserId(targetUser.id, 25));
 
     // DADOS PROTEGIDOS: Senhas, hashes, totp e recovery codes NUNCA são expostos
     const adminUser = (req as any).user;
@@ -2708,7 +2779,7 @@ app.post("/api/admin/notifications/read-all", requireAdminAuth, (_req: Request, 
 app.get("/api/admin/sessions", requireAdminAuth, (req: Request, res: Response) => {
   try {
     const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || "50"), 10)));
-    const sessions = sessionRepoInstance.listActiveSessions(limit);
+    const sessions = sanitizeSecurityPayload(sessionRepoInstance.listActiveSessions(limit));
     return res.json({
       success: true,
       sessions,
@@ -4644,14 +4715,15 @@ app.get("/api/admin/audit-logs", requireAdminAuth, (req: Request, res: Response)
       endDate,
     });
 
+    const safeItems = sanitizeSecurityPayload(result.items);
     return res.json({
       success: true,
       total: result.total,
       page: result.page,
       limit: result.limit,
       totalPages: result.totalPages,
-      logs: result.items,
-      items: result.items,
+      items: safeItems,
+      logs: safeItems,
     });
   } catch (err: any) {
     return res.status(500).json({
@@ -4757,10 +4829,10 @@ app.post("/api/uploads/file", requireUserAuth, uploadLimiter, async (req: Reques
       },
     });
   } catch (err: any) {
-    console.error("[Upload Processing Error]:", err?.stack || err?.message || err);
+    logInternalError("Upload Processing Error", err);
     return res.status(500).json({
       error: "UPLOAD_PROCESSING_FAILED",
-      message: err?.message || "Falha interna ao processar o arquivo enviado.",
+      message: "Falha interna ao processar o arquivo enviado.",
     });
   }
 });
@@ -4808,7 +4880,7 @@ app.get("/api/files/:id", requireUserAuth, async (req: Request, res: Response) =
 
     return res.send(access.buffer);
   } catch (err: any) {
-    console.error("[File Download Error]:", err?.message || err);
+    logInternalError("File Download Error", err);
     return res.status(500).json({
       error: "DOWNLOAD_FAILED",
       message: "Falha ao recuperar o arquivo seguro.",
@@ -4892,7 +4964,8 @@ app.post("/api/admin/board-intelligence/profiles", requireAdminWriteAuth, (req: 
     });
     return res.status(201).json({ success: true, profile });
   } catch (err: any) {
-    return res.status(500).json({ error: 'CREATE_BOARD_PROFILE_FAILED', message: err?.message || 'Falha ao criar perfil da banca.' });
+    logInternalError("Create Board Profile Error", err);
+    return res.status(500).json({ error: 'CREATE_BOARD_PROFILE_FAILED', message: 'Falha ao criar perfil da banca.' });
   }
 });
 
@@ -4979,7 +5052,8 @@ app.post("/api/admin/board-intelligence/profiles/:id/import-exam", requireAdminW
     });
   } catch (err: any) {
     const status = String(err?.message || '').includes('UNIQUE constraint failed') ? 409 : 500;
-    return res.status(status).json({ error: 'IMPORT_BOARD_EXAM_FAILED', message: err?.message || 'Falha ao importar prova antiga.' });
+    logInternalError("Import Board Exam Error", err);
+    return res.status(status).json({ error: 'IMPORT_BOARD_EXAM_FAILED', message: 'Falha ao importar prova antiga.' });
   }
 });
 
@@ -5007,7 +5081,8 @@ app.post("/api/admin/board-intelligence/exams/:examId/approve", requireAdminWrit
     });
     return res.json({ success: true, ...result, message: 'Prova aprovada para aprendizado estruturado.' });
   } catch (err: any) {
-    return res.status(400).json({ error: 'APPROVE_BOARD_EXAM_FAILED', message: err?.message || 'Falha ao aprovar prova.' });
+    logInternalError("Approve Board Exam Error", err);
+    return res.status(400).json({ error: 'APPROVE_BOARD_EXAM_FAILED', message: 'Falha ao aprovar prova.' });
   }
 });
 
@@ -5027,7 +5102,8 @@ app.post("/api/admin/board-intelligence/exams/:examId/reject", requireAdminWrite
     });
     return res.json({ success: true, exam });
   } catch (err: any) {
-    return res.status(400).json({ error: 'REJECT_BOARD_EXAM_FAILED', message: err?.message || 'Falha ao rejeitar prova.' });
+    logInternalError("Reject Board Exam Error", err);
+    return res.status(400).json({ error: 'REJECT_BOARD_EXAM_FAILED', message: 'Falha ao rejeitar prova.' });
   }
 });
 
@@ -5048,7 +5124,8 @@ app.post("/api/admin/board-intelligence/profiles/:id/generate-version", requireA
     });
     return res.status(201).json({ success: true, version });
   } catch (err: any) {
-    return res.status(400).json({ error: 'GENERATE_BOARD_VERSION_FAILED', message: err?.message || 'Falha ao gerar versao draft.' });
+    logInternalError("Generate Board Version Error", err);
+    return res.status(400).json({ error: 'GENERATE_BOARD_VERSION_FAILED', message: 'Falha ao gerar versao draft.' });
   }
 });
 
@@ -5069,7 +5146,8 @@ app.post("/api/admin/board-intelligence/versions/:versionId/publish", requireAdm
     });
     return res.json({ success: true, version });
   } catch (err: any) {
-    return res.status(400).json({ error: 'PUBLISH_BOARD_VERSION_FAILED', message: err?.message || 'Falha ao publicar versao.' });
+    logInternalError("Publish Board Version Error", err);
+    return res.status(400).json({ error: 'PUBLISH_BOARD_VERSION_FAILED', message: 'Falha ao publicar versao.' });
   }
 });
 
@@ -5092,7 +5170,8 @@ app.post("/api/admin/board-intelligence/profiles/:id/rollback", requireAdminWrit
     });
     return res.json({ success: true, version });
   } catch (err: any) {
-    return res.status(400).json({ error: 'ROLLBACK_BOARD_VERSION_FAILED', message: err?.message || 'Falha ao restaurar versao.' });
+    logInternalError("Rollback Board Version Error", err);
+    return res.status(400).json({ error: 'ROLLBACK_BOARD_VERSION_FAILED', message: 'Falha ao restaurar versao.' });
   }
 });
 
@@ -5186,7 +5265,9 @@ app.post('/api/student/question-attempts', requireUserAuth, (req: Request, res: 
     return res.status(201).json({ success: true, ...result });
   } catch (err: any) {
     const known = ['QUESTION_NOT_FOUND', 'QUESTION_HAS_NO_OFFICIAL_ANSWER', 'INVALID_SELECTED_OPTION', 'SIMULATION_NOT_FOUND'];
-    return res.status(known.includes(err?.message) ? 422 : 500).json({ error: err?.message || 'ATTEMPT_FAILED' });
+    const publicError = known.includes(err?.message) ? err.message : 'ATTEMPT_FAILED';
+    if (publicError === 'ATTEMPT_FAILED') logInternalError("Question Attempt Error", err);
+    return res.status(publicError === 'ATTEMPT_FAILED' ? 500 : 422).json({ error: publicError });
   }
 });
 
@@ -5345,8 +5426,8 @@ app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async 
         examJobRepoInstance.updateStatus(job.id, 'completed', 1, { paperId: result.paper.id, questionsCount: result.questions.length });
         logSecurityEvent(req, { action: 'EXAM_PAPER_CREATED', actor: user.username || user.userId, actorUserId: user.userId, resource: 'exam_papers', status: 'SUCCESS', targetType: 'exam_paper', targetId: result.paper.id, details: { totalQuestions: result.paper.totalQuestions } });
       }).catch((err) => {
-        console.error('[Background Exam Extraction Error]:', err?.message || err);
-        examJobRepoInstance.updateStatus(job.id, 'failed', 0, undefined, err?.message || 'Falha ao processar a prova.');
+        logInternalError("Background Exam Extraction Error", err);
+        examJobRepoInstance.updateStatus(job.id, 'failed', 0, undefined, 'Falha ao processar a prova.');
       });
 
       return res.status(202).json({ success: true, processing: true, jobId: job.id, message: 'Prova recebida. A extração continuará em segundo plano.' });
@@ -5364,7 +5445,7 @@ app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async 
       });
       examJobRepoInstance.updateStatus(job.id, 'completed', 1, { paperId: result.paper.id, questionsCount: result.questions.length });
     } catch (err: any) {
-      examJobRepoInstance.updateStatus(job.id, 'failed', 0, undefined, err?.message || 'Falha ao processar a prova.');
+      examJobRepoInstance.updateStatus(job.id, 'failed', 0, undefined, 'Falha ao processar a prova.');
       throw err;
     }
     logSecurityEvent(req, { action: 'EXAM_PAPER_CREATED', actor: user.username || user.userId, actorUserId: user.userId, resource: 'exam_papers', status: 'SUCCESS', targetType: 'exam_paper', targetId: result.paper.id, details: { totalQuestions: result.paper.totalQuestions } });
@@ -5378,10 +5459,10 @@ app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async 
     });
 
   } catch (err: any) {
-    console.error("[Exam Upload & Process Error]:", err?.message || err);
+    logInternalError("Exam Upload & Process Error", err);
     return res.status(500).json({
       error: "EXAM_PROCESSING_FAILED",
-      message: err?.message || "Falha ao processar e extrair dados da prova.",
+      message: "Falha ao processar e extrair dados da prova.",
     });
   }
 });
@@ -5633,10 +5714,10 @@ app.post("/api/exams/solve-with-ai", requireUserAuth, aiLimiter, async (req: Req
       totalSolved: solveOutput.totalSolved,
     });
   } catch (err: any) {
-    console.error("[Solve With AI Error]:", err?.message || err);
+    logInternalError("Solve With AI Error", err);
     return res.status(400).json({
       error: "SOLVE_ERROR",
-      message: err?.message || "Falha durante resolução das questões com IA.",
+      message: "Falha durante resolução das questões com IA.",
     });
   }
 });
@@ -5712,7 +5793,7 @@ app.get("/api/exams/assets/:assetId", requireUserAuth, (req: Request, res: Respo
     res.setHeader('Cache-Control', 'private, max-age=86400');
     return res.sendFile(path.resolve(asset.filePath));
   } catch (err: any) {
-    console.error("[Asset Serve Error]:", err?.message || err);
+    logInternalError("Asset Serve Error", err);
     return res.status(500).json({ error: "ASSET_SERVE_ERROR", message: "Falha ao carregar imagem da questão." });
   }
 });
@@ -5814,7 +5895,7 @@ app.get("/api/exams/:id/pages/:pageNumber/preview", requireUserAuth, async (req:
       previewUrl: `/api/exams/${examId}/pages/${pageNum}/preview/image`,
     });
   } catch (err: any) {
-    console.error("[Page Preview Error]:", err?.message || err);
+    logInternalError("Page Preview Error", err);
     return res.status(500).json({ error: "RENDER_ERROR", message: "Falha ao gerar visualização da página." });
   }
 });
@@ -5930,10 +6011,10 @@ app.put("/api/exams/questions/:questionId/crop", requireUserAuth, async (req: Re
       asset: result.asset,
     });
   } catch (err: any) {
-    console.error("[Manual Crop Error]:", err?.message || err);
+    logInternalError("Manual Crop Error", err);
     return res.status(500).json({
       error: "CROP_FAILED",
-      message: err?.message || "Falha ao aplicar recorte manual.",
+      message: "Falha ao aplicar recorte manual.",
     });
   }
 });
@@ -5974,7 +6055,7 @@ app.delete("/api/exams/segments/:segmentId", requireUserAuth, (req: Request, res
 
 // Middleware Centralizado de Tratamento de Erros (Evita vazamento de stacktrace)
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-  console.error("[Unhandled Server Exception]:", err?.message || err);
+  logInternalError("Unhandled Server Exception", err);
   return res.status(err?.status || 500).json({
     error: "INTERNAL_SERVER_ERROR",
     message: "Ocorreu uma falha no processamento. Tente novamente.",
@@ -6005,9 +6086,13 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
+  server.requestTimeout = 60_000;
+  server.headersTimeout = 15_000;
+  server.keepAliveTimeout = 5_000;
+  server.maxHeadersCount = 100;
 }
 
 const isTestEnv = process.env.NODE_ENV === "test";

@@ -83,8 +83,9 @@ export const verifyTokenWithBackend = async (
     if (!resp.ok) return { valid: false };
     return await resp.json();
   } catch {
-    // If network fails, do not prematurely disconnect
-    return { valid: true };
+    // Falha fechada: indisponibilidade de rede nunca transforma token nao
+    // verificado em sessao valida.
+    return { valid: false };
   }
 };
 

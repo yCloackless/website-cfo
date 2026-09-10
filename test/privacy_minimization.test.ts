@@ -29,6 +29,18 @@ test.after(async () => {
   }
 });
 
+test('SECURITY: private APIs disable caching and hide server technology', async () => {
+  const token = await getCadetToken();
+  const res = await fetch(`${baseUrl}/api/user/profile`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('cache-control') || '', /no-store/);
+  assert.equal(res.headers.get('x-powered-by'), null);
+  assert.match(res.headers.get('permissions-policy') || '', /camera=\(\)/);
+});
+
 // Helper: Get token for cadet or admin
 async function getCadetToken(): Promise<string> {
   const db = getDb().getRawDb();

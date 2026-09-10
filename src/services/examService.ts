@@ -36,6 +36,15 @@ import { createCanvas } from '@napi-rs/canvas';
 
 const execFileAsync = promisify(execFile);
 
+function safePythonEnvironment(): NodeJS.ProcessEnv {
+  const allowedNames = ['PATH', 'Path', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'LD_LIBRARY_PATH'];
+  const env: NodeJS.ProcessEnv = { PYTHONIOENCODING: 'utf-8' };
+  for (const name of allowedNames) {
+    if (process.env[name]) env[name] = process.env[name];
+  }
+  return env;
+}
+
 export interface ExtractedQuestionDraft {
   questionNumber: number;
   pageNumber?: number;
@@ -88,7 +97,7 @@ export class ExamService {
     private auditRepo: QuestionAuditRepository
   ) {
     const externalAiEnabled = process.env.ENABLE_EXTERNAL_AI === 'true' || process.env.NODE_ENV !== 'production';
-    const apiKey = externalAiEnabled ? (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY) : undefined;
+    const apiKey = externalAiEnabled ? process.env.GEMINI_API_KEY : undefined;
     if (apiKey) {
       this.genAI = new GoogleGenAI({ apiKey });
     }
@@ -192,13 +201,13 @@ export class ExamService {
       ], {
         maxBuffer: 50 * 1024 * 1024,
         timeout: 180000,
-        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+        env: safePythonEnvironment(),
       });
 
       const parsed = JSON.parse(stdout);
       return parsed;
     } catch (err: any) {
-      console.warn('[Deterministic Python Detector Warning]:', err?.message || err);
+      console.warn('[Deterministic Python Detector Warning]', { name: err?.name || 'Error', code: err?.code });
       return null;
     }
   }
@@ -443,13 +452,13 @@ export class ExamService {
       ], {
         maxBuffer: 15 * 1024 * 1024,
         timeout: 30000,
-        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+        env: safePythonEnvironment(),
       });
 
       const parsed = JSON.parse(stdout);
       return parsed;
     } catch (err: any) {
-      return { success: false, error: err?.message || 'FAILED_TO_RENDER_PAGE' };
+      return { success: false, error: 'FAILED_TO_RENDER_PAGE' };
     }
   }
 
@@ -513,7 +522,7 @@ export class ExamService {
     ], {
       maxBuffer: 15 * 1024 * 1024,
       timeout: 30000,
-      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      env: safePythonEnvironment(),
     });
 
     const cropRes = JSON.parse(stdout);

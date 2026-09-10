@@ -1,4 +1,22 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cfo_cbmerj_postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cfo_app_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-cfo_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configure POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
   cfo-terminal:
     build:
       context: .
@@ -6,14 +24,18 @@ services:
     image: cfo-cbmerj-terminal:latest
     container_name: cfo_cbmerj_app
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - PORT=3000
       - NODE_ENV=production
+      - DATABASE_URL=${DATABASE_URL_DOCKER:-postgresql://${POSTGRES_USER:-cfo_app}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cfo_app_dev}}
     env_file:
       - .env
     volumes:
       - cfo_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   backup-offsite:
@@ -37,4 +59,6 @@ services:
 
 volumes:
   cfo_data:
+    driver: local
+  postgres_data:
     driver: local
