@@ -68,15 +68,21 @@ export default function FibonacciSphere({ className = '', pointCount = 6000, poi
           correctedDelta.x *= uAspect;
           float distanceFromMouse = length(correctedDelta);
 
-          float radius = 0.42;
-          float influence = 1.0 - smoothstep(0.0, radius, distanceFromMouse);
-          float wave = sin(uTime * 3.0 + p.y * 12.0 + p.z * 8.0) * 0.25;
-          float directionalForce = influence * (0.85 + wave * 0.15) * uHover;
-          float flowStrength = 0.10;
-          clipPosition.x += flowStrength * directionalForce * clipPosition.w;
-          clipPosition.y += sin(uTime * 2.0 + p.x * 10.0) * 0.01 * influence * uHover * clipPosition.w;
+          float openingRadius = 0.36;
+          float influence = 1.0 - smoothstep(openingRadius * 0.15, openingRadius, distanceFromMouse);
+          vec2 direction = normalize(correctedDelta + vec2(0.00001));
+          direction.x /= uAspect;
+          float force = influence * influence;
+          float openingStrength = 0.28;
+          clipPosition.xy += direction * force * openingStrength * uHover * clipPosition.w;
+
+          float rimCenter = openingRadius * 0.78;
+          float rimWidth = openingRadius * 0.12;
+          float rim = exp(-pow((distanceFromMouse - rimCenter) / rimWidth, 2.0)) * uHover;
+          clipPosition.xy += direction * rim * 0.035 * clipPosition.w;
+          clipPosition.z -= rim * 0.018 * clipPosition.w;
           gl_Position = clipPosition;
-          gl_PointSize = uPointSize * (1.0 + influence * 0.18 * uHover);
+          gl_PointSize = uPointSize * (1.0 + rim * 0.35);
         }
       `,
       fragmentShader: `
