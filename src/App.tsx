@@ -1503,12 +1503,22 @@ export default function App() {
           onToggleCollapse={handleToggleCollapse}
           onClose={() => setIsSidebarOpen(false)}
           pendingRevisionsCount={pendingRevisionsCount}
+          unreadNotificationsCount={unreadNotificationsCount}
           canAccessNotion={canAccessNotion}
           userProfile={userProfile || { username: localStorage.getItem('cfo_terminal_user') || 'perfil', role: localStorage.getItem('cfo_terminal_role') || undefined }}
           isAdmin={isCurrentAdmin && !isImpersonating}
           canReturnToAdmin={isImpersonating}
           onOpenAccountSwitcher={openAccountSwitcher}
           onReturnToAdmin={returnToAdminAccount}
+          onOpenRevisions={() => setIsRevisionsModalOpen(true)}
+          onOpenAddSubject={() => setIsAddSubjectModalOpen(true)}
+          onOpenHistory={() => setIsHistoryModalOpen(true)}
+          onOpenSettings={() => {
+            setAccountInitialTab('settings');
+            setIsMyAccountOpen(true);
+          }}
+          onOpenNotifications={() => setIsNotificationDrawerOpen(true)}
+          onOpenAdminSecurity={() => navigateTo('/admin')}
         />
 
         {/* Main Content Area */}
