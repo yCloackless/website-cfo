@@ -32,9 +32,14 @@ interface SecurityStatusData {
 }
 
 export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onBackToLanding }) => {
-  const [step, setStep] = useState<'credentials' | 'forgot' | 'reset'>('credentials');
+  const [step, setStep] = useState<'credentials' | 'register' | 'forgot' | 'reset'>('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [registerFullName, setRegisterFullName] = useState('');
+  const [registerUsername, setRegisterUsername] = useState('');
+  const [registerKey, setRegisterKey] = useState('');
+  const [registerPassword, setRegisterPassword] = useState('');
+  const [registerPasswordConfirm, setRegisterPasswordConfirm] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [requiresTotp, setRequiresTotp] = useState(false);
@@ -260,6 +265,61 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
     }
   };
 
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanUsername = registerUsername.trim().toLowerCase();
+    if (!registerKey.trim() || !cleanEmail || !cleanUsername || !registerPassword) {
+      setErrorMsg('Preencha a chave, e-mail, username e senha.');
+      return;
+    }
+    if (!/^[a-z0-9._-]{3,32}$/.test(cleanUsername)) {
+      setErrorMsg('O username deve ter de 3 a 32 caracteres: letras minúsculas, números, ponto, hífen ou underline.');
+      return;
+    }
+    if (registerPassword.length < 8) {
+      setErrorMsg('A senha deve possuir pelo menos 8 caracteres.');
+      return;
+    }
+    if (registerPassword !== registerPasswordConfirm) {
+      setErrorMsg('As senhas não coincidem.');
+      return;
+    }
+
+    setLoading(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: registerKey.trim(),
+          email: cleanEmail,
+          username: cleanUsername,
+          password: registerPassword,
+          fullName: registerFullName.trim() || cleanUsername,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        setErrorMsg(data.message || 'Não foi possível criar a conta.');
+        return;
+      }
+      setEmail(cleanUsername);
+      setPassword('');
+      setRegisterKey('');
+      setRegisterPassword('');
+      setRegisterPasswordConfirm('');
+      setStep('credentials');
+      setSuccessMsg(data.message || 'Conta criada. Agora entre com suas credenciais.');
+    } catch {
+      setErrorMsg('Falha de conexão com o servidor. Tente novamente.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Solicitar Código de Recuperação de Senha
   const handleRequestReset = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -338,7 +398,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
 
   return (
     <div
-      className="login-screen min-h-screen min-h-[100dvh] w-full max-w-full flex flex-col items-center justify-between p-3 min-[380px]:p-4 sm:p-6 py-4 sm:py-8 text-slate-800 select-none font-sans overflow-y-auto overflow-x-hidden"
+      className="login-screen relative min-h-screen min-h-[100dvh] w-full max-w-full flex flex-col items-center justify-between p-3 min-[380px]:p-4 sm:p-6 py-4 sm:py-8 text-slate-800 select-none font-sans overflow-y-auto overflow-x-hidden"
       style={{
         backgroundColor: '#f1f4f9',
         backgroundImage: `
@@ -348,12 +408,23 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
         `,
       }}
     >
-      <div className="w-full flex-1 flex items-center justify-center my-auto">
+      {step === 'register' && (
+        <div className="absolute inset-0 z-0 overflow-hidden bg-black" aria-hidden="true">
+          <iframe
+            src="/point-sphere.html"
+            title="Esfera de pontos interativa"
+            className="absolute inset-0 h-full w-full border-0"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/55 to-slate-950/20 pointer-events-none" />
+        </div>
+      )}
+
+      <div className="relative z-10 w-full flex-1 flex items-center justify-center my-auto">
         {/* BEGIN: MainLoginWrapper */}
         <main className="w-full flex items-center justify-center min-w-0" data-purpose="login-viewport-container">
           {/* BEGIN: LoginCard */}
           <div
-            className="login-card w-full max-w-[448px] bg-white rounded-[22px] overflow-hidden flex flex-col relative transition-all duration-300"
+            className={`login-card w-full max-w-[448px] rounded-[22px] overflow-hidden flex flex-col relative transition-all duration-300 ${step === 'register' ? 'bg-white/95 backdrop-blur-sm' : 'bg-white'}`}
             data-purpose="login-main-card"
             style={{
               boxShadow: `
@@ -463,6 +534,17 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                         </h1>
                         <p className="text-[13.5px] font-normal text-[#64748b] leading-relaxed">
                           Entre para continuar seus estudos.
+                        </p>
+                      </>
+                    )}
+
+                    {step === 'register' && (
+                      <>
+                        <h1 className="text-[23px] sm:text-[24px] font-bold text-[#0f172a] tracking-tight mt-6 mb-1.5 font-sans">
+                          Criar sua conta
+                        </h1>
+                        <p className="text-[13.5px] font-normal text-[#64748b] leading-relaxed">
+                          Use a chave fornecida pelo administrador.
                         </p>
                       </>
                     )}
@@ -768,6 +850,58 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                       >
                         {requiresTotp ? 'Voltar e trocar as credenciais' : 'Esqueceu sua senha?'}
                       </button>
+                    </div>
+                    {!requiresTotp && (
+                      <div className="text-center pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setErrorMsg(null);
+                            setSuccessMsg(null);
+                            setStep('register');
+                          }}
+                          className="text-[12.5px] font-semibold text-[#164491] hover:text-[#0e2b5c] hover:underline transition-colors cursor-pointer"
+                        >
+                          Ainda não tenho conta — criar cadastro
+                        </button>
+                      </div>
+                    )}
+                  </form>
+                )}
+
+                {step === 'register' && (
+                  <form className="w-full mt-6 flex flex-col space-y-3.5" onSubmit={handleRegister}>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="flex flex-col gap-1.5 sm:col-span-2">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748b]">NOME COMPLETO</span>
+                        <input value={registerFullName} onChange={(e) => setRegisterFullName(e.target.value)} placeholder="Seu nome" autoComplete="name" className="w-full px-4 py-2.5 text-[14px] text-slate-800 border border-[#e2e8f0] rounded-xl outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15" />
+                      </label>
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748b]">E-MAIL</span>
+                        <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu@email.com" autoComplete="email" className="w-full px-4 py-2.5 text-[14px] text-slate-800 border border-[#e2e8f0] rounded-xl outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15" />
+                      </label>
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748b]">USERNAME</span>
+                        <input required value={registerUsername} onChange={(e) => setRegisterUsername(e.target.value.toLowerCase())} placeholder="seu.usuario" autoComplete="username" className="w-full px-4 py-2.5 text-[14px] text-slate-800 border border-[#e2e8f0] rounded-xl outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15" />
+                      </label>
+                      <label className="flex flex-col gap-1.5 sm:col-span-2">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748b]">CHAVE DE CADASTRO</span>
+                        <input required value={registerKey} onChange={(e) => setRegisterKey(e.target.value)} placeholder="CFO-..." autoComplete="off" className="w-full px-4 py-2.5 font-mono text-[13px] text-slate-800 border border-amber-200 bg-amber-50/40 rounded-xl outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15" />
+                      </label>
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748b]">SENHA</span>
+                        <input required minLength={8} type="password" value={registerPassword} onChange={(e) => setRegisterPassword(e.target.value)} placeholder="Mínimo 8 caracteres" autoComplete="new-password" className="w-full px-4 py-2.5 text-[14px] text-slate-800 border border-[#e2e8f0] rounded-xl outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15" />
+                      </label>
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748b]">CONFIRMAR SENHA</span>
+                        <input required minLength={8} type="password" value={registerPasswordConfirm} onChange={(e) => setRegisterPasswordConfirm(e.target.value)} placeholder="Repita a senha" autoComplete="new-password" className="w-full px-4 py-2.5 text-[14px] text-slate-800 border border-[#e2e8f0] rounded-xl outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15" />
+                      </label>
+                    </div>
+                    <button type="submit" disabled={loading} className="w-full py-3.5 px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] text-white font-bold text-xs tracking-wider uppercase transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50">
+                      {loading ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Criando...</> : 'Criar conta'}
+                    </button>
+                    <div className="text-center pt-1">
+                      <button type="button" onClick={() => { setStep('credentials'); setErrorMsg(null); setSuccessMsg(null); }} className="text-[12.5px] font-medium text-[#64748b] hover:text-[#164491] transition-colors cursor-pointer">← Voltar ao login</button>
                     </div>
                   </form>
                 )}

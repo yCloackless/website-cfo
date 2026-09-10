@@ -1,90 +1,122 @@
-<!doctype html>
-<html lang="pt-BR">
+<!DOCTYPE html>
+<html lang="pt-br">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Esfera de Fibonacci — point cloud</title>
-  <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}canvas{display:block;cursor:grab}canvas:active{cursor:grabbing}</style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Casca esférica</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js" } }
+</script>
 </head>
 <body>
 <script type="module">
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js';
+import * as THREE from 'three';
 
-const COUNT = 6000;
-const positions = new Float32Array(COUNT * 3);
-for (let i = 0; i < COUNT; i++) {
-  // Esfera de Fibonacci determinística: sem random, sem agrupamentos.
-  const y = 1 - (2 * i) / (COUNT - 1);
-  const r = Math.sqrt(1 - y * y);
-  const theta = i * Math.PI * (3 - Math.sqrt(5));
-  positions[i * 3] = Math.cos(theta) * r;
-  positions[i * 3 + 1] = y;
-  positions[i * 3 + 2] = Math.sin(theta) * r;
+/* ------------------------------------------------------------------
+   Espiral de Fibonacci numa casca esférica de raio 1.
+   Equidistante por construção: sem random(), sem aglomerados,
+   sem buracos. É a grade quase-perfeita que torna a imagem legível.
+-------------------------------------------------------------------*/
+const N = 6000;
+const GA = Math.PI * (3 - Math.sqrt(5));
+const pos = new Float32Array(N * 3);
+
+for (let i = 0; i < N; i++) {
+  const y = 1 - (i / (N - 1)) * 2;
+  const r = Math.sqrt(Math.max(0, 1 - y * y));
+  const th = GA * i;
+  pos[i*3+0] = Math.cos(th) * r;
+  pos[i*3+1] = y;
+  pos[i*3+2] = Math.sin(th) * r;
 }
 
-const geometry = new THREE.BufferGeometry();
-geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-const material = new THREE.ShaderMaterial({
+const geo = new THREE.BufferGeometry();
+geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+
+/* Blending NORMAL: os pontos não somam, não brilham, não estouram. */
+const mat = new THREE.ShaderMaterial({
   transparent: true,
   depthWrite: false,
   blending: THREE.NormalBlending,
-  uniforms: { uPixelRatio: { value: Math.min(devicePixelRatio, 2) } },
-  vertexShader: `
-    uniform float uPixelRatio;
+  uniforms: { uSize: { value: 1.0 } },
+  vertexShader: /* glsl */`
+    uniform float uSize;
     void main() {
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      gl_PointSize = 1.5 * uPixelRatio;
-    }
-  `,
-  fragmentShader: `
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_Position = projectionMatrix * mv;
+      gl_PointSize = uSize;              // 1 pixel, fixo, sem attenuação
+    }`,
+  fragmentShader: /* glsl */`
     void main() {
-      vec2 d = gl_PointCoord - 0.5;
-      if (length(d) > 0.5) discard;
-      gl_FragColor = vec4(1.0, 1.0, 1.0, 0.95);
-    }
-  `
+      float d = length(gl_PointCoord - 0.5);
+      float a = smoothstep(0.5, 0.35, d);   // ponto redondo suave, sem saia
+      gl_FragColor = vec4(1.0, 1.0, 1.0, a);
+    }`
 });
 
+const pts = new THREE.Points(geo, mat);
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x000000);
-const sphere = new THREE.Points(geometry, material);
-scene.add(sphere); // somente pontos; nenhuma luz, mesh ou textura.
+scene.add(pts);
 
-const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
-let distance = 3.2;
-let targetX = 0, targetY = 0, currentX = 0, currentY = 0;
-camera.position.z = distance;
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setSize(innerWidth, innerHeight);
-renderer.setClearColor(0x000000, 1);
-document.body.appendChild(renderer.domElement);
+/* ------------------------------------------------------------------
+   Enquadramento: a esfera ocupa ~70% da largura da janela.
+-------------------------------------------------------------------*/
+const cam = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
+const ren = new THREE.WebGLRenderer({ antialias: true });
+ren.setPixelRatio(Math.min(devicePixelRatio, 2));
+ren.setSize(innerWidth, innerHeight);
+ren.setClearColor(0x000000, 1);
+document.body.appendChild(ren.domElement);
 
-let dragging = false, lastX = 0, lastY = 0;
-renderer.domElement.addEventListener('pointerdown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; renderer.domElement.setPointerCapture(e.pointerId); });
-renderer.domElement.addEventListener('pointermove', (e) => {
-  if (!dragging) return;
-  targetX += (e.clientX - lastX) * 0.008;
-  targetY += (e.clientY - lastY) * 0.008;
-  lastX = e.clientX; lastY = e.clientY;
-});
-renderer.domElement.addEventListener('pointerup', () => { dragging = false; });
-renderer.domElement.addEventListener('wheel', (e) => { e.preventDefault(); distance = THREE.MathUtils.clamp(distance + e.deltaY * 0.002, 1.8, 7); }, { passive: false });
-addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); material.uniforms.uPixelRatio.value = Math.min(devicePixelRatio, 2); });
-
-const clock = new THREE.Clock();
-function animate() {
-  requestAnimationFrame(animate);
-  const dt = clock.getDelta();
-  if (!dragging) { targetX += dt * 0.12; targetY += dt * 0.025; }
-  currentX += (targetX - currentX) * 0.08;
-  currentY += (targetY - currentY) * 0.08;
-  sphere.rotation.y = currentX;
-  sphere.rotation.x = currentY;
-  camera.position.z += (distance - camera.position.z) * 0.1;
-  renderer.render(scene, camera);
+function fit() {
+  const h = 2 * Math.tan(THREE.MathUtils.degToRad(cam.fov * 0.5));
+  const w = h * cam.aspect;
+  return 1 / Math.min(w, h) / 0.7 * 0.5;   // distância para preencher 70%
 }
-animate();
+
+let yaw = 0, pitch = 0, tYaw = 0, tPitch = 0, hoverYaw = 0, hoverPitch = 0;
+let zoom = 1, dragging = false, px = 0, py = 0;
+
+addEventListener('pointerdown', e => { dragging = true; px = e.clientX; py = e.clientY; });
+addEventListener('pointerup',   () => dragging = false);
+addEventListener('pointermove', e => {
+  if (!dragging) {
+    hoverYaw = (e.clientX / innerWidth - 0.5) * 0.22;
+    hoverPitch = (e.clientY / innerHeight - 0.5) * 0.14;
+    return;
+  }
+  tYaw   += (e.clientX - px) * 0.006;
+  tPitch += (e.clientY - py) * 0.006;
+  tPitch = THREE.MathUtils.clamp(tPitch, -1.4, 1.4);
+  px = e.clientX; py = e.clientY;
+});
+addEventListener('pointerleave', () => { hoverYaw = 0; hoverPitch = 0; });
+addEventListener('wheel', e => {
+  zoom = THREE.MathUtils.clamp(zoom + e.deltaY * 0.0008, 0.72, 1.45);
+}, { passive: true });
+
+addEventListener('resize', () => {
+  cam.aspect = innerWidth / innerHeight;
+  cam.updateProjectionMatrix();
+  ren.setSize(innerWidth, innerHeight);
+});
+
+(function loop() {
+  if (!dragging) tYaw += 0.0022;                 // rotação lenta contínua
+  yaw   += (tYaw + hoverYaw - yaw) * 0.08;
+  pitch += (tPitch + hoverPitch - pitch) * 0.08;
+
+  pts.rotation.set(pitch, yaw, 0);
+  cam.position.set(0, 0, fit() * zoom);
+  cam.lookAt(0, 0, 0);
+
+  ren.render(scene, cam);
+  requestAnimationFrame(loop);
+})();
 </script>
 </body>
 </html>

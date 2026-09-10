@@ -145,6 +145,16 @@ interface AnomalyItem {
   failedAttempts: number;
 }
 
+interface AccountCreationKeyItem {
+  id: string;
+  createdAt: string;
+  usedAt?: string | null;
+  expiresAt?: string | null;
+  usedByUsername?: string | null;
+  isUsed: boolean;
+  isExpired: boolean;
+}
+
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   theme,
   sessionToken,
@@ -175,6 +185,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isUsersLoading, setIsUsersLoading] = useState(false);
   const [newAccount, setNewAccount] = useState({ fullName: '', email: '', username: '', password: '', role: 'cadet' as 'cadet' | 'support' | 'admin', canAccessNotion: false });
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
+  const [accountCreationKeys, setAccountCreationKeys] = useState<AccountCreationKeyItem[]>([]);
+  const [generatedAccountKey, setGeneratedAccountKey] = useState<{ rawKey: string; expiresAt: string } | null>(null);
+  const [isGeneratingAccountKey, setIsGeneratingAccountKey] = useState(false);
 
   // Ficha Detalhada de Usuário
   const [currentAdminRole, setCurrentAdminRole] = useState<string>('admin');
@@ -539,6 +552,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       .catch(() => {});
   }, [isAuthorized, getHeaders]);
 
+  const loadAccountCreationKeys = useCallback(() => {
+    if (!isAuthorized || currentAdminRole !== 'admin') return;
+    fetch('/api/admin/account-keys', { headers: getHeaders() })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) setAccountCreationKeys(data.keys || []);
+      })
+      .catch(() => {});
+  }, [isAuthorized, currentAdminRole, getHeaders]);
+
   // Efeito para recarregar dados quando a aba mudar
   useEffect(() => {
     if (!isAuthorized) return;
@@ -550,8 +573,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       loadRecoveryCount();
     }
     else if (activeTab === 'admins') loadAdmins();
-    else if (activeTab === 'notion') loadUsers();
-  }, [activeTab, isAuthorized, loadDashboard, loadUsers, loadSessions, loadAudit, loadAdmins]);
+    else if (activeTab === 'notion') {
+      loadUsers();
+      loadAccountCreationKeys();
+    }
+  }, [activeTab, isAuthorized, loadDashboard, loadUsers, loadSessions, loadAudit, loadAdmins, loadAccountCreationKeys]);
 
   // Submeter Confirmação de Step-Up
   const handleConfirmStepUp = async (e: React.FormEvent) => {
@@ -846,6 +872,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setActionFeedback({ type: 'error', message: 'Erro de comunicacao ao criar conta.' });
     } finally {
       setIsCreatingAccount(false);
+    }
+  };
+
+  const handleGenerateAccountKey = async (overrideStepUp?: string) => {
+    setIsGeneratingAccountKey(true);
+    try {
+      const res = await fetch('/api/admin/account-keys', { method: 'POST', headers: getHeaders(overrideStepUp) });
+      const data = await res.json();
+      if (res.status === 403 && data.error === 'STEP_UP_REQUIRED') {
+        setPendingAction(() => (token: string) => handleGenerateAccountKey(token));
+        setIsStepUpModalOpen(true);
+        return;
+      }
+      if (!res.ok || !data.success || !data.key?.rawKey) {
+        setActionFeedback({ type: 'error', message: data.message || 'Falha ao gerar chave de cadastro.' });
+        return;
+      }
+      setGeneratedAccountKey({ rawKey: data.key.rawKey, expiresAt: data.key.expiresAt });
+      loadAccountCreationKeys();
+      try {
+        await navigator.clipboard.writeText(data.key.rawKey);
+        setActionFeedback({ type: 'success', message: 'Chave gerada e copiada para a área de transferência.' });
+      } catch {
+        setActionFeedback({ type: 'success', message: 'Chave gerada. Copie-a antes de fechar este aviso.' });
+      }
+    } catch {
+      setActionFeedback({ type: 'error', message: 'Erro de comunicação ao gerar chave.' });
+    } finally {
+      setIsGeneratingAccountKey(false);
     }
   };
 
@@ -1592,6 +1647,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
                 <p className="text-xs text-slate-400">Somente o administrador pode liberar ou remover a aba Agenda Notion, criar contas e excluir contas.</p>
               </div>
+
+              <section className="bg-[#0B1220] border border-amber-500/25 rounded-2xl p-5 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2"><KeyRound className="w-4 h-4 text-amber-400" /> Chave para novo cadastro</h3>
+                    <p className="text-xs text-slate-400 mt-1">Gere uma chave de uso único para a pessoa criar a própria conta. Ela expira em 30 dias.</p>
+                  </div>
+                  <button type="button" onClick={() => handleGenerateAccountKey()} disabled={isGeneratingAccountKey} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-bold cursor-pointer shrink-0">
+                    <KeyRound className="w-4 h-4" /> {isGeneratingAccountKey ? 'Gerando...' : 'Gerar chave'}
+                  </button>
+                </div>
+                {generatedAccountKey && (
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
+                    <p className="text-[11px] text-emerald-300 mb-2">Chave exibida uma única vez — já copiada quando o navegador permitiu:</p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <code className="flex-1 min-w-0 break-all rounded-lg bg-slate-950 px-3 py-2 text-sm text-white select-all">{generatedAccountKey.rawKey}</code>
+                      <button type="button" onClick={() => navigator.clipboard.writeText(generatedAccountKey.rawKey)} className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">Copiar</button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-2">Expira em {new Date(generatedAccountKey.expiresAt).toLocaleDateString('pt-BR')}.</p>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  {accountCreationKeys.slice(0, 6).map((item) => (
+                    <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-[11px]">
+                      <span className="font-mono text-slate-400">Gerada em {new Date(item.createdAt).toLocaleDateString('pt-BR')}</span>
+                      <span className={item.isUsed ? 'text-slate-500' : item.isExpired ? 'text-red-400' : 'text-emerald-400'}>{item.isUsed ? `Usada${item.usedByUsername ? ` por @${item.usedByUsername}` : ''}` : item.isExpired ? 'Expirada' : 'Disponível'}</span>
+                    </div>
+                  ))}
+                  {accountCreationKeys.length === 0 && <p className="text-[11px] text-slate-500">Nenhuma chave gerada ainda.</p>}
+                </div>
+              </section>
 
               <form onSubmit={(e) => { e.preventDefault(); handleCreateAccount(); }} className="bg-[#0B1220] border border-slate-800/90 rounded-2xl p-5 space-y-4">
                 <div className="flex items-center justify-between gap-3">

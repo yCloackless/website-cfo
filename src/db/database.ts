@@ -942,6 +942,25 @@ export const MIGRATIONS: Migration[] = [
         WHERE idempotency_key IS NOT NULL;
     `,
   },
+  {
+    id: 25,
+    name: '025_account_creation_keys',
+    sql: `
+      CREATE TABLE IF NOT EXISTS account_creation_keys (
+        id TEXT PRIMARY KEY,
+        key_hash TEXT NOT NULL UNIQUE,
+        created_by_user_id TEXT NOT NULL,
+        used_by_user_id TEXT,
+        created_at TEXT NOT NULL,
+        used_at TEXT,
+        expires_at TEXT,
+        FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+        FOREIGN KEY (used_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_account_creation_keys_active
+        ON account_creation_keys(used_at, expires_at, created_at);
+    `,
+  },
 ];
 
 
