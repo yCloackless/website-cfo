@@ -447,19 +447,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                 <>
                   {/* BEGIN: BrandHeader */}
                   <header className="flex flex-col items-center text-center w-full" data-purpose="brand-presentation">
-                    {/* Blue Phoenix Emblem */}
-                    <div
-                      className="w-16 h-16 mb-2 flex items-center justify-center transition-transform hover:scale-105 duration-200"
-                      data-purpose="brand-logo"
-                    >
-                      <img
-                        src="/phoenix-logo-cropped.png"
-                        alt="Logo Fênix RUMO ao CFO"
-                        className="w-full h-full object-contain drop-shadow-[0_8px_20px_rgba(0,86,210,0.35)]"
-                      />
-                    </div>
-
-                    {/* Brand Sub-Texts */}
+                    {/* Minimal brand wordmark */}
                     <span className="text-[13px] font-bold tracking-[0.14em] text-[#164491] uppercase leading-tight font-display">
                       RUMO
                     </span>
