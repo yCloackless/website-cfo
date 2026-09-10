@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Flame,
   Calendar,
-  Clock,
+  History,
   RotateCcw,
   Plus,
+  BookPlus,
   Sparkles,
   LogOut,
   CheckCircle2,
@@ -13,14 +14,16 @@ import {
   LayoutGrid,
   BookOpen,
   Target,
-  Lock,
   PanelLeft,
   User as UserIcon,
-  Shield,
+  ShieldCheck,
   Bell,
   Settings as SettingsIcon,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  LockKeyhole,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
@@ -87,6 +90,78 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const isDark = theme === 'dark';
   const [isHeaderExpanded, setIsHeaderExpanded] = useState(false);
+  const navScrollRef = useRef<HTMLDivElement>(null);
+  const dragState = useRef({ active: false, startX: 0, startScrollLeft: 0, moved: false });
+  const [navScrollState, setNavScrollState] = useState({ canScrollLeft: false, canScrollRight: false });
+  const updateNavScrollState = useCallback(() => {
+    const element = navScrollRef.current;
+    if (!element) return;
+    const tolerance = 2;
+    setNavScrollState({
+      canScrollLeft: element.scrollLeft > tolerance,
+      canScrollRight: element.scrollLeft + element.clientWidth < element.scrollWidth - tolerance,
+    });
+  }, []);
+
+  useEffect(() => {
+    const element = navScrollRef.current;
+    if (!element) return;
+    updateNavScrollState();
+    const resizeObserver = new ResizeObserver(updateNavScrollState);
+    resizeObserver.observe(element);
+    if (element.parentElement) resizeObserver.observe(element.parentElement);
+    element.addEventListener('scroll', updateNavScrollState, { passive: true });
+    window.addEventListener('resize', updateNavScrollState);
+    return () => {
+      resizeObserver.disconnect();
+      element.removeEventListener('scroll', updateNavScrollState);
+      window.removeEventListener('resize', updateNavScrollState);
+    };
+  }, [updateNavScrollState, isHeaderExpanded, hasCalendarAccess, isAdmin, pendingRevisionsCount, unreadNotificationsCount]);
+
+  const scrollNav = (direction: -1 | 1) => {
+    navScrollRef.current?.scrollBy({ left: direction * 320, behavior: 'smooth' });
+  };
+
+  const handleNavWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    const element = navScrollRef.current;
+    if (!element || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+    const direction = event.deltaY > 0 ? 1 : -1;
+    const canMove = direction > 0 ? navScrollState.canScrollRight : navScrollState.canScrollLeft;
+    if (!canMove) return;
+    event.preventDefault();
+    element.scrollBy({ left: event.deltaY, behavior: 'auto' });
+  };
+
+  const handleNavPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'mouse' || event.button !== 0 || (event.target as HTMLElement).closest('button')) return;
+    dragState.current = { active: true, startX: event.clientX, startScrollLeft: navScrollRef.current?.scrollLeft || 0, moved: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleNavPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const state = dragState.current;
+    const element = navScrollRef.current;
+    if (!state.active || !element) return;
+    const distance = event.clientX - state.startX;
+    if (Math.abs(distance) > 6) state.moved = true;
+    if (state.moved) element.scrollLeft = state.startScrollLeft - distance;
+  };
+
+  const handleNavPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragState.current.active && event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragState.current.active = false;
+  };
+
+  const preventClickAfterDrag = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (dragState.current.moved) {
+      event.preventDefault();
+      event.stopPropagation();
+      dragState.current.moved = false;
+    }
+  };
   const mobileSurface = isDark
     ? 'border-slate-800 bg-[#0B1528] text-slate-200 hover:border-blue-500/60 hover:bg-slate-900'
     : 'border-slate-200 bg-slate-100 text-slate-800 hover:border-blue-500 hover:bg-slate-200';
@@ -192,7 +267,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-full border px-2 text-[11px] font-bold transition-all duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${mobileSurface}`}
                 title="Ver histórico de semanas anteriores"
               >
-                <Clock className="h-4 w-4 shrink-0" />
+                <History className="h-4 w-4 shrink-0" />
                 <span className="truncate">Histórico</span>
               </button>
             </div>
@@ -254,7 +329,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className={`${mobileCircle} border-amber-500/40 bg-amber-500/10 text-amber-300 hover:border-amber-400`}
                   title="Painel de monitoramento de segurança e auditoria"
                 >
-                  <span className="flex h-12 w-12 items-center justify-center rounded-full border border-amber-400/40 bg-amber-500/10"><Shield className="h-5 w-5" /></span>
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full border border-amber-400/40 bg-amber-500/10"><ShieldCheck className="h-5 w-5" /></span>
                   <span className={mobileLabel}>Segurança</span>
                 </button>
               )}
@@ -268,7 +343,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className={`${mobileCircle} border-blue-500/40 bg-blue-500/10 text-blue-300 hover:border-blue-400`}
                   title="Bloquear terminal e retornar à página inicial"
                 >
-                  <span className="flex h-12 w-12 items-center justify-center rounded-full border border-blue-400/40 bg-blue-500/10"><Lock className="h-5 w-5" /></span>
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full border border-blue-400/40 bg-blue-500/10"><LockKeyhole className="h-5 w-5" /></span>
                   <span className={mobileLabel}>Bloqueio</span>
                 </button>
               )}
@@ -331,13 +406,35 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Desktop action buttons and utilities. Kept unchanged for desktop. */}
-          <div
-            id="desktop-header-actions"
-            className={`ml-0 hidden min-w-0 basis-full items-center gap-1.5 py-0.5 transition-[max-width,opacity] duration-300 ease-out sm:ml-auto sm:flex sm:basis-auto sm:flex-1 sm:flex-nowrap sm:gap-2.5 sm:overflow-x-auto scrollbar-none [&>button]:min-h-10 sm:[&>button]:min-h-0 ${
+          {/* Desktop action buttons and utilities. The navigation rail scrolls independently. */}
+          <div className={`ml-0 hidden min-w-0 basis-full items-center gap-1 sm:ml-auto sm:flex sm:basis-auto sm:flex-1 ${
               isHeaderExpanded ? 'max-w-full opacity-100' : 'max-w-[430px] opacity-85'
-            }`}
-          >
+            }`}>
+            {navScrollState.canScrollLeft && (
+              <button
+                type="button"
+                onClick={() => scrollNav(-1)}
+                aria-label="Rolar navegação para esquerda"
+                className={`z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border shadow-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
+                  isDark ? 'border-slate-700 bg-[#0B1528] text-slate-300 hover:border-blue-500/60 hover:text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-blue-400 hover:text-blue-700'
+                }`}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            )}
+
+            <div
+              id="desktop-header-actions"
+              ref={navScrollRef}
+              onWheel={handleNavWheel}
+              onPointerDown={handleNavPointerDown}
+              onPointerMove={handleNavPointerMove}
+              onPointerUp={handleNavPointerUp}
+              onPointerCancel={handleNavPointerUp}
+              onClickCapture={preventClickAfterDrag}
+              className="header-nav-scroll min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-0.5 sm:flex sm:flex-nowrap sm:gap-2.5 scrollbar-none"
+              style={{ touchAction: 'pan-x' }}
+            >
             {/* Smart Revisions Button */}
             <button
               id="btn-revisoes-inteligentes"
@@ -373,7 +470,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
               title="Adicionar disciplina personalizada ao seu ciclo"
             >
-              <Plus className="w-3.5 h-3.5 text-blue-400" />
+              <BookPlus className="w-3.5 h-3.5 text-blue-400" />
               <span className="hidden sm:inline">Matéria</span>
             </button>
 
@@ -388,7 +485,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
               title="Ver histórico de semanas anteriores"
             >
-              <Clock className="w-3.5 h-3.5" />
+              <History className="w-3.5 h-3.5" />
               <span className="hidden md:inline">Histórico</span>
             </button>
 
@@ -605,7 +702,7 @@ export const Header: React.FC<HeaderProps> = ({
                 }`}
                 title="Painel de Monitoramento de Segurança e Auditoria (Admin)"
               >
-                <Shield className="w-3.5 h-3.5 text-amber-400" />
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
                 <span className="hidden sm:inline font-mono text-[11px] font-bold">
                   Segurança
                 </span>
@@ -623,10 +720,23 @@ export const Header: React.FC<HeaderProps> = ({
                 }`}
                 title="Bloquear terminal e retornar à Landing Page"
               >
-                <Lock className="w-3 h-3 text-blue-400" />
+                <LockKeyhole className="w-3 h-3 text-blue-400" />
               </button>
             )}
 
+            </div>
+            {navScrollState.canScrollRight && (
+              <button
+                type="button"
+                onClick={() => scrollNav(1)}
+                aria-label="Rolar navegação para direita"
+                className={`z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border shadow-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
+                  isDark ? 'border-slate-700 bg-[#0B1528] text-slate-300 hover:border-blue-500/60 hover:text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-blue-400 hover:text-blue-700'
+                }`}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>

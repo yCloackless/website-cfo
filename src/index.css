@@ -55,6 +55,26 @@ button, a {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* The desktop topbar uses a clean, touch-friendly horizontal rail. */
+.header-nav-scroll {
+  cursor: grab;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.header-nav-scroll > * {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.header-nav-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.header-nav-scroll:active {
+  cursor: grabbing;
+}
+
 ::selection {
   background: rgba(56, 189, 248, 0.2);
   color: #bae6fd;
