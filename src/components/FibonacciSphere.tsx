@@ -4,9 +4,10 @@ import * as THREE from 'three';
 interface FibonacciSphereProps {
   className?: string;
   pointCount?: number;
+  pointColor?: THREE.ColorRepresentation;
 }
 
-export default function FibonacciSphere({ className = '', pointCount = 6000 }: FibonacciSphereProps) {
+export default function FibonacciSphere({ className = '', pointCount = 6000, pointColor }: FibonacciSphereProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -40,9 +41,11 @@ export default function FibonacciSphere({ className = '', pointCount = 6000 }: F
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const themeColor = pointColor ?? (document.body.classList.contains('theme-dark') ? '#ffffff' : '#000000');
     const uniforms = {
       uTime: { value: 0 }, uPointSize: { value: 1.65 * pixelRatio },
       uMouse: { value: new THREE.Vector2() }, uHover: { value: 0 }, uAspect: { value: 1 },
+      uPointColor: { value: new THREE.Color(themeColor) },
     };
     const material = new THREE.ShaderMaterial({
       uniforms, transparent: true, depthWrite: false, blending: THREE.NormalBlending,
@@ -77,11 +80,12 @@ export default function FibonacciSphere({ className = '', pointCount = 6000 }: F
         }
       `,
       fragmentShader: `
+        uniform vec3 uPointColor;
         void main() {
           float distanceToCenter = length(gl_PointCoord - vec2(0.5));
           float alpha = 1.0 - smoothstep(0.31, 0.5, distanceToCenter);
           if (alpha < 0.01) discard;
-          gl_FragColor = vec4(1.0, 1.0, 1.0, alpha);
+          gl_FragColor = vec4(uPointColor, alpha);
         }
       `,
     });
@@ -132,6 +136,11 @@ export default function FibonacciSphere({ className = '', pointCount = 6000 }: F
       uniforms.uAspect.value = width / height;
     };
     const resizeObserver = new ResizeObserver(resize); resizeObserver.observe(container); resize();
+    const themeObserver = pointColor ? null : new MutationObserver(() => {
+      const isDark = document.body.classList.contains('theme-dark');
+      uniforms.uPointColor.value.set(isDark ? '#ffffff' : '#000000');
+    });
+    themeObserver?.observe(document.body, { attributes: true, attributeFilter: ['class'] });
     const clock = new THREE.Clock(); let animationFrame = 0;
     const animate = () => {
       animationFrame = requestAnimationFrame(animate); uniforms.uTime.value = clock.getElapsedTime();
@@ -145,7 +154,7 @@ export default function FibonacciSphere({ className = '', pointCount = 6000 }: F
     animate();
 
     return () => {
-      cancelAnimationFrame(animationFrame); resizeObserver.disconnect();
+      cancelAnimationFrame(animationFrame); resizeObserver.disconnect(); themeObserver?.disconnect();
       canvas.removeEventListener('pointerdown', pointerDown); canvas.removeEventListener('pointermove', updatePointer);
       canvas.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointercancel', pointerUp);
       canvas.removeEventListener('pointerenter', pointerEnter); canvas.removeEventListener('pointerleave', pointerLeave);

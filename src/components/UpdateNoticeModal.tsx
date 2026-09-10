@@ -37,7 +37,7 @@ export const UpdateNoticeModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-[200] overflow-hidden bg-black text-white">
-      <FibonacciSphere className="absolute inset-0" />
+      <FibonacciSphere className="absolute inset-0" pointColor="#ffffff" />
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-between bg-black/10 px-5 py-8 sm:py-12">
         <div className="max-w-xl text-center drop-shadow-[0_2px_12px_rgba(0,0,0,0.95)]">
           <div className="flex items-center justify-center gap-2 text-blue-200">

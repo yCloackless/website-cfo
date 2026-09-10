@@ -150,7 +150,7 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
 .login-card [data-purpose="submit-login-button"]:hover { background:#0759d1 !important; transform:translateY(-1px); }
 
 /* Three.js point cloud used as the Hero's transparent visual layer. */
-.hero-sphere-stage { position:absolute; inset:0; z-index:1; background:radial-gradient(circle at 54% 47%,#172b43 0%,#0b192c 34%,rgba(7,20,39,.72) 52%,transparent 74%); }
+.hero-sphere-stage { position:absolute; inset:0; z-index:1; background:transparent; }
 .hero-sphere { position:absolute; inset:0; }
 .hero-art > .blue-panel, .hero-art > .orange-panel, .hero-art > .dashboard { visibility:hidden; pointer-events:none; }
 .register-key-card { background:rgba(0,0,0,.72); border:1px solid rgba(148,163,184,.22); box-shadow:0 24px 80px rgba(0,0,0,.55) !important; color:#fff; }
