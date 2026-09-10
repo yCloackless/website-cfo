@@ -501,8 +501,8 @@ const normalizedAllowedOrigins = new Set(
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Requests sem origin (server-to-server, curl, mobile nativo) — permitir
-      if (!origin) return callback(null, true);
+      // Requests server-to-server do not need CORS headers.
+      if (!origin) return callback(null, false);
 
       const normalized = extractOrigin(origin);
       if (normalized && normalizedAllowedOrigins.has(normalized)) {
@@ -524,14 +524,15 @@ app.use(
       console.warn(`[CORS] Origin rejeitada: ${origin}`);
       return callback(Object.assign(new Error('CORS: Origin não autorizada'), { status: 403 }), false);
     },
-    credentials: true,
+    // The SPA and API share the same origin; cross-origin cookie access is not needed.
+    credentials: false,
   })
 );
 
 // 6. Rate Limiters
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 350,
+  max: 120,
   validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
@@ -6071,8 +6072,19 @@ async function startServer() {
   examJobWorker.start();
 
   if (process.env.NODE_ENV !== "production") {
+    app.use((req, res, next) => {
+      const blocked = ['/package.json', '/package-lock.json', '/bun.lock', '/.env', '/.env.example'];
+      if (blocked.some((path) => req.path === path || req.path.startsWith(`${path}.`))) {
+        return res.sendStatus(404);
+      }
+      return next();
+    });
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        host: '127.0.0.1',
+        fs: { strict: true },
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -6086,8 +6098,9 @@ async function startServer() {
     });
   }
 
-  const server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  const listenHost = process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1';
+  const server = app.listen(PORT, listenHost, () => {
+    console.log(`Server running on http://${listenHost}:${PORT}`);
   });
   server.requestTimeout = 60_000;
   server.headersTimeout = 15_000;
