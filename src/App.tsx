@@ -1446,7 +1446,7 @@ export default function App() {
   return (
     <div
       className={`min-h-screen min-h-[100dvh] w-full max-w-full flex flex-col antialiased selection:bg-[#0056D2] selection:text-white transition-colors duration-200 relative ${
-        isDark ? 'bg-[#0B0F17] text-slate-100' : 'bg-[#F1F4F9] text-slate-900'
+        isDark ? 'bg-[#0B0F17] text-slate-100' : 'bg-white text-slate-900'
       }`}
     >
       {/* 🌐 Network Contingency Notification (Offline / Reconnecting) */}
@@ -1567,7 +1567,7 @@ export default function App() {
         />
 
         {/* Main Content Area */}
-        <main className="flex-1 max-w-none w-full mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-7 space-y-6 min-w-0 bg-[#0B0F17]">
+        <main className={`flex-1 max-w-none w-full mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-7 space-y-6 min-w-0 ${isDark ? 'bg-[#0B0F17]' : 'bg-white'}`}>
         
         {/* Render Tab 1: Cronograma Semanal */}
         {activeTab === 'table' && (
