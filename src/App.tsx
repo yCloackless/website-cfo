@@ -1429,7 +1429,7 @@ export default function App() {
   return (
     <div
       className={`min-h-screen min-h-[100dvh] w-full max-w-full flex flex-col antialiased selection:bg-[#0056D2] selection:text-white transition-colors duration-200 relative ${
-        isDark ? 'bg-[#070D18] text-slate-100' : 'bg-[#F1F4F9] text-slate-900'
+        isDark ? 'bg-[#0B0F17] text-slate-100' : 'bg-[#F1F4F9] text-slate-900'
       }`}
     >
       {/* 🌐 Network Contingency Notification (Offline / Reconnecting) */}
@@ -1512,16 +1512,16 @@ export default function App() {
         />
 
         {/* Main Content Area */}
-        <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6 min-w-0">
+        <main className="flex-1 max-w-none w-full mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-7 space-y-6 min-w-0 bg-[#0B0F17]">
         
         {/* Render Tab 1: Cronograma Semanal */}
         {activeTab === 'table' && (
           <>
             {/* Dedicated Weekly Goal & Progress Card */}
             <div
-              className={`p-5 rounded-2xl border transition-all shadow-xl ${
-                isDark
-                  ? 'bg-[#0B1528] border-slate-800/90 shadow-black/40'
+                className={`p-5 rounded-xl border transition-all shadow-[0_18px_45px_rgba(0,0,0,0.18)] ${
+                  isDark
+                    ? 'bg-[#131B2A] border-[#1E293B] shadow-black/40'
                   : 'bg-white border-slate-200 shadow-slate-200/50'
               }`}
             >
@@ -1638,7 +1638,7 @@ export default function App() {
               {/* Metric 1 */}
               <div
                 className={`p-4 rounded-xl border transition-colors shadow-xl flex items-center justify-between ${
-                  isDark ? 'bg-[#111218] border-slate-800/90' : 'bg-white border-slate-200 shadow-slate-100'
+                  isDark ? 'bg-[#131B2A] border-[#1E293B]' : 'bg-white border-slate-200 shadow-slate-100'
                 }`}
               >
                 <div>
@@ -1678,7 +1678,7 @@ export default function App() {
               {/* Metric 2 */}
               <div
                 className={`p-4 rounded-xl border transition-colors shadow-xl flex items-center justify-between ${
-                  isDark ? 'bg-[#111218] border-slate-800/90' : 'bg-white border-slate-200 shadow-slate-100'
+                  isDark ? 'bg-[#131B2A] border-[#1E293B]' : 'bg-white border-slate-200 shadow-slate-100'
                 }`}
               >
                 <div>
@@ -1720,7 +1720,7 @@ export default function App() {
               {/* Metric 3 */}
               <div
                 className={`p-4 rounded-xl border transition-colors shadow-xl flex items-center justify-between ${
-                  isDark ? 'bg-[#111218] border-slate-800/90' : 'bg-white border-slate-200 shadow-slate-100'
+                  isDark ? 'bg-[#131B2A] border-[#1E293B]' : 'bg-white border-slate-200 shadow-slate-100'
                 }`}
               >
                 <div>
@@ -1760,7 +1760,7 @@ export default function App() {
               {/* Metric 4 */}
               <div
                 className={`p-4 rounded-xl border transition-colors shadow-xl flex items-center justify-between ${
-                  isDark ? 'bg-[#111218] border-slate-800/90' : 'bg-white border-slate-200 shadow-slate-100'
+                  isDark ? 'bg-[#131B2A] border-[#1E293B]' : 'bg-white border-slate-200 shadow-slate-100'
                 }`}
               >
                 <div>
@@ -1803,7 +1803,7 @@ export default function App() {
 
               <div
                 className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl ${
-                  isDark ? 'bg-[#111218] border-slate-800' : 'bg-white border-slate-200 shadow-slate-100'
+                  isDark ? 'bg-[#131B2A] border-[#1E293B]' : 'bg-white border-slate-200 shadow-slate-100'
                 }`}
               >
                 <div className="flex items-start gap-3">

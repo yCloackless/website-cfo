@@ -52,8 +52,8 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
 
   return (
     <div
-      className={`w-full rounded-2xl border transition-colors shadow-2xl overflow-hidden ${
-        isDark ? 'bg-[#0B1528] border-slate-800/80' : 'bg-white border-slate-200 shadow-slate-200/50'
+      className={`w-full rounded-xl border transition-colors shadow-[0_18px_45px_rgba(0,0,0,0.2)] overflow-hidden ${
+        isDark ? 'bg-[#131B2A] border-[#1E293B]' : 'bg-white border-slate-200 shadow-slate-200/50'
       }`}
     >
       {/* Responsive Container: Scrollable on mobile, Fixed 100% on Desktop */}
@@ -63,7 +63,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
             <tr
               className={`border-b text-xs font-bold uppercase tracking-wider transition-colors ${
                 isDark
-                  ? 'bg-[#070D18] border-slate-800 text-slate-400'
+                  ? 'bg-[#0B0F17] border-[#1E293B] text-slate-400'
                   : 'bg-slate-50 border-slate-200 text-slate-600'
               }`}
             >
@@ -71,7 +71,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
               <th
                 className={`sticky left-0 z-20 backdrop-blur-xs py-3.5 px-2.5 sm:px-3 w-[140px] sm:w-[180px] lg:w-[22%] border-r transition-colors ${
                   isDark
-                    ? 'bg-[#070D18]/95 border-slate-800 text-slate-300'
+                    ? 'bg-[#0B0F17]/95 border-[#1E293B] text-slate-300'
                     : 'bg-slate-50/95 border-slate-200 text-slate-800'
                 }`}
               >
@@ -175,7 +175,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                   <td
                     className={`sticky left-0 z-10 py-3 px-2.5 sm:px-4 border-r transition-colors ${
                       isDark
-                        ? 'bg-[#0B1528] group-hover:bg-[#0F1D38] border-slate-800'
+                        ? 'bg-[#131B2A] group-hover:bg-[#182235] border-[#1E293B]'
                         : 'bg-white group-hover:bg-slate-50 border-slate-200'
                     }`}
                   >
@@ -424,7 +424,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
       <div
         className={`px-5 py-3 border-t flex flex-wrap items-center justify-between gap-3 text-xs transition-colors ${
           isDark
-            ? 'bg-[#0D0E13] border-slate-800 text-slate-500'
+            ? 'bg-[#0E1422] border-[#1E293B] text-slate-500'
             : 'bg-slate-50 border-slate-200 text-slate-600'
         }`}
       >
@@ -452,4 +452,3 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
     </div>
   );
 };
-
