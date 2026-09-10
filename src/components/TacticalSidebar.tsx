@@ -1,23 +1,26 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  LayoutGrid,
-  Calendar,
-  Clock,
-  BookOpen,
+  House,
+  FileStack,
+  BookOpenCheck,
   Target,
+  CalendarDays,
+  Timer,
+  ChartSpline,
   Sparkles,
-  Crosshair,
-  Layers,
-  FileText,
+  ClipboardCheck,
+  Layers3,
+  Brain,
+  BookPlus,
+  History,
+  Bell,
+  Settings,
+  ShieldCheck,
+  UserCog,
   X,
-  UserCircle,
+  CircleUserRound,
   ArrowLeftRight,
   Flame,
-  Plus,
-  RotateCcw,
-  Settings,
-  Bell,
-  Shield,
   Pin,
 } from 'lucide-react';
 import { AppTheme } from '../types';
@@ -64,7 +67,7 @@ interface TacticalSidebarProps {
 interface SidebarItem {
   id: string;
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
   tabId?: TabType;
   action?: () => void;
   badge?: string;
@@ -190,7 +193,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
 
   const isExpandedDesktop = isPinned || isHovered || isFocused;
 
-  // Categorized Navigation Groups
+  // Categorized Navigation Groups with Refined Iconography
   const NAV_GROUPS: SidebarGroup[] = [
     {
       title: 'PRINCIPAL',
@@ -198,13 +201,13 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         {
           id: 'table',
           label: 'Cronograma',
-          icon: LayoutGrid,
+          icon: House,
           tabId: 'table',
         },
         {
           id: 'examBank',
           label: 'Banco de Provas',
-          icon: FileText,
+          icon: FileStack,
           tabId: 'examBank',
           badge: 'IA',
           badgeClass: {
@@ -215,7 +218,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         {
           id: 'bizuario',
           label: 'Bizuário',
-          icon: BookOpen,
+          icon: BookOpenCheck,
           tabId: 'bizuario',
         },
         {
@@ -237,7 +240,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         {
           id: 'monthlyHours',
           label: 'Agenda de Horas',
-          icon: Calendar,
+          icon: CalendarDays,
           tabId: 'monthlyHours',
           badge: 'Horas',
           badgeClass: {
@@ -248,13 +251,13 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         {
           id: 'timer',
           label: 'Cronômetro',
-          icon: Clock,
+          icon: Timer,
           tabId: 'timer',
         },
         {
           id: 'learning',
           label: 'Radar',
-          icon: Target,
+          icon: ChartSpline,
           tabId: 'learning',
           badge: 'Aluno',
           badgeClass: {
@@ -271,13 +274,13 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         {
           id: 'simulations',
           label: 'Simulados',
-          icon: Crosshair,
+          icon: ClipboardCheck,
           tabId: 'simulations',
         },
         {
           id: 'flashcards',
           label: 'Caderno de Erros',
-          icon: Layers,
+          icon: Layers3,
           tabId: 'flashcards',
           badge: 'Anki',
           badgeClass: {
@@ -290,7 +293,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
               {
                 id: 'calendar',
                 label: 'Agenda Notion',
-                icon: Calendar,
+                icon: CalendarDays,
                 tabId: 'calendar' as TabType,
                 badge: 'Notion',
                 badgeClass: {
@@ -310,7 +313,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
               {
                 id: 'revisions',
                 label: 'Revisões Espaçadas',
-                icon: Sparkles,
+                icon: Brain,
                 action: onOpenRevisions,
                 badge: pendingRevisionsCount > 0 ? String(pendingRevisionsCount) : undefined,
                 isNumericBadge: true,
@@ -326,7 +329,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
               {
                 id: 'addSubject',
                 label: 'Adicionar Matéria',
-                icon: Plus,
+                icon: BookPlus,
                 action: onOpenAddSubject,
               },
             ]
@@ -336,7 +339,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
               {
                 id: 'history',
                 label: 'Histórico de Ciclos',
-                icon: RotateCcw,
+                icon: History,
                 action: onOpenHistory,
               },
             ]
@@ -377,7 +380,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
               {
                 id: 'adminSecurity',
                 label: canReturnToAdmin ? 'Voltar ao ADM' : 'Painel de Segurança ADM',
-                icon: Shield,
+                icon: canReturnToAdmin ? UserCog : ShieldCheck,
                 action: canReturnToAdmin ? onReturnToAdmin : onOpenAdminSecurity,
                 badge: 'ADM',
                 badgeClass: {
@@ -433,7 +436,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
             >
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center shadow-md shadow-blue-500/20 text-white">
-                  <Flame className="w-5 h-5" />
+                  <Flame size={20} strokeWidth={1.8} />
                 </div>
                 <div>
                   <h1 className="font-extrabold text-sm tracking-tight leading-none bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">
@@ -456,7 +459,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                 title="Fechar menu"
                 aria-label="Fechar menu lateral"
               >
-                <X className="w-4 h-4" />
+                <X size={18} strokeWidth={1.8} />
               </button>
             </div>
 
@@ -489,7 +492,9 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <Icon
-                            className={`w-5 h-5 shrink-0 ${
+                            size={20}
+                            strokeWidth={1.8}
+                            className={`shrink-0 ${
                               isActive
                                 ? 'text-white'
                                 : isSimulations
@@ -537,7 +542,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                       />
                     ) : (
                       <div className="w-9 h-9 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-300">
-                        <UserCircle className="w-5 h-5" />
+                        <CircleUserRound size={20} strokeWidth={1.8} />
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
@@ -557,7 +562,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                       className="p-2 rounded-xl border border-slate-700 bg-slate-800 text-slate-300"
                       title="Trocar de conta"
                     >
-                      <ArrowLeftRight className="w-4 h-4" />
+                      <ArrowLeftRight size={18} strokeWidth={1.8} />
                     </button>
                   )}
                   {canReturnToAdmin && onReturnToAdmin && (
@@ -586,7 +591,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         aria-hidden="true"
       />
 
-      {/* Invisible Hover-Intent Edge Zone (10px wide on right edge) */}
+      {/* Invisible Hover-Intent Edge Zone (12px wide on right edge) */}
       <div
         className="hidden md:block fixed top-0 bottom-0 left-[68px] w-3 z-30 pointer-events-auto"
         onMouseEnter={handleMouseEnter}
@@ -620,7 +625,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
           {/* Centered Logo Icon Container: fixed 48px width aligned to 72px sidebar */}
           <div className="w-[48px] h-10 flex items-center justify-center shrink-0">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center shadow-md shadow-blue-500/20 text-white shrink-0">
-              <Flame className="w-5 h-5" />
+              <Flame size={20} strokeWidth={1.8} />
             </div>
           </div>
 
@@ -655,7 +660,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
               title={isPinned ? 'Desfixar menu lateral (Modo Automático)' : 'Fixar menu lateral aberto'}
               aria-label={isPinned ? 'Desfixar menu lateral' : 'Fixar menu lateral'}
             >
-              <Pin className={`w-3.5 h-3.5 transition-transform ${isPinned ? 'rotate-45 text-blue-400 fill-blue-400/20' : ''}`} />
+              <Pin size={16} strokeWidth={1.8} className={`transition-transform ${isPinned ? 'rotate-45 text-blue-400 fill-blue-400/20' : ''}`} />
             </button>
           </div>
         </div>
@@ -681,6 +686,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                 const Icon = item.icon;
                 const isActive = item.tabId && activeTab === item.tabId;
                 const isSimulations = item.tabId === 'simulations';
+                const isSettings = item.id === 'settings';
 
                 return (
                   <button
@@ -704,7 +710,11 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                     {/* Icon Container: Fixed width 56px, perfectly centered horizontally */}
                     <div className="w-[56px] h-11 flex items-center justify-center shrink-0 relative">
                       <Icon
-                        className={`w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-110 ${
+                        size={20}
+                        strokeWidth={1.8}
+                        className={`shrink-0 transition-transform duration-200 group-hover:scale-110 ${
+                          isSettings ? 'group-hover:rotate-45' : ''
+                        } ${
                           isActive
                             ? 'text-white'
                             : isSimulations
@@ -774,7 +784,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                   />
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-300 shrink-0">
-                    <UserCircle className="w-5 h-5" />
+                    <CircleUserRound size={20} strokeWidth={1.8} />
                   </div>
                 )}
               </div>
@@ -808,7 +818,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                     title="Trocar de conta"
                     aria-label="Trocar de conta"
                   >
-                    <ArrowLeftRight className="w-3.5 h-3.5" />
+                    <ArrowLeftRight size={16} strokeWidth={1.8} />
                   </button>
                 )}
                 {canReturnToAdmin && onReturnToAdmin && (
