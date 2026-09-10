@@ -77,7 +77,7 @@ import {
   StudySessionRepository,
 } from "./src/db/repositories";
 import { UserRole, DbUser, DbExamPaper } from "./src/db/schema";
-import { validateImageBuffer, saveUserAvatar } from "./src/services/avatarService";
+import { validateImageBuffer } from "./src/services/avatarService";
 import { secureUploadService, SecureUploadService } from "./src/services/secureUploadService";
 import { ExamService } from "./src/services/examService";
 import { ExamJobWorker } from "./src/services/examJobWorker";
@@ -3077,8 +3077,10 @@ app.post("/api/user/avatar", requireUserAuth, (req: Request, res: Response) => {
       });
     }
 
-    // Grava imagem com nome seguro e incriptografado
-    const avatarUrl = saveUserAvatar(user.id, buffer, validation.extension);
+    // Mantém a imagem no registro persistido do perfil. O filesystem local do
+    // deploy pode ser recriado, enquanto o banco permanece disponível após
+    // uma nova versão da aplicação.
+    const avatarUrl = `data:${validation.detectedMime};base64,${buffer.toString("base64")}`;
     profileRepoInstance.updateAvatar(user.id, avatarUrl);
 
     return res.json({
