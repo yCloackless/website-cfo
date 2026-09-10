@@ -19,6 +19,7 @@ declare global {
 }
 
 import React, { useState, useRef, useEffect } from 'react';
+import FibonacciSphere from './FibonacciSphere';
 
 interface SecurityGateProps {
   onAuthenticated: (token: string, expiresAt: number, is2faActive: boolean) => void;
@@ -32,7 +33,7 @@ interface SecurityStatusData {
 }
 
 export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onBackToLanding }) => {
-  const [step, setStep] = useState<'credentials' | 'register' | 'forgot' | 'reset'>('credentials');
+  const [step, setStep] = useState<'credentials' | 'register-key' | 'register' | 'forgot' | 'reset'>('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [registerFullName, setRegisterFullName] = useState('');
@@ -408,13 +409,9 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
         `,
       }}
     >
-      {step === 'register' && (
+      {(step === 'register-key' || step === 'register') && (
         <div className="absolute inset-0 z-0 overflow-hidden bg-black" aria-hidden="true">
-          <iframe
-            src="/point-sphere.html"
-            title="Esfera de pontos interativa"
-            className="absolute inset-0 h-full w-full border-0"
-          />
+          <FibonacciSphere className="absolute inset-0" />
           <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/55 to-slate-950/20 pointer-events-none" />
         </div>
       )}
@@ -424,7 +421,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
         <main className="w-full flex items-center justify-center min-w-0" data-purpose="login-viewport-container">
           {/* BEGIN: LoginCard */}
           <div
-            className={`login-card w-full max-w-[448px] rounded-[22px] overflow-hidden flex flex-col relative transition-all duration-300 ${step === 'register' ? 'bg-white/95 backdrop-blur-sm' : 'bg-white'}`}
+            className={`login-card w-full max-w-[448px] rounded-[22px] overflow-hidden flex flex-col relative transition-all duration-300 ${step === 'register-key' ? 'register-key-card' : step === 'register' ? 'bg-white/95 backdrop-blur-sm' : 'bg-white'}`}
             data-purpose="login-main-card"
             style={{
               boxShadow: `
@@ -538,13 +535,13 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                       </>
                     )}
 
-                    {step === 'register' && (
+                    {(step === 'register-key' || step === 'register') && (
                       <>
                         <h1 className="text-[23px] sm:text-[24px] font-bold text-[#0f172a] tracking-tight mt-6 mb-1.5 font-sans">
-                          Criar sua conta
+                          {step === 'register-key' ? 'Código de acesso' : 'Criar sua conta'}
                         </h1>
                         <p className="text-[13.5px] font-normal text-[#64748b] leading-relaxed">
-                          Use a chave fornecida pelo administrador.
+                          {step === 'register-key' ? 'Digite o código fornecido pelo administrador para continuar.' : 'Use a chave fornecida pelo administrador.'}
                         </p>
                       </>
                     )}
@@ -858,7 +855,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                           onClick={() => {
                             setErrorMsg(null);
                             setSuccessMsg(null);
-                            setStep('register');
+                            setStep('register-key');
                           }}
                           className="text-[12.5px] font-semibold text-[#164491] hover:text-[#0e2b5c] hover:underline transition-colors cursor-pointer"
                         >
@@ -866,6 +863,28 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                         </button>
                       </div>
                     )}
+                  </form>
+                )}
+
+                {step === 'register-key' && (
+                  <form className="w-full mt-6 flex flex-col space-y-4 register-key-form" onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!registerKey.trim()) {
+                      setErrorMsg('Digite o código de acesso para continuar.');
+                      return;
+                    }
+                    setErrorMsg(null);
+                    setSuccessMsg(null);
+                    setStep('register');
+                  }}>
+                    <label className="flex flex-col gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">CÓDIGO DE ACESSO</span>
+                      <input required autoFocus value={registerKey} onChange={(event) => { setRegisterKey(event.target.value); setErrorMsg(null); }} placeholder="CFO-..." autoComplete="off" className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-center font-mono text-base tracking-[0.12em] text-white outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20" />
+                    </label>
+                    <button type="submit" className="w-full rounded-xl bg-white px-4 py-3.5 text-xs font-bold uppercase tracking-wider text-slate-950 transition hover:bg-blue-100 cursor-pointer">Continuar cadastro</button>
+                    <div className="text-center pt-1">
+                      <button type="button" onClick={() => { setStep('credentials'); setErrorMsg(null); setSuccessMsg(null); }} className="text-[12.5px] font-medium text-slate-400 hover:text-white transition-colors cursor-pointer">← Voltar ao login</button>
+                    </div>
                   </form>
                 )}
 
@@ -884,7 +903,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                         <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748b]">USERNAME</span>
                         <input required value={registerUsername} onChange={(e) => setRegisterUsername(e.target.value.toLowerCase())} placeholder="seu.usuario" autoComplete="username" className="w-full px-4 py-2.5 text-[14px] text-slate-800 border border-[#e2e8f0] rounded-xl outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15" />
                       </label>
-                      <label className="flex flex-col gap-1.5 sm:col-span-2">
+                      <label className="register-key-confirm flex flex-col gap-1.5 sm:col-span-2">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748b]">CHAVE DE CADASTRO</span>
                         <input required value={registerKey} onChange={(e) => setRegisterKey(e.target.value)} placeholder="CFO-..." autoComplete="off" className="w-full px-4 py-2.5 font-mono text-[13px] text-slate-800 border border-amber-200 bg-amber-50/40 rounded-xl outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15" />
                       </label>

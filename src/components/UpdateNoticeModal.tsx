@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { RefreshCw, Sparkles } from 'lucide-react';
+import FibonacciSphere from './FibonacciSphere';
 
 // Versão temporária de teste: a opção Saturno foi removida deste aviso.
 export const SITE_RELEASE_VERSION = '2026-09-10-blackhole-only';
@@ -36,11 +37,7 @@ export const UpdateNoticeModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-[200] overflow-hidden bg-black text-white">
-      <iframe
-        src="/blackhole-disc.html"
-        title="Buraco negro em point cloud"
-        className="absolute inset-0 h-full w-full border-0"
-      />
+      <FibonacciSphere className="absolute inset-0" />
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-between bg-black/10 px-5 py-8 sm:py-12">
         <div className="max-w-xl text-center drop-shadow-[0_2px_12px_rgba(0,0,0,0.95)]">
           <div className="flex items-center justify-center gap-2 text-blue-200">

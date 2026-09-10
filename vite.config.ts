@@ -8,6 +8,7 @@ export default defineConfig(() => {
     build: {
       outDir: 'dist/public',
       sourcemap: false,
+      chunkSizeWarningLimit: 600,
       rollupOptions: {
         output: {
           manualChunks: {
@@ -15,6 +16,7 @@ export default defineConfig(() => {
             motion: ['motion/react'],
             recharts: ['recharts'],
             katex: ['katex'],
+            three: ['three'],
           },
         },
       },
