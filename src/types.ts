@@ -100,6 +100,8 @@ export interface BizuItem {
   imageUrl?: string;
   imageAlt?: string;
   notes?: string;
+  /** Text written by the student stays plain; AI notes may keep structure. */
+  notesMode?: 'plain' | 'ai';
   keyPoints?: string[];
   tags: string[];
   isFavorite?: boolean;
@@ -135,5 +137,4 @@ export interface NotionCalendarEvent {
   isCompleted: boolean;
   tipoRevisao: string[];
 }
-
 

@@ -144,6 +144,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
   const [formCategory, setFormCategory] = useState('');
   const [formImageUrl, setFormImageUrl] = useState('');
   const [formNotes, setFormNotes] = useState('');
+  const [formNotesMode, setFormNotesMode] = useState<'plain' | 'ai'>('plain');
   const [formKeyPointInput, setFormKeyPointInput] = useState('');
   const [formKeyPoints, setFormKeyPoints] = useState<string[]>([]);
   // Mantidos apenas para compatibilidade com dados antigos; a interface não exibe tags.
@@ -203,6 +204,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         const aiData = resData.data;
         if (aiData.notes) {
           const separatedNotes = String(aiData.notes).trim();
+          setFormNotesMode('ai');
           if (formNotes.trim() && !overrideTitle) {
             setFormNotes((prev) => `${prev}\n\n--- [BIZU ADICIONAL GEMINI AI] ---\n${separatedNotes}`);
           } else {
@@ -284,6 +286,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         subjectName: detectedSubj,
         category: generatedCategory,
         notes: String(aiData.notes).trim(),
+        notesMode: 'ai',
         keyPoints: generatedKeyPoints,
         tags: [],
         isFavorite: true,
@@ -350,6 +353,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
             : 'Edital CFO CBMERJ')
       );
       setFormNotes(String(aiData.notes).trim());
+      setFormNotesMode('ai');
       setFormKeyPoints(Array.isArray(aiData.keyPoints) ? aiData.keyPoints : []);
       setFormIsFavorite(true);
 
@@ -374,6 +378,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
       setFormCategory('Edital CFO CBMERJ');
       setFormImageUrl('');
       setFormNotes('');
+      setFormNotesMode('plain');
       setFormKeyPoints([]);
       setFormKeyPointInput('');
       setFormIsFavorite(true);
@@ -443,6 +448,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
     setFormCategory('Geopolítica');
     setFormImageUrl('');
     setFormNotes('');
+    setFormNotesMode('plain');
     setFormKeyPoints([]);
     setFormKeyPointInput('');
     setFormIsFavorite(false);
@@ -459,6 +465,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
     setFormCategory(bizu.category || '');
     setFormImageUrl(bizu.imageUrl || '');
     setFormNotes(bizu.notes || '');
+    setFormNotesMode(bizu.notesMode || 'plain');
     setFormKeyPoints(bizu.keyPoints ? [...bizu.keyPoints] : []);
     setFormKeyPointInput('');
     setFormIsFavorite(!!bizu.isFavorite);
@@ -567,6 +574,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         category: formCategory.trim() || undefined,
         imageUrl: processedImageUrl,
         notes: cleanNotes,
+        notesMode: formNotesMode,
         keyPoints: formKeyPoints,
         tags: editingBizu.tags || [],
         isFavorite: formIsFavorite,
@@ -580,6 +588,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         imageUrl: processedImageUrl,
         imageAlt: formTitle.trim(),
         notes: cleanNotes,
+        notesMode: formNotesMode,
         keyPoints: formKeyPoints,
         tags: [],
         isFavorite: formIsFavorite,

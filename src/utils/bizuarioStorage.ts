@@ -306,9 +306,14 @@ function trySaveToLocalStorage(items: BizuItem[]): void {
 }
 
 function normalizeBizuItems(items: BizuItem[]): BizuItem[] {
-  // O texto do Bizuário é livre: não transformar parágrafos, fórmulas ou
-  // enunciados de matemática em tópicos automaticamente.
-  return items;
+  // Remove somente os cabeçalhos criados pela versão antiga do Bizuário.
+  // Textos novos continuam intactos; anotações geradas pela IA são marcadas
+  // como `ai` e preservam a estrutura que a IA escolheu.
+  return items.map((item) => {
+    if (!item.notes || item.notesMode === 'ai') return item;
+    const notes = item.notes.replace(/^\s*T[oó]pico\s*\d+\s*[-–—:]\s*[^\n]*\n?/gim, '').trim();
+    return notes === item.notes ? item : { ...item, notes, notesMode: 'plain' };
+  });
 }
 
 function mergeBizuStorageCopies(localItems: BizuItem[], indexedDbItems: BizuItem[]): BizuItem[] {

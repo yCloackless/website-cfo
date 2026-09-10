@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Sparkles } from 'lucide-react';
 
 // Troque este valor a cada publicação para que todos os navegadores reconheçam a nova versão.
-export const SITE_RELEASE_VERSION = '2026-09-10-point-cloud-scenes';
+export const SITE_RELEASE_VERSION = '2026-09-10-plain-notes';
 const ACK_KEY = `cfo_update_ack_${SITE_RELEASE_VERSION}`;
 
 const UPDATE_IMAGES = [
