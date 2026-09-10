@@ -137,13 +137,12 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
 @media (max-width: 560px) { .landing-container { width:calc(100% - 32px); }.landing-header { height:70px; }.logo-mark strong { font-size:16px; }.logo-mark small { font-size:5px; }.logo-symbol { transform:scale(.8); transform-origin:left center; width:29px; }.login-btn { display:none; }.primary-btn.small { font-size:11px; padding:0 13px; }.hero-copy h1 { font-size:48px; }.hero-copy p { font-size:17px; }.hero-actions { flex-direction:column; }.hero-actions>* { width:100%; }.hero-links { gap:8px; font-size:11px; }.hero-art { min-height:440px; }.blue-panel { right:39%; width:38%; height:255px; }.orange-panel { width:43%; height:300px; top:35px; }.blue-panel small,.orange-panel small { font-size:8px; top:24px; }.dashboard { bottom:0; width:130%; left:-15%; }.dash-content { padding:8px; }.dash-body aside { display:none; }.dash-body { display:block; }.dash-bottom { grid-template-columns:1.4fr .8fr; }.stats-inner { grid-template-columns:1fr; padding:25px 0; gap:22px; }.stats h2 { font-size:24px; }.stat { border-left:0; padding-left:0; }.platform { padding:75px 0; }.section-heading h2,.cta-card h2 { font-size:38px; }.cta-card { padding:60px 18px; }.cta-card p { font-size:15px; line-height:1.5; } }
 
 /* Login shares the same light, calm visual language as the public landing. */
-.login-screen { position:relative; background:#f7faff !important; background-image:linear-gradient(135deg,rgba(255,255,255,.96),rgba(235,244,255,.72)) !important; }
-.login-screen:before { content:''; position:fixed; width:520px; height:520px; top:-220px; right:-150px; border-radius:50%; background:rgba(9,103,242,.10); filter:blur(70px); pointer-events:none; }
-.login-screen:after { content:''; position:fixed; width:420px; height:420px; bottom:-220px; left:-150px; border-radius:50%; background:rgba(244,120,59,.08); filter:blur(70px); pointer-events:none; }
-.login-card { border:1px solid rgba(219,228,240,.9); border-radius:24px !important; box-shadow:0 28px 70px rgba(30,70,130,.12),0 3px 12px rgba(30,70,130,.04) !important; }
-.login-card-body { padding-top:32px !important; padding-bottom:34px !important; }
-.login-card [data-purpose="brand-logo"] { width:68px !important; height:68px !important; padding:7px; border-radius:18px; background:#f2f7ff; border:1px solid #e0ebfa; }
-.login-card [data-purpose="brand-logo"] img { mix-blend-mode:multiply; filter:saturate(1.08) contrast(1.1); border-radius:12px; }
+.login-screen { position:relative; background:#fff !important; background-image:none !important; }
+.login-screen:before,.login-screen:after { display:none; }
+.login-card { border:1px solid #edf0f4; border-radius:18px !important; box-shadow:0 10px 35px rgba(15,23,42,.06) !important; }
+.login-card > div:first-child { height:1px !important; background:#fff !important; }
+.login-card-body { padding-top:38px !important; padding-bottom:38px !important; }
+.login-card [data-purpose="brand-logo"] { display:none !important; }
 .login-card h1 { letter-spacing:-.04em !important; font-size:27px !important; }
 .login-card form { margin-top:28px !important; }
 .login-card input:not([type="checkbox"]) { min-height:48px; }
