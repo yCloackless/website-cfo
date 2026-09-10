@@ -16,7 +16,7 @@ const normalize = (sql) => sql
   .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s+INTEGER\\b/gi, '$1 BOOLEAN')
   .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s*=\\s*0\\b/gi, '$1 = FALSE')
   .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s*=\\s*1\\b/gi, '$1 = TRUE')
-  .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s+BOOLEAN\\s+NOT NULL DEFAULT 0\\b/gi, '$1 BOOLEAN NOT NULL DEFAULT FALSE')
+  .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s+BOOLEAN\\s+NOT NULL DEFAULT\\s+([01])\\b/gi, (_match, column, value) => `${column} BOOLEAN NOT NULL DEFAULT ${value === '1' ? 'TRUE' : 'FALSE'}`)
   .replace(/\\bCHECK\\s*\\(\\s*(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s+IN\\s*\\(\\s*0\\s*,\\s*1\\s*\\)\\s*\\)/gi, '');
 (async () => { await client.connect(); ready = true; while (pending.length && ioPort) await handle(pending.shift()); })().catch((err) => { if (ioPort) ioPort.postMessage({ fatal: true, error: String(err.message || err) }); });
 async function handle(message) { try { const sql = normalize(message.sql); if (!sql.trim()) return done(message, { rows: [], rowCount: 0 }); const result = await client.query({ text: sql, values: message.params || [] }); const last = Array.isArray(result) ? result[result.length - 1] : result; done(message, { rows: last.rows || [], rowCount: last.rowCount || 0, command: last.command }); } catch (err) { done(message, { error: String(err.message || err).replace(/postgresql[^ ]*/gi, '[redacted]') }); } }
