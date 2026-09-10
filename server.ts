@@ -498,6 +498,17 @@ const normalizedAllowedOrigins = new Set(
   allowedOriginsList.map(extractOrigin).filter(Boolean) as string[]
 );
 
+// Os visuais de ponto são documentos HTML autocontidos: precisam executar o
+// módulo inline e importar somente o Three.js do CDN, sem abrir essa exceção
+// para as demais páginas da aplicação.
+app.use(['/point-sphere.html', '/blackhole-disc.html'], (_req, res, next) => {
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+  );
+  next();
+});
+
 app.use(
   cors({
     origin: (origin, callback) => {
