@@ -35,7 +35,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public ./public
 
 # Criar diretório de dados persistentes
-RUN mkdir -p /app/data && chown -R node:node /app
+RUN mkdir -p /app/data && chown -R node:node /app/data
 
 USER node
 

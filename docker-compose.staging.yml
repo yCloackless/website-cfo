@@ -1,0 +1,42 @@
+services:
+  postgres-staging:
+    image: postgres:16-alpine
+    container_name: cfo_cbmerj_postgres_staging
+    ports:
+      - "127.0.0.1:55432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - cfo_cbmerj_postgres_staging_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app-staging:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cfo-cbmerj-staging:local
+    container_name: cfo_cbmerj_app_staging
+    ports:
+      - "127.0.0.1:3300:3000"
+    env_file:
+      - .env.staging
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-staging:5432/${POSTGRES_DB}
+      DATABASE_URL_DOCKER: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-staging:5432/${POSTGRES_DB}
+    volumes:
+      - cfo_cbmerj_staging_files:/app/data
+    depends_on:
+      postgres-staging:
+        condition: service_healthy
+
+volumes:
+  cfo_cbmerj_postgres_staging_data:
+  cfo_cbmerj_staging_files:
