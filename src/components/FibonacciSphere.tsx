@@ -20,7 +20,7 @@ export default function FibonacciSphere({ className = '', pointCount = 6000, poi
     const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-    camera.position.z = 3.65;
+    camera.position.z = 4.1;
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
     renderer.setClearColor(0x000000, 0);
     renderer.setPixelRatio(pixelRatio);
@@ -96,7 +96,7 @@ export default function FibonacciSphere({ className = '', pointCount = 6000, poi
       `,
     });
     const sphere = new THREE.Points(geometry, material);
-    sphere.scale.setScalar(0.82);
+    sphere.scale.setScalar(0.65);
     scene.add(sphere);
 
     const canvas = renderer.domElement;
@@ -137,7 +137,7 @@ export default function FibonacciSphere({ className = '', pointCount = 6000, poi
 
     const resize = () => {
       const width = Math.max(container.clientWidth, 1); const height = Math.max(container.clientHeight, 1);
-      renderer.setSize(width, height, false); camera.aspect = width / height; camera.position.z = width < 600 ? 3.9 : 3.65;
+      renderer.setSize(width, height, false); camera.aspect = width / height; camera.position.z = width < 600 ? 4.35 : 4.1;
       camera.updateProjectionMatrix(); uniforms.uPointSize.value = (width < 600 ? 1.55 : 1.65) * pixelRatio;
       uniforms.uAspect.value = width / height;
     };
