@@ -42,7 +42,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => (
   </main>
 );
 
-function Logo() { return <div className="logo-mark"><div className="logo-symbol"><i /><i /><b /></div><div><strong>RUMO AO <span>CFO</span></strong><small>DISCIPLINA HOJE. OFICIAL AMANHÃ.</small></div></div>; }
+function Logo() { return <div className="logo-mark"><img className="brand-phoenix" src="/phoenix-logo-cropped.png" alt="Fênix Rumo ao CFO" /><div><strong>RUMO AO <span>CFO</span></strong><small>DISCIPLINA HOJE. OFICIAL AMANHÃ.</small></div></div>; }
 function Stat({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <div className="stat"><div className="stat-icon">{icon}</div><div><h3>{title}</h3><p>{text}</p></div></div>; }
 function Benefit({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <article className="benefit"><div className="benefit-icon">{icon}</div><CheckCircle2 size={18} className="benefit-check" /><h3>{title}</h3><p>{text}</p><a href="#inicio">Saiba mais <ArrowRight size={15} /></a></article>; }
 function DashboardMockup() {

@@ -338,7 +338,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
 
   return (
     <div
-      className="min-h-screen min-h-[100dvh] w-full max-w-full flex flex-col items-center justify-between p-3 min-[380px]:p-4 sm:p-6 py-4 sm:py-8 text-slate-800 select-none font-sans overflow-y-auto overflow-x-hidden"
+      className="login-screen min-h-screen min-h-[100dvh] w-full max-w-full flex flex-col items-center justify-between p-3 min-[380px]:p-4 sm:p-6 py-4 sm:py-8 text-slate-800 select-none font-sans overflow-y-auto overflow-x-hidden"
       style={{
         backgroundColor: '#f1f4f9',
         backgroundImage: `
@@ -353,7 +353,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
         <main className="w-full flex items-center justify-center min-w-0" data-purpose="login-viewport-container">
           {/* BEGIN: LoginCard */}
           <div
-            className="w-full max-w-[448px] bg-white rounded-[22px] overflow-hidden flex flex-col relative transition-all duration-300"
+            className="login-card w-full max-w-[448px] bg-white rounded-[22px] overflow-hidden flex flex-col relative transition-all duration-300"
             data-purpose="login-main-card"
             style={{
               boxShadow: `
@@ -374,7 +374,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
             />
 
             {/* Card Inner Body Container */}
-            <div className="px-4 min-[380px]:px-6 sm:px-11 pt-5 sm:pt-8 pb-6 sm:pb-10 flex flex-col items-center relative w-full min-w-0">
+            <div className="login-card-body px-4 min-[380px]:px-6 sm:px-11 pt-5 sm:pt-8 pb-6 sm:pb-10 flex flex-col items-center relative w-full min-w-0">
               {onBackToLanding && (
                 <button
                   type="button"
