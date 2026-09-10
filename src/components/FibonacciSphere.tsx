@@ -42,20 +42,45 @@ export default function FibonacciSphere({ className = '', pointCount = 6000 }: F
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     const uniforms = {
       uTime: { value: 0 }, uPointSize: { value: 1.65 * pixelRatio },
-      uMouse: { value: new THREE.Vector2() }, uInteraction: { value: 0 },
+      uMouse: { value: new THREE.Vector2() }, uOpen: { value: 0 }, uAspect: { value: 1 },
     };
     const material = new THREE.ShaderMaterial({
       uniforms, transparent: true, depthWrite: false, blending: THREE.NormalBlending,
       vertexShader: `
-        uniform float uTime; uniform float uPointSize; uniform vec2 uMouse; uniform float uInteraction;
+        uniform float uTime;
+        uniform float uPointSize;
+        uniform vec2 uMouse;
+        uniform float uOpen;
+        uniform float uAspect;
+
         void main() {
           vec3 p = position;
-          float ambient = sin(p.y * 11.0 + uTime * 0.75) * 0.004 + sin(p.x * 9.0 - uTime * 0.55) * 0.003;
-          float influence = smoothstep(0.9, 0.0, distance(p.xy, uMouse * 0.7));
-          float deformation = influence * sin(uTime * 1.8 + p.z * 7.0 + p.y * 4.0) * 0.018 * uInteraction;
-          p *= 1.0 + ambient + deformation;
+          float breathing = sin(p.y * 8.0 + uTime * 0.7) * 0.0025;
+          p *= 1.0 + breathing;
+
           vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
-          gl_Position = projectionMatrix * mvPosition; gl_PointSize = uPointSize;
+          vec4 clipPosition = projectionMatrix * mvPosition;
+          vec2 screenPosition = clipPosition.xy / clipPosition.w;
+          vec2 correctedDelta = screenPosition - uMouse;
+          correctedDelta.x *= uAspect;
+          float distanceFromMouse = length(correctedDelta);
+
+          float openingRadius = 0.36;
+          float influence = 1.0 - smoothstep(openingRadius * 0.15, openingRadius, distanceFromMouse);
+          vec2 direction = normalize(correctedDelta + vec2(0.00001));
+          direction.x /= uAspect;
+          float force = influence * influence;
+          float openingStrength = 0.28;
+          vec2 displacement = direction * force * openingStrength * uOpen;
+          clipPosition.xy += displacement * clipPosition.w;
+
+          float rimCenter = openingRadius * 0.78;
+          float rimWidth = openingRadius * 0.12;
+          float rim = exp(-pow((distanceFromMouse - rimCenter) / rimWidth, 2.0)) * uOpen;
+          clipPosition.xy += direction * rim * 0.035 * clipPosition.w;
+          clipPosition.z -= rim * 0.018 * clipPosition.w;
+          gl_Position = clipPosition;
+          gl_PointSize = uPointSize * (1.0 + rim * 0.35);
         }
       `,
       fragmentShader: `
@@ -75,12 +100,13 @@ export default function FibonacciSphere({ className = '', pointCount = 6000 }: F
     const currentMouse = new THREE.Vector2();
     let dragging = false; let previousX = 0; let previousY = 0;
     let targetYaw = 0; let targetPitch = 0; let currentYaw = 0; let currentPitch = 0;
-    let hoverYaw = 0; let hoverPitch = 0; let targetInteraction = 0; let currentInteraction = 0;
+    let hoverYaw = 0; let hoverPitch = 0; let targetOpen = 0; let currentOpen = 0;
+    const openingStrength = reducedMotion ? 0.28 : 1;
     const updatePointer = (event: PointerEvent) => {
       const rect = container.getBoundingClientRect();
       const x = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * 2 - 1;
       const y = -(((event.clientY - rect.top) / Math.max(rect.height, 1)) * 2 - 1);
-      targetMouse.set(x, y); hoverYaw = x * 0.14; hoverPitch = -y * 0.09; targetInteraction = reducedMotion ? 0.12 : 1;
+      targetMouse.set(x, y); hoverYaw = x * 0.14; hoverPitch = -y * 0.09; targetOpen = openingStrength;
       if (dragging) {
         targetYaw += (event.clientX - previousX) * 0.005;
         targetPitch = THREE.MathUtils.clamp(targetPitch + (event.clientY - previousY) * 0.005, -1.25, 1.25);
@@ -88,17 +114,17 @@ export default function FibonacciSphere({ className = '', pointCount = 6000 }: F
       }
     };
     const pointerDown = (event: PointerEvent) => {
-      dragging = true; previousX = event.clientX; previousY = event.clientY; targetInteraction = reducedMotion ? 0.12 : 1;
+      dragging = true; previousX = event.clientX; previousY = event.clientY; targetOpen = openingStrength;
       canvas.style.cursor = 'grabbing'; canvas.setPointerCapture?.(event.pointerId);
     };
     const pointerUp = (event: PointerEvent) => {
       dragging = false; canvas.style.cursor = 'grab';
       try { canvas.releasePointerCapture?.(event.pointerId); } catch { /* already released */ }
     };
-    const pointerEnter = () => { targetInteraction = reducedMotion ? 0.12 : 1; };
+    const pointerEnter = () => { targetOpen = openingStrength; };
     const pointerLeave = () => {
       if (dragging) return;
-      targetInteraction = 0; targetMouse.set(0, 0); hoverYaw = 0; hoverPitch = 0;
+      targetOpen = 0; targetMouse.set(0, 0); hoverYaw = 0; hoverPitch = 0;
     };
     canvas.style.cursor = 'grab';
     canvas.addEventListener('pointerdown', pointerDown); canvas.addEventListener('pointermove', updatePointer);
@@ -109,6 +135,7 @@ export default function FibonacciSphere({ className = '', pointCount = 6000 }: F
       const width = Math.max(container.clientWidth, 1); const height = Math.max(container.clientHeight, 1);
       renderer.setSize(width, height, false); camera.aspect = width / height; camera.position.z = width < 600 ? 3.65 : 3.25;
       camera.updateProjectionMatrix(); uniforms.uPointSize.value = (width < 600 ? 1.55 : 1.65) * pixelRatio;
+      uniforms.uAspect.value = width / height;
     };
     const resizeObserver = new ResizeObserver(resize); resizeObserver.observe(container); resize();
     const clock = new THREE.Clock(); let animationFrame = 0;
@@ -116,7 +143,7 @@ export default function FibonacciSphere({ className = '', pointCount = 6000 }: F
       animationFrame = requestAnimationFrame(animate); uniforms.uTime.value = clock.getElapsedTime();
       if (!dragging && !reducedMotion) targetYaw += 0.0012;
       currentMouse.lerp(targetMouse, 0.07); uniforms.uMouse.value.copy(currentMouse);
-      currentInteraction += (targetInteraction - currentInteraction) * 0.06; uniforms.uInteraction.value = currentInteraction;
+      currentOpen += (targetOpen - currentOpen) * 0.075; uniforms.uOpen.value = currentOpen;
       currentYaw += (targetYaw + hoverYaw - currentYaw) * 0.075; currentPitch += (targetPitch + hoverPitch - currentPitch) * 0.075;
       sphere.rotation.set(currentPitch, currentYaw, 0); renderer.render(scene, camera);
     };
