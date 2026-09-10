@@ -12,6 +12,7 @@ let ioPort;
 const normalize = (sql) => sql
   .replace(/\\bBEGIN IMMEDIATE TRANSACTION\\b/gi, 'BEGIN')
   .replace(/\\bPRAGMA\\s+[^;]+;?/gi, '')
+  .replace(/\\s+COLLATE\\s+NOCASE/gi, '')
   .replace(/\\bINSERT\\s+OR\\s+IGNORE\\s+INTO\\b/gi, 'INSERT INTO')
   .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s+INTEGER\\b/gi, '$1 BOOLEAN')
   .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s*=\\s*0\\b/gi, '$1 = FALSE')
