@@ -1563,7 +1563,7 @@ export default function App() {
           }}
           onOpenNotifications={() => setIsNotificationDrawerOpen(true)}
           onOpenAdminSecurity={() => navigateTo('/admin')}
-          onSignOut={handleSignOut}
+          onSignOut={handleLockTerminal}
         />
 
         {/* Main Content Area */}
