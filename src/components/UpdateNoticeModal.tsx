@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Sparkles } from 'lucide-react';
 
 // Troque este valor a cada publicação para que todos os navegadores reconheçam a nova versão.
-export const SITE_RELEASE_VERSION = '2026-09-10-blackhole-test';
+export const SITE_RELEASE_VERSION = '2026-09-10-blackhole-test-2';
 const ACK_KEY = `cfo_update_ack_${SITE_RELEASE_VERSION}`;
 
 const UPDATE_IMAGES = [
@@ -12,7 +12,9 @@ const UPDATE_IMAGES = [
 
 export const UpdateNoticeModal: React.FC = () => {
   const [needsRefresh, setNeedsRefresh] = useState(false);
-  const [imageIndex] = useState(() => Math.floor(Math.random() * UPDATE_IMAGES.length));
+  // Este release é um teste visual: força o buraco negro para que ele possa
+  // ser verificado. Nos próximos releases, volte para o sorteio normal.
+  const [imageIndex] = useState(0);
   const image = useMemo(() => UPDATE_IMAGES[imageIndex], [imageIndex]);
 
   useEffect(() => {
