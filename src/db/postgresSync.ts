@@ -9,7 +9,15 @@ const client = new Client({ connectionString: process.env.DATABASE_URL, connecti
 const pending = [];
 let ready = false;
 let ioPort;
-const normalize = (sql) => sql.replace(/\\bBEGIN IMMEDIATE TRANSACTION\\b/gi, 'BEGIN').replace(/\\bPRAGMA\\s+[^;]+;?/gi, '').replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s*=\\s*0\\b/gi, '$1 = FALSE').replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s*=\\s*1\\b/gi, '$1 = TRUE');
+const normalize = (sql) => sql
+  .replace(/\\bBEGIN IMMEDIATE TRANSACTION\\b/gi, 'BEGIN')
+  .replace(/\\bPRAGMA\\s+[^;]+;?/gi, '')
+  .replace(/\\bINSERT\\s+OR\\s+IGNORE\\s+INTO\\b/gi, 'INSERT INTO')
+  .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s+INTEGER\\b/gi, '$1 BOOLEAN')
+  .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s*=\\s*0\\b/gi, '$1 = FALSE')
+  .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s*=\\s*1\\b/gi, '$1 = TRUE')
+  .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s+BOOLEAN\\s+NOT NULL DEFAULT 0\\b/gi, '$1 BOOLEAN NOT NULL DEFAULT FALSE')
+  .replace(/\\bCHECK\\s*\\(\\s*(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s+IN\\s*\\(\\s*0\\s*,\\s*1\\s*\\)\\s*\\)/gi, '');
 (async () => { await client.connect(); ready = true; while (pending.length && ioPort) await handle(pending.shift()); })().catch((err) => { if (ioPort) ioPort.postMessage({ fatal: true, error: String(err.message || err) }); });
 async function handle(message) { try { const sql = normalize(message.sql); if (!sql.trim()) return done(message, { rows: [], rowCount: 0 }); const result = await client.query({ text: sql, values: message.params || [] }); const last = Array.isArray(result) ? result[result.length - 1] : result; done(message, { rows: last.rows || [], rowCount: last.rowCount || 0, command: last.command }); } catch (err) { done(message, { error: String(err.message || err).replace(/postgresql[^ ]*/gi, '[redacted]') }); } }
 function done(message, result) { if (result.error) ioPort.postMessage({ id: message.id, error: result.error }); else ioPort.postMessage({ id: message.id, result }); Atomics.store(new Int32Array(message.signal), 0, 1); Atomics.notify(new Int32Array(message.signal), 0); }

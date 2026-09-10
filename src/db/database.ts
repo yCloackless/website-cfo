@@ -971,8 +971,10 @@ export class DatabaseService {
     this.db = this.postgres ? new PostgresSyncDatabase() : new DatabaseSync(this.dbPath);
     if (!this.postgres) {
       this.configurePragmas();
-      this.runMigrations();
     }
+    // PostgreSQL uses the same versioned schema, but must also be initialized
+    // on a brand-new managed database before repositories are used.
+    this.runMigrations();
   }
 
   private configurePragmas(): void {
@@ -999,11 +1001,17 @@ export class DatabaseService {
 
     for (const migration of MIGRATIONS) {
       if (!appliedIds.has(migration.id)) {
+        // Migration 006 rebuilds SQLite tables to change a CHECK constraint.
+        // The initial schema already includes the support role, and rebuilding
+        // tables on PostgreSQL would be destructive and use SQLite syntax.
+        const migrationSql = this.postgres && migration.id === 6
+          ? ''
+          : migration.sql.replace(/CREATE TRIGGER[\s\S]*?BEGIN[\s\S]*?END\s*;/gi, '');
         // PRAGMA foreign_keys must be changed OUTSIDE the transaction used to rebuild tables.
-        if (migration.id === 6) this.db.exec('PRAGMA foreign_keys = OFF;');
+        if (!this.postgres && migration.id === 6) this.db.exec('PRAGMA foreign_keys = OFF;');
         this.db.exec('BEGIN TRANSACTION;');
         try {
-          this.db.exec(migration.sql);
+          if (migrationSql.trim()) this.db.exec(migrationSql);
           this.db
             .prepare('INSERT INTO _migrations (id, name, applied_at) VALUES (?, ?, ?)')
             .run(migration.id, migration.name, new Date().toISOString());
@@ -1013,7 +1021,7 @@ export class DatabaseService {
           this.db.exec('ROLLBACK;');
           throw new Error(`Falha ao aplicar migration ${migration.name}: ${(err as Error).message}`);
         } finally {
-          if (migration.id === 6) this.db.exec('PRAGMA foreign_keys = ON;');
+          if (!this.postgres && migration.id === 6) this.db.exec('PRAGMA foreign_keys = ON;');
         }
       }
     }
