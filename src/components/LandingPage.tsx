@@ -29,7 +29,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => (
           <div className="motto">“Disciplina hoje.<br />Oficial amanhã.” <b /></div>
         </div>
         <div className="hero-art">
-          <div className="hero-sphere-stage" aria-hidden="true"><FibonacciSphere className="hero-sphere" /></div>
+          <div className="hero-sphere-stage" aria-hidden="true"><FibonacciSphere className="hero-sphere" pointColor="#ffffff" /></div>
           <div className="blue-panel"><small>DISCIPLINA<br />PROTEGE<br />SONHOS</small><b /><img src="/pm-officer.jpg" alt="Oficial da Polícia Militar" /></div>
           <div className="orange-panel"><small>CORAGEM<br />TAMBÉM<br />SALVA VIDAS</small><img src="/bombeiro-officer.jpg" alt="Oficial do Corpo de Bombeiros" /></div>
           <DashboardMockup />
