@@ -80,6 +80,7 @@ const ErrorNotebookTab = lazy(() => import('./components/ErrorNotebookTab').then
 const ExamBankTab = lazy(() => import('./components/ExamBankTab').then(({ ExamBankTab }) => ({ default: ExamBankTab })));
 import { MyAccountModal } from './components/MyAccountModal';
 import { AdminSecurityPanelModal } from './components/AdminSecurityPanelModal';
+import { UpdateNoticeModal } from './components/UpdateNoticeModal';
 import { NotificationCenterDrawer, NotificationItem } from './components/NotificationCenterDrawer';
 import { SecurityAlertPopup } from './components/SecurityAlertPopup';
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard').then(({ AdminDashboard }) => ({ default: AdminDashboard })));
@@ -2188,6 +2189,8 @@ export default function App() {
         canViewIp={canViewSecurityAlertIp}
         theme={theme}
       />
+
+      <UpdateNoticeModal />
     </div>
   );
 }

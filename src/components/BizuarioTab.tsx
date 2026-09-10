@@ -1092,7 +1092,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                     </div>
                   )}
 
-                  {/* Detailed Notes Separated into Structured Topics */}
+                  {/* Detailed Notes kept as the author wrote them */}
                   {bizu.notes && (
                     <div className="pt-2 border-t border-slate-800/40">
                       <div className="flex items-center justify-between mb-1.5">
@@ -1581,7 +1581,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                 </div>
               </div>
 
-              {/* Key Points (Bullets) */}
+                  {/* Optional quick complements */}
               <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-300">
                         Pontos Estratégicos Rápidos
