@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Flame,
   Calendar,
@@ -19,6 +19,8 @@ import {
   Shield,
   Bell,
   Settings as SettingsIcon,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
@@ -84,6 +86,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleSidebar,
 }) => {
   const isDark = theme === 'dark';
+  const [isHeaderExpanded, setIsHeaderExpanded] = useState(false);
   const mobileSurface = isDark
     ? 'border-slate-800 bg-[#0B1528] text-slate-200 hover:border-blue-500/60 hover:bg-slate-900'
     : 'border-slate-200 bg-slate-100 text-slate-800 hover:border-blue-500 hover:bg-slate-200';
@@ -130,6 +133,22 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="text-[10px] text-slate-400 font-mono">ESTUDOS TÁTICOS</span>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setIsHeaderExpanded((current) => !current)}
+              aria-expanded={isHeaderExpanded}
+              aria-controls="desktop-header-actions"
+              className={`hidden sm:inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold transition-all duration-200 ${
+                isDark
+                  ? 'border-slate-800 bg-[#131B2A] text-slate-400 hover:border-sky-500/50 hover:text-sky-300'
+                  : 'border-slate-200 bg-slate-100 text-slate-600 hover:border-blue-400 hover:text-blue-700'
+              }`}
+              title={isHeaderExpanded ? 'Recolher ações do topo' : 'Expandir ações do topo'}
+            >
+              {isHeaderExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              <span className="hidden lg:inline">{isHeaderExpanded ? 'Recolher' : 'Ações'}</span>
+            </button>
           </div>
 
           {/* Mobile action panel: primary pills and secondary icon shortcuts. */}
@@ -313,7 +332,12 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Desktop action buttons and utilities. Kept unchanged for desktop. */}
-          <div className="ml-0 hidden min-w-0 max-w-full basis-full items-center gap-1.5 overflow-visible py-0.5 sm:ml-auto sm:flex sm:basis-auto sm:flex-1 sm:flex-nowrap sm:gap-2.5 sm:overflow-x-auto scrollbar-none [&>button]:min-h-10 sm:[&>button]:min-h-0">
+          <div
+            id="desktop-header-actions"
+            className={`ml-0 hidden min-w-0 basis-full items-center gap-1.5 py-0.5 transition-[max-width,opacity] duration-300 ease-out sm:ml-auto sm:flex sm:basis-auto sm:flex-1 sm:flex-nowrap sm:gap-2.5 sm:overflow-x-auto scrollbar-none [&>button]:min-h-10 sm:[&>button]:min-h-0 ${
+              isHeaderExpanded ? 'max-w-full opacity-100' : 'max-w-[430px] opacity-85'
+            }`}
+          >
             {/* Smart Revisions Button */}
             <button
               id="btn-revisoes-inteligentes"

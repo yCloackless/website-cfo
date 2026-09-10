@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @layer base {
@@ -20,7 +21,8 @@
     padding: 0;
     min-height: 100vh;
     min-height: 100dvh;
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.011em;
     transition: background-color 0.2s ease, color 0.2s ease;
   }
 
@@ -41,12 +43,21 @@
 
 body.theme-dark {
   color: #f1f5f9;
-  background-color: #070D18;
+  background-color: #0B0F17;
 }
 
 body.theme-light {
   color: #0f172a;
   background-color: #f1f4f9;
+}
+
+button, a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: rgba(56, 189, 248, 0.2);
+  color: #bae6fd;
 }
 
 /* Scrollbar styles */
