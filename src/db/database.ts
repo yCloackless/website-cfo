@@ -1004,9 +1004,9 @@ export class DatabaseService {
         // Migration 006 rebuilds SQLite tables to change a CHECK constraint.
         // The initial schema already includes the support role, and rebuilding
         // tables on PostgreSQL would be destructive and use SQLite syntax.
-        const migrationSql = this.postgres && migration.id === 6
-          ? ''
-          : migration.sql.replace(/CREATE TRIGGER[\s\S]*?BEGIN[\s\S]*?END\s*;/gi, '');
+        const migrationSql = this.postgres
+          ? (migration.id === 6 ? '' : migration.sql.replace(/CREATE TRIGGER[\s\S]*?BEGIN[\s\S]*?END\s*;/gi, ''))
+          : migration.sql;
         // PRAGMA foreign_keys must be changed OUTSIDE the transaction used to rebuild tables.
         if (!this.postgres && migration.id === 6) this.db.exec('PRAGMA foreign_keys = OFF;');
         this.db.exec('BEGIN TRANSACTION;');

@@ -551,6 +551,7 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "TOO_MANY_LOGIN_ATTEMPTS", message: "Muitas tentativas de autenticação. Acesso bloqueado por 15 minutos." },
 });
+app.use("/api/auth/", authLimiter);
 
 const twoFactorLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
