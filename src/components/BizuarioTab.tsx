@@ -31,8 +31,6 @@ import { BizuItem, Subject, AppTheme } from '../types';
 import { addBizuItem, updateBizuItem, deleteBizuItem, saveBizuItems } from '../utils/bizuarioStorage';
 import { compressImageFile, compressBase64Image } from '../utils/imageCompressor';
 import { Latex } from './LatexRenderer';
-import { formatNotesToSeparatedTopics } from '../utils/bizuFormatter';
-import { BizuTopicViewer } from './BizuTopicViewer';
 
 // Quick subjects and topics based on CFO CBMERJ high-yield statistics
 const CFO_QUICK_SUBJECTS = [
@@ -123,7 +121,6 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSubjectFilter, setSelectedSubjectFilter] = useState<string>('all');
-  const [selectedTagFilter, setSelectedTagFilter] = useState<string>('all');
   const [onlyFavorites, setOnlyFavorites] = useState(false);
 
   // Modal states
@@ -149,6 +146,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
   const [formNotes, setFormNotes] = useState('');
   const [formKeyPointInput, setFormKeyPointInput] = useState('');
   const [formKeyPoints, setFormKeyPoints] = useState<string[]>([]);
+  // Mantidos apenas para compatibilidade com dados antigos; a interface não exibe tags.
   const [formTagInput, setFormTagInput] = useState('');
   const [formTags, setFormTags] = useState<string[]>([]);
   const [formIsFavorite, setFormIsFavorite] = useState(false);
@@ -172,13 +170,6 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
     bizuItems.forEach((b) => set.add(b.subjectName));
     return Array.from(set).sort();
   }, [subjects, bizuItems]);
-
-  // Distinct tags
-  const allTags = useMemo(() => {
-    const set = new Set<string>();
-    bizuItems.forEach((b) => b.tags?.forEach((t) => set.add(t)));
-    return Array.from(set).sort();
-  }, [bizuItems]);
 
   // Handle AI generation for Bizu Notes using Gemini
   const handleGenerateAINotes = async (overrideTitle?: string, overrideSubject?: string) => {
@@ -211,7 +202,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
       if (resData?.data) {
         const aiData = resData.data;
         if (aiData.notes) {
-          const separatedNotes = formatNotesToSeparatedTopics(aiData.notes);
+          const separatedNotes = String(aiData.notes).trim();
           if (formNotes.trim() && !overrideTitle) {
             setFormNotes((prev) => `${prev}\n\n--- [BIZU ADICIONAL GEMINI AI] ---\n${separatedNotes}`);
           } else {
@@ -221,12 +212,6 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         if (Array.isArray(aiData.keyPoints) && aiData.keyPoints.length > 0) {
           setFormKeyPoints((prev) => {
             const set = new Set([...prev, ...aiData.keyPoints]);
-            return Array.from(set);
-          });
-        }
-        if (Array.isArray(aiData.tags) && aiData.tags.length > 0) {
-          setFormTags((prev) => {
-            const set = new Set([...prev, ...aiData.tags]);
             return Array.from(set);
           });
         }
@@ -293,20 +278,14 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
           : 'Edital CFO CBMERJ');
       const generatedKeyPoints =
         Array.isArray(aiData.keyPoints) && aiData.keyPoints.length > 0 ? aiData.keyPoints : [];
-      const generatedTags =
-        Array.isArray(aiData.tags) && aiData.tags.length > 0
-          ? aiData.tags
-          : [detectedSubj, 'CFO-CBMERJ', 'Bizu-Direto'];
-
       // Add directly to persistent storage (IndexedDB)
-      const formattedNotes = formatNotesToSeparatedTopics(aiData.notes);
       addBizuItem({
         title: generatedTitle,
         subjectName: detectedSubj,
         category: generatedCategory,
-        notes: formattedNotes,
+        notes: String(aiData.notes).trim(),
         keyPoints: generatedKeyPoints,
-        tags: generatedTags,
+        tags: [],
         isFavorite: true,
       });
 
@@ -370,13 +349,8 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
             ? 'Física & Fenômenos'
             : 'Edital CFO CBMERJ')
       );
-      setFormNotes(formatNotesToSeparatedTopics(aiData.notes));
+      setFormNotes(String(aiData.notes).trim());
       setFormKeyPoints(Array.isArray(aiData.keyPoints) ? aiData.keyPoints : []);
-      setFormTags(
-        Array.isArray(aiData.tags) && aiData.tags.length > 0
-          ? aiData.tags
-          : [detectedSubj, 'CFO-CBMERJ']
-      );
       setFormIsFavorite(true);
 
       // Switch to manual review mode with LaTeX formula preview
@@ -402,8 +376,6 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
       setFormNotes('');
       setFormKeyPoints([]);
       setFormKeyPointInput('');
-      setFormTags([presetTopicToCreate.subject, 'CFO-CBMERJ']);
-      setFormTagInput('');
       setFormIsFavorite(true);
       setIsFormModalOpen(true);
       if (onClearPresetTopic) onClearPresetTopic();
@@ -420,21 +392,15 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         const matchTitle = item.title.toLowerCase().includes(query);
         const matchSubject = item.subjectName.toLowerCase().includes(query);
         const matchNotes = item.notes?.toLowerCase().includes(query) || false;
-        const matchTags = item.tags?.some((t) => t.toLowerCase().includes(query)) || false;
         const matchKeyPoints = item.keyPoints?.some((k) => k.toLowerCase().includes(query)) || false;
 
-        if (!matchTitle && !matchSubject && !matchNotes && !matchTags && !matchKeyPoints) {
+        if (!matchTitle && !matchSubject && !matchNotes && !matchKeyPoints) {
           return false;
         }
       }
 
       // Subject filter
       if (selectedSubjectFilter !== 'all' && item.subjectName !== selectedSubjectFilter) {
-        return false;
-      }
-
-      // Tag filter
-      if (selectedTagFilter !== 'all' && !item.tags?.includes(selectedTagFilter)) {
         return false;
       }
 
@@ -445,7 +411,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
 
       return true;
     });
-  }, [bizuItems, searchTerm, selectedSubjectFilter, selectedTagFilter, onlyFavorites]);
+  }, [bizuItems, searchTerm, selectedSubjectFilter, onlyFavorites]);
 
   // Keyword auto-detection for military subjects
   const detectSubjectFromTopic = (text: string): string | null => {
@@ -479,8 +445,6 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
     setFormNotes('');
     setFormKeyPoints([]);
     setFormKeyPointInput('');
-    setFormTags(['Cartografia', 'CFO-CBMERJ']);
-    setFormTagInput('');
     setFormIsFavorite(false);
     setPreviewNotesLatex(false);
     setIsFormModalOpen(true);
@@ -497,8 +461,6 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
     setFormNotes(bizu.notes || '');
     setFormKeyPoints(bizu.keyPoints ? [...bizu.keyPoints] : []);
     setFormKeyPointInput('');
-    setFormTags(bizu.tags ? [...bizu.tags] : []);
-    setFormTagInput('');
     setFormIsFavorite(!!bizu.isFavorite);
     setPreviewNotesLatex(false);
     setIsFormModalOpen(true);
@@ -540,6 +502,27 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
     }
   };
 
+  // Permite colar um print/imagem diretamente no formulário com Ctrl+V.
+  const handlePasteImage = async (e: React.ClipboardEvent<HTMLFormElement>) => {
+    const file = Array.from(e.clipboardData.files as FileList) as File[];
+    const imageFile = file.find((candidate) => candidate.type.startsWith('image/'));
+    if (!imageFile) return;
+    e.preventDefault();
+    if (imageFile.size > 15 * 1024 * 1024) {
+      showToast('A imagem colada é muito pesada (máximo 15MB recomendado).', 'error');
+      return;
+    }
+    setIsUploadingImage(true);
+    try {
+      setFormImageUrl(await compressImageFile(imageFile, 1280, 0.82));
+      showToast('Imagem colada e pronta para salvar!', 'success');
+    } catch {
+      showToast('Erro ao processar a imagem colada.', 'error');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
   // Add Key Point
   const handleAddKeyPoint = () => {
     if (!formKeyPointInput.trim()) return;
@@ -551,19 +534,8 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
     setFormKeyPoints((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Add Tag
-  const handleAddTag = () => {
-    if (!formTagInput.trim()) return;
-    const cleanTag = formTagInput.trim().replace(/^#/, '');
-    if (!formTags.includes(cleanTag)) {
-      setFormTags((prev) => [...prev, cleanTag]);
-    }
-    setFormTagInput('');
-  };
-
-  const handleRemoveTag = (tagToRemove: string) => {
-    setFormTags((prev) => prev.filter((t) => t !== tagToRemove));
-  };
+  const handleAddTag = () => setFormTagInput('');
+  const handleRemoveTag = (tagToRemove: string) => setFormTags((prev) => prev.filter((tag) => tag !== tagToRemove));
 
   // Save Bizu (Create or Edit)
   const handleSaveBizu = async (e: React.FormEvent) => {
@@ -586,7 +558,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
       }
     }
 
-    const cleanNotes = formNotes.trim() ? formatNotesToSeparatedTopics(formNotes.trim()) : undefined;
+    const cleanNotes = formNotes.trim() || undefined;
 
     if (editingBizu) {
       updateBizuItem(editingBizu.id, {
@@ -596,7 +568,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         imageUrl: processedImageUrl,
         notes: cleanNotes,
         keyPoints: formKeyPoints,
-        tags: formTags,
+        tags: editingBizu.tags || [],
         isFavorite: formIsFavorite,
       });
       showToast('Bizu tático atualizado com sucesso!', 'success');
@@ -609,7 +581,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         imageAlt: formTitle.trim(),
         notes: cleanNotes,
         keyPoints: formKeyPoints,
-        tags: formTags,
+        tags: [],
         isFavorite: formIsFavorite,
       });
       showToast('Novo Bizu adicionado ao seu repositório!', 'success');
@@ -854,7 +826,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Pesquisar por matéria (ex: Geografia), mares, canais, tópicos ou tags..."
+              placeholder="Pesquisar por matéria, título ou conteúdo..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className={`w-full pl-10 pr-9 py-2.5 rounded-xl text-xs sm:text-sm font-medium border transition-colors ${
@@ -935,40 +907,6 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
           })}
         </div>
 
-        {/* Optional Tag Filter Pills */}
-        {allTags.length > 0 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto pt-1 border-t border-slate-800/40 text-[11px]">
-            <span className="text-slate-500 shrink-0 flex items-center gap-1 font-semibold">
-              <Tag className="w-2.5 h-2.5" />
-              Tags:
-            </span>
-            <button
-              onClick={() => setSelectedTagFilter('all')}
-              className={`px-2 py-0.5 rounded-md shrink-0 transition-all ${
-                selectedTagFilter === 'all'
-                  ? 'bg-slate-700 text-white font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Todas
-            </button>
-            {allTags.map((tag) => (
-              <button
-                key={tag}
-                onClick={() => setSelectedTagFilter(tag === selectedTagFilter ? 'all' : tag)}
-                className={`px-2 py-0.5 rounded-md shrink-0 border transition-all ${
-                  selectedTagFilter === tag
-                    ? 'bg-blue-500/20 text-blue-300 border-blue-500/40 font-bold'
-                    : isDark
-                    ? 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
-                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                #{tag}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Grid of Bizu Cards */}
@@ -1160,7 +1098,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                       <div className="flex items-center justify-between mb-1.5">
                         <p className="text-[11px] uppercase tracking-wider font-extrabold text-slate-400 flex items-center gap-1.5">
                           <FileText className="w-3 h-3 text-blue-400" />
-                          Tópicos &amp; Anotações Táticas:
+                          Anotações Táticas:
                         </p>
                         <button
                           type="button"
@@ -1172,25 +1110,13 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                           <span>Expandir</span>
                         </button>
                       </div>
-                      <BizuTopicViewer notes={bizu.notes} isDark={isDark} />
+                      <div className="text-xs leading-relaxed text-slate-300 max-h-44 overflow-y-auto whitespace-pre-wrap">
+                        <Latex content={bizu.notes} />
+                      </div>
                     </div>
                   )}
                 </div>
 
-                {/* Footer Tags */}
-                {bizu.tags && bizu.tags.length > 0 && (
-                  <div className="pt-3 border-t border-slate-800/40 flex items-center gap-1.5 flex-wrap">
-                    {bizu.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        onClick={() => setSelectedTagFilter(tag)}
-                        className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer transition-colors"
-                      >
-                        #{tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
           ))}
@@ -1503,7 +1429,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
               </div>
             ) : (
               /* VIEW 2: MANUAL / FULL EDIT FORM */
-              <form onSubmit={handleSaveBizu} className="p-6 space-y-4 overflow-y-auto flex-1 scrollbar-thin">
+              <form onSubmit={handleSaveBizu} onPaste={handlePasteImage} className="p-6 space-y-4 overflow-y-auto flex-1 scrollbar-thin">
                 {!editingBizu && (
                   <div className="flex items-center justify-between pb-2 border-b border-slate-800/60">
                     <button
@@ -1631,10 +1557,10 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                       <Upload className="w-6 h-6" />
                     </div>
                     <p className="text-xs font-bold text-slate-200">
-                      Clique para selecionar ou arraste uma foto do seu computador/celular
+                      Clique, arraste ou cole uma imagem com Ctrl+V
                     </p>
                     <p className="text-[11px] text-slate-500 mt-1">
-                      PNG, JPG, WEBP, GIF (salvo diretamente no seu navegador)
+                      PNG, JPG, WEBP, GIF (a imagem fica salva no seu Bizuário)
                     </p>
                   </div>
                 )}
@@ -1658,7 +1584,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
               {/* Key Points (Bullets) */}
               <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-300">
-                  Pontos Estratégicos Rápidos (Bizus em Tópicos)
+                        Pontos Estratégicos Rápidos
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -1754,8 +1680,8 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                 )}
               </div>
 
-              {/* Tags */}
-              <div className="space-y-2">
+              {/* Tags removed: notes are freeform and searchable by subject/text. */}
+              {false && <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-300">
                   Palavras-chave &amp; Tags
                 </label>
@@ -1801,7 +1727,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                     ))}
                   </div>
                 )}
-              </div>
+              </div>}
 
               {/* Modal Actions */}
               <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
@@ -1962,9 +1888,11 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                 <div>
                   <h4 className="text-xs font-black uppercase tracking-wider text-blue-400 mb-3 flex items-center gap-2">
                     <FileText className="w-4 h-4" />
-                    Tópicos Estruturados &amp; Relações Conceituais
+                    Anotações Completas
                   </h4>
-                  <BizuTopicViewer notes={viewingNotesBizu.notes} isDark={isDark} />
+                  <div className="text-sm leading-relaxed whitespace-pre-wrap text-slate-200">
+                    <Latex content={viewingNotesBizu.notes} />
+                  </div>
                 </div>
               )}
 
@@ -1990,21 +1918,6 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                 </div>
               )}
 
-              {/* Tags */}
-              {viewingNotesBizu.tags && viewingNotesBizu.tags.length > 0 && (
-                <div className="flex items-center gap-1.5 flex-wrap pt-2">
-                  {viewingNotesBizu.tags.map((t) => (
-                    <span
-                      key={t}
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${
-                        isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'
-                      }`}
-                    >
-                      #{t}
-                    </span>
-                  ))}
-                </div>
-              )}
             </div>
 
             {/* Modal Footer */}

@@ -1,5 +1,4 @@
 import { BizuItem } from '../types';
-import { formatNotesToSeparatedTopics } from './bizuFormatter';
 import { getUserStorageKey } from './userStorage';
 import { queuePersistentSync } from '../services/remotePersistence';
 
@@ -307,15 +306,9 @@ function trySaveToLocalStorage(items: BizuItem[]): void {
 }
 
 function normalizeBizuItems(items: BizuItem[]): BizuItem[] {
-  return items.map((item) => {
-    if (item.notes) {
-      const formatted = formatNotesToSeparatedTopics(item.notes);
-      if (formatted !== item.notes) {
-        return { ...item, notes: formatted };
-      }
-    }
-    return item;
-  });
+  // O texto do Bizuário é livre: não transformar parágrafos, fórmulas ou
+  // enunciados de matemática em tópicos automaticamente.
+  return items;
 }
 
 function mergeBizuStorageCopies(localItems: BizuItem[], indexedDbItems: BizuItem[]): BizuItem[] {

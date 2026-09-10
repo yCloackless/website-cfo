@@ -456,14 +456,16 @@ export default function App() {
   } | null>(null);
 
   // Bizuario state
-  const [bizuItems, setBizuItems] = useState<BizuItem[]>(() => loadBizuItems());
+  // Aguarda a hidratação da conta atual antes de carregar o Bizuário, evitando
+  // que o cache de outra conta apareça durante a troca de usuário.
+  const [bizuItems, setBizuItems] = useState<BizuItem[]>([]);
   const handleRefreshBizuItems = useCallback(() => {
     setBizuItems(loadBizuItems());
   }, []);
 
   // Synchronize Bizu items with IndexedDB extended store (apenas se terminal destravado)
   useEffect(() => {
-    if (!isTerminalUnlocked) return;
+    if (!isTerminalUnlocked || !isPersistentStateReady) return;
     initBizuStorageAsync((items) => {
       setBizuItems(items);
     });
@@ -471,7 +473,7 @@ export default function App() {
       setBizuItems(items);
     });
     return () => unsubscribe();
-  }, [isTerminalUnlocked]);
+  }, [isTerminalUnlocked, isPersistentStateReady]);
 
   // Auth state
   const [user, setUser] = useState<User | null>(null);
