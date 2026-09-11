@@ -86,14 +86,6 @@ button, a {
   max-width: 100%;
 }
 
-.bizuario-note-preview {
-  max-height: 22rem;
-  min-height: 0;
-  overflow: hidden;
-  overflow-x: hidden;
-  overflow-wrap: anywhere;
-}
-
 /* Topbar follows the sidebar icon language: neutral at rest, colored on intent. */
 .topbar-icon {
   color: #94a3b8;

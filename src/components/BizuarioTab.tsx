@@ -26,6 +26,7 @@ import {
   Zap,
   ArrowLeft,
   Eye,
+  ChevronDown,
 } from 'lucide-react';
 import { BizuItem, Subject, AppTheme } from '../types';
 import { addBizuItem, updateBizuItem, deleteBizuItem, saveBizuItems } from '../utils/bizuarioStorage';
@@ -107,68 +108,6 @@ interface BizuarioTabProps {
   onClearPresetTopic?: () => void;
 }
 
-interface BizuNotesPreviewProps {
-  notes: string;
-  onExpand: () => void;
-}
-
-/**
- * Keeps ordinary notes fully visible in the card. Only notes that exceed the
- * fixed reading preview are clipped; their complete version remains available
- * in the expanded study view, never behind an inner vertical scrollbar.
- */
-const BizuNotesPreview: React.FC<BizuNotesPreviewProps> = ({ notes, onExpand }) => {
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [isTruncated, setIsTruncated] = useState(false);
-
-  useEffect(() => {
-    const content = contentRef.current;
-    if (!content) return;
-
-    const updateTruncation = () => {
-      setIsTruncated(content.scrollHeight > content.clientHeight + 1);
-    };
-
-    updateTruncation();
-    const observer = new ResizeObserver(updateTruncation);
-    observer.observe(content);
-    return () => observer.disconnect();
-  }, [notes]);
-
-  return (
-    <div className="pt-2 border-t border-slate-800/40">
-      <div className="flex items-center justify-between mb-1.5">
-        <p className="text-[11px] uppercase tracking-wider font-extrabold text-slate-400 flex items-center gap-1.5">
-          <FileText className="w-3 h-3 text-blue-400" />
-          Anotações Táticas:
-        </p>
-        {isTruncated && (
-          <button
-            type="button"
-            onClick={onExpand}
-            className="text-[10px] font-bold text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
-            title="Abrir anotação completa em janela de estudo"
-          >
-            <Maximize2 className="w-2.5 h-2.5" />
-            <span>Expandir</span>
-          </button>
-        )}
-      </div>
-      <div
-        ref={contentRef}
-        className="bizuario-note-preview text-xs leading-relaxed text-slate-300 whitespace-pre-wrap"
-      >
-        <Latex content={notes} />
-      </div>
-      {isTruncated && (
-        <p className="mt-2 text-[10px] font-medium text-slate-500">
-          Anotação longa: abra em “Expandir” para ver o conteúdo completo.
-        </p>
-      )}
-    </div>
-  );
-};
-
 export const BizuarioTab: React.FC<BizuarioTabProps> = ({
   bizuItems,
   onRefreshBizuItems,
@@ -184,6 +123,19 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSubjectFilter, setSelectedSubjectFilter] = useState<string>('all');
   const [onlyFavorites, setOnlyFavorites] = useState(false);
+  const [expandedBizuIds, setExpandedBizuIds] = useState<Set<string>>(() => new Set());
+
+  const toggleBizuExpansion = (bizuId: string) => {
+    setExpandedBizuIds((current) => {
+      const next = new Set(current);
+      if (next.has(bizuId)) {
+        next.delete(bizuId);
+      } else {
+        next.add(bizuId);
+      }
+      return next;
+    });
+  };
 
   // Modal states
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
@@ -1004,7 +956,10 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          {filteredBizus.map((bizu) => (
+          {filteredBizus.map((bizu) => {
+            const isBizuExpanded = expandedBizuIds.has(bizu.id);
+
+            return (
             <div
               key={bizu.id}
               className={`self-start h-fit rounded-2xl border overflow-hidden transition-all duration-200 flex flex-col shadow-md ${
@@ -1016,7 +971,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
               {/* Card Header: Subject Pill & Actions */}
               <div className="p-4 pb-3 flex items-start justify-between gap-3 border-b border-slate-800/40">
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2 flex-wrap">
+                  {isBizuExpanded && <div className="flex items-center gap-2 flex-wrap">
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-blue-600/20 text-blue-400 border border-blue-500/30">
                       {bizu.subjectName}
                     </span>
@@ -1025,10 +980,21 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                         • {bizu.category}
                       </span>
                     )}
-                  </div>
-                  <h3 className="text-base font-bold text-slate-100 tracking-tight leading-snug">
-                    {bizu.title}
-                  </h3>
+                  </div>}
+                  <button
+                    type="button"
+                    onClick={() => toggleBizuExpansion(bizu.id)}
+                    aria-expanded={isBizuExpanded}
+                    className="group flex w-full items-start gap-1 text-left text-base font-bold text-slate-100 tracking-tight leading-snug cursor-pointer"
+                    title={isBizuExpanded ? 'Recolher anotações' : 'Abrir anotações'}
+                  >
+                    <span>{bizu.title}</span>
+                    <ChevronDown
+                      className={`mt-0.5 h-4 w-4 shrink-0 text-slate-500 transition-transform group-hover:text-blue-400 ${
+                        isBizuExpanded ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </button>
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
@@ -1074,7 +1040,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
               </div>
 
               {/* Image Section */}
-              {bizu.imageUrl ? (
+              {isBizuExpanded && bizu.imageUrl ? (
                 <div className="relative group bg-slate-950 overflow-hidden border-b border-slate-800/60 aspect-16/9 flex items-center justify-center">
                   <img
                     src={bizu.imageUrl}
@@ -1121,7 +1087,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                 </div>
               ) : null}
 
-              {/* Card Body: Key Points & Notes */}
+              {isBizuExpanded && (
               <div className="p-4 space-y-3">
                 <div className="space-y-3">
                   {/* Key Points (Bullets) */}
@@ -1146,16 +1112,23 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
 
                   {/* Detailed Notes kept as the author wrote them */}
                   {bizu.notes && (
-                    <BizuNotesPreview
-                      notes={bizu.notes}
-                      onExpand={() => setViewingNotesBizu(bizu)}
-                    />
+                    <div className="pt-2 border-t border-slate-800/40">
+                      <p className="mb-1.5 text-[11px] uppercase tracking-wider font-extrabold text-slate-400 flex items-center gap-1.5">
+                        <FileText className="w-3 h-3 text-blue-400" />
+                        Anotações Táticas:
+                      </p>
+                      <div className="text-xs leading-relaxed text-slate-300 whitespace-pre-wrap overflow-wrap-anywhere">
+                        <Latex content={bizu.notes} />
+                      </div>
+                    </div>
                   )}
                 </div>
 
               </div>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
