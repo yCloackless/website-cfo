@@ -103,8 +103,6 @@ function requestSessionToken(req: Request): string | null {
   const header = req.headers.authorization;
   const bearer = header?.startsWith('Bearer ') ? header.slice(7).trim() : '';
   if (bearer && bearer !== 'cookie') return bearer;
-  const bodyToken = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
-  if (bodyToken && bodyToken !== 'cookie') return bodyToken;
   return readSessionCookie(req);
 }
 function setSessionCookie(res: Response, rawToken: string, expiresAt: number): void {
@@ -466,11 +464,12 @@ app.use(
     },
     crossOriginEmbedderPolicy: false,
     crossOriginResourcePolicy: { policy: "cross-origin" },
-    hsts: {
+    // HSTS must not be sent from the local HTTP development server.
+    hsts: process.env.NODE_ENV === 'production' ? {
       maxAge: 31536000,
       includeSubDomains: true,
       preload: true,
-    },
+    } : false,
     noSniff: true,
     referrerPolicy: { policy: "strict-origin-when-cross-origin" },
   })
@@ -596,6 +595,19 @@ const aiLimiter = rateLimit({
     error: "AI_RATE_LIMITED",
     message: "Limite de gerações por IA atingido. Tente novamente em alguns minutos.",
   },
+});
+
+const calendarLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  validate: { xForwardedForHeader: false },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => {
+    const userId = String((req as any).user?.userId || '').trim();
+    return userId ? `user:${userId}` : `ip:${ipKeyGenerator(req.ip || getClientIp(req))}`;
+  },
+  message: { error: 'CALENDAR_RATE_LIMITED', message: 'Limite de sincronizações atingido. Tente novamente mais tarde.' },
 });
 
 app.use(express.json({ limit: "20mb" }));
@@ -3524,13 +3536,10 @@ app.post("/api/calendar/disconnect", requireAdminWriteAuth, (_req: Request, res:
 });
 
 // 6. Verify Google Calendar Token endpoint (compatibilidade legada)
-app.post("/api/calendar/verify-token", async (req: Request, res: Response) => {
+app.post("/api/calendar/verify-token", requireAdminAuth, calendarLimiter, async (req: Request, res: Response) => {
   try {
-    const authHeader = req.headers["x-google-access-token"] ? "Bearer " + req.headers["x-google-access-token"] : undefined;
-    const clientToken =
-      req.body?.token || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null);
-
-    const token = await getValidCalendarAccessToken(clientToken);
+    // Google OAuth tokens are server-side state; never accept one from a browser body/header.
+    const token = await getValidCalendarAccessToken();
 
     if (!token) {
       return res.status(400).json({ valid: false, error: "Token não disponível" });
@@ -3562,13 +3571,9 @@ app.post("/api/calendar/verify-token", async (req: Request, res: Response) => {
 });
 
 // 7. Create single Calendar Event endpoint (com auto-refresh de token)
-app.post("/api/calendar/create-event", async (req: Request, res: Response) => {
+app.post("/api/calendar/create-event", requireAdminAuth, calendarLimiter, async (req: Request, res: Response) => {
   try {
-    const authHeader = req.headers["x-google-access-token"] ? "Bearer " + req.headers["x-google-access-token"] : undefined;
-    const clientToken =
-      authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : req.body?.token;
-
-    let token = await getValidCalendarAccessToken(clientToken);
+    let token = await getValidCalendarAccessToken();
 
     if (!token) {
       return res.status(401).json({
@@ -3622,13 +3627,9 @@ app.post("/api/calendar/create-event", async (req: Request, res: Response) => {
 });
 
 // 8. Batch Sync Study Session & Spaced Revisions endpoint (com auto-refresh de token)
-app.post("/api/calendar/batch-sync", async (req: Request, res: Response) => {
+app.post("/api/calendar/batch-sync", requireAdminAuth, calendarLimiter, async (req: Request, res: Response) => {
   try {
-    const authHeader = req.headers["x-google-access-token"] ? "Bearer " + req.headers["x-google-access-token"] : undefined;
-    const clientToken =
-      authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : req.body?.token;
-
-    let token = await getValidCalendarAccessToken(clientToken);
+    let token = await getValidCalendarAccessToken();
 
     if (!token) {
       return res.status(401).json({

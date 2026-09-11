@@ -75,6 +75,9 @@ export class AuthService {
 
     let admin = this.userRepo.findByEmail(adminEmail) || this.userRepo.findByUsername(adminUsername);
     if (!admin) {
+      if (process.env.NODE_ENV === 'production' && !adminHash) {
+        throw new Error('ADMIN_PASSWORD_HASH_REQUIRED_IN_PRODUCTION');
+      }
       if (!adminHash && !adminPass) throw new Error('ADMIN_CREDENTIALS_NOT_CONFIGURED');
       const hash = adminHash || await bcrypt.hash(adminPass!, 10);
       admin = this.userRepo.create({
@@ -122,6 +125,9 @@ export class AuthService {
 
     let cadet = this.userRepo.findByEmail(cadetEmail) || this.userRepo.findByUsername(cadetUsername);
     if (!cadet) {
+      if (process.env.NODE_ENV === 'production' && !cadetHash) {
+        throw new Error('CADET_PASSWORD_HASH_REQUIRED_IN_PRODUCTION');
+      }
       if (!cadetHash && !cadetPass) throw new Error('CADET_CREDENTIALS_NOT_CONFIGURED');
       const hash = cadetHash || await bcrypt.hash(cadetPass!, 10);
       cadet = this.userRepo.create({
@@ -146,6 +152,9 @@ export class AuthService {
 
     let support = this.userRepo.findByEmail(supportEmail) || this.userRepo.findByUsername(supportUsername);
     if (!support) {
+      if (process.env.NODE_ENV === 'production' && supportPass && !supportHash) {
+        throw new Error('SUPPORT_PASSWORD_HASH_REQUIRED_IN_PRODUCTION');
+      }
       if (!supportHash && !supportPass) {
         console.warn('[AUTH] Conta de suporte não provisionada: configure SUPPORT_PASSWORD ou SUPPORT_PASSWORD_HASH para habilitá-la.');
         return;
