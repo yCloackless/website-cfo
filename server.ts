@@ -75,6 +75,7 @@ import {
   SupportMaterialRepository,
   QuestionAuditRepository,
   StudySessionRepository,
+  SystemIntegrationRepository,
 } from "./src/db/repositories";
 import { UserRole, DbUser, DbExamPaper } from "./src/db/schema";
 import { validateImageBuffer } from "./src/services/avatarService";
@@ -672,48 +673,103 @@ interface CalendarSession {
   updatedAt: string;
 }
 
+let systemIntegrationRepoInstance: SystemIntegrationRepository | null = null;
+function getSystemIntegrationRepo(): SystemIntegrationRepository | null {
+  try {
+    if (!systemIntegrationRepoInstance) {
+      systemIntegrationRepoInstance = new SystemIntegrationRepository(getDb().getRawDb());
+    }
+    return systemIntegrationRepoInstance;
+  } catch (_err) {
+    return null;
+  }
+}
+
 function readCalendarSession(): CalendarSession | null {
+  // 1. Tentar ler do banco de dados relacional (PostgreSQL em produção no Render / SQLite local)
+  try {
+    const repo = getSystemIntegrationRepo();
+    const integration = repo?.get("google_calendar");
+    if (integration?.encryptedPayload) {
+      const stored = decryptStoredJson<CalendarSession>(integration.encryptedPayload);
+      if (stored.legacy) saveCalendarSession(stored.value);
+      return stored.value;
+    }
+  } catch (err) {
+    console.warn("Falha ao ler sessão do Google Agenda no banco de dados:", err);
+  }
+
+  // 2. Fallback de migração transparente do arquivo local legado
   try {
     if (fs.existsSync(CALENDAR_SESSION_FILE)) {
       const raw = fs.readFileSync(CALENDAR_SESSION_FILE, "utf-8");
       const stored = decryptStoredJson<CalendarSession>(raw);
-      if (stored.legacy) saveCalendarSession(stored.value);
+      // Auto-migra a sessão legada de arquivo diretamente para o banco de dados
+      saveCalendarSession(stored.value);
       return stored.value;
     }
   } catch (err) {
     console.warn("Falha ao ler sessão do Google Agenda:", err);
   }
 
-  // Resiliência de Nuvem: Fallback em variável de ambiente (evita perda se o disco reiniciar no Render)
+  // 3. Resiliência de Nuvem: Fallback em variável de ambiente (evita perda se o disco reiniciar no Render)
   const envRefreshToken = process.env.CALENDAR_REFRESH_TOKEN || process.env.GOOGLE_REFRESH_TOKEN;
   if (envRefreshToken) {
-    return {
+    const session: CalendarSession = {
       access_token: "",
       refresh_token: envRefreshToken,
       email: process.env.CALENDAR_EMAIL || undefined,
       updatedAt: new Date().toISOString(),
     };
+    try {
+      saveCalendarSession(session);
+    } catch {}
+    return session;
   }
 
   return null;
 }
 
 function saveCalendarSession(session: CalendarSession): void {
+  const encrypted = encryptStoredJson(session);
+
+  // 1. Persistir no Banco de Dados (PostgreSQL / SQLite) para sobreviver a deploys perpétuos
+  try {
+    const repo = getSystemIntegrationRepo();
+    if (repo) {
+      repo.set("google_calendar", encrypted);
+      if (session.refresh_token) {
+        console.log(`[Google Agenda Resiliente] Sessão persistida no banco de dados. Token preservado para persistência perpétua.`);
+      }
+    }
+  } catch (err) {
+    console.error("Falha ao gravar sessão do Google Agenda no banco de dados:", err);
+  }
+
+  // 2. Espelhamento defensivo em disco (se o diretório for gravável)
   try {
     const dir = path.dirname(CALENDAR_SESSION_FILE);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
-    fs.writeFileSync(CALENDAR_SESSION_FILE, encryptStoredJson(session), { encoding: 'utf-8', mode: 0o600 });
-    if (session.refresh_token) {
-      console.log(`[Google Agenda Resiliente] Sessão sincronizada. Token preservado para persistência perpétua.`);
-    }
+    fs.writeFileSync(CALENDAR_SESSION_FILE, encrypted, { encoding: 'utf-8', mode: 0o600 });
   } catch (err) {
-    console.error("Falha ao gravar sessão do Google Agenda:", err);
+    // Não-fatal em ambientes com filesystem efêmero
   }
 }
 
 function clearCalendarSession(): void {
+  // 1. Remover do banco de dados
+  try {
+    const repo = getSystemIntegrationRepo();
+    if (repo) {
+      repo.delete("google_calendar");
+    }
+  } catch (err) {
+    console.warn("Falha ao remover sessão do Google Agenda do banco:", err);
+  }
+
+  // 2. Remover do arquivo local
   try {
     if (fs.existsSync(CALENDAR_SESSION_FILE)) {
       fs.unlinkSync(CALENDAR_SESSION_FILE);
@@ -909,6 +965,20 @@ const questionSegmentRepoInstance = new QuestionSegmentRepository(getDb().getRaw
 const questionAssetRepoInstance = new QuestionAssetRepository(getDb().getRawDb());
 const supportMaterialRepoInstance = new SupportMaterialRepository(getDb().getRawDb());
 const questionAuditRepoInstance = new QuestionAuditRepository(getDb().getRawDb());
+systemIntegrationRepoInstance = new SystemIntegrationRepository(getDb().getRawDb());
+
+// Migração inicial e garantia de persistência no boot do servidor
+try {
+  if (!systemIntegrationRepoInstance.get("google_calendar")) {
+    const existing = readCalendarSession();
+    if (existing) {
+      saveCalendarSession(existing);
+      console.log("[Google Agenda] Integração inicial sincronizada e salva no banco de dados.");
+    }
+  }
+} catch (syncInitErr) {
+  console.warn("[Google Agenda] Verificação inicial de persistência:", syncInitErr);
+}
 
 const examServiceInstance = new ExamService(
   examPaperRepoInstance,

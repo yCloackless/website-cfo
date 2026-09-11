@@ -961,6 +961,19 @@ export const MIGRATIONS: Migration[] = [
         ON account_creation_keys(used_at, expires_at, created_at);
     `,
   },
+  {
+    id: 26,
+    name: '026_system_integrations',
+    sql: `
+      -- Integrações externas e administrativas (Google Agenda, etc.) persistidas com payload criptografado
+      CREATE TABLE IF NOT EXISTS system_integrations (
+        id TEXT PRIMARY KEY,
+        encrypted_payload TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_system_integrations_updated_at ON system_integrations(updated_at);
+    `,
+  },
 ];
 
 

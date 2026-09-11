@@ -47,6 +47,7 @@ import {
   PaymentStatus,
   DbStudySession,
   DayStudySummary,
+  DbSystemIntegration,
 } from './schema';
 
 function normalizeExamOptions(raw: unknown): ExamOption[] {
@@ -3056,5 +3057,36 @@ export class StudySessionRepository {
       totalHours: Math.round((totalSeconds / 3600) * 10) / 10,
       totalSessions,
     };
+  }
+}
+
+export class SystemIntegrationRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public get(id: string): DbSystemIntegration | null {
+    const row = this.db
+      .prepare('SELECT id, encrypted_payload, updated_at FROM system_integrations WHERE id = ?')
+      .get(id) as any;
+    if (!row) return null;
+    return {
+      id: row.id,
+      encryptedPayload: row.encrypted_payload,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  public set(id: string, encryptedPayload: string): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO system_integrations (id, encrypted_payload, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET encrypted_payload = excluded.encrypted_payload, updated_at = excluded.updated_at`
+      )
+      .run(id, encryptedPayload, now);
+  }
+
+  public delete(id: string): void {
+    this.db.prepare('DELETE FROM system_integrations WHERE id = ?').run(id);
   }
 }

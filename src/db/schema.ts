@@ -539,3 +539,9 @@ export interface DbBoardProfileVersion {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface DbSystemIntegration {
+  id: string;
+  encryptedPayload: string;
+  updatedAt: string;
+}
