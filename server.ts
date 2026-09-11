@@ -541,15 +541,27 @@ app.use(
 );
 
 // 6. Rate Limiters
+// ── Global: 350 req / 15 min por IP (alinhado com SECURITY.md)
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 120,
+  max: 350,
   validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "TOO_MANY_REQUESTS", message: "Muitas requisições. Tente novamente em alguns minutos." },
 });
 app.use("/api/", apiLimiter);
+
+// ── Health endpoint: 60 req / min por IP (evitar uso como amplificador de escaner)
+const healthLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  validate: { xForwardedForHeader: false },
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "TOO_MANY_REQUESTS", message: "Muitas requisições ao health check." },
+});
+app.use("/api/health", healthLimiter);
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -611,7 +623,9 @@ const calendarLimiter = rateLimit({
   message: { error: 'CALENDAR_RATE_LIMITED', message: 'Limite de sincronizações atingido. Tente novamente mais tarde.' },
 });
 
-app.use(express.json({ limit: "20mb" }));
+// Body parser JSON: 2 MiB global. Rotas de upload têm guard pré-parser em /api
+// (linhas acima) que já permite até 20 MiB antes de alocar memória.
+app.use(express.json({ limit: "2mb" }));
 
 // Google OAuth 2.0 Credentials & Storage Configuration
 let defaultClientId = "";
@@ -3238,6 +3252,137 @@ app.post("/api/admin/unban", requireAdminWriteAuth, requireStepUpAuth, (req: Req
     details: { targetIp },
   });
   return res.json({ success: true, message: `IP ${targetIp} desbanido com sucesso.` });
+});
+
+// ==========================================
+// 🛠️ MODO DE MANUTENÇÃO (PERSISTÊNCIA RELACIONAL)
+// ==========================================
+
+export interface MaintenanceConfig {
+  global: boolean;
+  message?: string;
+  pages: Record<string, boolean>;
+  updatedAt: string;
+  updatedBy?: string;
+}
+
+function getMaintenanceConfig(): MaintenanceConfig {
+  try {
+    const repo = getSystemIntegrationRepo();
+    const row = repo?.get("maintenance_config");
+    if (row?.encryptedPayload) {
+      const parsed = JSON.parse(row.encryptedPayload);
+      return {
+        global: Boolean(parsed.global),
+        message: typeof parsed.message === 'string' ? parsed.message : '',
+        pages: typeof parsed.pages === 'object' && parsed.pages !== null ? parsed.pages : {},
+        updatedAt: parsed.updatedAt || new Date().toISOString(),
+        updatedBy: parsed.updatedBy || undefined,
+      };
+    }
+  } catch (err) {
+    console.warn("Falha ao ler manutenção do banco:", err);
+  }
+  return {
+    global: false,
+    message: '',
+    pages: {},
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function saveMaintenanceConfig(config: MaintenanceConfig): void {
+  try {
+    const repo = getSystemIntegrationRepo();
+    if (repo) {
+      repo.set("maintenance_config", JSON.stringify(config));
+    }
+  } catch (err) {
+    console.error("Falha ao salvar configuração de manutenção no banco:", err);
+  }
+}
+
+// 1. Status de Manutenção (Acesso público para consulta dos clientes)
+app.get("/api/maintenance/status", (_req: Request, res: Response) => {
+  try {
+    const config = getMaintenanceConfig();
+    return res.json({
+      success: true,
+      global: config.global,
+      pages: config.pages,
+      message: config.message || "",
+      updatedAt: config.updatedAt,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: "Erro ao consultar status de manutenção." });
+  }
+});
+
+// 2. Consulta detalhada de Manutenção para o Painel Admin
+app.get("/api/admin/maintenance", requireAdminAuth, (_req: Request, res: Response) => {
+  try {
+    const config = getMaintenanceConfig();
+    return res.json({
+      success: true,
+      config,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: "Erro ao carregar configuração de manutenção." });
+  }
+});
+
+// 3. Atualização do Modo de Manutenção (Apenas Admin com permissão de escrita)
+app.post("/api/admin/maintenance", requireAdminWriteAuth, (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    const { global, pages, message } = req.body || {};
+
+    const previousConfig = getMaintenanceConfig();
+
+    const newPages: Record<string, boolean> = {};
+    if (pages && typeof pages === 'object') {
+      for (const [key, val] of Object.entries(pages)) {
+        if (typeof key === 'string' && typeof val === 'boolean') {
+          newPages[key] = val;
+        }
+      }
+    }
+
+    const newConfig: MaintenanceConfig = {
+      global: Boolean(global),
+      pages: newPages,
+      message: typeof message === 'string' ? message.slice(0, 500) : '',
+      updatedAt: new Date().toISOString(),
+      updatedBy: adminUser?.username || 'admin',
+    };
+
+    saveMaintenanceConfig(newConfig);
+
+    logSecurityEvent(req, {
+      action: 'MAINTENANCE_MODE_UPDATED',
+      actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.id || null,
+      targetType: 'maintenance_mode',
+      targetId: 'global',
+      resource: '/api/admin/maintenance',
+      status: 'SUCCESS',
+      previousState: previousConfig,
+      newState: newConfig,
+      details: { changedBy: adminUser?.username || 'admin' },
+    });
+
+    try {
+      adminRealtimeHub.publish('METRICS_UPDATED' as AdminRealtimeEventType, newConfig);
+    } catch {}
+
+    return res.json({
+      success: true,
+      message: "Configurações de modo de manutenção atualizadas com sucesso.",
+      config: newConfig,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: "Erro ao atualizar modo de manutenção." });
+  }
 });
 
 // ==========================================
@@ -6377,6 +6522,30 @@ app.delete("/api/exams/segments/:segmentId", requireUserAuth, (req: Request, res
   }
 });
 
+// ── Middleware de Pressão: Fail-Fast 503 ────────────────────────────────────
+// Quando o número de requests simultâneos excede o threshold, retornamos 503
+// imediatamente antes de alocar recursos. Evita cascata de timeouts sob ataque L7.
+let _activeRequests = 0;
+const MAX_ACTIVE_REQUESTS = 200; // Threshold de pressão — ajustar conforme plano do Render
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  // Health check nunca entra na fila de pressão (liveness do Render depende dele)
+  if (req.path === '/api/health') return next();
+
+  if (_activeRequests >= MAX_ACTIVE_REQUESTS) {
+    res.setHeader('Retry-After', '5');
+    return res.status(503).json({
+      error: 'SERVICE_OVERLOADED',
+      message: 'Servidor temporariamente sobrecarregado. Tente novamente em instantes.',
+    });
+  }
+
+  _activeRequests++;
+  res.on('finish', () => { _activeRequests = Math.max(0, _activeRequests - 1); });
+  res.on('close', () => { _activeRequests = Math.max(0, _activeRequests - 1); });
+  next();
+});
+
 // Middleware Centralizado de Tratamento de Erros (Evita vazamento de stacktrace)
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   logInternalError("Unhandled Server Exception", err);
@@ -6425,10 +6594,13 @@ async function startServer() {
   const server = app.listen(PORT, listenHost, () => {
     console.log(`Server running on http://${listenHost}:${PORT}`);
   });
-  server.requestTimeout = 60_000;
-  server.headersTimeout = 15_000;
-  server.keepAliveTimeout = 5_000;
-  server.maxHeadersCount = 100;
+  // Timeouts anti-Slowloris:
+  // headersTimeout < requestTimeout: mata conexões que enviam headers lentamente.
+  // requestTimeout: tempo máximo total de uma request (suficiente para uploads legítimos).
+  server.requestTimeout = 30_000;   // 30s — reduzido de 60s para limitar Slowloris tardio
+  server.headersTimeout = 10_000;   // 10s — reduzido de 15s; mata Slowloris na fase de headers
+  server.keepAliveTimeout = 5_000;  // 5s — conexões idle fecham rápido
+  server.maxHeadersCount = 100;     // Limite de headers por request
 }
 
 const isTestEnv = process.env.NODE_ENV === "test";

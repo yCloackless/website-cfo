@@ -21,6 +21,7 @@ import {
   ArrowLeftRight,
   Loader2,
   X,
+  ShieldAlert,
 } from 'lucide-react';
 
 import { Subject, StudyEntry, StudyEntryType, WeeklyCycle, SmartRevisionItem, AppTheme, AIAnalysisResult, BizuItem } from './types';
@@ -85,6 +86,7 @@ import { UpdateNoticeModal } from './components/UpdateNoticeModal';
 import { NotificationCenterDrawer, NotificationItem } from './components/NotificationCenterDrawer';
 import { SecurityAlertPopup } from './components/SecurityAlertPopup';
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard').then(({ AdminDashboard }) => ({ default: AdminDashboard })));
+import { MaintenanceScreen } from './components/MaintenanceScreen';
 
 export default function App() {
   // 🧭 Roteamento SPA (/admin e área do aluno)
@@ -450,6 +452,33 @@ export default function App() {
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<TabType>('table');
+
+  // Modo de Manutenção
+  const [maintenanceStatus, setMaintenanceStatus] = useState<{
+    global: boolean;
+    pages: Record<string, boolean>;
+    message?: string;
+  }>({ global: false, pages: {} });
+
+  const fetchMaintenanceStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/maintenance/status');
+      const data = await res.json();
+      if (data?.success) {
+        setMaintenanceStatus({
+          global: Boolean(data.global),
+          pages: data.pages || {},
+          message: data.message || '',
+        });
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchMaintenanceStatus();
+    const interval = setInterval(fetchMaintenanceStatus, 45000);
+    return () => clearInterval(interval);
+  }, [fetchMaintenanceStatus]);
 
   // Preset topic for creating a Bizu from HighYield tab
   const [presetTopicForBizu, setPresetTopicForBizu] = useState<{
@@ -1592,7 +1621,41 @@ export default function App() {
 
         {/* Main Content Area */}
         <main className={`flex-1 max-w-none w-full mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-7 space-y-6 min-w-0 ${isDark ? 'bg-[#0B0F17]' : 'bg-white'}`}>
-        
+
+        {/* Alerta Tático para Administradores se a página estiver em manutenção para alunos */}
+        {isCurrentAdmin && (maintenanceStatus.global || maintenanceStatus.pages[activeTab]) && (
+          <div className="p-3 bg-red-950/70 border border-red-600/50 rounded-xl flex items-center justify-between text-xs text-red-200">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+              <span>
+                <strong>Modo de Manutenção Ativo:</strong> Esta seção ({activeTab}) está bloqueada para cadetes e alunos com a tela vermelha.
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                setCurrentPath('/admin');
+                window.history.pushState({}, '', '/admin');
+              }}
+              className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg font-bold text-[11px] transition-colors"
+            >
+              Gerenciar no Admin
+            </button>
+          </div>
+        )}
+
+        {/* 🚨 TELA DE MANUTENÇÃO PARA USUÁRIOS/ALUNOS COM ESCRITA GIGANTE E X VERMELHO */}
+        {!isCurrentAdmin && (maintenanceStatus.global || maintenanceStatus.pages[activeTab]) ? (
+          <MaintenanceScreen
+            theme={theme}
+            title={maintenanceStatus.global ? 'SISTEMA EM MANUTENÇÃO' : 'PÁGINA EM MANUTENÇÃO'}
+            pageName={activeTab}
+            message={maintenanceStatus.message}
+            isAdmin={false}
+            onGoHome={() => setActiveTab('table')}
+            onRefresh={fetchMaintenanceStatus}
+          />
+        ) : (
+          <>
         {/* Render Tab 1: Cronograma Semanal */}
         {activeTab === 'table' && (
           <>
@@ -2070,6 +2133,8 @@ export default function App() {
         )}
 
         </Suspense>
+          </>
+        )}
 
         {/* Footer */}
         <footer

@@ -27,9 +27,29 @@ Nenhum sistema publico pode prometer risco zero. Este projeto usa defesa em prof
 
 ## DDoS e protecao de borda
 
-O rate limiting da aplicacao reduz abuso logico e brute-force, mas nao absorve DDoS volumetrico. No Render, web services recebem protecao DDoS da infraestrutura de borda. Para dominio proprio, mantenha TLS ativo e siga a configuracao DNS oficial do Render.
+O rate limiting da aplicacao combate abuso logico e brute-force (L7), mas nao absorve
+DDoS volumetrico (L3/L4). A arquitetura de defesa completa exige:
 
-O limitador em memoria funciona para a instancia atual. Se o servico passar a usar varias instancias, migrar os contadores de rate limit para Render Key Value/Redis e obrigatorio para manter limites globais consistentes.
+1. **Cloudflare na borda** — proxy Anycast que absorve volumetrico antes de chegar ao Render.
+   Ver guia completo: `docs/CLOUDFLARE-RENDER-SETUP.md`
+2. **Render Edge** — protecao DDoS basica inclusa na plataforma.
+3. **server.ts** — rate limiting por IP, timeouts anti-Slowloris, middleware fail-fast 503
+   (retorna 503 imediatamente quando ha mais de 200 requests simultaneos).
+
+Timeouts configurados no servidor Node.js (anti-Slowloris):
+- `headersTimeout`: 10s — mata conexoes que enviam headers lentamente
+- `requestTimeout`: 30s — tempo maximo total de uma request
+- `keepAliveTimeout`: 5s — fecha conexoes idle rapidamente
+
+Para auditar se o IP real esta exposto via DNS/subdominios/certificados:
+
+```bash
+bash scripts/audit-ip-leak.sh seudominio.com
+```
+
+Se o limitador de rate limit passar a usar varias instancias, migrar os contadores
+para Render Key Value/Redis e obrigatorio para manter limites globais consistentes.
+
 
 ## Configuracao obrigatoria no Render
 

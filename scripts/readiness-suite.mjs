@@ -12,7 +12,7 @@ const files = ['models', 'auth', 'profile', 'audit_security', 'admin_panel',
   'admin_security_2fa', 'admin_realtime', 'admin_users_management', 'admin_audit',
   'frontend_integration', 'security_review', 'download_functions', 'privacy_minimization',
   'cadet_exclusive_session', 'cadet_security_audit', 'cadet_5h_block_and_alerts',
-  'security_hardening', 'secure_uploads', 'exam_bank', 'exam_phase1_workflow', 'student_learning', 'database_resilience', 'calendar_persistence'];
+  'security_hardening', 'secure_uploads', 'exam_bank', 'exam_phase1_workflow', 'student_learning', 'database_resilience', 'calendar_persistence', 'maintenance_mode'];
 files.push('student_release45');
 files.splice(files.indexOf('exam_bank'), 0, 'board_intelligence');
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>

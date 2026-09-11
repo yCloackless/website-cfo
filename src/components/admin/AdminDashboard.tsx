@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { AppTheme } from '../../types';
 import { BoardIntelligencePanel } from './BoardIntelligencePanel';
+import { AdminMaintenanceTab } from './AdminMaintenanceTab';
 
 export type AdminTab =
   | 'dashboard'
@@ -37,6 +38,7 @@ export type AdminTab =
   | 'audit'
   | 'admins'
   | 'notion'
+  | 'maintenance'
   | 'settings';
 
 interface AdminDashboardProps {
@@ -1232,6 +1234,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </button>
           )}
 
+          {currentAdminRole === 'admin' && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('maintenance')}
+              className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === 'maintenance'
+                  ? 'bg-red-500/20 text-red-400 border border-red-500/40'
+                  : 'text-slate-400 hover:text-red-300 hover:bg-red-950/20 border border-transparent'
+              }`}
+            >
+              <AlertTriangle className="w-4 h-4 text-red-500" />
+              Modo Manutenção
+            </button>
+          )}
+
           <div className="mt-0 md:mt-auto pt-0 md:pt-4 border-t border-slate-800/60 shrink-0">
             <button
               type="button"
@@ -2112,6 +2129,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 ))}
               </div>
             </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* TAB: MODO DE MANUTENÇÃO                                           */}
+          {/* ================================================================= */}
+          {activeTab === 'maintenance' && (
+            <AdminMaintenanceTab
+              theme={theme}
+              sessionToken={sessionToken}
+              getHeaders={getHeaders}
+            />
           )}
 
           {/* ================================================================= */}
