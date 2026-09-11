@@ -38,6 +38,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
 }) => {
   const [statusSelection, setStatusSelection] = useState<'studied' | 'reviewing' | 'pending'>('studied');
   const [topic, setTopic] = useState('');
+  const [durationMinutes, setDurationMinutes] = useState('');
   const [notes, setNotes] = useState('');
   const [syncWithCalendar, setSyncWithCalendar] = useState(hasGoogleCalendar);
 
@@ -65,11 +66,13 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
         setStatusSelection('studied');
       }
       setTopic(existingEntry.topic || '');
+      setDurationMinutes(existingEntry.durationMinutes !== undefined ? String(existingEntry.durationMinutes) : '');
       setNotes(existingEntry.notes || '');
       setSyncWithCalendar(hasGoogleCalendar);
     } else {
       setStatusSelection('studied');
       setTopic('');
+      setDurationMinutes(initialDurationMinutes !== undefined ? String(initialDurationMinutes) : '');
       setNotes('');
       setSyncWithCalendar(hasGoogleCalendar);
     }
@@ -81,7 +84,10 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const calculatedMinutes = existingEntry?.durationMinutes || initialDurationMinutes || 60;
+    const parsedDuration = Number(durationMinutes);
+    const calculatedMinutes = durationMinutes.trim() === '' || !Number.isFinite(parsedDuration)
+      ? 0
+      : Math.max(0, Math.round(parsedDuration));
     const isCompleted = statusSelection !== 'pending';
     const entryType: StudyEntryType = statusSelection === 'reviewing' ? 'reviewing' : 'studied';
     const canSync = syncWithCalendar && hasGoogleCalendar && topic.trim().length > 0 && isCompleted;
@@ -234,6 +240,29 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Real study duration */}
+          <div>
+            <label htmlFor="study-duration-minutes" className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-blue-400" />
+              Tempo estudado (minutos)
+            </label>
+            <input
+              id="study-duration-minutes"
+              type="number"
+              min="0"
+              max="1440"
+              step="1"
+              inputMode="numeric"
+              placeholder="Ex.: 45 (deixe 0 se não quiser contabilizar)"
+              value={durationMinutes}
+              onChange={(e) => setDurationMinutes(e.target.value)}
+              className="w-full px-3.5 py-2.5 bg-[#0F1D38] border border-blue-900/60 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:bg-[#132345] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+            />
+            <p className="mt-1 text-[10px] text-slate-500">
+              Apenas o tempo informado aqui ou registrado pelo cronômetro entra nos totais.
+            </p>
           </div>
 
           {/* Notes */}

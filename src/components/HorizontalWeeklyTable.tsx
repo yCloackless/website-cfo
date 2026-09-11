@@ -44,7 +44,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
       const entry = getEntry(subjectId, i);
       if (entry?.completed) {
         completedCount++;
-        totalMinutes += entry.durationMinutes || 60;
+        totalMinutes += entry.durationMinutes || 0;
       }
     }
     return { completedCount, totalMinutes };

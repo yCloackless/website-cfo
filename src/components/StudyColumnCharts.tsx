@@ -136,7 +136,7 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
   // Summary Metrics
   const totalMinutes = useMemo(() => {
     return periodEntries.reduce(
-      (acc, curr) => acc + (curr.durationMinutes && curr.durationMinutes > 0 ? curr.durationMinutes : 60),
+      (acc, curr) => acc + (curr.durationMinutes && curr.durationMinutes > 0 ? curr.durationMinutes : 0),
       0
     );
   }, [periodEntries]);

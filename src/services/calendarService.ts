@@ -381,7 +381,7 @@ export async function syncStudySessionAndRevisions(
   const displayTopic = rawTopic || 'Conteúdo Programático';
 
   const isReview = entry.entryType === 'reviewing';
-  const wholeHours = entry.durationMinutes ? Math.max(1, Math.round(entry.durationMinutes / 60)) : 1;
+  const wholeHours = entry.durationMinutes ? Math.round(entry.durationMinutes / 60 * 10) / 10 : 0;
   const durationLabel = `\n⏱️ Carga horária: ${wholeHours}h (${wholeHours === 1 ? '1 hora' : `${wholeHours} horas`})`;
   const notesLabel = entry.notes ? `\n📝 Anotações: ${entry.notes}` : '';
   const studiedDateFormatted = formatBRDate(entry.dateStr);

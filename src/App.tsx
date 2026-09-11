@@ -1008,11 +1008,11 @@ export default function App() {
       return;
     }
 
-    // Marking as completed
-    const cleanDuration = existingEntry?.durationMinutes
-      ? Math.max(60, Math.round(existingEntry.durationMinutes / 60) * 60)
-      : 60;
+    // A conclusão rápida abre o mesmo formulário para impedir o registro implícito de 1 hora.
+    handleCellClick(subject, dayIndex, dateStr);
+    return;
 
+    /* Legacy direct-save path retained below only until removed in the next cleanup. */
     const newEntry: StudyEntry = {
       id: existingEntry?.id || `entry_${Date.now()}`,
       subjectId: subject.id,
@@ -1022,7 +1022,7 @@ export default function App() {
       completedAt: new Date().toISOString(),
       entryType: existingEntry?.entryType || 'studied',
       topic: existingEntry?.topic || '',
-      durationMinutes: cleanDuration,
+      durationMinutes: existingEntry?.durationMinutes || 0,
       notes: existingEntry?.notes || '',
       googleCalendarSynced: false,
       revisionScheduled: false,
@@ -1326,7 +1326,7 @@ export default function App() {
     const allEntries = Object.values(currentCycle.entries || {}) as StudyEntry[];
     const completedEntries = allEntries.filter((e) => e.completed);
     const totalSessions = completedEntries.length;
-    const totalMinutes = completedEntries.reduce((acc, curr) => acc + (curr.durationMinutes || 60), 0);
+    const totalMinutes = completedEntries.reduce((acc, curr) => acc + (curr.durationMinutes || 0), 0);
     const distinctSubjects = new Set(completedEntries.map((e) => e.subjectId)).size;
     const totalHours = Math.round(totalMinutes / 60);
 

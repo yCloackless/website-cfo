@@ -49,7 +49,7 @@ export const CycleHistoryModal: React.FC<CycleHistoryModalProps> = ({
               const completedEntries = allEntries.filter((e) => e.completed);
               const completedCount = completedEntries.length;
               const totalMinutes = completedEntries
-                .reduce((acc, curr) => acc + (curr.durationMinutes || 60), 0);
+                .reduce((acc, curr) => acc + (curr.durationMinutes || 0), 0);
               const wholeHours = Math.round(totalMinutes / 60);
 
               const isActive = c.id === activeCycleId;

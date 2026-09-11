@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight, BarChart3, BookOpen, CalendarDays, CheckCircle2, Flame,
   Home, Search, Settings, ShieldCheck, Target, Trophy,
@@ -36,6 +36,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => (
         </div>
       </div>
     </section>
+    <FloriaDiscovery />
 
     <section id="resultados" className="stats"><div className="landing-container stats-inner"><h2>Uma preparação construída para quem leva a <span>aprovação a sério.</span></h2><Stat icon={<BookOpen />} title="+10 mil questões" text="Atualizadas e comentadas por especialistas." /><Stat icon={<CalendarDays />} title="Cronograma inteligente" text="Estude com foco, no seu ritmo e com mais produtividade." /><Stat icon={<BarChart3 />} title="Análise de desempenho" text="Identifique seus pontos fortes e evolua de forma constante." /></div></section>
 
@@ -45,6 +46,56 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => (
 );
 
 function Logo() { return <div className="logo-mark"><img className="brand-phoenix" src="/phoenix-logo-cropped.png" alt="Fênix Rumo ao CFO" /><div><strong>RUMO AO <span>CFO</span></strong><small>DISCIPLINA HOJE. OFICIAL AMANHÃ.</small></div></div>; }
+function FloriaDiscovery() {
+  const sectionRef = useRef<HTMLElement>(null);
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const section = sectionRef.current;
+        if (!section) return;
+        const travel = Math.max(1, section.offsetHeight - window.innerHeight);
+        setProgress(Math.min(1, Math.max(0, -section.getBoundingClientRect().top / travel)));
+      });
+    };
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, []);
+
+  const viewportScale = Math.max(1, Math.max(window.innerWidth / 220, window.innerHeight / 391) * 1.08);
+  const imageScale = 0.62 + (viewportScale - 0.62) * Math.min(1, progress / 0.92);
+  const textProgress = Math.min(1, Math.max(0, (progress - 0.1) / 0.54));
+
+  return (
+    <section ref={sectionRef} className="floria-discovery" aria-label="Descoberta FLORIA">
+      <div className="floria-sticky">
+        <div className="floria-orbit floria-orbit-one" />
+        <div className="floria-orbit floria-orbit-two" />
+        <div className="floria-image-wrap" style={{ transform: `translate3d(-50%, -50%, 0) scale(${imageScale})` }}>
+          <img src="/update-black-hole.png" alt="Imagem da experiência FLORIA" />
+        </div>
+        <div className="floria-copy" style={{ opacity: 1 - textProgress, pointerEvents: textProgress > 0.8 ? 'none' : 'auto' }}>
+          <span className="floria-note note-top" style={{ transform: `translate3d(${textProgress * -34}px, ${textProgress * -20}px, 0) rotate(-7deg) scale(${1 - textProgress * .18})` }}>01 / PRESENÇA</span>
+          <span className="floria-note note-right" style={{ transform: `translate3d(${textProgress * 42}px, ${textProgress * 18}px, 0) rotate(9deg) scale(${1 - textProgress * .26})` }}>a matéria encontra<br />o silêncio</span>
+          <span className="floria-note note-left" style={{ transform: `translate3d(${textProgress * -28}px, ${textProgress * 14}px, 0) rotate(4deg) scale(${1 - textProgress * .2})` }}>FLORIA<br /><i>estudo como ritual</i></span>
+          <span className="floria-note note-bottom" style={{ transform: `translate3d(${textProgress * 32}px, ${textProgress * 30}px, 0) rotate(-3deg) scale(${1 - textProgress * .24})` }}>campo de atenção<br /><b>∞</b></span>
+          <span className="floria-note note-micro" style={{ transform: `translate3d(${textProgress * 18}px, ${textProgress * -32}px, 0) rotate(16deg) scale(${1 - textProgress * .3})` }}>observe / respire / continue</span>
+        </div>
+        <div className="floria-scroll-mark" style={{ opacity: Math.max(0, 1 - progress * 3) }} aria-hidden="true"><span>deslize para descobrir</span><i /></div>
+      </div>
+    </section>
+  );
+}
+
 function Stat({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <div className="stat"><div className="stat-icon">{icon}</div><div><h3>{title}</h3><p>{text}</p></div></div>; }
 function Benefit({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <article className="benefit"><div className="benefit-icon">{icon}</div><CheckCircle2 size={18} className="benefit-check" /><h3>{title}</h3><p>{text}</p><a href="#inicio">Saiba mais <ArrowRight size={15} /></a></article>; }
 function DashboardMockup() {

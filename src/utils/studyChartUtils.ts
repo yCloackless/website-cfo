@@ -274,7 +274,7 @@ export function aggregateBySubject(
       subjectMap.set(entry.subjectId, item);
     }
 
-    const duration = entry.durationMinutes && entry.durationMinutes > 0 ? entry.durationMinutes : 60;
+    const duration = entry.durationMinutes && entry.durationMinutes > 0 ? entry.durationMinutes : 0;
     item.totalMinutes += duration;
     item.sessions += 1;
     if (entry.topic && entry.topic.trim()) {
@@ -351,7 +351,7 @@ export function aggregateDaysOfWeek(
     const subjectsMap = new Map<string, { name: string; color: string; hours: number }>();
 
     dayEntries.forEach((entry) => {
-      const duration = entry.durationMinutes && entry.durationMinutes > 0 ? entry.durationMinutes : 60;
+      const duration = entry.durationMinutes && entry.durationMinutes > 0 ? entry.durationMinutes : 0;
       totalMinutes += duration;
 
       const sub = subjectLookup.get(entry.subjectId);

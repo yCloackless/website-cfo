@@ -65,7 +65,7 @@ export function buildWeeklyStudySummary(
       topics: [],
     };
     prev.sessions += 1;
-    prev.minutes += entry.durationMinutes || 60;
+    prev.minutes += entry.durationMinutes || 0;
     if (entry.topic && !prev.topics.includes(entry.topic)) {
       prev.topics.push(entry.topic);
     }
