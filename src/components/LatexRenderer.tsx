@@ -14,11 +14,9 @@ interface TextSegment {
 }
 
 /**
- * Block delimiters usually arrive separated by blank lines (especially from
- * AI-generated notes). Those newlines become real line boxes around the
- * KaTeX block and, combined with KaTeX's own display margin, create a large
- * empty gap. Keep meaningful text whitespace, but discard whitespace that
- * only separates adjacent display formulas.
+ * Keep at most one line break around display delimiters. This preserves the
+ * author's chat-like flow without allowing generated blank lines to grow into
+ * large empty gaps.
  */
 function compactBlockWhitespace(segments: TextSegment[]): TextSegment[] {
   return segments
@@ -29,8 +27,8 @@ function compactBlockWhitespace(segments: TextSegment[]): TextSegment[] {
       const next = all[index + 1];
       let content = segment.content;
 
-      if (previous?.type === 'block-math') content = content.replace(/^\s+/, '');
-      if (next?.type === 'block-math') content = content.replace(/\s+$/, '');
+      if (previous?.type === 'block-math') content = content.replace(/^\s*\n(?:\s*\n)+/, '\n');
+      if (next?.type === 'block-math') content = content.replace(/(?:\s*\n){2,}\s*$/, '\n');
 
       return { ...segment, content };
     })
@@ -172,35 +170,21 @@ export const Latex: React.FC<LatexRendererProps> = ({
       );
     }
 
-    const isBlock = seg.type === 'block-math';
-    const html = renderMathToHtml(seg.content, isBlock);
-
-    if (isBlock) {
-      return (
-        <div
-          key={idx}
-          className="latex-block my-1.5 py-1 px-2.5 rounded-lg bg-black/10 dark:bg-black/25 overflow-x-auto max-w-full scrollbar-thin text-center text-amber-300 dark:text-amber-200"
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-      );
-    }
+    // Render every formula inline so notes keep the same flow as a normal chat
+    // message, regardless of whether the author used $$...$$ or $...$.
+    const html = renderMathToHtml(seg.content, false);
 
     return (
       <span
         key={idx}
-        className="inline-math px-0.5 mx-0.5 max-w-full overflow-x-auto scrollbar-thin text-amber-300 dark:text-amber-200"
+        className="latex-math max-w-full"
         dangerouslySetInnerHTML={{ __html: html }}
       />
     );
   });
 
-  const hasBlockMath = segments.some((segment) => segment.type === 'block-math');
-  const wrapperClass = `${hasBlockMath ? 'block' : 'inline-block'} max-w-full align-baseline overflow-x-auto scrollbar-thin latex-renderer ${className}`;
-  return hasBlockMath ? (
-    <div className={wrapperClass}>{renderedSegments}</div>
-  ) : (
-    <span className={wrapperClass}>{renderedSegments}</span>
-  );
+  const wrapperClass = `inline max-w-full align-baseline latex-renderer ${className}`;
+  return <span className={wrapperClass}>{renderedSegments}</span>;
 };
 
 export default Latex;
