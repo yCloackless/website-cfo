@@ -36,8 +36,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => (
         </div>
       </div>
     </section>
-    <FloriaDiscovery />
-
     <section id="resultados" className="stats"><div className="landing-container stats-inner"><h2>Uma preparação construída para quem leva a <span>aprovação a sério.</span></h2><Stat icon={<BookOpen />} title="+10 mil questões" text="Atualizadas e comentadas por especialistas." /><Stat icon={<CalendarDays />} title="Cronograma inteligente" text="Estude com foco, no seu ritmo e com mais produtividade." /><Stat icon={<BarChart3 />} title="Análise de desempenho" text="Identifique seus pontos fortes e evolua de forma constante." /></div></section>
 
     <section id="plataforma" className="platform"><div className="landing-container"><div className="section-heading"><label>RUMO AO CFO</label><h2>Tudo que você precisa.<br /><em>Sem distrações.</em></h2><p>Uma plataforma criada para transformar preparação em execução, constância e evolução.</p></div><div className="benefit-grid"><Benefit icon={<CalendarDays />} title="Cronograma inteligente" text="Saiba exatamente o que estudar todos os dias e adapte sua rotina de preparação." /><Benefit icon={<Target />} title="Questões direcionadas" text="Treine com questões organizadas por disciplina, assunto e nível de dificuldade." /><Benefit icon={<BarChart3 />} title="Evolução mensurável" text="Acompanhe seus acertos, erros, constância e conteúdos que precisam de revisão." /></div></div></section>
