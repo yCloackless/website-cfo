@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 import {
   ArrowRight, BarChart3, BookOpen, CalendarDays, CheckCircle2, Flame,
   Home, Search, Settings, ShieldCheck, Target, Trophy,
@@ -36,6 +36,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => (
         </div>
       </div>
     </section>
+
     <section id="resultados" className="stats"><div className="landing-container stats-inner"><h2>Uma preparação construída para quem leva a <span>aprovação a sério.</span></h2><Stat icon={<BookOpen />} title="+10 mil questões" text="Atualizadas e comentadas por especialistas." /><Stat icon={<CalendarDays />} title="Cronograma inteligente" text="Estude com foco, no seu ritmo e com mais produtividade." /><Stat icon={<BarChart3 />} title="Análise de desempenho" text="Identifique seus pontos fortes e evolua de forma constante." /></div></section>
 
     <section id="plataforma" className="platform"><div className="landing-container"><div className="section-heading"><label>RUMO AO CFO</label><h2>Tudo que você precisa.<br /><em>Sem distrações.</em></h2><p>Uma plataforma criada para transformar preparação em execução, constância e evolução.</p></div><div className="benefit-grid"><Benefit icon={<CalendarDays />} title="Cronograma inteligente" text="Saiba exatamente o que estudar todos os dias e adapte sua rotina de preparação." /><Benefit icon={<Target />} title="Questões direcionadas" text="Treine com questões organizadas por disciplina, assunto e nível de dificuldade." /><Benefit icon={<BarChart3 />} title="Evolução mensurável" text="Acompanhe seus acertos, erros, constância e conteúdos que precisam de revisão." /></div></div></section>
@@ -44,58 +45,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => (
 );
 
 function Logo() { return <div className="logo-mark"><img className="brand-phoenix" src="/phoenix-logo-cropped.png" alt="Fênix Rumo ao CFO" /><div><strong>RUMO AO <span>CFO</span></strong><small>DISCIPLINA HOJE. OFICIAL AMANHÃ.</small></div></div>; }
-function FloriaDiscovery() {
-  const sectionRef = useRef<HTMLElement>(null);
-  const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    let frame = 0;
-    const update = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const section = sectionRef.current;
-        if (!section) return;
-        const travel = Math.max(1, section.offsetHeight - window.innerHeight);
-        setProgress(Math.min(1, Math.max(0, -section.getBoundingClientRect().top / travel)));
-      });
-    };
-    update();
-    window.addEventListener('scroll', update, { passive: true });
-    window.addEventListener('resize', update);
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener('scroll', update);
-      window.removeEventListener('resize', update);
-    };
-  }, []);
-
-  const baseWidth = window.innerWidth <= 720 ? 300 : 396;
-  const baseHeight = baseWidth * 9 / 16;
-  const viewportScale = Math.max(1, Math.max(window.innerWidth / baseWidth, window.innerHeight / baseHeight) * 1.08);
-  const imageScale = 0.62 + (viewportScale - 0.62) * Math.min(1, progress / 0.92);
-  const textProgress = Math.min(1, Math.max(0, (progress - 0.1) / 0.54));
-
-  return (
-    <section ref={sectionRef} className="floria-discovery" aria-label="Descoberta FLORIA">
-      <div className="floria-sticky">
-        <div className="floria-orbit floria-orbit-one" />
-        <div className="floria-orbit floria-orbit-two" />
-        <div className="floria-image-wrap" style={{ transform: `translate3d(-50%, -50%, 0) scale(${imageScale})` }}>
-          <img src="/floria-discovery.png" alt="Surfista atravessando ondas em direção à luz" />
-        </div>
-        <div className="floria-copy" style={{ opacity: 1 - textProgress, pointerEvents: textProgress > 0.8 ? 'none' : 'auto' }}>
-          <span className="floria-note note-top" style={{ transform: `translate3d(${textProgress * -34}px, ${textProgress * -20}px, 0) rotate(-7deg) scale(${1 - textProgress * .18})` }}>01 / DISCIPLINA</span>
-          <span className="floria-note note-right" style={{ transform: `translate3d(${textProgress * 42}px, ${textProgress * 18}px, 0) rotate(9deg) scale(${1 - textProgress * .26})` }}>a aprovação começa<br />antes do resultado</span>
-          <span className="floria-note note-left" style={{ transform: `translate3d(${textProgress * -28}px, ${textProgress * 14}px, 0) rotate(4deg) scale(${1 - textProgress * .2})` }}>CONTINUE<br /><i>um dia de cada vez</i></span>
-          <span className="floria-note note-bottom" style={{ transform: `translate3d(${textProgress * 32}px, ${textProgress * 30}px, 0) rotate(-3deg) scale(${1 - textProgress * .24})` }}>quem persiste<br /><b>chega</b></span>
-          <span className="floria-note note-micro" style={{ transform: `translate3d(${textProgress * 18}px, ${textProgress * -32}px, 0) rotate(16deg) scale(${1 - textProgress * .3})` }}>estude hoje / conquiste amanhã</span>
-        </div>
-        <div className="floria-scroll-mark" style={{ opacity: Math.max(0, 1 - progress * 3) }} aria-hidden="true"><span>deslize para descobrir</span><i /></div>
-      </div>
-    </section>
-  );
-}
-
 function Stat({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <div className="stat"><div className="stat-icon">{icon}</div><div><h3>{title}</h3><p>{text}</p></div></div>; }
 function Benefit({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <article className="benefit"><div className="benefit-icon">{icon}</div><CheckCircle2 size={18} className="benefit-check" /><h3>{title}</h3><p>{text}</p><a href="#inicio">Saiba mais <ArrowRight size={15} /></a></article>; }
 function DashboardMockup() {
