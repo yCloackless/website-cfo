@@ -55,10 +55,44 @@ button, a {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* LaTeX follows the same color and inline flow as the surrounding message. */
+/* LaTeX follows the same color as the surrounding message. Block formulas
+   are isolated from the card's inline flow, so a wide/complex expression
+   scrolls horizontally instead of stretching the note or its card. */
 .latex-math,
 .latex-math .katex {
   color: inherit;
+}
+
+.latex-renderer {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.latex-block {
+  max-width: 100%;
+  min-width: 0;
+  margin: 0.25rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.latex-block .katex-display {
+  margin: 0;
+  text-align: left;
+}
+
+.latex-block .katex-display > .katex {
+  max-width: 100%;
+}
+
+.bizuario-note-preview {
+  max-height: 11rem;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
 }
 
 /* Topbar follows the sidebar icon language: neutral at rest, colored on intent. */

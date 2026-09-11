@@ -941,11 +941,11 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           {filteredBizus.map((bizu) => (
             <div
               key={bizu.id}
-              className={`rounded-2xl border overflow-hidden transition-all duration-200 flex flex-col shadow-md ${
+              className={`self-start h-fit rounded-2xl border overflow-hidden transition-all duration-200 flex flex-col shadow-md ${
                 isDark
                   ? 'bg-slate-900/90 border-slate-800 hover:border-slate-700'
                   : 'bg-white border-slate-200 hover:border-slate-300'
@@ -1060,7 +1060,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
               ) : null}
 
               {/* Card Body: Key Points & Notes */}
-              <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
+              <div className="p-4 space-y-3">
                 <div className="space-y-3">
                   {/* Key Points (Bullets) */}
                   {bizu.keyPoints && bizu.keyPoints.length > 0 && (
@@ -1100,7 +1100,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                           <span>Expandir</span>
                         </button>
                       </div>
-                      <div className="text-xs leading-relaxed text-slate-300 max-h-44 overflow-y-auto whitespace-pre-wrap">
+                      <div className="bizuario-note-preview text-xs leading-relaxed text-slate-300 whitespace-pre-wrap">
                         <Latex content={bizu.notes} />
                       </div>
                     </div>

@@ -170,21 +170,39 @@ export const Latex: React.FC<LatexRendererProps> = ({
       );
     }
 
-    // Render every formula inline so notes keep the same flow as a normal chat
-    // message, regardless of whether the author used $$...$$ or $...$.
-    const html = renderMathToHtml(seg.content, false);
+    const isBlock = seg.type === 'block-math';
+    const html = renderMathToHtml(seg.content, isBlock);
+
+    // Keep display delimiters as real block elements. Rendering $$...$$ inside
+    // an inline wrapper lets its intrinsic width/line box leak into the card
+    // layout, which is particularly visible inside the constrained Bizu notes.
+    if (isBlock) {
+      return (
+        <div
+          key={idx}
+          className="latex-block"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      );
+    }
 
     return (
       <span
         key={idx}
-        className="latex-math max-w-full"
+        className="latex-math"
         dangerouslySetInnerHTML={{ __html: html }}
       />
     );
   });
 
-  const wrapperClass = `inline max-w-full align-baseline latex-renderer ${className}`;
-  return <span className={wrapperClass}>{renderedSegments}</span>;
+  const hasBlockMath = segments.some((segment) => segment.type === 'block-math');
+  const wrapperClass = `latex-renderer ${className}`;
+
+  return hasBlockMath ? (
+    <div className={wrapperClass}>{renderedSegments}</div>
+  ) : (
+    <span className={`inline align-baseline ${wrapperClass}`}>{renderedSegments}</span>
+  );
 };
 
 export default Latex;
