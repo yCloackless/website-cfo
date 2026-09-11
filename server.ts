@@ -1348,6 +1348,9 @@ interface TimerState {
 }
 
 app.use('/api/timer', requireUserAuth);
+// As sessões de estudo pertencem ao usuário autenticado. Este middleware
+// precisa ser aplicado antes das rotas de gravação e consulta do banco de horas.
+app.use('/api/study-sessions', requireUserAuth);
 function timerStateFile(userId: string): string {
   const hash = crypto.createHash('sha256').update(String(userId || '')).digest('hex');
   const baseDir = path.resolve(process.cwd(), 'data');
