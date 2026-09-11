@@ -120,7 +120,12 @@ export default function FibonacciSphere({
       const rect = container.getBoundingClientRect();
       const x = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * 2 - 1;
       const y = -(((event.clientY - rect.top) / Math.max(rect.height, 1)) * 2 - 1);
-      targetMouse.set(x, y); targetHover = hoverStrength;
+      targetMouse.set(x, y);
+      currentMouse.set(x, y);
+      uniforms.uMouse.value.set(x, y);
+      targetHover = hoverStrength;
+      currentHover = hoverStrength;
+      uniforms.uHover.value = hoverStrength;
       if (dragging) {
         dragYawOffset += (event.clientX - previousX) * 0.005;
         dragPitchOffset = THREE.MathUtils.clamp(dragPitchOffset + (event.clientY - previousY) * 0.005, -1.25, 1.25);
@@ -128,7 +133,8 @@ export default function FibonacciSphere({
       }
     };
     const pointerDown = (event: PointerEvent) => {
-      dragging = true; previousX = event.clientX; previousY = event.clientY; targetHover = hoverStrength;
+      dragging = true; previousX = event.clientX; previousY = event.clientY;
+      targetHover = hoverStrength; currentHover = hoverStrength; uniforms.uHover.value = hoverStrength;
       canvas.style.cursor = 'grabbing'; canvas.setPointerCapture?.(event.pointerId);
     };
     const pointerUp = (event: PointerEvent) => {
@@ -161,10 +167,10 @@ export default function FibonacciSphere({
     const animate = () => {
       animationFrame = requestAnimationFrame(animate); uniforms.uTime.value = clock.getElapsedTime();
       autoRotation += reducedMotion ? 0.0008 : 0.0032;
-      currentMouse.lerp(targetMouse, 0.08); uniforms.uMouse.value.copy(currentMouse);
-      currentHover += (targetHover - currentHover) * 0.08; uniforms.uHover.value = currentHover;
-      currentYaw += (autoRotation + dragYawOffset - currentYaw) * 0.075;
-      currentPitch += (dragPitchOffset - currentPitch) * 0.075;
+      currentMouse.copy(targetMouse); uniforms.uMouse.value.copy(currentMouse);
+      currentHover += (targetHover - currentHover) * 0.25; uniforms.uHover.value = currentHover;
+      currentYaw += (autoRotation + dragYawOffset - currentYaw) * (dragging ? 0.35 : 0.08);
+      currentPitch += (dragPitchOffset - currentPitch) * (dragging ? 0.35 : 0.08);
       sphere.rotation.set(currentPitch, currentYaw, 0); renderer.render(scene, camera);
     };
     animate();
