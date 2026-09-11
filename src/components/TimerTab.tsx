@@ -62,6 +62,10 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [sessionSuccessMsg, setSessionSuccessMsg] = useState<string | null>(null);
+
+  // Offset entre o relógio local do cliente e o relógio do servidor (evita pulos por clock skew/descompasso NTP)
+  const serverOffsetRef = useRef<number>(0);
+
   const [floatingPosition, setFloatingPosition] = useState(() => {
     try {
       const saved = window.localStorage.getItem('study-timer-floating-position');
@@ -112,6 +116,10 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       if (!res.ok) throw new Error('Falha ao obter status');
       const data = await res.json();
 
+      if (typeof data.serverTime === 'number') {
+        serverOffsetRef.current = data.serverTime - Date.now();
+      }
+
       setTimerState(data);
       setIsOnline(true);
 
@@ -119,10 +127,12 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         setSelectedSubjectId(data.activeSubjectId);
       }
 
-      const now = Date.now();
       if (data.status === 'RUNNING' && data.startTime) {
-        const elapsed = data.accumulatedTime + Math.max(0, now - data.startTime);
+        const estimatedServerNow = Date.now() + serverOffsetRef.current;
+        const elapsed = data.accumulatedTime + Math.max(0, estimatedServerNow - data.startTime);
         setDisplayMs(elapsed);
+      } else if (typeof data.totalElapsedMs === 'number') {
+        setDisplayMs(data.totalElapsedMs);
       } else {
         setDisplayMs(data.accumulatedTime || 0);
       }
@@ -152,14 +162,14 @@ export const TimerTab: React.FC<TimerTabProps> = ({
     };
   }, [fetchTimerStatus]);
 
-  // Tick contínuo em tempo real
+  // Tick contínuo em tempo real com compensação de offset do servidor
   useEffect(() => {
     if (timerState.status !== 'RUNNING' || !timerState.startTime) return;
 
     const interval = setInterval(() => {
-      const now = Date.now();
+      const estimatedServerNow = Date.now() + serverOffsetRef.current;
       const currentElapsed =
-        timerState.accumulatedTime + Math.max(0, now - (timerState.startTime || now));
+        timerState.accumulatedTime + Math.max(0, estimatedServerNow - (timerState.startTime || estimatedServerNow));
       setDisplayMs(currentElapsed);
     }, 100);
 
@@ -183,9 +193,16 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         }),
       });
       const data = await res.json();
+      if (typeof data.serverTime === 'number') {
+        serverOffsetRef.current = data.serverTime - Date.now();
+      }
       setTimerState(data);
-      const now = Date.now();
-      setDisplayMs(data.accumulatedTime + (data.startTime ? Math.max(0, now - data.startTime) : 0));
+      if (typeof data.totalElapsedMs === 'number') {
+        setDisplayMs(data.totalElapsedMs);
+      } else {
+        const estimatedServerNow = Date.now() + serverOffsetRef.current;
+        setDisplayMs(data.accumulatedTime + (data.startTime ? Math.max(0, estimatedServerNow - data.startTime) : 0));
+      }
     } catch (err) {
       setIsOnline(false);
     } finally {
@@ -202,8 +219,11 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         headers: { 'Content-Type': 'application/json' },
       });
       const data = await res.json();
+      if (typeof data.serverTime === 'number') {
+        serverOffsetRef.current = data.serverTime - Date.now();
+      }
       setTimerState(data);
-      setDisplayMs(data.accumulatedTime || 0);
+      setDisplayMs(typeof data.totalElapsedMs === 'number' ? data.totalElapsedMs : (data.accumulatedTime || 0));
     } catch (err) {
       setIsOnline(false);
     } finally {
@@ -228,6 +248,9 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         headers: { 'Content-Type': 'application/json' },
       });
       const data = await res.json();
+      if (typeof data.serverTime === 'number') {
+        serverOffsetRef.current = data.serverTime - Date.now();
+      }
       setTimerState(data);
       setDisplayMs(0);
     } catch (err) {
@@ -302,6 +325,12 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   const isPaused = timerState.status === 'PAUSED';
 
   if (isFloating) {
+    // Só exibe o relógio minimizado no canto se o cronômetro tiver sido iniciado (em andamento ou pausado com tempo ativo)
+    const isSessionActive = isRunning || (isPaused && displayMs > 0);
+    if (!isSessionActive) {
+      return null;
+    }
+
     return (
       <div
         className={`fixed z-[70] flex items-center gap-2 rounded-2xl border px-3 py-2 shadow-2xl backdrop-blur-xl select-none cursor-grab active:cursor-grabbing ${

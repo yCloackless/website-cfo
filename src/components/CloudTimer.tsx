@@ -27,6 +27,9 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
   const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
 
+  // Offset entre o relógio local do cliente e o relógio do servidor
+  const serverOffsetRef = useRef<number>(0);
+
   // Consulta o estado do cronômetro no servidor
   const fetchTimerStatus = useCallback(async () => {
     try {
@@ -35,13 +38,19 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
       if (!res.ok) throw new Error('Falha ao obter status');
       const data = await res.json();
 
+      if (typeof data.serverTime === 'number') {
+        serverOffsetRef.current = data.serverTime - Date.now();
+      }
+
       setTimerState(data);
       setIsOnline(true);
 
-      const now = Date.now();
       if (data.status === 'RUNNING' && data.startTime) {
-        const elapsed = data.accumulatedTime + Math.max(0, now - data.startTime);
+        const estimatedServerNow = Date.now() + serverOffsetRef.current;
+        const elapsed = data.accumulatedTime + Math.max(0, estimatedServerNow - data.startTime);
         setDisplayMs(elapsed);
+      } else if (typeof data.totalElapsedMs === 'number') {
+        setDisplayMs(data.totalElapsedMs);
       } else {
         setDisplayMs(data.accumulatedTime || 0);
       }
@@ -79,15 +88,15 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
     };
   }, [fetchTimerStatus]);
 
-  // Tick contínuo de exibição quando RUNNING (calculado via Date.now() - startTime)
+  // Tick contínuo de exibição quando RUNNING (calculado com compensação de offset)
   useEffect(() => {
     if (timerState.status !== 'RUNNING' || !timerState.startTime) {
       return;
     }
 
     const interval = setInterval(() => {
-      const now = Date.now();
-      const currentElapsed = timerState.accumulatedTime + Math.max(0, now - (timerState.startTime || now));
+      const estimatedServerNow = Date.now() + serverOffsetRef.current;
+      const currentElapsed = timerState.accumulatedTime + Math.max(0, estimatedServerNow - (timerState.startTime || estimatedServerNow));
       setDisplayMs(currentElapsed);
     }, 250);
 
@@ -103,9 +112,16 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
         headers: { 'Content-Type': 'application/json' },
       });
       const data = await res.json();
+      if (typeof data.serverTime === 'number') {
+        serverOffsetRef.current = data.serverTime - Date.now();
+      }
       setTimerState(data);
-      const now = Date.now();
-      setDisplayMs(data.accumulatedTime + (data.startTime ? Math.max(0, now - data.startTime) : 0));
+      if (typeof data.totalElapsedMs === 'number') {
+        setDisplayMs(data.totalElapsedMs);
+      } else {
+        const estimatedServerNow = Date.now() + serverOffsetRef.current;
+        setDisplayMs(data.accumulatedTime + (data.startTime ? Math.max(0, estimatedServerNow - data.startTime) : 0));
+      }
     } catch (err) {
       setIsOnline(false);
     } finally {
@@ -122,8 +138,11 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
         headers: { 'Content-Type': 'application/json' },
       });
       const data = await res.json();
+      if (typeof data.serverTime === 'number') {
+        serverOffsetRef.current = data.serverTime - Date.now();
+      }
       setTimerState(data);
-      setDisplayMs(data.accumulatedTime || 0);
+      setDisplayMs(typeof data.totalElapsedMs === 'number' ? data.totalElapsedMs : (data.accumulatedTime || 0));
     } catch (err) {
       setIsOnline(false);
     } finally {
@@ -148,6 +167,9 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
         headers: { 'Content-Type': 'application/json' },
       });
       const data = await res.json();
+      if (typeof data.serverTime === 'number') {
+        serverOffsetRef.current = data.serverTime - Date.now();
+      }
       setTimerState(data);
       setDisplayMs(0);
     } catch (err) {
