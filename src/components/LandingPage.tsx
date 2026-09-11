@@ -71,7 +71,9 @@ function FloriaDiscovery() {
     };
   }, []);
 
-  const viewportScale = Math.max(1, Math.max(window.innerWidth / 220, window.innerHeight / 391) * 1.08);
+  const baseWidth = window.innerWidth <= 720 ? 300 : 396;
+  const baseHeight = baseWidth * 9 / 16;
+  const viewportScale = Math.max(1, Math.max(window.innerWidth / baseWidth, window.innerHeight / baseHeight) * 1.08);
   const imageScale = 0.62 + (viewportScale - 0.62) * Math.min(1, progress / 0.92);
   const textProgress = Math.min(1, Math.max(0, (progress - 0.1) / 0.54));
 
@@ -81,14 +83,14 @@ function FloriaDiscovery() {
         <div className="floria-orbit floria-orbit-one" />
         <div className="floria-orbit floria-orbit-two" />
         <div className="floria-image-wrap" style={{ transform: `translate3d(-50%, -50%, 0) scale(${imageScale})` }}>
-          <img src="/update-black-hole.png" alt="Imagem da experiência FLORIA" />
+          <img src="/floria-discovery.png" alt="Surfista atravessando ondas em direção à luz" />
         </div>
         <div className="floria-copy" style={{ opacity: 1 - textProgress, pointerEvents: textProgress > 0.8 ? 'none' : 'auto' }}>
-          <span className="floria-note note-top" style={{ transform: `translate3d(${textProgress * -34}px, ${textProgress * -20}px, 0) rotate(-7deg) scale(${1 - textProgress * .18})` }}>01 / PRESENÇA</span>
-          <span className="floria-note note-right" style={{ transform: `translate3d(${textProgress * 42}px, ${textProgress * 18}px, 0) rotate(9deg) scale(${1 - textProgress * .26})` }}>a matéria encontra<br />o silêncio</span>
-          <span className="floria-note note-left" style={{ transform: `translate3d(${textProgress * -28}px, ${textProgress * 14}px, 0) rotate(4deg) scale(${1 - textProgress * .2})` }}>FLORIA<br /><i>estudo como ritual</i></span>
-          <span className="floria-note note-bottom" style={{ transform: `translate3d(${textProgress * 32}px, ${textProgress * 30}px, 0) rotate(-3deg) scale(${1 - textProgress * .24})` }}>campo de atenção<br /><b>∞</b></span>
-          <span className="floria-note note-micro" style={{ transform: `translate3d(${textProgress * 18}px, ${textProgress * -32}px, 0) rotate(16deg) scale(${1 - textProgress * .3})` }}>observe / respire / continue</span>
+          <span className="floria-note note-top" style={{ transform: `translate3d(${textProgress * -34}px, ${textProgress * -20}px, 0) rotate(-7deg) scale(${1 - textProgress * .18})` }}>01 / DISCIPLINA</span>
+          <span className="floria-note note-right" style={{ transform: `translate3d(${textProgress * 42}px, ${textProgress * 18}px, 0) rotate(9deg) scale(${1 - textProgress * .26})` }}>a aprovação começa<br />antes do resultado</span>
+          <span className="floria-note note-left" style={{ transform: `translate3d(${textProgress * -28}px, ${textProgress * 14}px, 0) rotate(4deg) scale(${1 - textProgress * .2})` }}>CONTINUE<br /><i>um dia de cada vez</i></span>
+          <span className="floria-note note-bottom" style={{ transform: `translate3d(${textProgress * 32}px, ${textProgress * 30}px, 0) rotate(-3deg) scale(${1 - textProgress * .24})` }}>quem persiste<br /><b>chega</b></span>
+          <span className="floria-note note-micro" style={{ transform: `translate3d(${textProgress * 18}px, ${textProgress * -32}px, 0) rotate(16deg) scale(${1 - textProgress * .3})` }}>estude hoje / conquiste amanhã</span>
         </div>
         <div className="floria-scroll-mark" style={{ opacity: Math.max(0, 1 - progress * 3) }} aria-hidden="true"><span>deslize para descobrir</span><i /></div>
       </div>
