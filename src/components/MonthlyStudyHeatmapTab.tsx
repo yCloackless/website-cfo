@@ -10,8 +10,9 @@ import {
   BookOpen,
   X,
   TrendingUp,
+  Plus,
 } from 'lucide-react';
-import { AppTheme } from '../types';
+import { AppTheme, Subject } from '../types';
 import { apiFetch } from '../services/apiFetch';
 
 interface DayStudySummary {
@@ -29,6 +30,7 @@ interface DayStudySummary {
 
 interface MonthlyStudyHeatmapTabProps {
   theme: AppTheme;
+  subjects: Subject[];
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   onNavigateToTimer?: () => void;
 }
@@ -52,6 +54,7 @@ const MONTH_NAMES = [
 
 export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
   theme,
+  subjects,
   showToast = (_msg: string, _type?: 'success' | 'error' | 'info') => {},
   onNavigateToTimer,
 }) => {
@@ -67,6 +70,12 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
   });
   const [isLoading, setIsLoading] = useState(false);
   const [selectedDaySummary, setSelectedDaySummary] = useState<DayStudySummary | null>(null);
+  const [manualDate, setManualDate] = useState<string | null>(null);
+  const [manualSubjectId, setManualSubjectId] = useState('');
+  const [manualHours, setManualHours] = useState('');
+  const [manualMinutes, setManualMinutes] = useState('');
+  const [manualTopic, setManualTopic] = useState('');
+  const [isSavingManual, setIsSavingManual] = useState(false);
 
   const yearMonth = useMemo(() => {
     const y = currentDate.getFullYear();
@@ -114,6 +123,62 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
 
   const handleGoToToday = () => {
     setCurrentDate(new Date());
+  };
+
+  const openManualEntry = (dateStr: string) => {
+    setManualDate(dateStr);
+    setManualSubjectId(subjects[0]?.id || '');
+    setManualHours('');
+    setManualMinutes('');
+    setManualTopic('');
+  };
+
+  const handleSaveManualEntry = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!manualDate || !manualSubjectId) {
+      showToast('Selecione uma matéria para registrar as horas.', 'info');
+      return;
+    }
+
+    const hours = Number(manualHours || 0);
+    const minutes = Number(manualMinutes || 0);
+    const totalMinutes = Math.round(hours * 60 + minutes);
+    if (!Number.isFinite(totalMinutes) || totalMinutes <= 0 || totalMinutes > 1440) {
+      showToast('Informe um tempo entre 1 minuto e 24 horas.', 'info');
+      return;
+    }
+
+    const subject = subjects.find((item) => item.id === manualSubjectId);
+    if (!subject) return;
+
+    try {
+      setIsSavingManual(true);
+      const response = await apiFetch('/api/study-sessions/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entryId: `monthly_${manualDate}_${subject.id}_${Date.now()}`,
+          subjectId: subject.id,
+          subjectName: subject.name,
+          topic: manualTopic.trim(),
+          dateStr: manualDate,
+          durationMinutes: totalMinutes,
+          notes: 'Lançamento manual pela Agenda Mensal',
+        }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Não foi possível salvar as horas.');
+      }
+
+      await fetchMonthlyData();
+      setManualDate(null);
+      showToast(`${formatDurationFriendly(totalMinutes * 60)} de ${subject.name} registrada.`, 'success');
+    } catch (error: any) {
+      showToast(error?.message || 'Não foi possível salvar as horas.', 'error');
+    } finally {
+      setIsSavingManual(false);
+    }
   };
 
   // Mapeamento dos 35 a 42 dias para o grid do calendário
@@ -449,9 +514,8 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
               <div
                 key={`${day.dateStr}_${idx}`}
                 onClick={() => {
-                  if (summary && summary.totalSeconds > 0) {
-                    setSelectedDaySummary(summary);
-                  }
+                  if (summary && summary.totalSeconds > 0) setSelectedDaySummary(summary);
+                  else if (day.isCurrentMonth) openManualEntry(day.dateStr);
                 }}
                 className={`min-h-[75px] sm:min-h-[95px] p-2 sm:p-2.5 rounded-2xl border flex flex-col justify-between transition-all select-none relative group cursor-pointer ${styleClass} ${
                   day.isToday ? 'ring-2 ring-sky-400 ring-offset-2 ring-offset-[#070D18]' : ''
@@ -503,6 +567,20 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
                       <span className="text-[8px] font-bold opacity-75">+{summary.subjects.length - 3}</span>
                     )}
                   </div>
+                )}
+                {day.isCurrentMonth && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openManualEntry(day.dateStr);
+                    }}
+                    className="absolute right-1.5 bottom-1.5 rounded-md p-1 opacity-0 group-hover:opacity-100 focus:opacity-100 bg-black/20 hover:bg-black/30 transition-opacity"
+                    title="Adicionar horas manualmente"
+                    aria-label={`Adicionar horas em ${day.dateStr}`}
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
                 )}
               </div>
             );
@@ -561,12 +639,73 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
             </div>
 
             <button
+              onClick={() => openManualEntry(selectedDaySummary.dateStr)}
+              className="w-full py-2.5 rounded-xl border border-blue-500/50 text-blue-300 hover:bg-blue-950/50 font-bold text-xs cursor-pointer transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5 inline mr-1" />
+              Adicionar horas neste dia
+            </button>
+
+            <button
               onClick={() => setSelectedDaySummary(null)}
               className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs cursor-pointer transition-colors"
             >
               Fechar Detalhes
             </button>
           </div>
+        </div>
+      )}
+
+      {manualDate && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <form
+            onSubmit={handleSaveManualEntry}
+            className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl space-y-4 ${
+              isDark ? 'bg-[#0B1528] border-blue-900/60 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            <div className="flex items-center justify-between border-b border-slate-700/50 pb-3">
+              <div>
+                <h3 className="text-sm font-bold">Adicionar horas estudadas</h3>
+                <p className="text-xs text-blue-400 font-semibold mt-1">Data: {manualDate}</p>
+              </div>
+              <button type="button" onClick={() => setManualDate(null)} className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <label className="block text-xs font-semibold text-slate-300">
+              Matéria
+              <select
+                value={manualSubjectId}
+                onChange={(event) => setManualSubjectId(event.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-blue-900/60 bg-[#0F1D38] px-3 py-2.5 text-xs text-slate-100"
+              >
+                <option value="">Selecione uma matéria</option>
+                {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
+              </select>
+            </label>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-xs font-semibold text-slate-300">
+                Horas
+                <input type="number" min="0" max="24" value={manualHours} onChange={(event) => setManualHours(event.target.value)} placeholder="Ex.: 5" className="mt-1.5 w-full rounded-xl border border-blue-900/60 bg-[#0F1D38] px-3 py-2.5 text-xs text-slate-100" />
+              </label>
+              <label className="block text-xs font-semibold text-slate-300">
+                Minutos
+                <input type="number" min="0" max="59" value={manualMinutes} onChange={(event) => setManualMinutes(event.target.value)} placeholder="Ex.: 30" className="mt-1.5 w-full rounded-xl border border-blue-900/60 bg-[#0F1D38] px-3 py-2.5 text-xs text-slate-100" />
+              </label>
+            </div>
+
+            <label className="block text-xs font-semibold text-slate-300">
+              Assunto (opcional)
+              <input type="text" value={manualTopic} onChange={(event) => setManualTopic(event.target.value)} placeholder="Ex.: Equações do 2º grau" className="mt-1.5 w-full rounded-xl border border-blue-900/60 bg-[#0F1D38] px-3 py-2.5 text-xs text-slate-100" />
+            </label>
+
+            <button type="submit" disabled={isSavingManual || subjects.length === 0} className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs cursor-pointer transition-colors">
+              {isSavingManual ? 'Salvando...' : 'Salvar horas estudadas'}
+            </button>
+          </form>
         </div>
       )}
     </div>

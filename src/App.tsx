@@ -2040,6 +2040,7 @@ export default function App() {
         {activeTab === 'monthlyHours' && (
           <MonthlyStudyHeatmapTab
             theme={theme}
+            subjects={subjects}
             showToast={showToast}
             onNavigateToTimer={() => setActiveTab('timer')}
           />
