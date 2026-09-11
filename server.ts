@@ -625,6 +625,17 @@ const calendarLimiter = rateLimit({
 
 // Body parser JSON: 2 MiB global. Rotas de upload têm guard pré-parser em /api
 // (linhas acima) que já permite até 20 MiB antes de alocar memória.
+// Parse payloads grandes somente nas rotas que realmente os aceitam. O parser
+// de 20 MiB roda antes do limite global para que o serviço de upload possa
+// devolver sua resposta de validação (400) em vez de um erro genérico (413).
+app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+  const largePayloadRoute = /^\/(uploads|exams)(\/|$)/.test(req.path)
+    || /^\/admin\/board-intelligence(\/|$)/.test(req.path)
+    || /\/avatar(\/|$)/.test(req.path);
+
+  if (!largePayloadRoute) return next();
+  return express.json({ limit: "20mb" })(req, res, next);
+});
 app.use(express.json({ limit: "2mb" }));
 
 // Google OAuth 2.0 Credentials & Storage Configuration
