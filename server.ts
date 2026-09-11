@@ -1450,6 +1450,53 @@ app.post("/api/timer/save-session", (req: Request, res: Response) => {
   }
 });
 
+// Registra ou atualiza o tempo informado manualmente no cronograma.
+app.post("/api/study-sessions/manual", (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+
+    const { entryId, subjectId, subjectName, topic, dateStr, durationMinutes, notes } = req.body || {};
+    const cleanEntryId = String(entryId || "").slice(0, 120);
+    const cleanSubjectId = String(subjectId || "geral").slice(0, 80);
+    const cleanSubjectName = String(subjectName || "Estudo Geral").slice(0, 120);
+    const cleanTopic = topic ? String(topic).slice(0, 200) : null;
+    const cleanNotes = notes ? String(notes).slice(0, 1000) : null;
+    const cleanDate = String(dateStr || "");
+    const parsedMinutes = Math.round(Number(durationMinutes) || 0);
+
+    if (!cleanEntryId || !/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+      return res.status(400).json({ error: "INVALID_MANUAL_SESSION", message: "Registro manual inválido." });
+    }
+    if (parsedMinutes < 0 || parsedMinutes > 1440) {
+      return res.status(400).json({ error: "INVALID_DURATION", message: "O tempo deve estar entre 0 e 1440 minutos." });
+    }
+
+    const sessionId = `manual_${userId}_${cleanEntryId}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 240);
+    if (parsedMinutes === 0) {
+      studySessionRepoInstance.deleteByIdForUser(sessionId, userId);
+      return res.json({ success: true, removed: true });
+    }
+
+    const now = new Date();
+    const session = studySessionRepoInstance.upsertManual(sessionId, {
+      userId,
+      subjectId: cleanSubjectId,
+      subjectName: cleanSubjectName,
+      topic: cleanTopic,
+      dateStr: cleanDate,
+      durationSeconds: parsedMinutes * 60,
+      endedAt: now.toISOString(),
+      notes: cleanNotes,
+    });
+
+    return res.status(200).json({ success: true, session });
+  } catch (err: any) {
+    console.error("Erro ao salvar estudo manual:", err);
+    return res.status(500).json({ error: "INTERNAL_ERROR", message: "Falha ao salvar tempo de estudo manual." });
+  }
+});
+
 // 6. Consultar Resumo Mensal de Horas (para a Agenda Mensal / Heatmap Azul)
 app.get("/api/study-sessions/daily-summary", (req: Request, res: Response) => {
   try {

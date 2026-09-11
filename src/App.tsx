@@ -53,6 +53,7 @@ import {
 import { buildWeeklyStudySummary, fetchAIStudyAnalysis } from './services/aiService';
 import { getMondayOfWeek, getWeekDaysList, isTodayDate, formatBRDate, toISODate } from './utils/dateUtils';
 import { hydratePersistentState, startPersistentStateSync, clearPersistentStateCache } from './services/remotePersistence';
+import { apiFetch } from './services/apiFetch';
 
 import { Header } from './components/Header';
 import { HorizontalWeeklyTable } from './components/HorizontalWeeklyTable';
@@ -1107,6 +1108,29 @@ export default function App() {
       googleCalendarSynced: existingEntry?.googleCalendarSynced || false,
       revisionScheduled: false,
     };
+
+    // A Agenda Mensal consulta o banco; espelha registros manuais sem duplicar sessões do timer.
+    if (!existingEntry?.id?.startsWith('study_')) {
+      try {
+        const response = await apiFetch('/api/study-sessions/manual', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entryId: newEntry.id,
+            subjectId: selectedCell.subject.id,
+            subjectName: selectedCell.subject.name,
+            topic: newEntry.topic,
+            dateStr: newEntry.dateStr,
+            durationMinutes: newEntry.durationMinutes || 0,
+            notes: newEntry.notes,
+          }),
+        });
+        if (!response.ok) throw new Error('Falha ao sincronizar o tempo com a Agenda Mensal.');
+      } catch (err) {
+        console.warn('Falha ao sincronizar estudo manual com a Agenda Mensal:', err);
+        showToast('Estudo salvo no cronograma, mas não foi possível atualizar a Agenda Mensal.', 'error');
+      }
+    }
 
     let calendarResult: any = null;
 

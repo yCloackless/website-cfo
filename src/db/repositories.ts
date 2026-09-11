@@ -2853,6 +2853,61 @@ export class QuestionAuditRepository {
 export class StudySessionRepository {
   constructor(private db: DatabaseSync) {}
 
+  public upsertManual(id: string, data: {
+    userId: string;
+    subjectId: string;
+    subjectName: string;
+    topic?: string | null;
+    dateStr: string;
+    durationSeconds: number;
+    endedAt: string;
+    notes?: string | null;
+  }): DbStudySession {
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO study_sessions (
+        id, user_id, subject_id, subject_name, topic,
+        date_str, duration_seconds, started_at, ended_at, notes, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        subject_id = excluded.subject_id,
+        subject_name = excluded.subject_name,
+        topic = excluded.topic,
+        date_str = excluded.date_str,
+        duration_seconds = excluded.duration_seconds,
+        ended_at = excluded.ended_at,
+        notes = excluded.notes
+    `).run(
+      id,
+      data.userId,
+      data.subjectId,
+      data.subjectName,
+      data.topic ?? null,
+      data.dateStr,
+      data.durationSeconds,
+      data.endedAt,
+      data.notes ?? null,
+      now
+    );
+
+    return {
+      id,
+      userId: data.userId,
+      subjectId: data.subjectId,
+      subjectName: data.subjectName,
+      topic: data.topic ?? null,
+      dateStr: data.dateStr,
+      durationSeconds: data.durationSeconds,
+      endedAt: data.endedAt,
+      notes: data.notes ?? null,
+      createdAt: now,
+    };
+  }
+
+  public deleteByIdForUser(id: string, userId: string): void {
+    this.db.prepare('DELETE FROM study_sessions WHERE id = ? AND user_id = ?').run(id, userId);
+  }
+
   public create(data: {
     userId: string;
     subjectId: string;
