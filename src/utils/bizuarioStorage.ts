@@ -249,7 +249,16 @@ export async function idbSet<T>(key: string, value: T): Promise<boolean> {
 }
 
 let memoryBizuCache: BizuItem[] | null = null;
+let memoryBizuCacheKey: string | null = null;
 const bizuSubscribers = new Set<(items: BizuItem[]) => void>();
+
+function isAdminStorageUser(): boolean {
+  try {
+    return (localStorage.getItem('cfo_terminal_user') || '').trim().toLowerCase() === 'admin';
+  } catch {
+    return false;
+  }
+}
 
 export function subscribeBizuItems(callback: (items: BizuItem[]) => void): () => void {
   bizuSubscribers.add(callback);
@@ -335,7 +344,8 @@ function mergeBizuStorageCopies(localItems: BizuItem[], indexedDbItems: BizuItem
 }
 
 export function loadBizuItems(): BizuItem[] {
-  if (memoryBizuCache && memoryBizuCache.length > 0) {
+  const storageKey = getStorageKey();
+  if (memoryBizuCache !== null && memoryBizuCacheKey === storageKey) {
     return memoryBizuCache;
   }
 
@@ -343,9 +353,10 @@ export function loadBizuItems(): BizuItem[] {
     const raw = localStorage.getItem(getStorageKey());
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         const normalized = normalizeBizuItems(parsed);
         memoryBizuCache = normalized;
+        memoryBizuCacheKey = storageKey;
         return normalized;
       }
     }
@@ -353,10 +364,13 @@ export function loadBizuItems(): BizuItem[] {
     // Ignora erro de leitura e prossegue para inicialização padrão
   }
 
-  memoryBizuCache = INITIAL_BIZU_ITEMS;
+  // O conteúdo inicial pertence somente ao administrador. Usuários comuns
+  // começam com o Bizuário vazio e constroem seu próprio material.
+  memoryBizuCache = isAdminStorageUser() ? INITIAL_BIZU_ITEMS : [];
+  memoryBizuCacheKey = storageKey;
   // Dispara salvamento inicial seguro
-  saveBizuItems(INITIAL_BIZU_ITEMS);
-  return INITIAL_BIZU_ITEMS;
+  saveBizuItems(memoryBizuCache);
+  return memoryBizuCache;
 }
 
 /**
@@ -377,6 +391,7 @@ export async function initBizuStorageAsync(onLoaded?: (items: BizuItem[]) => voi
         ),
       );
       memoryBizuCache = normalized;
+      memoryBizuCacheKey = getStorageKey();
       await idbSet(getStorageKey(), normalized);
       trySaveToLocalStorage(normalized);
       notifyBizuSubscribers(normalized);
@@ -395,6 +410,7 @@ export async function initBizuStorageAsync(onLoaded?: (items: BizuItem[]) => voi
 
 export function saveBizuItems(items: BizuItem[]): void {
   memoryBizuCache = items;
+  memoryBizuCacheKey = getStorageKey();
   notifyBizuSubscribers(items);
 
   // 1. Salva a versão integral (com imagens completas) no IndexedDB
