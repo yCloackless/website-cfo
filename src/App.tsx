@@ -1991,15 +1991,15 @@ export default function App() {
         )}
 
         {/* Render Tab: Cronômetro & Foco Tático */}
-        {activeTab === 'timer' && (
-          <TimerTab
-            theme={theme}
-            subjects={subjects}
-            onLogStudySession={handleLogTimerStudySession}
-            onOpenStudyModal={handleOpenStudyDetailFromTimer}
-            weeklyGoalHours={weeklyGoalHours}
-          />
-        )}
+        <TimerTab
+          theme={theme}
+          subjects={subjects}
+          onLogStudySession={handleLogTimerStudySession}
+          onOpenStudyModal={handleOpenStudyDetailFromTimer}
+          isFloating={activeTab !== 'timer'}
+          onNavigateToTimer={() => setActiveTab('timer')}
+          weeklyGoalHours={weeklyGoalHours}
+        />
 
         {/* Render Tab 2: Bizuário de Fotos & Matérias */}
         {activeTab === 'bizuario' && (

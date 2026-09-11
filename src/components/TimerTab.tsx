@@ -23,6 +23,8 @@ interface TimerTabProps {
   subjects: Subject[];
   onLogStudySession?: (subjectId: string, minutes: number, notes?: string) => void;
   onOpenStudyModal?: (subjectId: string, durationMinutes: number) => void;
+  isFloating?: boolean;
+  onNavigateToTimer?: () => void;
   weeklyGoalHours?: number;
 }
 
@@ -40,6 +42,8 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   subjects,
   onLogStudySession,
   onOpenStudyModal,
+  isFloating = false,
+  onNavigateToTimer,
   weeklyGoalHours = 25,
 }) => {
   const isDark = theme === 'dark';
@@ -58,6 +62,47 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [sessionSuccessMsg, setSessionSuccessMsg] = useState<string | null>(null);
+  const [floatingPosition, setFloatingPosition] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem('study-timer-floating-position');
+      return saved ? JSON.parse(saved) as { right: number; bottom: number } : { right: 20, bottom: 20 };
+    } catch {
+      return { right: 20, bottom: 20 };
+    }
+  });
+  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; right: number; bottom: number } | null>(null);
+
+  const handleFloatingPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest('button')) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      right: floatingPosition.right,
+      bottom: floatingPosition.bottom,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleFloatingPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const next = {
+      right: Math.max(8, Math.min(window.innerWidth - 190, drag.right - (event.clientX - drag.startX))),
+      bottom: Math.max(8, Math.min(window.innerHeight - 54, drag.bottom - (event.clientY - drag.startY))),
+    };
+    setFloatingPosition(next);
+  };
+
+  const handleFloatingPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current || dragRef.current.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    try {
+      window.localStorage.setItem('study-timer-floating-position', JSON.stringify(floatingPosition));
+    } catch {
+      // A posição é apenas uma preferência local; o cronômetro continua funcionando sem ela.
+    }
+  };
 
   // Sincroniza estado com o backend
   const fetchTimerStatus = useCallback(async () => {
@@ -255,6 +300,40 @@ export const TimerTab: React.FC<TimerTabProps> = ({
 
   const isRunning = timerState.status === 'RUNNING';
   const isPaused = timerState.status === 'PAUSED';
+
+  if (isFloating) {
+    return (
+      <div
+        className={`fixed z-[70] flex items-center gap-2 rounded-2xl border px-3 py-2 shadow-2xl backdrop-blur-xl select-none cursor-grab active:cursor-grabbing ${
+          isDark ? 'border-blue-500/40 bg-[#081326]/95 text-white' : 'border-slate-300 bg-white/95 text-slate-800'
+        }`}
+        style={{ right: floatingPosition.right, bottom: floatingPosition.bottom, touchAction: 'none' }}
+        onPointerDown={handleFloatingPointerDown}
+        onPointerMove={handleFloatingPointerMove}
+        onPointerUp={handleFloatingPointerUp}
+        onPointerCancel={handleFloatingPointerUp}
+        title="Arraste para mover o cronômetro"
+      >
+        <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${isRunning ? 'bg-emerald-400 animate-pulse' : isPaused ? 'bg-amber-400' : 'bg-slate-400'}`} />
+        <button
+          type="button"
+          onClick={isRunning ? handlePause : handleStart}
+          className="flex items-center gap-2 rounded-lg px-1 py-1 font-mono text-base font-bold hover:bg-white/10"
+          aria-label={isRunning ? 'Pausar cronômetro' : 'Iniciar cronômetro'}
+        >
+          {pad(hours)}:{pad(minutes)}:{pad(seconds)}
+        </button>
+        <button
+          type="button"
+          onClick={onNavigateToTimer}
+          className="rounded-lg px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-blue-300 hover:bg-blue-500/15"
+          aria-label="Abrir cronômetro completo"
+        >
+          Abrir
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-6 pb-12">
