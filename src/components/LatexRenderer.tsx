@@ -14,6 +14,30 @@ interface TextSegment {
 }
 
 /**
+ * Block delimiters usually arrive separated by blank lines (especially from
+ * AI-generated notes). Those newlines become real line boxes around the
+ * KaTeX block and, combined with KaTeX's own display margin, create a large
+ * empty gap. Keep meaningful text whitespace, but discard whitespace that
+ * only separates adjacent display formulas.
+ */
+function compactBlockWhitespace(segments: TextSegment[]): TextSegment[] {
+  return segments
+    .map((segment, index, all) => {
+      if (segment.type !== 'text') return segment;
+
+      const previous = all[index - 1];
+      const next = all[index + 1];
+      let content = segment.content;
+
+      if (previous?.type === 'block-math') content = content.replace(/^\s+/, '');
+      if (next?.type === 'block-math') content = content.replace(/\s+$/, '');
+
+      return { ...segment, content };
+    })
+    .filter((segment) => segment.type !== 'text' || segment.content.length > 0);
+}
+
+/**
  * Splits text into raw text and LaTeX math blocks (inline $...$ and block $$...$$)
  */
 function parseLatexSegments(text: string): TextSegment[] {
@@ -65,7 +89,7 @@ function parseLatexSegments(text: string): TextSegment[] {
       });
     }
 
-    return segments;
+    return compactBlockWhitespace(segments);
   }
 
   // Fallback heuristic: If the text contains typical LaTeX symbols or math notation
@@ -155,7 +179,7 @@ export const Latex: React.FC<LatexRendererProps> = ({
       return (
         <div
           key={idx}
-          className="my-1.5 py-1 px-2.5 rounded-lg bg-black/10 dark:bg-black/25 overflow-x-auto max-w-full scrollbar-thin text-center text-amber-300 dark:text-amber-200"
+          className="latex-block my-1.5 py-1 px-2.5 rounded-lg bg-black/10 dark:bg-black/25 overflow-x-auto max-w-full scrollbar-thin text-center text-amber-300 dark:text-amber-200"
           dangerouslySetInnerHTML={{ __html: html }}
         />
       );
@@ -170,8 +194,9 @@ export const Latex: React.FC<LatexRendererProps> = ({
     );
   });
 
-  const wrapperClass = `inline-block max-w-full align-baseline overflow-x-auto scrollbar-thin ${className}`;
-  return segments.some((segment) => segment.type === 'block-math') ? (
+  const hasBlockMath = segments.some((segment) => segment.type === 'block-math');
+  const wrapperClass = `${hasBlockMath ? 'block' : 'inline-block'} max-w-full align-baseline overflow-x-auto scrollbar-thin latex-renderer ${className}`;
+  return hasBlockMath ? (
     <div className={wrapperClass}>{renderedSegments}</div>
   ) : (
     <span className={wrapperClass}>{renderedSegments}</span>

@@ -55,6 +55,16 @@ button, a {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Keep KaTeX display formulas compact inside Bizuário notes. KaTeX adds a
+   display margin of its own; the note renderer already supplies the spacing. */
+.latex-block .katex-display {
+  margin: 0;
+}
+
+.latex-block .katex-display > .katex {
+  max-width: 100%;
+}
+
 /* Topbar follows the sidebar icon language: neutral at rest, colored on intent. */
 .topbar-icon {
   color: #94a3b8;

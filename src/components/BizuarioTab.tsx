@@ -1057,26 +1057,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                     </button>
                   </div>
                 </div>
-              ) : (
-                /* Empty Image Placeholder with Direct Upload */
-                <div
-                  onClick={() => {
-                    setQuickTargetBizuId(bizu.id);
-                    quickFileInputRef.current?.click();
-                  }}
-                  className="p-8 border-b border-slate-800/40 bg-slate-950/40 text-center cursor-pointer hover:bg-slate-950/70 transition-colors group"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform">
-                    <Upload className="w-5 h-5" />
-                  </div>
-                  <p className="text-xs font-semibold text-slate-300">
-                    Anexar foto ou esquema visual
-                  </p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">
-                    Clique para selecionar imagem do seu dispositivo
-                  </p>
-                </div>
-              )}
+              ) : null}
 
               {/* Card Body: Key Points & Notes */}
               <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
