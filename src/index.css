@@ -87,12 +87,11 @@ button, a {
 }
 
 .bizuario-note-preview {
-  max-height: 11rem;
+  max-height: 22rem;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   overflow-x: hidden;
   overflow-wrap: anywhere;
-  scrollbar-width: thin;
 }
 
 /* Topbar follows the sidebar icon language: neutral at rest, colored on intent. */

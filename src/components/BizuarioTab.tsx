@@ -107,6 +107,68 @@ interface BizuarioTabProps {
   onClearPresetTopic?: () => void;
 }
 
+interface BizuNotesPreviewProps {
+  notes: string;
+  onExpand: () => void;
+}
+
+/**
+ * Keeps ordinary notes fully visible in the card. Only notes that exceed the
+ * fixed reading preview are clipped; their complete version remains available
+ * in the expanded study view, never behind an inner vertical scrollbar.
+ */
+const BizuNotesPreview: React.FC<BizuNotesPreviewProps> = ({ notes, onExpand }) => {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [isTruncated, setIsTruncated] = useState(false);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+
+    const updateTruncation = () => {
+      setIsTruncated(content.scrollHeight > content.clientHeight + 1);
+    };
+
+    updateTruncation();
+    const observer = new ResizeObserver(updateTruncation);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [notes]);
+
+  return (
+    <div className="pt-2 border-t border-slate-800/40">
+      <div className="flex items-center justify-between mb-1.5">
+        <p className="text-[11px] uppercase tracking-wider font-extrabold text-slate-400 flex items-center gap-1.5">
+          <FileText className="w-3 h-3 text-blue-400" />
+          Anotações Táticas:
+        </p>
+        {isTruncated && (
+          <button
+            type="button"
+            onClick={onExpand}
+            className="text-[10px] font-bold text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+            title="Abrir anotação completa em janela de estudo"
+          >
+            <Maximize2 className="w-2.5 h-2.5" />
+            <span>Expandir</span>
+          </button>
+        )}
+      </div>
+      <div
+        ref={contentRef}
+        className="bizuario-note-preview text-xs leading-relaxed text-slate-300 whitespace-pre-wrap"
+      >
+        <Latex content={notes} />
+      </div>
+      {isTruncated && (
+        <p className="mt-2 text-[10px] font-medium text-slate-500">
+          Anotação longa: abra em “Expandir” para ver o conteúdo completo.
+        </p>
+      )}
+    </div>
+  );
+};
+
 export const BizuarioTab: React.FC<BizuarioTabProps> = ({
   bizuItems,
   onRefreshBizuItems,
@@ -1084,26 +1146,10 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
 
                   {/* Detailed Notes kept as the author wrote them */}
                   {bizu.notes && (
-                    <div className="pt-2 border-t border-slate-800/40">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <p className="text-[11px] uppercase tracking-wider font-extrabold text-slate-400 flex items-center gap-1.5">
-                          <FileText className="w-3 h-3 text-blue-400" />
-                          Anotações Táticas:
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => setViewingNotesBizu(bizu)}
-                          className="text-[10px] font-bold text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
-                          title="Abrir tópicos completos em janela expandida de estudo"
-                        >
-                          <Maximize2 className="w-2.5 h-2.5" />
-                          <span>Expandir</span>
-                        </button>
-                      </div>
-                      <div className="bizuario-note-preview text-xs leading-relaxed text-slate-300 whitespace-pre-wrap">
-                        <Latex content={bizu.notes} />
-                      </div>
-                    </div>
+                    <BizuNotesPreview
+                      notes={bizu.notes}
+                      onExpand={() => setViewingNotesBizu(bizu)}
+                    />
                   )}
                 </div>
 
