@@ -3014,6 +3014,60 @@ export class StudySessionRepository {
     return summaryMap;
   }
 
+  public getDailySummaryBetweenDates(userId: string, startDate: string, endDate: string): Record<string, DayStudySummary> {
+    const rows = this.db
+      .prepare(
+        `SELECT
+          date_str,
+          subject_id,
+          subject_name,
+          SUM(duration_seconds) as sub_seconds,
+          COUNT(id) as sub_sessions
+         FROM study_sessions
+         WHERE user_id = ? AND date_str >= ? AND date_str <= ?
+         GROUP BY date_str, subject_id, subject_name
+         ORDER BY date_str ASC`
+      )
+      .all(userId, startDate, endDate) as Array<{
+        date_str: string;
+        subject_id: string;
+        subject_name: string;
+        sub_seconds: number;
+        sub_sessions: number;
+      }>;
+
+    const summaryMap: Record<string, DayStudySummary> = {};
+
+    for (const row of rows) {
+      const date = row.date_str;
+      if (!summaryMap[date]) {
+        summaryMap[date] = {
+          dateStr: date,
+          totalSeconds: 0,
+          totalHours: 0,
+          sessionsCount: 0,
+          subjects: [],
+        };
+      }
+
+      const sec = Number(row.sub_seconds) || 0;
+      summaryMap[date].totalSeconds += sec;
+      summaryMap[date].sessionsCount += Number(row.sub_sessions) || 0;
+      summaryMap[date].subjects.push({
+        subjectId: row.subject_id,
+        subjectName: row.subject_name,
+        durationSeconds: sec,
+        durationHours: Math.round((sec / 3600) * 10) / 10,
+      });
+    }
+
+    for (const date in summaryMap) {
+      summaryMap[date].totalHours = Math.round((summaryMap[date].totalSeconds / 3600) * 10) / 10;
+    }
+
+    return summaryMap;
+  }
+
   public getSessionsByDate(userId: string, dateStr: string): DbStudySession[] {
     const rows = this.db
       .prepare(

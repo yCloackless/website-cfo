@@ -33,6 +33,13 @@ interface MonthlyStudyHeatmapTabProps {
   subjects: Subject[];
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   onNavigateToTimer?: () => void;
+  onStudySessionLogged?: (entry: {
+    subjectId: string;
+    subjectName: string;
+    dateStr: string;
+    durationMinutes: number;
+    topic?: string;
+  }) => void;
 }
 
 const WEEK_DAYS = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
@@ -57,6 +64,7 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
   subjects,
   showToast = (_msg: string, _type?: 'success' | 'error' | 'info') => {},
   onNavigateToTimer,
+  onStudySessionLogged,
 }) => {
   const isDark = theme === 'dark';
 
@@ -172,10 +180,35 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
       }
 
       await fetchMonthlyData();
+
+      // Notifica o cronograma e a meta semanal instantaneamente
+      if (onStudySessionLogged) {
+        onStudySessionLogged({
+          subjectId: subject.id,
+          subjectName: subject.name,
+          dateStr: manualDate,
+          durationMinutes: totalMinutes,
+          topic: manualTopic.trim(),
+        });
+      }
+
       setManualDate(null);
       showToast(`${formatDurationFriendly(totalMinutes * 60)} de ${subject.name} registrada.`, 'success');
     } catch (error: any) {
-      showToast(error?.message || 'Não foi possível salvar as horas.', 'error');
+      // Se a requisição de rede/servidor falhar, salva localmente no cronograma
+      if (onStudySessionLogged && manualDate) {
+        onStudySessionLogged({
+          subjectId: subject.id,
+          subjectName: subject.name,
+          dateStr: manualDate,
+          durationMinutes: totalMinutes,
+          topic: manualTopic.trim(),
+        });
+        setManualDate(null);
+        showToast(`${formatDurationFriendly(totalMinutes * 60)} de ${subject.name} salva no cronograma (modo offline).`, 'info');
+      } else {
+        showToast(error?.message || 'Não foi possível salvar as horas.', 'error');
+      }
     } finally {
       setIsSavingManual(false);
     }

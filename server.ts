@@ -1625,6 +1625,32 @@ app.get("/api/study-sessions/daily-summary", (req: Request, res: Response) => {
   }
 });
 
+// 6b. Consultar Resumo de Horas por Intervalo de Datas (para sincronizar o Ciclo Semanal com a Agenda)
+app.get("/api/study-sessions/range", (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+
+    const startDate = String(req.query.startDate || "");
+    const endDate = String(req.query.endDate || "");
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      return res.status(400).json({ error: "INVALID_DATE_RANGE", message: "Formato esperado para startDate e endDate: YYYY-MM-DD" });
+    }
+
+    const summary = studySessionRepoInstance.getDailySummaryBetweenDates(userId, startDate, endDate);
+    return res.json({
+      success: true,
+      startDate,
+      endDate,
+      summary,
+    });
+  } catch (err: any) {
+    console.error("Erro ao consultar resumo de estudo por período:", err);
+    return res.status(500).json({ error: "INTERNAL_ERROR" });
+  }
+});
+
 // 7. Consultar Sessões Detalhadas de uma Data Específica
 app.get("/api/study-sessions/day/:dateStr", (req: Request, res: Response) => {
   try {

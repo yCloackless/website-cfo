@@ -1292,6 +1292,174 @@ export default function App() {
     [currentCycle, weekDays, showToast]
   );
 
+  // Handle study session logged from Agenda de Horas (Heatmap Mensal)
+  const handleStudySessionLoggedFromAgenda = useCallback(
+    (entry: {
+      subjectId: string;
+      subjectName: string;
+      dateStr: string;
+      durationMinutes: number;
+      topic?: string;
+    }) => {
+      if (!currentCycle) return;
+
+      const matchedDay = weekDays.find((d) => d.dateStr === entry.dateStr);
+      if (matchedDay) {
+        const dayIndex = matchedDay.index;
+        const cellKey = `${entry.subjectId}_${dayIndex}`;
+        const existing = currentCycle.entries[cellKey];
+
+        const newEntry: StudyEntry = {
+          id: existing?.id || `study_agenda_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          subjectId: entry.subjectId,
+          dayIndex,
+          dateStr: entry.dateStr,
+          durationMinutes: (existing?.durationMinutes || 0) + entry.durationMinutes,
+          completed: true,
+          completedAt: existing?.completedAt || new Date().toISOString(),
+          topic: existing?.topic || entry.topic || 'Sessão via Agenda de Horas',
+          notes: existing?.notes || 'Sessão registrada via Agenda de Horas',
+          googleCalendarSynced: existing?.googleCalendarSynced || false,
+          revisionScheduled: existing?.revisionScheduled || false,
+        };
+
+        const updatedCycle: WeeklyCycle = {
+          ...currentCycle,
+          entries: {
+            ...currentCycle.entries,
+            [cellKey]: newEntry,
+          },
+          updatedAt: new Date().toISOString(),
+        };
+
+        setCurrentCycle(updatedCycle);
+        saveActiveCycle(updatedCycle);
+        showToast(
+          `Horas contabilizadas na sua Meta Semanal (+${(entry.durationMinutes / 60).toFixed(1)}h)!`,
+          'success'
+        );
+      } else {
+        // Se pertencer a semanas anteriores no histórico
+        const history = getCyclesHistory();
+        let historyUpdated = false;
+        const updatedHistory = history.map((histCycle) => {
+          if (entry.dateStr >= histCycle.startDate && entry.dateStr <= histCycle.endDate) {
+            const histDays = getWeekDaysList(getMondayOfWeek(new Date(histCycle.startDate + 'T12:00:00')));
+            const matchedHistDay = histDays.find((d) => d.dateStr === entry.dateStr);
+            if (matchedHistDay) {
+              const dayIndex = matchedHistDay.index;
+              const cellKey = `${entry.subjectId}_${dayIndex}`;
+              const existing = histCycle.entries[cellKey];
+              historyUpdated = true;
+              return {
+                ...histCycle,
+                entries: {
+                  ...histCycle.entries,
+                  [cellKey]: {
+                    id: existing?.id || `study_agenda_${Date.now()}`,
+                    subjectId: entry.subjectId,
+                    dayIndex,
+                    dateStr: entry.dateStr,
+                    durationMinutes: (existing?.durationMinutes || 0) + entry.durationMinutes,
+                    completed: true,
+                    completedAt: existing?.completedAt || new Date().toISOString(),
+                    topic: existing?.topic || entry.topic || 'Sessão via Agenda de Horas',
+                    notes: existing?.notes || 'Sessão registrada via Agenda de Horas',
+                  },
+                },
+                updatedAt: new Date().toISOString(),
+              };
+            }
+          }
+          return histCycle;
+        });
+
+        if (historyUpdated) {
+          localStorage.setItem('cfo_cbmerj_cycles_history_v1', JSON.stringify(updatedHistory.slice(0, 52)));
+          setCyclesHistory(updatedHistory);
+        }
+      }
+    },
+    [currentCycle, weekDays, showToast]
+  );
+
+  // Sincroniza sessões de estudo registradas no backend (Agenda de Horas / Banco) com o Ciclo Semanal atual
+  const syncWeeklyStudySessionsWithBackend = useCallback(async () => {
+    if (!currentCycle || !isTerminalUnlocked) return;
+    try {
+      const startDate = currentCycle.startDate;
+      const endDate = currentCycle.endDate;
+      if (!startDate || !endDate) return;
+
+      const res = await apiFetch(`/api/study-sessions/range?startDate=${startDate}&endDate=${endDate}`);
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const dailySummary = data.summary as Record<
+        string,
+        {
+          dateStr: string;
+          totalSeconds: number;
+          subjects: Array<{ subjectId: string; subjectName: string; durationSeconds: number }>;
+        }
+      >;
+      if (!dailySummary || Object.keys(dailySummary).length === 0) return;
+
+      let hasChanges = false;
+      const updatedEntries = { ...(currentCycle.entries || {}) };
+
+      for (const [dateStr, dayData] of Object.entries(dailySummary)) {
+        const matchedDay = weekDays.find((d) => d.dateStr === dateStr);
+        if (!matchedDay) continue;
+
+        for (const sub of dayData.subjects || []) {
+          const cellKey = `${sub.subjectId}_${matchedDay.index}`;
+          const existing = updatedEntries[cellKey];
+          const dbMinutes = Math.round(sub.durationSeconds / 60);
+
+          if (dbMinutes > 0) {
+            const currentMins = existing?.durationMinutes || 0;
+            if (!existing || currentMins < dbMinutes || !existing.completed) {
+              hasChanges = true;
+              updatedEntries[cellKey] = {
+                id: existing?.id || `study_db_${dateStr}_${sub.subjectId}`,
+                subjectId: sub.subjectId,
+                dayIndex: matchedDay.index,
+                dateStr,
+                durationMinutes: Math.max(currentMins, dbMinutes),
+                completed: true,
+                completedAt: existing?.completedAt || new Date().toISOString(),
+                topic: existing?.topic || 'Sessão registrada na Agenda de Horas',
+                notes: existing?.notes || 'Sincronizado do banco de horas',
+                googleCalendarSynced: existing?.googleCalendarSynced || false,
+                revisionScheduled: existing?.revisionScheduled || false,
+              };
+            }
+          }
+        }
+      }
+
+      if (hasChanges) {
+        const updatedCycle: WeeklyCycle = {
+          ...currentCycle,
+          entries: updatedEntries,
+          updatedAt: new Date().toISOString(),
+        };
+        setCurrentCycle(updatedCycle);
+        saveActiveCycle(updatedCycle);
+      }
+    } catch (err) {
+      console.warn('[Sync] Falha ao sincronizar horas do banco com ciclo semanal:', err);
+    }
+  }, [currentCycle, isTerminalUnlocked, weekDays]);
+
+  // Sincroniza sessões de estudo da semana com o backend ao inicializar ou alternar abas
+  useEffect(() => {
+    if (isTerminalUnlocked && currentCycle?.startDate) {
+      syncWeeklyStudySessionsWithBackend();
+    }
+  }, [isTerminalUnlocked, currentCycle?.startDate, syncWeeklyStudySessionsWithBackend, activeTab]);
+
   // Delete/remove subject handler (supports removing default subjects like Química or custom ones)
   const handleDeleteCustomSubject = (subjectId: string) => {
     const updated = subjects.filter((s) => s.id !== subjectId);
@@ -1381,7 +1549,7 @@ export default function App() {
     const totalSessions = completedEntries.length;
     const totalMinutes = completedEntries.reduce((acc, curr) => acc + (curr.durationMinutes || 0), 0);
     const distinctSubjects = new Set(completedEntries.map((e) => e.subjectId)).size;
-    const totalHours = Math.round(totalMinutes / 60);
+    const totalHours = Math.round((totalMinutes / 60) * 10) / 10;
 
     return {
       totalSessions,
@@ -2043,6 +2211,7 @@ export default function App() {
             subjects={subjects}
             showToast={showToast}
             onNavigateToTimer={() => setActiveTab('timer')}
+            onStudySessionLogged={handleStudySessionLoggedFromAgenda}
           />
         )}
 
