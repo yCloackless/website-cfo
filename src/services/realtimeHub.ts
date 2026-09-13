@@ -232,6 +232,9 @@ export class AdminRealtimeHub extends EventEmitter {
       clearInterval(this.keepAliveInterval);
       this.keepAliveInterval = null;
     }
+    for (const client of this.clients.values()) {
+      try { client.res.end(); } catch {}
+    }
     this.clients.clear();
     this.recentEvents = [];
     this.removeAllListeners();

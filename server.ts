@@ -126,6 +126,9 @@ app.set("trust proxy", trustedProxyEntries.length > 0 ? trustedProxyEntries : (i
 
 // 2. Rota de Health Check ultraleve para UptimeRobot / anti-sleep do Render
 app.get("/api/health", (_req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   return res.status(200).json({
     status: "healthy",
     uptime: Math.floor(process.uptime()),
@@ -407,8 +410,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // Evita cache de dados autenticados, indexacao de APIs e payloads abusivos
 // antes que o parser JSON aloque memoria. Uploads conhecidos mantem o limite maior.
 app.use("/api", (req: Request, res: Response, next: NextFunction) => {
-  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
   res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
 
@@ -442,8 +446,14 @@ app.use(
         ],
         styleSrc: [
           "'self'",
-          "'unsafe-inline'",
           "https://fonts.googleapis.com",
+        ],
+        styleSrcElem: [
+          "'self'",
+          "https://fonts.googleapis.com",
+        ],
+        styleSrcAttr: [
+          "'unsafe-inline'",
         ],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
         imgSrc: ["'self'", "data:", "blob:"],
@@ -506,7 +516,7 @@ const normalizedAllowedOrigins = new Set(
 app.use(['/point-sphere.html', '/blackhole-disc.html'], (_req, res, next) => {
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+    "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self'; connect-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
   );
   next();
 });
@@ -6988,10 +6998,27 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist", "public");
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      maxAge: '1h',
+      setHeaders: (res: Response, filePath: string) => {
+        const normalized = filePath.replace(/\\/g, '/');
+        if (normalized.includes('/assets/')) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else if (normalized.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+        } else {
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+        }
+      },
+    }));
     app.use('/api', (_req, res) => res.status(404).json({ error: 'NOT_FOUND' }));
     app.get(['/server.cjs', '/server.cjs.map'], (_req, res) => res.sendStatus(404));
     app.get("*", (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

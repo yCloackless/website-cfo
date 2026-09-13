@@ -60,7 +60,10 @@ test.before(async () => {
 
 test.after(() => {
   adminRealtimeHub.destroy();
-  if (server) server.close();
+  if (server) {
+    (server as any).closeAllConnections?.();
+    server.close();
+  }
 });
 
 // ============================================================================
