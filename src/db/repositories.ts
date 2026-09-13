@@ -48,6 +48,12 @@ import {
   DbStudySession,
   DayStudySummary,
   DbSystemIntegration,
+  DbConsentRecord,
+  DbPrivacyRequest,
+  ConsentCategory,
+  ConsentStatus,
+  PrivacyRequestType,
+  PrivacyRequestStatus,
 } from './schema';
 
 function normalizeExamOptions(raw: unknown): ExamOption[] {
@@ -180,6 +186,52 @@ export class UserRepository {
   public deleteById(userId: string): boolean {
     const result = this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
     return Number(result.changes) > 0;
+  }
+
+  /**
+   * Anonymizes user personal data according to LGPD Art. 16 (eliminação/anonimização).
+   * Detaches personal identity while keeping referential integrity for non-personal
+   * audit logs, historical exam bank records, and financial transaction requirements.
+   */
+  public anonymizeUser(userId: string): boolean {
+    const user = this.findById(userId);
+    if (!user) return false;
+    const now = new Date().toISOString();
+    const anonUuid = crypto.randomUUID().slice(0, 8);
+    const anonEmail = `deleted-${anonUuid}@anonymized.cfo`;
+    const anonUsername = `deleted_${anonUuid}`;
+    // Unmatchable, salted marker that cannot match any bcrypt attempt
+    const unmatchableHash = '$2b$12$ACCOUNT_ANONYMIZED_AND_DELETED_PER_LGPD_REQUEST';
+
+    // 1. Anonymize user record
+    this.db.prepare(
+      `UPDATE users
+       SET email = ?, username = ?, password_hash = ?, status = 'suspended', can_access_notion = 0, updated_at = ?
+       WHERE id = ?`
+    ).run(anonEmail, anonUsername, unmatchableHash, now, userId);
+
+    // 2. Anonymize profile
+    this.db.prepare(
+      `UPDATE profiles
+       SET full_name = 'Usuário Anonimizado', phone = NULL, bio = NULL, avatar_url = NULL, updated_at = ?
+       WHERE user_id = ?`
+    ).run(now, userId);
+
+    // 3. Clear sessions, locks, resets and personal transient states
+    const safeDelete = (sql: string, id: string) => {
+      try {
+        this.db.prepare(sql).run(id);
+      } catch {}
+    };
+
+    safeDelete('DELETE FROM sessions WHERE user_id = ?', userId);
+    safeDelete('DELETE FROM cadet_session_locks WHERE user_id = ?', userId);
+    safeDelete('DELETE FROM password_resets WHERE user_id = ?', userId);
+    safeDelete('DELETE FROM admin_recovery_codes WHERE user_id = ?', userId);
+    safeDelete('DELETE FROM user_state_snapshots WHERE user_id = ?', userId);
+    safeDelete('DELETE FROM security_notifications WHERE user_id = ?', userId);
+
+    return true;
   }
 
   public findAdminFiltered(options: {
@@ -757,12 +809,57 @@ export class EntitlementRepository {
 export class RefundRepository {
   constructor(private db: DatabaseSync) {}
 
+  /**
+   * Validates refund eligibility server-side according to financial invariants:
+   * 1. Order must exist and not be in an invalid status (failed, cancelled, charged_back).
+   * 2. Requested amount must be > 0.
+   * 3. Total refunded (active requests) + requested amount must NOT exceed order total amount.
+   */
+  public validateRefundEligibility(orderId: string, requestedAmount: number): {
+    eligible: boolean;
+    reason?: string;
+    maxRefundable?: number;
+  } {
+    const order = this.db.prepare('SELECT id, amount, status FROM orders WHERE id = ?').get(orderId) as any;
+    if (!order) return { eligible: false, reason: 'ORDER_NOT_FOUND' };
+    if (order.status === 'failed' || order.status === 'cancelled' || order.status === 'charged_back') {
+      return { eligible: false, reason: 'ORDER_STATUS_NOT_ELIGIBLE' };
+    }
+    if (requestedAmount <= 0) {
+      return { eligible: false, reason: 'INVALID_REFUND_AMOUNT' };
+    }
+
+    const existingRow = this.db.prepare(
+      `SELECT COALESCE(SUM(amount), 0) as total_refunded
+       FROM refund_requests
+       WHERE order_id = ? AND status NOT IN ('rejected', 'failed', 'cancelled')`
+    ).get(orderId) as any;
+
+    const currentRefunded = Number(existingRow?.total_refunded || 0);
+    const maxRefundable = order.amount - currentRefunded;
+
+    if (requestedAmount > maxRefundable) {
+      return {
+        eligible: false,
+        reason: 'EXCEEDS_ORDER_AMOUNT',
+        maxRefundable: Math.max(0, maxRefundable),
+      };
+    }
+
+    return { eligible: true, maxRefundable };
+  }
+
   public request(data: {
     orderId: string;
     userId?: string | null;
     reason: string;
     amount: number;
   }): DbRefundRequest {
+    const check = this.validateRefundEligibility(data.orderId, data.amount);
+    if (!check.eligible) {
+      throw new Error(`REFUND_INVARIANT_VIOLATION: ${check.reason}`);
+    }
+
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
@@ -3092,6 +3189,31 @@ export class StudySessionRepository {
     }));
   }
 
+  public listForUser(userId: string, limit: number = 1000): DbStudySession[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM study_sessions
+         WHERE user_id = ?
+         ORDER BY date_str DESC, created_at DESC
+         LIMIT ?`
+      )
+      .all(userId, limit) as any[];
+
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      subjectId: r.subject_id,
+      subjectName: r.subject_name,
+      topic: r.topic ?? null,
+      dateStr: r.date_str,
+      durationSeconds: Number(r.duration_seconds),
+      startedAt: r.started_at ?? null,
+      endedAt: r.ended_at,
+      notes: r.notes ?? null,
+      createdAt: r.created_at,
+    }));
+  }
+
   public getMonthlyTotal(userId: string, yearMonth: string): { totalSeconds: number; totalHours: number; totalSessions: number } {
     const row = this.db
       .prepare(
@@ -3142,5 +3264,253 @@ export class SystemIntegrationRepository {
 
   public delete(id: string): void {
     this.db.prepare('DELETE FROM system_integrations WHERE id = ?').run(id);
+  }
+}
+
+export class ConsentRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public recordConsent(data: {
+    userId?: string | null;
+    category: ConsentCategory;
+    policyVersion: string;
+    termsVersion?: string | null;
+    status?: ConsentStatus;
+    ipHash?: string | null;
+    userAgent?: string | null;
+  }): DbConsentRecord {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const status = data.status || 'granted';
+
+    this.db
+      .prepare(
+        `INSERT INTO consent_records (
+          id, user_id, category, policy_version, terms_version, status, ip_hash, user_agent, granted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        data.userId ?? null,
+        data.category,
+        data.policyVersion,
+        data.termsVersion ?? null,
+        status,
+        data.ipHash ?? null,
+        data.userAgent ?? null,
+        now
+      );
+
+    return this.findById(id)!;
+  }
+
+  public findById(id: string): DbConsentRecord | null {
+    const row = this.db.prepare('SELECT * FROM consent_records WHERE id = ?').get(id) as any;
+    if (!row) return null;
+    return this.mapRecord(row);
+  }
+
+  public findLatestForUser(userId: string): DbConsentRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM consent_records
+         WHERE user_id = ?
+         ORDER BY granted_at DESC`
+      )
+      .all(userId) as any[];
+    return rows.map((r) => this.mapRecord(r));
+  }
+
+  public findLatestByCategory(userId: string, category: ConsentCategory): DbConsentRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM consent_records
+         WHERE user_id = ? AND category = ?
+         ORDER BY granted_at DESC
+         LIMIT 1`
+      )
+      .get(userId, category) as any;
+    if (!row) return null;
+    return this.mapRecord(row);
+  }
+
+  public revokeConsent(userId: string, category: ConsentCategory): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `UPDATE consent_records
+         SET status = 'revoked', revoked_at = ?
+         WHERE user_id = ? AND category = ? AND status = 'granted'`
+      )
+      .run(now, userId, category);
+  }
+
+  private mapRecord(row: any): DbConsentRecord {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      category: row.category as ConsentCategory,
+      policyVersion: row.policy_version,
+      termsVersion: row.terms_version,
+      status: row.status as ConsentStatus,
+      ipHash: row.ip_hash,
+      userAgent: row.user_agent,
+      grantedAt: row.granted_at,
+      revokedAt: row.revoked_at,
+    };
+  }
+}
+
+export class PrivacyRequestRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public create(data: {
+    userId?: string | null;
+    email: string;
+    requestType: PrivacyRequestType;
+    details?: string | null;
+  }): DbPrivacyRequest {
+    const id = crypto.randomUUID();
+    const requestCode = `LGPD-REQ-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    const now = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `INSERT INTO privacy_requests (
+          id, request_code, user_id, email, request_type, status, details, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
+      )
+      .run(
+        id,
+        requestCode,
+        data.userId ?? null,
+        data.email.toLowerCase().trim(),
+        data.requestType,
+        data.details ?? null,
+        now,
+        now
+      );
+
+    return this.findById(id)!;
+  }
+
+  public findById(id: string): DbPrivacyRequest | null {
+    const row = this.db.prepare('SELECT * FROM privacy_requests WHERE id = ?').get(id) as any;
+    if (!row) return null;
+    return this.mapRequest(row);
+  }
+
+  public findByCode(requestCode: string): DbPrivacyRequest | null {
+    const row = this.db.prepare('SELECT * FROM privacy_requests WHERE request_code = ?').get(requestCode) as any;
+    if (!row) return null;
+    return this.mapRequest(row);
+  }
+
+  public findByUserId(userId: string): DbPrivacyRequest[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM privacy_requests
+         WHERE user_id = ?
+         ORDER BY created_at DESC`
+      )
+      .all(userId) as any[];
+    return rows.map((r) => this.mapRequest(r));
+  }
+
+  public findAdminFiltered(options: {
+    status?: string;
+    requestType?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  } = {}): { items: DbPrivacyRequest[]; total: number } {
+    const conditions: string[] = ['1=1'];
+    const params: any[] = [];
+
+    if (options.status) {
+      conditions.push('status = ?');
+      params.push(options.status);
+    }
+    if (options.requestType) {
+      conditions.push('request_type = ?');
+      params.push(options.requestType);
+    }
+    if (options.search) {
+      conditions.push('(request_code LIKE ? OR email LIKE ?)');
+      const term = `%${options.search.trim()}%`;
+      params.push(term, term);
+    }
+
+    const where = conditions.join(' AND ');
+    const countRow = this.db
+      .prepare(`SELECT COUNT(*) as total FROM privacy_requests WHERE ${where}`)
+      .get(...params) as any;
+    const total = Number(countRow?.total || 0);
+
+    const page = Math.max(1, options.page || 1);
+    const limit = Math.max(1, Math.min(100, options.limit || 20));
+    const offset = (page - 1) * limit;
+
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM privacy_requests
+         WHERE ${where}
+         ORDER BY created_at DESC
+         LIMIT ? OFFSET ?`
+      )
+      .all(...params, limit, offset) as any[];
+
+    return {
+      items: rows.map((r) => this.mapRequest(r)),
+      total,
+    };
+  }
+
+  public updateStatus(
+    id: string,
+    status: PrivacyRequestStatus,
+    adminUserId: string,
+    adminNotes?: string | null
+  ): DbPrivacyRequest | null {
+    const now = new Date().toISOString();
+    const isCompletedOrRejected = status === 'completed' || status === 'rejected';
+
+    this.db
+      .prepare(
+        `UPDATE privacy_requests
+         SET status = ?, admin_notes = COALESCE(?, admin_notes),
+             processed_by_user_id = ?,
+             processed_at = CASE WHEN ? = 1 THEN ? ELSE processed_at END,
+             updated_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        status,
+        adminNotes ?? null,
+        adminUserId,
+        isCompletedOrRejected ? 1 : 0,
+        now,
+        now,
+        id
+      );
+
+    return this.findById(id);
+  }
+
+  private mapRequest(row: any): DbPrivacyRequest {
+    return {
+      id: row.id,
+      requestCode: row.request_code,
+      userId: row.user_id,
+      email: row.email,
+      requestType: row.request_type as PrivacyRequestType,
+      status: row.status as PrivacyRequestStatus,
+      details: row.details,
+      adminNotes: row.admin_notes,
+      processedByUserId: row.processed_by_user_id,
+      createdAt: row.created_at,
+      processedAt: row.processed_at,
+      updatedAt: row.updated_at,
+    };
   }
 }

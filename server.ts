@@ -76,6 +76,8 @@ import {
   QuestionAuditRepository,
   StudySessionRepository,
   SystemIntegrationRepository,
+  ConsentRepository,
+  PrivacyRequestRepository,
 } from "./src/db/repositories";
 import { UserRole, DbUser, DbExamPaper } from "./src/db/schema";
 import { validateImageBuffer } from "./src/services/avatarService";
@@ -991,6 +993,8 @@ const questionAssetRepoInstance = new QuestionAssetRepository(getDb().getRawDb()
 const supportMaterialRepoInstance = new SupportMaterialRepository(getDb().getRawDb());
 const questionAuditRepoInstance = new QuestionAuditRepository(getDb().getRawDb());
 systemIntegrationRepoInstance = new SystemIntegrationRepository(getDb().getRawDb());
+const consentRepoInstance = new ConsentRepository(getDb().getRawDb());
+const privacyRequestRepoInstance = new PrivacyRequestRepository(getDb().getRawDb());
 
 // Migração inicial e garantia de persistência no boot do servidor
 try {
@@ -1692,11 +1696,20 @@ app.get("/api/auth/security-status", (req: Request, res: Response) => {
 // Cadastro público protegido por chave de uso único emitida pelo Admin.
 app.post("/api/auth/register", registrationLimiter, async (req: Request, res: Response) => {
   try {
-    const { key, email, username, password, fullName } = req.body || {};
-    const cleanKey = typeof key === 'string' ? key.trim() : '';
+    const { key, accountCreationKey, email, username, password, fullName, termsAccepted, privacyAccepted, policyVersion, termsVersion } = req.body || {};
+    const keyToUse = key || accountCreationKey;
+    const cleanKey = typeof keyToUse === 'string' ? keyToUse.trim() : '';
     const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
     const cleanUsername = typeof username === 'string' ? username.trim().toLowerCase() : '';
     const cleanFullName = typeof fullName === 'string' ? fullName.trim() : cleanUsername;
+
+    if (termsAccepted === false || privacyAccepted === false) {
+      return res.status(400).json({
+        success: false,
+        error: 'CONSENT_REQUIRED',
+        message: 'É obrigatório aceitar os Termos de Uso e a Política de Privacidade para criar a conta.',
+      });
+    }
 
     if (!cleanKey || !cleanEmail || !cleanEmail.includes('@') || !/^[a-z0-9._-]{3,32}$/.test(cleanUsername)) {
       return res.status(400).json({ success: false, error: 'INVALID_FIELDS', message: 'Informe uma chave válida, e-mail e username válidos.' });
@@ -1708,6 +1721,10 @@ app.post("/api/auth/register", registrationLimiter, async (req: Request, res: Re
     const keyHash = crypto.createHash('sha256').update(cleanKey, 'utf8').digest('hex');
     const now = new Date().toISOString();
     const passwordHash = await bcrypt.hash(password, 12);
+
+    const clientIp = getClientIp(req);
+    const ipHash = clientIp ? crypto.createHash('sha256').update(clientIp).digest('hex').slice(0, 16) : null;
+    const userAgent = String(req.headers['user-agent'] || '').slice(0, 200);
 
     const createdUser = databaseService.transaction(() => {
       const keyRow = rawDb.prepare(
@@ -1737,6 +1754,18 @@ app.post("/api/auth/register", registrationLimiter, async (req: Request, res: Re
          WHERE id = ? AND used_at IS NULL`
       ).run(now, created.id, keyRow.id);
       if (Number(consumed.changes || 0) !== 1) throw new Error('INVALID_ACCOUNT_CREATION_KEY');
+
+      // Registra consentimento com versão do documento e hash de evidência (LGPD Art. 7, 8 e 9)
+      consentRepoInstance.recordConsent({
+        userId: created.id,
+        category: 'necessary',
+        policyVersion: typeof policyVersion === 'string' && policyVersion.trim() ? policyVersion.trim() : '1.0',
+        termsVersion: typeof termsVersion === 'string' && termsVersion.trim() ? termsVersion.trim() : '1.0',
+        status: 'granted',
+        ipHash,
+        userAgent,
+      });
+
       return created;
     });
 
@@ -3295,6 +3324,117 @@ app.post("/api/admin/unban", requireAdminWriteAuth, requireStepUpAuth, (req: Req
 });
 
 // ==========================================
+// 🛡️ GESTÃO DE PRIVACIDADE E REQUISIÇÕES LGPD (ADMIN)
+// ==========================================
+
+// 1. Listar Requisições LGPD com Paginação e Filtros
+app.get("/api/admin/privacy/requests", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const { status, requestType, search, page, limit } = req.query as any;
+    const result = privacyRequestRepoInstance.findAdminFiltered({
+      status: status ? String(status) : undefined,
+      requestType: requestType ? String(requestType) : undefined,
+      search: search ? String(search) : undefined,
+      page: page ? parseInt(String(page), 10) : 1,
+      limit: limit ? parseInt(String(limit), 10) : 20,
+    });
+    return res.json({ success: true, items: result.items, requests: result.items, total: result.total });
+  } catch (err: any) {
+    console.error("[Admin Privacy Requests Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao listar requisições de privacidade." });
+  }
+});
+
+// 2. Atualizar Status e Notas da Requisição LGPD (Com Step-Up)
+app.patch("/api/admin/privacy/requests/:id", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    const { id } = req.params;
+    const { status, adminNotes } = req.body || {};
+
+    const validStatuses = ['pending', 'under_review', 'completed', 'rejected'];
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({ success: false, message: "Status inválido." });
+    }
+
+    const updated = privacyRequestRepoInstance.updateStatus(id, status, adminUser.id || adminUser.userId, adminNotes);
+    if (!updated) {
+      return res.status(404).json({ success: false, message: "Requisição não encontrada." });
+    }
+
+    logSecurityEvent(req, {
+      action: 'PRIVACY_REQUEST_UPDATED',
+      actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.id || null,
+      targetType: 'privacy_request',
+      targetId: updated.id,
+      resource: `/admin/privacy/requests/${updated.requestCode}`,
+      status: 'SUCCESS',
+      details: { requestCode: updated.requestCode, newStatus: status },
+    });
+
+    return res.json({ success: true, message: "Requisição atualizada com sucesso.", request: updated });
+  } catch (err: any) {
+    console.error("[Admin Update Privacy Request Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao atualizar requisição de privacidade." });
+  }
+});
+
+// 3. Executar Anonimização do Titular (LGPD Art. 16 - Apenas Administrador com Step-Up)
+app.post("/api/admin/privacy/requests/:id/anonymize", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    const { id } = req.params;
+    const request = privacyRequestRepoInstance.findById(id);
+    if (!request) {
+      return res.status(404).json({ success: false, message: "Requisição não encontrada." });
+    }
+    if (!request.userId) {
+      return res.status(400).json({ success: false, message: "Requisição não vinculada a um usuário cadastrado." });
+    }
+
+    const targetUser = userRepoInstance.findById(request.userId);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: "Usuário alvo não encontrado." });
+    }
+    if (targetUser.username === ADMIN_USER) {
+      return res.status(400).json({ success: false, message: "A conta do administrador mestre não pode ser anonimizada." });
+    }
+
+    const ok = userRepoInstance.anonymizeUser(targetUser.id);
+    if (!ok) {
+      return res.status(500).json({ success: false, message: "Falha ao anonimizar usuário." });
+    }
+
+    privacyRequestRepoInstance.updateStatus(
+      request.id,
+      'completed',
+      adminUser.id || adminUser.userId,
+      'Anonimização de dados pessoais executada em cumprimento ao Art. 16 da LGPD.'
+    );
+
+    logSecurityEvent(req, {
+      action: 'USER_ANONYMIZED_LGPD',
+      actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.id || null,
+      targetType: 'user',
+      targetId: targetUser.id,
+      resource: `/users/${targetUser.id}`,
+      status: 'SUCCESS',
+      details: { requestCode: request.requestCode },
+    });
+
+    return res.json({
+      success: true,
+      message: "Dados pessoais do titular anonimizados com sucesso em conformidade com a LGPD.",
+    });
+  } catch (err: any) {
+    console.error("[Admin Anonymize User Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao executar anonimização do usuário." });
+  }
+});
+
+// ==========================================
 // 🛠️ MODO DE MANUTENÇÃO (PERSISTÊNCIA RELACIONAL)
 // ==========================================
 
@@ -3567,6 +3707,232 @@ app.post("/api/user/avatar", requireUserAuth, (req: Request, res: Response) => {
   } catch (err: any) {
     console.error("[Avatar Upload Error]:", err);
     return res.status(500).json({ success: false, message: "Falha ao processar e salvar foto de perfil." });
+  }
+});
+
+// ==========================================
+// 🛡️ CENTRAL DE PRIVACIDADE E DIREITOS DO TITULAR (LGPD - LEI 13.709/2018)
+// ==========================================
+
+// 0. Informações Públicas de Privacidade e Contato do DPO (LGPD Art. 41)
+app.get("/api/privacy/info", (_req: Request, res: Response) => {
+  return res.json({
+    success: true,
+    privacyContactEmail: process.env.PRIVACY_CONTACT_EMAIL || "privacidade@rumoaocfo.com.br",
+    dpoName: process.env.PRIVACY_DPO_NAME || "Encarregado de Proteção de Dados - Rumo ao CFO",
+    policyVersion: "1.0",
+    termsVersion: "1.0",
+  });
+});
+
+// 1. Submeter Solicitação do Titular (Acesso, Retificação, Eliminação, Portabilidade, Informação, Revogação)
+app.post("/api/privacy/requests", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const sessionUser = (req as any).user;
+    const user = userRepoInstance.findById(sessionUser.userId) || userRepoInstance.findByUsername(sessionUser.username);
+    if (!user) return res.status(404).json({ success: false, message: "Usuário não encontrado." });
+
+    const { requestType, details } = req.body || {};
+    const validTypes = ['access', 'rectification', 'deletion', 'export', 'information', 'revocation'];
+    if (!requestType || !validTypes.includes(requestType)) {
+      return res.status(400).json({ success: false, message: "Tipo de solicitação inválido." });
+    }
+
+    const cleanDetails = typeof details === 'string' ? details.trim().slice(0, 1000) : null;
+    const request = privacyRequestRepoInstance.create({
+      userId: user.id,
+      email: user.email,
+      requestType,
+      details: cleanDetails,
+    });
+
+    logSecurityEvent(req, {
+      action: 'PRIVACY_REQUEST_CREATED',
+      actor: user.username,
+      actorUserId: user.id,
+      targetType: 'privacy_request',
+      targetId: request.id,
+      userId: user.id,
+      resource: `/privacy/requests/${request.requestCode}`,
+      status: 'SUCCESS',
+      details: { requestType, requestCode: request.requestCode },
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Solicitação registrada com sucesso. O protocolo foi gerado e será processado pelo Encarregado de Proteção de Dados.",
+      request: {
+        id: request.id,
+        requestCode: request.requestCode,
+        requestType: request.requestType,
+        status: request.status,
+        createdAt: request.createdAt,
+      },
+    });
+  } catch (err: any) {
+    console.error("[Privacy Request Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao registrar solicitação de privacidade." });
+  }
+});
+
+// 2. Consultar Minhas Solicitações LGPD
+app.get("/api/privacy/my-requests", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const sessionUser = (req as any).user;
+    const user = userRepoInstance.findById(sessionUser.userId) || userRepoInstance.findByUsername(sessionUser.username);
+    if (!user) return res.status(404).json({ success: false, message: "Usuário não encontrado." });
+
+    const requests = privacyRequestRepoInstance.findByUserId(user.id);
+    return res.json({
+      success: true,
+      requests: requests.map((r) => ({
+        id: r.id,
+        requestCode: r.requestCode,
+        userId: r.userId,
+        requestType: r.requestType,
+        status: r.status,
+        details: r.details,
+        adminNotes: r.adminNotes,
+        createdAt: r.createdAt,
+        processedAt: r.processedAt,
+      })),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: "Erro ao carregar solicitações de privacidade." });
+  }
+});
+
+// 3. Exportação de Dados Portáveis do Titular (LGPD Art. 18, II e V)
+app.get("/api/privacy/export", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const sessionUser = (req as any).user;
+    const user = userRepoInstance.findById(sessionUser.userId) || userRepoInstance.findByUsername(sessionUser.username);
+    if (!user) return res.status(404).json({ success: false, message: "Usuário não encontrado." });
+
+    const profile = profileRepoInstance.findByUserId(user.id);
+    const consents = consentRepoInstance.findLatestForUser(user.id);
+    const privacyRequests = privacyRequestRepoInstance.findByUserId(user.id);
+    const studySessions = studySessionRepoInstance.listForUser(user.id, 1000);
+
+    const exportData = {
+      exportMetadata: {
+        platform: "Rumo ao CFO CBMERJ",
+        exportedAt: new Date().toISOString(),
+        legalBasis: "Lei Geral de Proteção de Dados (LGPD - Lei 13.709/2018, Art. 18, II e V)",
+        format: "application/json",
+      },
+      account: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        status: user.status,
+        createdAt: user.createdAt,
+      },
+      profile: {
+        fullName: profile?.fullName || user.username,
+        phone: profile?.phone || null,
+        targetExam: profile?.targetExam || null,
+        bio: profile?.bio || null,
+        createdAt: profile?.createdAt || user.createdAt,
+      },
+      consents: consents.map((c) => ({
+        category: c.category,
+        policyVersion: c.policyVersion,
+        termsVersion: c.termsVersion,
+        status: c.status,
+        grantedAt: c.grantedAt,
+        revokedAt: c.revokedAt,
+      })),
+      privacyRequests: privacyRequests.map((r) => ({
+        requestCode: r.requestCode,
+        requestType: r.requestType,
+        status: r.status,
+        createdAt: r.createdAt,
+        processedAt: r.processedAt,
+      })),
+      studyHistory: {
+        totalSessions: studySessions.length,
+        sessions: studySessions.map((s) => ({
+          subjectName: s.subjectName,
+          topic: s.topic,
+          dateStr: s.dateStr,
+          durationSeconds: s.durationSeconds,
+          notes: s.notes,
+        })),
+      },
+    };
+
+    logSecurityEvent(req, {
+      action: 'DATA_EXPORT_GENERATED',
+      actor: user.username,
+      actorUserId: user.id,
+      targetType: 'user',
+      targetId: user.id,
+      userId: user.id,
+      resource: '/privacy/export',
+      status: 'SUCCESS',
+    });
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="dados-pessoais-cfo-${user.username}.json"`);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ success: true, ...exportData, export: exportData });
+  } catch (err: any) {
+    console.error("[Privacy Export Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao gerar exportação de dados pessoais." });
+  }
+});
+
+// 4. Salvar / Atualizar Preferências de Consentimento
+app.post("/api/privacy/consent", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const sessionUser = (req as any).user;
+    const user = userRepoInstance.findById(sessionUser.userId) || userRepoInstance.findByUsername(sessionUser.username);
+    if (!user) return res.status(404).json({ success: false, message: "Usuário não encontrado." });
+
+    const { category, status, granted, policyVersion, termsVersion } = req.body || {};
+    const validCategories = ['necessary', 'analytics', 'marketing', 'preferences', 'ai_processing', 'terms_of_use', 'privacy_policy'];
+    if (!category || !validCategories.includes(category)) {
+      return res.status(400).json({ success: false, message: "Categoria de consentimento inválida." });
+    }
+
+    const isRevoked = status === 'revoked' || granted === false;
+    const resolvedStatus = isRevoked ? 'revoked' : 'granted';
+
+    if (isRevoked) {
+      consentRepoInstance.revokeConsent(user.id, category);
+    }
+
+    const clientIp = getClientIp(req);
+    const ipHash = clientIp ? crypto.createHash('sha256').update(clientIp).digest('hex').slice(0, 16) : null;
+    const userAgent = String(req.headers['user-agent'] || '').slice(0, 200);
+
+    const record = consentRepoInstance.recordConsent({
+      userId: user.id,
+      category,
+      status: resolvedStatus,
+      policyVersion: typeof policyVersion === 'string' && policyVersion.trim() ? policyVersion.trim() : '1.0',
+      termsVersion: typeof termsVersion === 'string' && termsVersion.trim() ? termsVersion.trim() : '1.0',
+      ipHash,
+      userAgent,
+    });
+
+    logSecurityEvent(req, {
+      action: 'CONSENT_UPDATED',
+      actor: user.username,
+      actorUserId: user.id,
+      targetType: 'consent_record',
+      targetId: record.id,
+      userId: user.id,
+      resource: '/privacy/consent',
+      status: 'SUCCESS',
+      details: { category, status: record.status },
+    });
+
+    return res.json({ success: true, message: "Preferências de privacidade registradas com sucesso.", record });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: "Erro ao salvar consentimento." });
   }
 });
 

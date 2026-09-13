@@ -545,3 +545,48 @@ export interface DbSystemIntegration {
   encryptedPayload: string;
   updatedAt: string;
 }
+
+export type ConsentCategory = 'necessary' | 'analytics' | 'marketing' | 'preferences' | 'ai_processing' | 'terms_of_use' | 'privacy_policy';
+export type ConsentStatus = 'granted' | 'revoked';
+
+export interface DbConsentRecord {
+  id: string;
+  userId?: string | null;
+  category: ConsentCategory;
+  policyVersion: string;
+  termsVersion?: string | null;
+  status: ConsentStatus;
+  ipHash?: string | null;
+  userAgent?: string | null;
+  grantedAt: string;
+  revokedAt?: string | null;
+}
+
+export type PrivacyRequestType =
+  | 'access'
+  | 'rectification'
+  | 'deletion'
+  | 'export'
+  | 'information'
+  | 'revocation';
+
+export type PrivacyRequestStatus =
+  | 'pending'
+  | 'under_review'
+  | 'completed'
+  | 'rejected';
+
+export interface DbPrivacyRequest {
+  id: string;
+  requestCode: string;
+  userId?: string | null;
+  email: string;
+  requestType: PrivacyRequestType;
+  status: PrivacyRequestStatus;
+  details?: string | null;
+  adminNotes?: string | null;
+  processedByUserId?: string | null;
+  createdAt: string;
+  processedAt?: string | null;
+  updatedAt: string;
+}

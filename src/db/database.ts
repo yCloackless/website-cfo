@@ -974,6 +974,55 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_system_integrations_updated_at ON system_integrations(updated_at);
     `,
   },
+  {
+    id: 27,
+    name: '027_lgpd_privacy_and_consent',
+    sql: `
+      -- 1. CONSENT_RECORDS (Registros Auditáveis de Aceite de Termos, Política e Cookies - LGPD Art. 7, 8 e 9)
+      CREATE TABLE IF NOT EXISTS consent_records (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        category TEXT NOT NULL CHECK (category IN ('necessary', 'analytics', 'marketing', 'preferences', 'ai_processing', 'terms_of_use')),
+        policy_version TEXT NOT NULL,
+        terms_version TEXT,
+        status TEXT NOT NULL DEFAULT 'granted' CHECK (status IN ('granted', 'revoked')),
+        ip_hash TEXT,
+        user_agent TEXT,
+        granted_at TEXT NOT NULL,
+        revoked_at TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_consent_records_user_id ON consent_records(user_id);
+      CREATE INDEX IF NOT EXISTS idx_consent_records_category ON consent_records(category);
+      CREATE INDEX IF NOT EXISTS idx_consent_records_status ON consent_records(status);
+
+      -- 2. PRIVACY_REQUESTS (Protocolos e Gestão de Direitos dos Titulares - LGPD Art. 18)
+      CREATE TABLE IF NOT EXISTS privacy_requests (
+        id TEXT PRIMARY KEY,
+        request_code TEXT NOT NULL UNIQUE,
+        user_id TEXT,
+        email TEXT NOT NULL COLLATE NOCASE,
+        request_type TEXT NOT NULL CHECK (
+          request_type IN ('access', 'rectification', 'deletion', 'export', 'information', 'revocation')
+        ),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (
+          status IN ('pending', 'under_review', 'completed', 'rejected')
+        ),
+        details TEXT,
+        admin_notes TEXT,
+        processed_by_user_id TEXT,
+        created_at TEXT NOT NULL,
+        processed_at TEXT,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY (processed_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_privacy_requests_code ON privacy_requests(request_code);
+      CREATE INDEX IF NOT EXISTS idx_privacy_requests_user_id ON privacy_requests(user_id);
+      CREATE INDEX IF NOT EXISTS idx_privacy_requests_status ON privacy_requests(status);
+      CREATE INDEX IF NOT EXISTS idx_privacy_requests_email ON privacy_requests(email);
+    `,
+  },
 ];
 
 

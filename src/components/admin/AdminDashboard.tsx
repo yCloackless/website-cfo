@@ -24,10 +24,12 @@ import {
   Laptop,
   X,
   BrainCircuit,
+  Scale,
 } from 'lucide-react';
 import { AppTheme } from '../../types';
 import { BoardIntelligencePanel } from './BoardIntelligencePanel';
 import { AdminMaintenanceTab } from './AdminMaintenanceTab';
+import { AdminPrivacyTab } from './AdminPrivacyTab';
 
 export type AdminTab =
   | 'dashboard'
@@ -38,6 +40,7 @@ export type AdminTab =
   | 'audit'
   | 'admins'
   | 'notion'
+  | 'privacy'
   | 'maintenance'
   | 'settings';
 
@@ -1237,6 +1240,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {currentAdminRole === 'admin' && (
             <button
               type="button"
+              onClick={() => setActiveTab('privacy')}
+              className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === 'privacy'
+                  ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30'
+                  : 'text-slate-400 hover:text-purple-300 hover:bg-purple-950/20 border border-transparent'
+              }`}
+            >
+              <Scale className="w-4 h-4 text-purple-400" />
+              LGPD & Privacidade
+            </button>
+          )}
+
+          {currentAdminRole === 'admin' && (
+            <button
+              type="button"
               onClick={() => setActiveTab('maintenance')}
               className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === 'maintenance'
@@ -2129,6 +2147,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 ))}
               </div>
             </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* TAB: LGPD & PRIVACIDADE                                           */}
+          {/* ================================================================= */}
+          {activeTab === 'privacy' && (
+            <AdminPrivacyTab
+              theme={theme}
+              sessionToken={sessionToken}
+              getHeaders={getHeaders}
+            />
           )}
 
           {/* ================================================================= */}

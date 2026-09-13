@@ -20,6 +20,9 @@ declare global {
 
 import React, { useState, useRef, useEffect } from 'react';
 import FibonacciSphere from './FibonacciSphere';
+import { PrivacyPolicyModal } from './PrivacyPolicyModal';
+import { TermsOfUseModal } from './TermsOfUseModal';
+import { CookiePolicyModal } from './CookiePolicyModal';
 
 interface SecurityGateProps {
   onAuthenticated: (token: string, expiresAt: number, is2faActive: boolean) => void;
@@ -41,6 +44,10 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
   const [registerKey, setRegisterKey] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [registerPasswordConfirm, setRegisterPasswordConfirm] = useState('');
+  const [registerAcceptedTerms, setRegisterAcceptedTerms] = useState(false);
+  const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
+  const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
+  const [isCookieModalOpen, setIsCookieModalOpen] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [requiresTotp, setRequiresTotp] = useState(false);
@@ -283,7 +290,11 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
       return;
     }
     if (registerPassword !== registerPasswordConfirm) {
-      setErrorMsg('As senhas não coincidem.');
+      setErrorMsg('A confirmação de senha não confere.');
+      return;
+    }
+    if (!registerAcceptedTerms) {
+      setErrorMsg('É obrigatório ler e concordar com os Termos de Uso e a Política de Privacidade.');
       return;
     }
 
@@ -300,6 +311,10 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
           username: cleanUsername,
           password: registerPassword,
           fullName: registerFullName.trim() || cleanUsername,
+          termsAccepted: true,
+          privacyAccepted: true,
+          policyVersion: '1.0',
+          termsVersion: '1.0',
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -916,6 +931,36 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                         <input required minLength={8} type="password" value={registerPasswordConfirm} onChange={(e) => setRegisterPasswordConfirm(e.target.value)} placeholder="Repita a senha" autoComplete="new-password" className="w-full px-4 py-2.5 text-[14px] text-slate-800 border border-[#e2e8f0] rounded-xl outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15" />
                       </label>
                     </div>
+
+                    <label className="flex items-start gap-2.5 text-xs text-slate-600 cursor-pointer pt-1">
+                      <input
+                        type="checkbox"
+                        checked={registerAcceptedTerms}
+                        onChange={(e) => setRegisterAcceptedTerms(e.target.checked)}
+                        className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        required
+                      />
+                      <span className="leading-snug">
+                        Li e concordo com os{' '}
+                        <button
+                          type="button"
+                          onClick={() => setIsTermsModalOpen(true)}
+                          className="text-blue-600 underline font-semibold hover:text-blue-700"
+                        >
+                          Termos de Uso
+                        </button>{' '}
+                        e a{' '}
+                        <button
+                          type="button"
+                          onClick={() => setIsPrivacyModalOpen(true)}
+                          className="text-blue-600 underline font-semibold hover:text-blue-700"
+                        >
+                          Política de Privacidade
+                        </button>{' '}
+                        (LGPD).
+                      </span>
+                    </label>
+
                     <button type="submit" disabled={loading} className="w-full py-3.5 px-4 rounded-xl bg-[#164491] hover:bg-[#12397a] text-white font-bold text-xs tracking-wider uppercase transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50">
                       {loading ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Criando...</> : 'Criar conta'}
                     </button>
@@ -1065,11 +1110,29 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
         {/* END: MainLoginWrapper */}
       </div>
 
-      {/* Mandatory Credit Footer */}
-      <footer className="w-full py-4 text-center text-xs font-sans text-slate-500 space-y-0.5 select-text">
-        <div className="font-semibold text-slate-600">Criado por Meifode</div>
-        <div className="text-[11px] text-slate-400">discord: nord3093</div>
+      {/* Mandatory Credit & Legal Footer */}
+      <footer className="w-full py-4 text-center text-xs font-sans text-slate-500 space-y-1.5 select-text">
+        <div className="flex items-center justify-center gap-3 text-[11.5px] text-slate-400">
+          <button type="button" onClick={() => setIsTermsModalOpen(true)} className="hover:text-slate-200 hover:underline transition">
+            Termos de Uso
+          </button>
+          <span>•</span>
+          <button type="button" onClick={() => setIsPrivacyModalOpen(true)} className="hover:text-slate-200 hover:underline transition">
+            Privacidade & LGPD
+          </button>
+          <span>•</span>
+          <button type="button" onClick={() => setIsCookieModalOpen(true)} className="hover:text-slate-200 hover:underline transition">
+            Cookies
+          </button>
+        </div>
+        <div className="font-semibold text-slate-400">Criado por Meifode</div>
+        <div className="text-[11px] text-slate-500">discord: nord3093</div>
       </footer>
+
+      {/* Modais Legais */}
+      <TermsOfUseModal isOpen={isTermsModalOpen} onClose={() => setIsTermsModalOpen(false)} />
+      <PrivacyPolicyModal isOpen={isPrivacyModalOpen} onClose={() => setIsPrivacyModalOpen(false)} />
+      <CookiePolicyModal isOpen={isCookieModalOpen} onClose={() => setIsCookieModalOpen(false)} />
     </div>
   );
 };
