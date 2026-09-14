@@ -108,4 +108,41 @@ test.describe('Jornada do Aluno & Integridade Operacional (Rumo ao CFO)', () => 
     expect(notFoundBody.error).toBe('Not Found');
     expect(notFoundRes.headers()['cache-control']).toContain('no-store');
   });
+
+  test('5. Isolamento estrito de rotas protegidas administrativas', async ({ request }) => {
+    // Acesso não autenticado a recursos administrativos deve ser rejeitado no backend
+    const adminRes = await request.get(`${baseUrl}/api/admin/users`);
+    expect([401, 403]).toContain(adminRes.status());
+    const adminBody = await adminRes.json();
+    expect(adminBody.error || adminBody.message).toBeTruthy();
+  });
+
+  test('6. Verificação do Service Worker e Web App Manifest', async ({ request }) => {
+    // Valida o endpoint do Service Worker
+    const swRes = await request.get(`${baseUrl}/sw.js`);
+    expect(swRes.status()).toBe(200);
+    expect(swRes.headers()['service-worker-allowed']).toBe('/');
+    expect(swRes.headers()['content-type']).toContain('javascript');
+
+    // Valida o endpoint do manifesto
+    const manifestRes = await request.get(`${baseUrl}/manifest.webmanifest`);
+    expect(manifestRes.status()).toBe(200);
+    const manifestJson = await manifestRes.json();
+    expect(manifestJson.name).toContain('Rumo ao CFO');
+    expect(manifestJson.display).toBe('standalone');
+    expect(manifestJson.theme_color).toBe('#020617');
+    expect(manifestJson.icons.length).toBeGreaterThanOrEqual(4);
+  });
+
+  test('7. Validação defensiva de autenticação (tentativa inválida é rejeitada com 400)', async ({ request }) => {
+    const authRes = await request.post(`${baseUrl}/api/auth/check-credentials`, {
+      data: {
+        username: 'usuario_inexistente_teste',
+        password: '',
+      },
+    });
+    expect(authRes.status()).toBe(400);
+    const authBody = await authRes.json();
+    expect(authBody.error).toBe('MISSING_FIELDS');
+  });
 });
