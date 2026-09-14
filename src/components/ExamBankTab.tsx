@@ -1181,7 +1181,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
 
             <button
               disabled={selectedQuestionIdsForSolve.length === 0 || isSolvingAI}
-              onClick={handleSolveSelectedWithAI}
+              onClick={() => handleSolveSelectedWithAI()}
               className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-md ${
                 selectedQuestionIdsForSolve.length > 0 && !isSolvingAI
                   ? 'bg-gradient-to-r from-blue-600 to-[#0056D2] hover:brightness-110 text-white cursor-pointer active:scale-95'

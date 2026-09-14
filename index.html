@@ -16,6 +16,12 @@
     <meta property="og:description" content="Tabela horizontal semanal de matérias do CFO CBMERJ com status de conclusão, ciclo semanal com reset na segunda-feira, revisões espaçadas, Bizuário tático de alta precisão com fórmulas em LaTeX (KaTeX), gerador direto com IA por Matéria e Conteúdo, persistência em IndexedDB e inteligência artificial de equilíbrio pedagógico." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#020617" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Rumo ao CFO" />
     <link rel="canonical" href="https://cfo-oficial-agorasim.onrender.com/" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -25,7 +31,34 @@
     </noscript>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main class="landing min-h-screen overflow-hidden bg-[#fbfcfe] text-[#08172d]">
+        <header class="landing-header">
+          <div class="landing-container nav-inner">
+            <a href="#inicio" class="brand">
+              <div class="logo-mark">
+                <picture>
+                  <source srcset="/phoenix-logo-header.webp" type="image/webp" />
+                  <img class="brand-phoenix" src="/phoenix-logo-header.png" alt="Fênix Rumo ao CFO" width="38" height="38" decoding="async" />
+                </picture>
+                <div><strong>RUMO AO <span>CFO</span></strong><small>DISCIPLINA HOJE. OFICIAL AMANHÃ.</small></div>
+              </div>
+            </a>
+          </div>
+        </header>
+        <section id="inicio" class="hero">
+          <div class="hero-grid"></div>
+          <div class="landing-container hero-inner">
+            <div class="hero-copy">
+              <div class="eyebrow">Preparação de alto nível para quem quer chegar ao oficialato</div>
+              <h1>Seu caminho até o <span>CFO</span> começa aqui.</h1>
+              <p>Estude com estratégia, acompanhe sua evolução e transforme cada dia de preparação em progresso real.</p>
+              <div class="motto">“Disciplina hoje.<br />Oficial amanhã.” <b></b></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

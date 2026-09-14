@@ -12,7 +12,19 @@ if (process.env.ALLOW_POSTGRES_RESET !== 'true') throw new Error('SET_ALLOW_POST
 if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 5000) throw new Error('INVALID_MIGRATION_BATCH_SIZE');
 
 const source = new DatabaseSync(sourcePath, { readOnly: true });
-const target = new Pool({ connectionString: databaseUrl, max: 5, connectionTimeoutMillis: 10_000, idleTimeoutMillis: 30_000 });
+const target = new Pool({
+  connectionString: databaseUrl,
+  max: 5,
+  connectionTimeoutMillis: 10_000,
+  idleTimeoutMillis: 30_000,
+  ssl: databaseUrl.includes('sslmode=require') ||
+    process.env.NODE_ENV === 'production' ||
+    databaseUrl.includes('neon.tech') ||
+    databaseUrl.includes('render.com') ||
+    databaseUrl.includes('supabase.co')
+    ? { rejectUnauthorized: false }
+    : undefined,
+});
 const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
 const tables = source.prepare("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> '_migrations' ORDER BY name").all() as { name: string; sql: string }[];
 const indexes = source.prepare("SELECT name, sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%'").all() as { name: string; sql: string }[];

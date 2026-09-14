@@ -510,7 +510,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                     </div>
                     <div className="flex justify-between pt-1">
                       <span className="text-slate-400">IP DE ORIGEM:</span>
-                      <span className="text-amber-400 font-semibold">{banDetails?.clientIp || securityStatus?.clientIp || 'DETECTADO'}</span>
+                      <span className="text-amber-400 font-semibold">{banDetails?.clientIp || 'DETECTADO'}</span>
                     </div>
                     {banDetails?.location && (
                       <div className="flex justify-between">

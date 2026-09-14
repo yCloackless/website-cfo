@@ -20,6 +20,7 @@ import {
   SecurityNotificationRepository,
 } from './repositories';
 import { DbUser, DbSession, UserRole, DbSecurityNotification } from './schema';
+import { setCadetLockInRedis, clearCadetLockInRedis } from '../services/redisService';
 
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
 
@@ -456,6 +457,7 @@ export class AuthService {
         });
 
         this.cadetLockRepo.setLock(user.id, session.id, null);
+        void setCadetLockInRedis(user.id, session.id);
 
         this.auditRepo.log({
           action: 'CADET_LOGIN_SUCCESS',
@@ -574,6 +576,7 @@ export class AuthService {
     // Revoga todas as sessões ativas do cadete e limpa a trava de 24h
     this.sessionRepo.revokeAllUserSessions(targetUserId);
     this.cadetLockRepo.clearLock(targetUserId);
+    void clearCadetLockInRedis(targetUserId);
 
     this.auditRepo.log({
       action: 'CADET_LOCK_MANUALLY_RESET',

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Calendar, Flame, Moon, PanelLeft, ShieldCheck, Sun } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
+import { TabType } from './TacticalSidebar';
 
 interface HeaderProps {
   user: User | null;
@@ -30,8 +31,8 @@ interface HeaderProps {
   pendingRevisionsCount: number;
   theme: AppTheme;
   onToggleTheme: () => void;
-  activeTab?: 'table' | 'monthlyHours' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations' | 'flashcards';
-  onSelectTab?: (tab: 'table' | 'monthlyHours' | 'timer' | 'bizuario' | 'highyield' | 'ai' | 'calendar' | 'simulations' | 'flashcards') => void;
+  activeTab?: TabType;
+  onSelectTab?: (tab: TabType) => void;
   onLockTerminal?: () => void;
   isSidebarOpen?: boolean;
   onToggleSidebar?: () => void;

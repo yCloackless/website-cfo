@@ -1059,7 +1059,7 @@ export class DatabaseService {
   private readonly postgres: boolean;
 
   constructor(customPath?: string) {
-    this.postgres = !customPath && Boolean(process.env.DATABASE_URL);
+    this.postgres = !customPath && Boolean(process.env.DATABASE_URL) && (process.env.NODE_ENV !== 'test' || process.env.ALLOW_TEST_POSTGRES === 'true');
     if (customPath) {
       this.dbPath = customPath;
       const dir = path.dirname(this.dbPath);

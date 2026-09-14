@@ -92,6 +92,8 @@ import { StudentLearningService } from "./src/services/studentLearningService";
 import { getBoardIntelligenceService } from "./src/services/boardIntelligenceService";
 import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtimeHub";
 import { createAuthMiddlewares } from "./src/middleware/auth";
+import { createRateLimitRedisStore, isRedisAvailable } from "./src/services/redisService";
+import { telemetryService } from "./src/services/telemetryService";
 
 const app = express();
 app.disable("x-powered-by");
@@ -145,16 +147,55 @@ const trustedProxyEntries = (process.env.TRUSTED_PROXIES || '')
   .split(',').map(value => value.trim()).filter(value => value && value !== '*' && value !== 'true');
 app.set("trust proxy", trustedProxyEntries.length > 0 ? trustedProxyEntries : (isProxyEnvironment ? 1 : false));
 
-// 2. Rota de Health Check ultraleve para UptimeRobot / anti-sleep do Render
+app.get("/sw.js", (_req: Request, res: Response) => {
+  const swPath = path.join(process.cwd(), "public", "sw.js");
+  res.setHeader("Service-Worker-Allowed", "/");
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+  return res.sendFile(swPath);
+});
+
+app.get("/manifest.webmanifest", (_req: Request, res: Response) => {
+  const manifestPath = path.join(process.cwd(), "public", "manifest.webmanifest");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.setHeader("Content-Type", "application/manifest+json; charset=utf-8");
+  return res.sendFile(manifestPath);
+});
+
+// 2. Rota de Health Check operacional detalhada e ultraleve
 app.get("/api/health", (_req: Request, res: Response) => {
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+
+  const mem = process.memoryUsage();
+  const cpu = process.cpuUsage();
+  let dbReady = false;
+  try {
+    const check = getDb().getRawDb().prepare("SELECT 1 AS ok").get();
+    dbReady = check?.ok === 1;
+  } catch {
+    dbReady = false;
+  }
+
   return res.status(200).json({
     status: "healthy",
     uptime: Math.floor(process.uptime()),
     timestamp: Date.now(),
     service: "cfo-cbmerj-backend",
+    version: "1.0.0",
+    database: { connected: dbReady },
+    redis: { connected: isRedisAvailable() },
+    memory: {
+      rssMb: Math.round(mem.rss / (1024 * 1024)),
+      heapUsedMb: Math.round(mem.heapUsed / (1024 * 1024)),
+      heapTotalMb: Math.round(mem.heapTotal / (1024 * 1024)),
+    },
+    cpu: {
+      userMs: Math.round(cpu.user / 1000),
+      systemMs: Math.round(cpu.system / 1000),
+    },
   });
 });
 
@@ -349,10 +390,22 @@ function sanitizeSecurityPayload(value: any, key = ""): any {
   return value;
 }
 
+function maskSensitiveText(text: string): string {
+  return text
+    .replace(/(password|senha|secret|token|authorization|jwt|bearer)\s*[:=]\s*["']?[^"',\s]+["']?/gi, "$1: [REDACTED]")
+    .replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, "***.***.***-**")
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, (email) => {
+      const parts = email.split("@");
+      return parts[0].slice(0, 2) + "***@" + parts[1];
+    });
+}
+
 function logInternalError(scope: string, err: any): void {
+  const errMsg = typeof err?.message === "string" ? maskSensitiveText(err.message) : undefined;
   console.error(`[${scope}]`, {
     name: typeof err?.name === "string" ? err.name : "Error",
     code: typeof err?.code === "string" ? err.code : undefined,
+    message: errMsg,
   });
 }
 
@@ -521,6 +574,8 @@ app.use(
         baseUri: ["'self'"],
         formAction: ["'self'"],
         frameAncestors: ["'self'"],
+        workerSrc: ["'self'"],
+        manifestSrc: ["'self'"],
       },
     },
     crossOriginEmbedderPolicy: false,
@@ -605,6 +660,7 @@ app.use(
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 350,
+  store: createRateLimitRedisStore('global'),
   validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
@@ -616,6 +672,7 @@ app.use("/api/", apiLimiter);
 const healthLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
+  store: createRateLimitRedisStore('health'),
   validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
@@ -626,6 +683,7 @@ app.use("/api/health", healthLimiter);
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 15,
+  store: createRateLimitRedisStore('auth'),
   // Testes podem exercitar muitos logins no mesmo processo. Producao e
   // desenvolvimento continuam protegidos, inclusive em IPs administrativos.
   skip: () => process.env.NODE_ENV === "test",
@@ -639,6 +697,7 @@ app.use("/api/auth/", authLimiter);
 const registrationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 8,
+  store: createRateLimitRedisStore('registration'),
   validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
@@ -648,6 +707,7 @@ const registrationLimiter = rateLimit({
 const twoFactorLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
+  store: createRateLimitRedisStore('2fa'),
   validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
@@ -657,6 +717,7 @@ const twoFactorLimiter = rateLimit({
 const aiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
+  store: createRateLimitRedisStore('ai'),
   validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
@@ -673,6 +734,7 @@ const aiLimiter = rateLimit({
 const calendarLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 60,
+  store: createRateLimitRedisStore('calendar'),
   validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
@@ -681,6 +743,26 @@ const calendarLimiter = rateLimit({
     return userId ? `user:${userId}` : `ip:${ipKeyGenerator(req.ip || getClientIp(req))}`;
   },
   message: { error: 'CALENDAR_RATE_LIMITED', message: 'Limite de sincronizações atingido. Tente novamente mais tarde.' },
+});
+
+// ── RUM Telemetry Endpoint (LGPD-compliant / anônimo / beacon)
+const telemetryLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  store: createRateLimitRedisStore('telemetry'),
+  validate: { xForwardedForHeader: false },
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "TOO_MANY_REQUESTS", message: "Limite de telemetria atingido." },
+});
+
+app.post("/api/telemetry/vitals", telemetryLimiter, (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  const payload = req.body;
+  if (payload && typeof payload === "object") {
+    telemetryService.recordVital(payload as any);
+  }
+  return res.status(204).end();
 });
 
 // Body parser JSON: 2 MiB global. Rotas de upload têm guard pré-parser em /api
