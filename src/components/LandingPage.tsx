@@ -11,13 +11,41 @@ function DeferredFibonacciSphere() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if ('requestIdleCallback' in window) {
-      const id = (window as any).requestIdleCallback(() => setShouldRender(true), { timeout: 1200 });
-      return () => (window as any).cancelIdleCallback?.(id);
+    let idleId: any;
+    let timeoutId: any;
+
+    const activate = () => {
+      setShouldRender(true);
+      cleanup();
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('scroll', activate);
+      window.removeEventListener('pointermove', activate);
+      window.removeEventListener('touchstart', activate);
+      if (idleId && (window as any).cancelIdleCallback) (window as any).cancelIdleCallback(idleId);
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+
+    window.addEventListener('scroll', activate, { passive: true, once: true });
+    window.addEventListener('pointermove', activate, { passive: true, once: true });
+    window.addEventListener('touchstart', activate, { passive: true, once: true });
+
+    const scheduleIdle = () => {
+      if ('requestIdleCallback' in window) {
+        idleId = (window as any).requestIdleCallback(activate, { timeout: 4000 });
+      } else {
+        timeoutId = setTimeout(activate, 2500);
+      }
+    };
+
+    if (document.readyState === 'complete') {
+      scheduleIdle();
     } else {
-      const timer = setTimeout(() => setShouldRender(true), 400);
-      return () => clearTimeout(timer);
+      window.addEventListener('load', scheduleIdle, { once: true });
     }
+
+    return cleanup;
   }, []);
 
   if (!shouldRender) return null;
@@ -54,8 +82,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => (
         </div>
         <div className="hero-art">
           <div className="hero-sphere-stage" aria-hidden="true"><DeferredFibonacciSphere /></div>
-          <div className="blue-panel"><small>DISCIPLINA<br />PROTEGE<br />SONHOS</small><b /><img src="/pm-officer.jpg" alt="Oficial da Polícia Militar" width="275" height="390" loading="lazy" decoding="async" /></div>
-          <div className="orange-panel"><small>CORAGEM<br />TAMBÉM<br />SALVA VIDAS</small><img src="/bombeiro-officer.jpg" alt="Oficial do Corpo de Bombeiros" width="246" height="440" loading="lazy" decoding="async" /></div>
+          <div className="blue-panel"><small>DISCIPLINA<br />PROTEGE<br />SONHOS</small><b /><picture><source srcSet="/pm-officer.webp" type="image/webp" /><img src="/pm-officer.jpg" alt="Oficial da Polícia Militar" width="275" height="390" loading="lazy" decoding="async" /></picture></div>
+          <div className="orange-panel"><small>CORAGEM<br />TAMBÉM<br />SALVA VIDAS</small><picture><source srcSet="/bombeiro-officer.webp" type="image/webp" /><img src="/bombeiro-officer.jpg" alt="Oficial do Corpo de Bombeiros" width="246" height="440" loading="lazy" decoding="async" /></picture></div>
           <DashboardMockup />
         </div>
       </div>

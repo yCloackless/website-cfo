@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Allow: /assets/
+Disallow: /api/
+Disallow: /admin
+Disallow: /dashboard
+
+Sitemap: https://cfo-oficial-agorasim.onrender.com/sitemap.xml

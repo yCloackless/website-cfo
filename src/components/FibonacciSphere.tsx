@@ -23,9 +23,10 @@ export default function FibonacciSphere({
     if (!container) return;
 
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
     const lowPower = (navigator.hardwareConcurrency || 8) <= 4;
-    const count = lowPower ? Math.max(3500, Math.round(pointCount * 0.72)) : pointCount;
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    const count = isMobile ? 1200 : (lowPower ? Math.max(3000, Math.round(pointCount * 0.6)) : pointCount);
+    const pixelRatio = isMobile ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
     camera.position.z = 4.1;

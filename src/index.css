@@ -198,6 +198,15 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
 .platform,
 .final-cta { background:#000 !important; color:#fff !important; }
 .landing-header { border-bottom-color:rgba(255,255,255,.12) !important; }
+.landing-header .logo-mark strong,
+.logo-mark strong { color:#ffffff !important; }
+.landing-header .logo-mark strong span,
+.logo-mark strong span,
+.hero-copy h1 span,
+.stats h2 span,
+.section-heading label { color:#60a5fa !important; }
+.landing-header .logo-mark small,
+.logo-mark small { color:#94a3b8 !important; }
 .hero-grid { opacity:0 !important; }
 .hero-copy h1,
 .stats h2,

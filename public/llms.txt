@@ -1,0 +1,17 @@
+# Rumo ao CFO - Cronograma e Preparatório Oficial CBMERJ
+
+> Plataforma tática de cronograma e preparação completa para o concurso de Oficial do Corpo de Bombeiros Militar do Estado do Rio de Janeiro (CBMERJ).
+
+O Rumo ao CFO é um ecossistema educacional completo voltado para candidatos ao Curso de Formação de Oficiais (CFO CBMERJ), reunindo cronograma horizontal inteligente, banco com mais de 10 mil questões comentadas por especialistas, simulados oficiais parametrizados, bizuário tático com fórmulas em LaTeX e acompanhamento analítico de desempenho.
+
+## Seções Principais
+- [Página Inicial](https://cfo-oficial-agorasim.onrender.com/): Portal de apresentação da plataforma e acesso ao ambiente de estudos.
+- [Método de Estudos](https://cfo-oficial-agorasim.onrender.com/#metodo): Metodologia de ciclos semanais, estudo orientado e revisões espaçadas.
+- [Plataforma](https://cfo-oficial-agorasim.onrender.com/#plataforma): Ferramentas de estudo, simulados, cronograma e métricas.
+- [Resultados](https://cfo-oficial-agorasim.onrender.com/#resultados): Estatísticas de preparação e acompanhamento de evolução.
+- [Sobre](https://cfo-oficial-agorasim.onrender.com/#sobre): Informações institucionais e compromisso com o oficialato.
+
+## Recursos Disponíveis
+- [Cronograma Semanal](https://cfo-oficial-agorasim.onrender.com/): Grade adaptativa por disciplinas com controle de ciclos.
+- [Bizuário Tático](https://cfo-oficial-agorasim.onrender.com/): Fórmulas matemáticas, físicas e químicas em LaTeX com alta precisão.
+- [Simulados Parametrizados](https://cfo-oficial-agorasim.onrender.com/): Provas com temporização real e gabaritos comentados.

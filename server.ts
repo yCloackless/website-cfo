@@ -95,6 +95,13 @@ import { createAuthMiddlewares } from "./src/middleware/auth";
 
 const app = express();
 app.disable("x-powered-by");
+app.use(compression({
+  threshold: 1024,
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  },
+}));
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -7134,7 +7141,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist", "public");
     app.use(express.static(distPath, {
-      maxAge: '1h',
+      maxAge: '30d',
       setHeaders: (res: Response, filePath: string) => {
         const normalized = filePath.replace(/\\/g, '/');
         if (normalized.includes('/assets/')) {
@@ -7143,8 +7150,19 @@ async function startServer() {
           res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
           res.setHeader('Pragma', 'no-cache');
           res.setHeader('Expires', '0');
+        } else if (normalized.endsWith('llms.txt')) {
+          res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+        } else if (normalized.endsWith('robots.txt')) {
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+        } else if (normalized.endsWith('sitemap.xml')) {
+          res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+        } else if (/\.(webp|jpg|jpeg|png|gif|svg|ico|woff2|woff)$/i.test(normalized)) {
+          res.setHeader('Cache-Control', 'public, max-age=2592000, stale-while-revalidate=86400');
         } else {
-          res.setHeader('Cache-Control', 'public, max-age=3600');
+          res.setHeader('Cache-Control', 'public, max-age=86400');
         }
       },
     }));
