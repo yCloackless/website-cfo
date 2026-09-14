@@ -153,4 +153,44 @@ test('Study Session Range & Weekly Synchronization Suite', async (t) => {
     let summaryAfter = sessionRepo.getDailySummaryByMonth(testUser.id, '2026-09');
     assert.strictEqual(summaryAfter['2026-09-20'], undefined, 'Dia 20 não deve mais constar após exclusão');
   });
+
+  await t.test('5. Exclusão específica de uma matéria em um dia com múltiplas matérias', () => {
+    // Insere Português e Redação no dia 2026-09-22
+    sessionRepo.upsertManual(`session_port_${Date.now()}`, {
+      userId: testUser.id,
+      subjectId: 'portugues',
+      subjectName: 'Português',
+      dateStr: '2026-09-22',
+      durationSeconds: 3600, // 1h
+      endedAt: '2026-09-22T10:00:00.000Z',
+    });
+    sessionRepo.upsertManual(`session_red_${Date.now()}`, {
+      userId: testUser.id,
+      subjectId: 'redacao',
+      subjectName: 'Redação',
+      dateStr: '2026-09-22',
+      durationSeconds: 5400, // 1.5h
+      endedAt: '2026-09-22T12:00:00.000Z',
+    });
+
+    let daySummary = sessionRepo.getDailySummaryByMonth(testUser.id, '2026-09')['2026-09-22'];
+    assert.strictEqual(daySummary.subjects.length, 2);
+    assert.strictEqual(daySummary.totalHours, 2.5);
+
+    // Exclui apenas Português
+    sessionRepo.deleteByDateAndSubjectForUser(testUser.id, '2026-09-22', 'portugues');
+
+    daySummary = sessionRepo.getDailySummaryByMonth(testUser.id, '2026-09')['2026-09-22'];
+    assert.strictEqual(daySummary.subjects.length, 1);
+    assert.strictEqual(daySummary.subjects[0].subjectId, 'redacao');
+    assert.strictEqual(daySummary.totalHours, 1.5);
+  });
+
+  await t.test('6. Limpar todas as horas de um dia específico', () => {
+    // Limpa todas as sessões do dia 2026-09-22
+    sessionRepo.deleteByDateForUser(testUser.id, '2026-09-22');
+
+    const summary = sessionRepo.getDailySummaryByMonth(testUser.id, '2026-09');
+    assert.strictEqual(summary['2026-09-22'], undefined, 'Dia 22 deve ser completamente removido');
+  });
 });

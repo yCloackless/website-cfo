@@ -1243,7 +1243,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }`}
           >
             <FileText className="w-4 h-4 text-purple-400" />
-            Auditoria
+            Auditoria (ADM)
           </button>
 
           <button

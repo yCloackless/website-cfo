@@ -11,6 +11,8 @@ import {
   X,
   TrendingUp,
   Plus,
+  Edit3,
+  Trash2,
 } from 'lucide-react';
 import { AppTheme, Subject } from '../types';
 import { apiFetch } from '../services/apiFetch';
@@ -110,7 +112,10 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
   const [manualHours, setManualHours] = useState('');
   const [manualMinutes, setManualMinutes] = useState('');
   const [manualTopic, setManualTopic] = useState('');
+  const [manualMode, setManualMode] = useState<'add' | 'replace'>('add');
   const [isSavingManual, setIsSavingManual] = useState(false);
+  const [isDeletingSubject, setIsDeletingSubject] = useState<string | null>(null);
+  const [isClearingDay, setIsClearingDay] = useState(false);
 
   const todayStr = useMemo(() => {
     const now = new Date();
@@ -196,12 +201,173 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
     setCurrentDate(new Date());
   };
 
-  const openManualEntry = (dateStr: string) => {
+  const openManualEntry = (
+    dateStr: string,
+    subjectId?: string,
+    initialHours?: string,
+    initialMinutes?: string,
+    mode: 'add' | 'replace' = 'add'
+  ) => {
     setManualDate(dateStr);
-    setManualSubjectId(subjects[0]?.id || '');
-    setManualHours('');
-    setManualMinutes('');
+    setManualSubjectId(subjectId || subjects[0]?.id || '');
+    setManualHours(initialHours !== undefined ? initialHours : '');
+    setManualMinutes(initialMinutes !== undefined ? initialMinutes : '');
     setManualTopic('');
+    setManualMode(mode);
+  };
+
+  // Exclui as horas de uma matéria específica em um dia
+  const handleDeleteSubjectHours = async (
+    dateStr: string,
+    subjectId: string,
+    subjectName: string,
+    durationSeconds: number
+  ) => {
+    if (!window.confirm(`Deseja realmente excluir as horas de "${subjectName}" do dia ${dateStr}?`)) {
+      return;
+    }
+
+    // 🚀 ATUALIZAÇÃO OTIMISTA: Remove instantaneamente da interface
+    setDailySummaries((prev) => {
+      const existingDay = prev[dateStr];
+      if (!existingDay) return prev;
+
+      const updatedSubjects = existingDay.subjects.filter((s) => s.subjectId !== subjectId);
+      const newSeconds = Math.max(0, existingDay.totalSeconds - durationSeconds);
+      const newHours = Math.round((newSeconds / 3600) * 10) / 10;
+
+      const nextMap = { ...prev };
+      if (updatedSubjects.length === 0 || newSeconds === 0) {
+        delete nextMap[dateStr];
+      } else {
+        nextMap[dateStr] = {
+          ...existingDay,
+          totalSeconds: newSeconds,
+          totalHours: newHours,
+          sessionsCount: Math.max(0, existingDay.sessionsCount - 1),
+          subjects: updatedSubjects,
+        };
+      }
+
+      // Atualiza também o modal detalhado do dia
+      setSelectedDaySummary((currentModal) => {
+        if (currentModal && currentModal.dateStr === dateStr) {
+          if (updatedSubjects.length === 0 || newSeconds === 0) {
+            return null;
+          }
+          return {
+            ...currentModal,
+            totalSeconds: newSeconds,
+            totalHours: newHours,
+            sessionsCount: Math.max(0, currentModal.sessionsCount - 1),
+            subjects: updatedSubjects,
+          };
+        }
+        return currentModal;
+      });
+
+      try {
+        const newMonthSec = Math.max(0, monthTotals.totalSeconds - durationSeconds);
+        localStorage.setItem(
+          `cfo_monthly_study_sessions_${yearMonth}`,
+          JSON.stringify({
+            summary: nextMap,
+            totals: {
+              totalSeconds: newMonthSec,
+              totalHours: Math.round((newMonthSec / 3600) * 10) / 10,
+              totalSessions: Math.max(0, monthTotals.totalSessions - 1),
+            },
+          })
+        );
+      } catch (e) {}
+
+      return nextMap;
+    });
+
+    setMonthTotals((prev) => {
+      const newSec = Math.max(0, prev.totalSeconds - durationSeconds);
+      return {
+        totalSeconds: newSec,
+        totalHours: Math.round((newSec / 3600) * 10) / 10,
+        totalSessions: Math.max(0, prev.totalSessions - 1),
+      };
+    });
+
+    showToast(`Horas de ${subjectName} excluídas com sucesso.`, 'info');
+
+    try {
+      setIsDeletingSubject(subjectId);
+      await apiFetch(`/api/study-sessions/day-subject?dateStr=${dateStr}&subjectId=${subjectId}`, {
+        method: 'DELETE',
+        headers: { 'Cache-Control': 'no-cache, no-store' },
+      });
+      await fetchMonthlyData();
+    } catch (err) {
+      console.warn('Falha ao excluir horas no backend:', err);
+    } finally {
+      setIsDeletingSubject(null);
+    }
+  };
+
+  // Limpa todas as horas registradas em um determinado dia
+  const handleClearDayHours = async (dateStr: string) => {
+    const day = dailySummaries[dateStr];
+    if (!day) return;
+
+    if (!window.confirm(`Tem certeza de que deseja apagar TODOS os estudos registrados em ${dateStr}?`)) {
+      return;
+    }
+
+    const removedSeconds = day.totalSeconds;
+    const removedSessions = day.sessionsCount;
+
+    // 🚀 ATUALIZAÇÃO OTIMISTA: Remove o dia inteiro na hora
+    setDailySummaries((prev) => {
+      const nextMap = { ...prev };
+      delete nextMap[dateStr];
+
+      try {
+        const newMonthSec = Math.max(0, monthTotals.totalSeconds - removedSeconds);
+        localStorage.setItem(
+          `cfo_monthly_study_sessions_${yearMonth}`,
+          JSON.stringify({
+            summary: nextMap,
+            totals: {
+              totalSeconds: newMonthSec,
+              totalHours: Math.round((newMonthSec / 3600) * 10) / 10,
+              totalSessions: Math.max(0, monthTotals.totalSessions - removedSessions),
+            },
+          })
+        );
+      } catch (e) {}
+
+      return nextMap;
+    });
+
+    setMonthTotals((prev) => {
+      const newSec = Math.max(0, prev.totalSeconds - removedSeconds);
+      return {
+        totalSeconds: newSec,
+        totalHours: Math.round((newSec / 3600) * 10) / 10,
+        totalSessions: Math.max(0, prev.totalSessions - removedSessions),
+      };
+    });
+
+    setSelectedDaySummary(null);
+    showToast(`Todos os estudos de ${dateStr} foram limpos.`, 'info');
+
+    try {
+      setIsClearingDay(true);
+      await apiFetch(`/api/study-sessions/day/${dateStr}`, {
+        method: 'DELETE',
+        headers: { 'Cache-Control': 'no-cache, no-store' },
+      });
+      await fetchMonthlyData();
+    } catch (err) {
+      console.warn('Falha ao limpar dia no backend:', err);
+    } finally {
+      setIsClearingDay(false);
+    }
   };
 
   const handleSaveManualEntry = async (event: React.FormEvent) => {
@@ -214,18 +380,33 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
     const hours = Number(manualHours || 0);
     const minutes = Number(manualMinutes || 0);
     const totalMinutes = Math.round(hours * 60 + minutes);
-    if (!Number.isFinite(totalMinutes) || totalMinutes <= 0 || totalMinutes > 1440) {
-      showToast('Informe um tempo entre 1 minuto e 24 horas.', 'info');
-      return;
-    }
 
     const subject = subjects.find((item) => item.id === manualSubjectId);
     if (!subject) return;
 
     const targetDate = manualDate;
-    const addedSeconds = totalMinutes * 60;
-    const addedHours = Math.round((addedSeconds / 3600) * 10) / 10;
+    const existingDayBefore = dailySummaries[targetDate];
+    const prevSubBefore = existingDayBefore?.subjects.find((s) => s.subjectId === subject.id);
+    const prevSubSeconds = prevSubBefore?.durationSeconds || 0;
+
+    // Se o usuário colocou 0h 0m e está no modo replace, trata como exclusão
+    if (totalMinutes === 0 && manualMode === 'replace') {
+      setManualDate(null);
+      await handleDeleteSubjectHours(targetDate, subject.id, subject.name, prevSubSeconds);
+      return;
+    }
+
+    if (!Number.isFinite(totalMinutes) || totalMinutes <= 0 || totalMinutes > 1440) {
+      showToast('Informe um tempo entre 1 minuto e 24 horas (ou 0 para excluir).', 'info');
+      return;
+    }
+
+    const newSubjectSeconds = totalMinutes * 60;
+    const newSubjectHours = Math.round((newSubjectSeconds / 3600) * 10) / 10;
     const cleanTopic = manualTopic.trim();
+
+    // Diferença em segundos a ser aplicada ao dia e ao mês
+    const diffSeconds = manualMode === 'replace' ? (newSubjectSeconds - prevSubSeconds) : newSubjectSeconds;
 
     // 🚀 ATUALIZAÇÃO OTIMISTA IMEDIATA (Zero Latência): Reflete na página instantaneamente sem refresh
     setDailySummaries((prev) => {
@@ -237,33 +418,50 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
         subjects: [],
       };
 
-      const newSeconds = existingDay.totalSeconds + addedSeconds;
-      const newHours = Math.round((newSeconds / 3600) * 10) / 10;
+      const newDaySeconds = Math.max(0, existingDay.totalSeconds + diffSeconds);
+      const newDayHours = Math.round((newDaySeconds / 3600) * 10) / 10;
 
-      const existingSubIndex = existingDay.subjects.findIndex((s) => s.subjectId === subject.id);
+      const subIdx = existingDay.subjects.findIndex((s) => s.subjectId === subject.id);
       let updatedSubjects = [...existingDay.subjects];
-      if (existingSubIndex >= 0) {
-        const prevSub = updatedSubjects[existingSubIndex];
-        const subSec = prevSub.durationSeconds + addedSeconds;
-        updatedSubjects[existingSubIndex] = {
-          ...prevSub,
-          durationSeconds: subSec,
-          durationHours: Math.round((subSec / 3600) * 10) / 10,
-        };
+
+      if (manualMode === 'replace') {
+        if (subIdx >= 0) {
+          updatedSubjects[subIdx] = {
+            ...updatedSubjects[subIdx],
+            durationSeconds: newSubjectSeconds,
+            durationHours: newSubjectHours,
+          };
+        } else {
+          updatedSubjects.push({
+            subjectId: subject.id,
+            subjectName: subject.name,
+            durationSeconds: newSubjectSeconds,
+            durationHours: newSubjectHours,
+          });
+        }
       } else {
-        updatedSubjects.push({
-          subjectId: subject.id,
-          subjectName: subject.name,
-          durationSeconds: addedSeconds,
-          durationHours: addedHours,
-        });
+        if (subIdx >= 0) {
+          const combinedSec = updatedSubjects[subIdx].durationSeconds + newSubjectSeconds;
+          updatedSubjects[subIdx] = {
+            ...updatedSubjects[subIdx],
+            durationSeconds: combinedSec,
+            durationHours: Math.round((combinedSec / 3600) * 10) / 10,
+          };
+        } else {
+          updatedSubjects.push({
+            subjectId: subject.id,
+            subjectName: subject.name,
+            durationSeconds: newSubjectSeconds,
+            durationHours: newSubjectHours,
+          });
+        }
       }
 
       const updatedDay: DayStudySummary = {
         dateStr: targetDate,
-        totalSeconds: newSeconds,
-        totalHours: newHours,
-        sessionsCount: existingDay.sessionsCount + 1,
+        totalSeconds: newDaySeconds,
+        totalHours: newDayHours,
+        sessionsCount: manualMode === 'replace' ? existingDay.sessionsCount : (existingDay.sessionsCount + 1),
         subjects: updatedSubjects,
       };
 
@@ -281,14 +479,15 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
       };
 
       try {
+        const nextMonthSec = Math.max(0, monthTotals.totalSeconds + diffSeconds);
         localStorage.setItem(
           `cfo_monthly_study_sessions_${yearMonth}`,
           JSON.stringify({
             summary: nextMap,
             totals: {
-              totalSeconds: monthTotals.totalSeconds + addedSeconds,
-              totalHours: Math.round(((monthTotals.totalSeconds + addedSeconds) / 3600) * 10) / 10,
-              totalSessions: monthTotals.totalSessions + 1,
+              totalSeconds: nextMonthSec,
+              totalHours: Math.round((nextMonthSec / 3600) * 10) / 10,
+              totalSessions: manualMode === 'replace' ? monthTotals.totalSessions : (monthTotals.totalSessions + 1),
             },
           })
         );
@@ -298,11 +497,11 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
     });
 
     setMonthTotals((prev) => {
-      const newSec = prev.totalSeconds + addedSeconds;
+      const nextMonthSec = Math.max(0, prev.totalSeconds + diffSeconds);
       return {
-        totalSeconds: newSec,
-        totalHours: Math.round((newSec / 3600) * 10) / 10,
-        totalSessions: prev.totalSessions + 1,
+        totalSeconds: nextMonthSec,
+        totalHours: Math.round((nextMonthSec / 3600) * 10) / 10,
+        totalSessions: manualMode === 'replace' ? prev.totalSessions : (prev.totalSessions + 1),
       };
     });
 
@@ -312,7 +511,7 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
         subjectId: subject.id,
         subjectName: subject.name,
         dateStr: targetDate,
-        durationMinutes: totalMinutes,
+        durationMinutes: manualMode === 'replace' ? Math.round(newSubjectSeconds / 60) : totalMinutes,
         topic: cleanTopic,
       });
     }
@@ -323,7 +522,10 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
     setManualMinutes('');
     setManualTopic('');
 
-    showToast(`+${formatDurationFriendly(addedSeconds)} de ${subject.name} registradas na Agenda!`, 'success');
+    const toastMsg = manualMode === 'replace'
+      ? `Horas de ${subject.name} ajustadas para ${formatDurationFriendly(newSubjectSeconds)}!`
+      : `+${formatDurationFriendly(newSubjectSeconds)} de ${subject.name} registradas na Agenda!`;
+    showToast(toastMsg, 'success');
 
     try {
       setIsSavingManual(true);
@@ -334,13 +536,14 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
           'Cache-Control': 'no-cache, no-store',
         },
         body: JSON.stringify({
-          entryId: `monthly_${targetDate}_${subject.id}_${Date.now()}`,
+          entryId: `monthly_${targetDate}_${subject.id}`,
           subjectId: subject.id,
           subjectName: subject.name,
           topic: cleanTopic,
           dateStr: targetDate,
           durationMinutes: totalMinutes,
-          notes: 'Lançamento manual pela Agenda Mensal',
+          replaceSubjectTime: manualMode === 'replace',
+          notes: manualMode === 'replace' ? 'Ajuste manual de horas' : 'Lançamento manual pela Agenda Mensal',
         }),
       });
 
@@ -795,58 +998,118 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
 
             <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Disciplinas Estudadas:
+                Disciplinas Estudadas (Ajustar ou Excluir):
               </p>
               {selectedDaySummary.subjects.map((sub, i) => (
                 <div
                   key={i}
-                  className={`p-3 rounded-xl border flex items-center justify-between ${
+                  className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${
                     isDark ? 'bg-[#070D18] border-blue-900/40' : 'bg-slate-50 border-slate-200'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-blue-400" />
-                    <span className="text-xs font-semibold">{sub.subjectName}</span>
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <BookOpen className="w-4 h-4 text-blue-400 shrink-0" />
+                    <span className="text-xs font-semibold truncate" title={sub.subjectName}>{sub.subjectName}</span>
                   </div>
-                  <span className="text-xs font-bold text-blue-400">
-                    {formatDurationFriendly(sub.durationSeconds)}
-                  </span>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs font-bold text-blue-400">
+                      {formatDurationFriendly(sub.durationSeconds)}
+                    </span>
+
+                    {/* Botão de Editar / Ajustar tempo */}
+                    <button
+                      type="button"
+                      onClick={() => openManualEntry(
+                        selectedDaySummary.dateStr,
+                        sub.subjectId,
+                        String(Math.floor(sub.durationSeconds / 3600)),
+                        String(Math.floor((sub.durationSeconds % 3600) / 60)),
+                        'replace'
+                      )}
+                      className="p-1.5 rounded-lg hover:bg-blue-500/20 text-slate-400 hover:text-blue-300 transition-colors cursor-pointer"
+                      title={`Ajustar tempo de ${sub.subjectName}`}
+                      aria-label={`Ajustar tempo de ${sub.subjectName}`}
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* Botão de Excluir tempo desta disciplina */}
+                    <button
+                      type="button"
+                      disabled={isDeletingSubject === sub.subjectId}
+                      onClick={() => handleDeleteSubjectHours(
+                        selectedDaySummary.dateStr,
+                        sub.subjectId,
+                        sub.subjectName,
+                        sub.durationSeconds
+                      )}
+                      className="p-1.5 rounded-lg hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors disabled:opacity-50 cursor-pointer"
+                      title={`Excluir horas de ${sub.subjectName}`}
+                      aria-label={`Excluir horas de ${sub.subjectName}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
 
-            <button
-              onClick={() => openManualEntry(selectedDaySummary.dateStr)}
-              className="w-full py-2.5 rounded-xl border border-blue-500/50 text-blue-300 hover:bg-blue-950/50 font-bold text-xs cursor-pointer transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5 inline mr-1" />
-              Adicionar horas neste dia
-            </button>
+            <div className="space-y-2 pt-1">
+              <button
+                onClick={() => openManualEntry(selectedDaySummary.dateStr, undefined, '', '', 'add')}
+                className="w-full py-2.5 rounded-xl border border-blue-500/50 text-blue-300 hover:bg-blue-950/50 font-bold text-xs cursor-pointer transition-colors flex items-center justify-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Adicionar outra matéria neste dia</span>
+              </button>
 
-            <button
-              onClick={() => setSelectedDaySummary(null)}
-              className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs cursor-pointer transition-colors"
-            >
-              Fechar Detalhes
-            </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={isClearingDay}
+                  onClick={() => handleClearDayHours(selectedDaySummary.dateStr)}
+                  className="w-full py-2.5 rounded-xl border border-red-500/30 text-red-400 hover:bg-red-500/10 font-bold text-xs cursor-pointer transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  title="Apagar todos os estudos registrados neste dia"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isClearingDay ? 'Limpando...' : 'Limpar este dia'}</span>
+                </button>
+
+                <button
+                  onClick={() => setSelectedDaySummary(null)}
+                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs cursor-pointer transition-colors"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {manualDate && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
           <form
             onSubmit={handleSaveManualEntry}
-            className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl space-y-4 ${
+            className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl space-y-4 animate-scale-up ${
               isDark ? 'bg-[#0B1528] border-blue-900/60 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
             }`}
           >
             <div className="flex items-center justify-between border-b border-slate-700/50 pb-3">
               <div>
-                <h3 className="text-sm font-bold">Adicionar horas estudadas</h3>
-                <p className="text-xs text-blue-400 font-semibold mt-1">Data: {manualDate}</p>
+                <h3 className="text-sm font-bold">
+                  {manualMode === 'replace' ? 'Ajustar horas estudadas' : 'Adicionar horas estudadas'}
+                </h3>
+                <p className="text-xs text-blue-400 font-semibold mt-1">
+                  Data: {manualDate} {manualMode === 'replace' && '• Substituição de tempo'}
+                </p>
               </div>
-              <button type="button" onClick={() => setManualDate(null)} className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white">
+              <button
+                type="button"
+                onClick={() => setManualDate(null)}
+                className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -856,7 +1119,8 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
               <select
                 value={manualSubjectId}
                 onChange={(event) => setManualSubjectId(event.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-blue-900/60 bg-[#0F1D38] px-3 py-2.5 text-xs text-slate-100"
+                disabled={manualMode === 'replace'}
+                className="mt-1.5 w-full rounded-xl border border-blue-900/60 bg-[#0F1D38] px-3 py-2.5 text-xs text-slate-100 disabled:opacity-75"
               >
                 <option value="">Selecione uma matéria</option>
                 {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
@@ -866,22 +1130,72 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
             <div className="grid grid-cols-2 gap-3">
               <label className="block text-xs font-semibold text-slate-300">
                 Horas
-                <input type="number" min="0" max="24" value={manualHours} onChange={(event) => setManualHours(event.target.value)} placeholder="Ex.: 5" className="mt-1.5 w-full rounded-xl border border-blue-900/60 bg-[#0F1D38] px-3 py-2.5 text-xs text-slate-100" />
+                <input
+                  type="number"
+                  min="0"
+                  max="24"
+                  value={manualHours}
+                  onChange={(event) => setManualHours(event.target.value)}
+                  placeholder="Ex.: 2"
+                  className="mt-1.5 w-full rounded-xl border border-blue-900/60 bg-[#0F1D38] px-3 py-2.5 text-xs text-slate-100"
+                />
               </label>
               <label className="block text-xs font-semibold text-slate-300">
                 Minutos
-                <input type="number" min="0" max="59" value={manualMinutes} onChange={(event) => setManualMinutes(event.target.value)} placeholder="Ex.: 30" className="mt-1.5 w-full rounded-xl border border-blue-900/60 bg-[#0F1D38] px-3 py-2.5 text-xs text-slate-100" />
+                <input
+                  type="number"
+                  min="0"
+                  max="59"
+                  value={manualMinutes}
+                  onChange={(event) => setManualMinutes(event.target.value)}
+                  placeholder="Ex.: 30"
+                  className="mt-1.5 w-full rounded-xl border border-blue-900/60 bg-[#0F1D38] px-3 py-2.5 text-xs text-slate-100"
+                />
               </label>
             </div>
 
             <label className="block text-xs font-semibold text-slate-300">
               Assunto (opcional)
-              <input type="text" value={manualTopic} onChange={(event) => setManualTopic(event.target.value)} placeholder="Ex.: Equações do 2º grau" className="mt-1.5 w-full rounded-xl border border-blue-900/60 bg-[#0F1D38] px-3 py-2.5 text-xs text-slate-100" />
+              <input
+                type="text"
+                value={manualTopic}
+                onChange={(event) => setManualTopic(event.target.value)}
+                placeholder="Ex.: Equações do 2º grau"
+                className="mt-1.5 w-full rounded-xl border border-blue-900/60 bg-[#0F1D38] px-3 py-2.5 text-xs text-slate-100"
+              />
             </label>
 
-            <button type="submit" disabled={isSavingManual || subjects.length === 0} className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs cursor-pointer transition-colors">
-              {isSavingManual ? 'Salvando...' : 'Salvar horas estudadas'}
-            </button>
+            <div className="space-y-2 pt-2">
+              <button
+                type="submit"
+                disabled={isSavingManual || subjects.length === 0}
+                className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs cursor-pointer transition-colors"
+              >
+                {isSavingManual
+                  ? 'Salvando...'
+                  : manualMode === 'replace'
+                  ? 'Salvar Ajuste de Tempo'
+                  : 'Salvar Horas Estudadas'}
+              </button>
+
+              {manualMode === 'replace' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const subject = subjects.find((s) => s.id === manualSubjectId);
+                    if (manualDate && subject) {
+                      setManualDate(null);
+                      const prevDuration = dailySummaries[manualDate]?.subjects.find((s) => s.subjectId === subject.id)?.durationSeconds || 0;
+                      handleDeleteSubjectHours(manualDate, subject.id, subject.name, prevDuration);
+                    }
+                  }}
+                  className="w-full py-2.5 rounded-xl border border-red-500/40 text-red-400 hover:bg-red-500/10 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Excluir Horas Desta Matéria</span>
+                </button>
+              )}
+            </div>
           </form>
         </div>
       )}

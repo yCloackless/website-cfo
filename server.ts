@@ -1291,6 +1291,7 @@ function verifyTerminalSession(token?: string | null): {
 // ==========================================
 const {
   requireAdminAuth: baseRequireAdminAuth,
+  requireAdminOnlyAuth: baseRequireAdminOnlyAuth,
   requireAdminWriteAuth: baseRequireAdminWriteAuth,
   requireUserAuth,
   authenticatedSession,
@@ -1298,6 +1299,12 @@ const {
 
 function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   return baseRequireAdminAuth(req, res, next);
+}
+
+// A trilha de auditoria contém IPs, dispositivos e ações administrativas.
+// Mesmo o suporte, que possui leitura de outras áreas, não pode consultar estes dados.
+function requireAdminOnlyAuth(req: Request, res: Response, next: NextFunction) {
+  return baseRequireAdminOnlyAuth(req, res, next);
 }
 
 function requireAdminWriteAuth(req: Request, res: Response, next: NextFunction) {
@@ -1758,7 +1765,7 @@ app.post("/api/study-sessions/manual", (req: Request, res: Response) => {
     const userId = (req as any).user?.userId;
     if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
 
-    const { entryId, subjectId, subjectName, topic, dateStr, durationMinutes, notes } = req.body || {};
+    const { entryId, subjectId, subjectName, topic, dateStr, durationMinutes, notes, replaceSubjectTime } = req.body || {};
     const cleanEntryId = String(entryId || "").slice(0, 120);
     const cleanSubjectId = String(subjectId || "geral").slice(0, 80);
     const cleanSubjectName = String(subjectName || "Estudo Geral").slice(0, 120);
@@ -1774,10 +1781,23 @@ app.post("/api/study-sessions/manual", (req: Request, res: Response) => {
       return res.status(400).json({ error: "INVALID_DURATION", message: "O tempo deve estar entre 0 e 1440 minutos." });
     }
 
-    const sessionId = `manual_${userId}_${cleanEntryId}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 240);
-    if (parsedMinutes === 0) {
+    const sessionId = `manual_${userId}_${cleanDate}_${cleanSubjectId}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 240);
+
+    // Se o tempo for zero ou replaceSubjectTime for true, limpa sessões anteriores desta matéria neste dia
+    if (parsedMinutes === 0 || replaceSubjectTime) {
+      studySessionRepoInstance.deleteByDateAndSubjectForUser(userId, cleanDate, cleanSubjectId);
       studySessionRepoInstance.deleteByIdForUser(sessionId, userId);
-      return res.json({ success: true, removed: true });
+      if (parsedMinutes === 0) {
+        logAuditEvent({
+          action: "STUDY_SESSION_DELETED",
+          actor: (req as any).user?.username || userId,
+          resource: "study_sessions",
+          status: "SUCCESS",
+          ip: getClientIp(req),
+          details: { dateStr: cleanDate, subjectId: cleanSubjectId },
+        });
+        return res.json({ success: true, removed: true });
+      }
     }
 
     const now = new Date();
@@ -1790,6 +1810,21 @@ app.post("/api/study-sessions/manual", (req: Request, res: Response) => {
       durationSeconds: parsedMinutes * 60,
       endedAt: now.toISOString(),
       notes: cleanNotes,
+    });
+
+    logAuditEvent({
+      action: "STUDY_SESSION_MANUAL_SAVED",
+      actor: (req as any).user?.username || userId,
+      resource: "study_sessions",
+      status: "SUCCESS",
+      ip: getClientIp(req),
+      details: {
+        sessionId: session.id,
+        subjectId: cleanSubjectId,
+        durationMinutes: parsedMinutes,
+        dateStr: cleanDate,
+        replaceSubjectTime: Boolean(replaceSubjectTime),
+      },
     });
 
     return res.status(200).json({ success: true, session });
@@ -1871,6 +1906,66 @@ app.get("/api/study-sessions/day/:dateStr", (req: Request, res: Response) => {
   } catch (err: any) {
     console.error("Erro ao obter sessões do dia:", err);
     return res.status(500).json({ error: "INTERNAL_ERROR" });
+  }
+});
+
+// 8. Excluir horas de uma disciplina específica em uma data
+app.delete("/api/study-sessions/day-subject", (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+
+    const cleanDate = String(req.body?.dateStr || req.query?.dateStr || "");
+    const cleanSubjectId = String(req.body?.subjectId || req.query?.subjectId || "");
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanDate) || !cleanSubjectId) {
+      return res.status(400).json({ error: "INVALID_PARAMS", message: "Data e disciplina são obrigatórias." });
+    }
+
+    studySessionRepoInstance.deleteByDateAndSubjectForUser(userId, cleanDate, cleanSubjectId);
+
+    logAuditEvent({
+      action: "STUDY_SESSION_DELETED",
+      actor: (req as any).user?.username || userId,
+      resource: "study_sessions",
+      status: "SUCCESS",
+      ip: getClientIp(req),
+      details: { dateStr: cleanDate, subjectId: cleanSubjectId },
+    });
+
+    return res.json({ success: true, removed: true, dateStr: cleanDate, subjectId: cleanSubjectId });
+  } catch (err: any) {
+    console.error("Erro ao excluir horas da disciplina:", err);
+    return res.status(500).json({ error: "INTERNAL_ERROR", message: "Falha ao excluir horas da disciplina." });
+  }
+});
+
+// 9. Limpar todas as horas registradas em uma data específica
+app.delete("/api/study-sessions/day/:dateStr", (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+
+    const dateStr = String(req.params.dateStr || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return res.status(400).json({ error: "INVALID_DATE_FORMAT" });
+    }
+
+    studySessionRepoInstance.deleteByDateForUser(userId, dateStr);
+
+    logAuditEvent({
+      action: "STUDY_DAY_CLEARED",
+      actor: (req as any).user?.username || userId,
+      resource: "study_sessions",
+      status: "SUCCESS",
+      ip: getClientIp(req),
+      details: { dateStr },
+    });
+
+    return res.json({ success: true, removed: true, dateStr });
+  } catch (err: any) {
+    console.error("Erro ao limpar horas do dia:", err);
+    return res.status(500).json({ error: "INTERNAL_ERROR", message: "Falha ao limpar horas do dia." });
   }
 });
 
@@ -2535,7 +2630,7 @@ app.post("/api/auth/update-email", requireUserAuth, async (req: Request, res: Re
 // ============================================================================
 
 // 11. Consulta Paginada e Filtrada de Eventos de Auditoria e Segurança (Restrito a Admin e Suporte)
-app.get("/api/admin/security/events", requireAdminAuth, (req: Request, res: Response) => {
+app.get("/api/admin/security/events", requireAdminOnlyAuth, (req: Request, res: Response) => {
   try {
     const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
     const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || "20"), 10)));
@@ -2581,7 +2676,7 @@ app.get("/api/admin/security/events", requireAdminAuth, (req: Request, res: Resp
 });
 
 // 12. Métricas de Segurança e Detecção de Anomalias em Tempo Real (Restrito a Admin)
-app.get("/api/admin/security/metrics", requireAdminAuth, (_req: Request, res: Response) => {
+app.get("/api/admin/security/metrics", requireAdminOnlyAuth, (_req: Request, res: Response) => {
   try {
     const metrics = auditRepoInstance.getSecurityMetrics();
     return res.json({
@@ -2688,7 +2783,7 @@ app.get("/api/admin/verify", requireAdminAuth, (req: Request, res: Response) => 
 });
 
 // 13.0. Transmissão em Tempo Real para o Painel Administrativo (Server-Sent Events)
-app.get("/api/admin/realtime/stream", requireAdminAuth, (req: Request, res: Response) => {
+app.get("/api/admin/realtime/stream", requireAdminOnlyAuth, (req: Request, res: Response) => {
   const adminUser = (req as any).user;
   const lastEventId = (req.headers["last-event-id"] as string) || (req.query.lastEventId as string) || undefined;
 
@@ -5941,7 +6036,7 @@ app.all(["/api/admin/audit-logs", "/api/admin/audit-logs/*"], (req: Request, res
 });
 
 // 7. Auditoria de Segurança: Consulta de Trilha de Auditoria (Audit Log com filtros completos)
-app.get("/api/admin/audit-logs", requireAdminAuth, (req: Request, res: Response) => {
+app.get("/api/admin/audit-logs", requireAdminOnlyAuth, (req: Request, res: Response) => {
   try {
     const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
     const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || "50"), 10)));

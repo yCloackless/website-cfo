@@ -38,6 +38,14 @@ export function createAuthMiddlewares(verifySession: VerifySession) {
     if (session.valid && (session.role === 'admin' || session.role === 'support')) { (req as any).user = session; return next(); }
     return res.status(403).json({ error: 'FORBIDDEN', message: 'Acesso administrativo restrito.' });
   }
+  function requireAdminOnlyAuth(req: Request, res: Response, next: NextFunction) {
+    const session = authenticatedSession(req);
+    if (session.valid && session.role === 'admin') { (req as any).user = session; return next(); }
+    if (session.valid && session.role === 'support') {
+      return res.status(403).json({ error: 'PERMISSION_DENIED', message: 'A trilha de auditoria é visível somente para administradores.' });
+    }
+    return res.status(403).json({ error: 'FORBIDDEN', message: 'Acesso administrativo restrito.' });
+  }
   function requireAdminWriteAuth(req: Request, res: Response, next: NextFunction) {
     const session = authenticatedSession(req);
     if (session.valid && session.role === 'admin') { (req as any).user = session; return next(); }
@@ -49,5 +57,5 @@ export function createAuthMiddlewares(verifySession: VerifySession) {
     if (session.valid) { (req as any).user = session; return next(); }
     return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Autenticação necessária.' });
   }
-  return { requireAdminAuth, requireAdminWriteAuth, requireUserAuth, authenticatedSession };
+  return { requireAdminAuth, requireAdminOnlyAuth, requireAdminWriteAuth, requireUserAuth, authenticatedSession };
 }

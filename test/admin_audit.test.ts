@@ -187,6 +187,17 @@ test('3. Usuário comum (cadete) tentando acessar /api/admin/audit-logs recebe 4
   assert.equal(data.error, 'FORBIDDEN');
 });
 
+test('3.1. Perfil suporte não pode visualizar a trilha de auditoria', async () => {
+  for (const endpoint of ['/api/admin/audit-logs', '/api/admin/security/events', '/api/admin/security/metrics']) {
+    const res = await fetch(`${baseUrl}${endpoint}`, {
+      headers: { Authorization: `Bearer ${supportToken}` },
+    });
+    assert.equal(res.status, 403, `Suporte não deve acessar ${endpoint}`);
+    const data = await res.json();
+    assert.equal(data.error, 'PERMISSION_DENIED');
+  }
+});
+
 test('4. Requisição não autenticada ou com credencial forjada recebe 403 Forbidden', async () => {
   const noAuthRes = await fetch(`${baseUrl}/api/admin/audit-logs`);
   assert.equal(noAuthRes.status, 403);

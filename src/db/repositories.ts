@@ -3016,6 +3016,18 @@ export class StudySessionRepository {
     this.db.prepare('DELETE FROM study_sessions WHERE id = ? AND user_id = ?').run(id, userId);
   }
 
+  public deleteByDateAndSubjectForUser(userId: string, dateStr: string, subjectId: string): void {
+    this.db
+      .prepare('DELETE FROM study_sessions WHERE user_id = ? AND date_str = ? AND subject_id = ?')
+      .run(userId, dateStr, subjectId);
+  }
+
+  public deleteByDateForUser(userId: string, dateStr: string): void {
+    this.db
+      .prepare('DELETE FROM study_sessions WHERE user_id = ? AND date_str = ?')
+      .run(userId, dateStr);
+  }
+
   public create(data: {
     userId: string;
     subjectId: string;

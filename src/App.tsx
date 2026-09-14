@@ -1220,11 +1220,14 @@ export default function App() {
   };
 
   // Clear a single cell entry (subject + day) completely
-  const handleClearCellEntry = (subjectId: string, dayIndex: number, e?: React.MouseEvent) => {
+  const handleClearCellEntry = async (subjectId: string, dayIndex: number, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     if (!currentCycle) return;
 
     const cellKey = `${subjectId}_${dayIndex}`;
+    const entry = currentCycle.entries[cellKey];
+    const dateStr = entry?.dateStr || weekDays.find((d) => d.index === dayIndex)?.dateStr;
+
     const updatedEntries = { ...currentCycle.entries };
     delete updatedEntries[cellKey];
 
@@ -1232,6 +1235,17 @@ export default function App() {
     setCurrentCycle(updatedCycle);
     saveActiveCycle(updatedCycle);
     showToast('Registro de estudo limpo com sucesso!', 'info');
+
+    if (dateStr) {
+      try {
+        await apiFetch(`/api/study-sessions/day-subject?dateStr=${dateStr}&subjectId=${subjectId}`, {
+          method: 'DELETE',
+          headers: { 'Cache-Control': 'no-cache, no-store' },
+        });
+      } catch (err) {
+        console.warn('Falha ao sincronizar exclusão com o banco de horas:', err);
+      }
+    }
   };
 
   // Clear ALL entries in weekly schedule
