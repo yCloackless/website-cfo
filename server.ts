@@ -665,7 +665,11 @@ const apiLimiter = rateLimit({
   validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "TOO_MANY_REQUESTS", message: "Muitas requisições. Tente novamente em alguns minutos." },
+  handler: (req: Request, res: Response) => {
+    const ip = getClientIp(req);
+    console.warn(`[RATE_LIMIT_TRIGGERED] Limiter: api_global | Method: ${req.method} | Path: ${req.path} | Status: 429 | IP: ${ip}`);
+    res.status(429).json({ error: "TOO_MANY_REQUESTS", message: "Muitas requisições. Tente novamente em alguns minutos." });
+  },
 });
 app.use("/api/", apiLimiter);
 
@@ -677,7 +681,11 @@ const healthLimiter = rateLimit({
   validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "TOO_MANY_REQUESTS", message: "Muitas requisições ao health check." },
+  handler: (req: Request, res: Response) => {
+    const ip = getClientIp(req);
+    console.warn(`[RATE_LIMIT_TRIGGERED] Limiter: health | Method: ${req.method} | Path: ${req.path} | Status: 429 | IP: ${ip}`);
+    res.status(429).json({ error: "TOO_MANY_REQUESTS", message: "Muitas requisições ao health check." });
+  },
 });
 app.use("/api/health", healthLimiter);
 
@@ -691,7 +699,11 @@ const authLimiter = rateLimit({
   validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "TOO_MANY_LOGIN_ATTEMPTS", message: "Muitas tentativas de autenticação. Acesso bloqueado por 15 minutos." },
+  handler: (req: Request, res: Response) => {
+    const ip = getClientIp(req);
+    console.warn(`[RATE_LIMIT_TRIGGERED] Limiter: auth | Method: ${req.method} | Path: ${req.path} | Status: 429 | IP: ${ip}`);
+    res.status(429).json({ error: "TOO_MANY_LOGIN_ATTEMPTS", message: "Muitas tentativas de autenticação. Acesso bloqueado por 15 minutos." });
+  },
 });
 app.use("/api/auth/", authLimiter);
 

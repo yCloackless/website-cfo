@@ -275,3 +275,30 @@ test('9. Limpeza periódica de retenção de eventos (LGPD)', async () => {
   const deletedCount = honeypotRepo.cleanupExpiredEvents(30);
   assert.equal(typeof deletedCount, 'number');
 });
+
+test('10. Isolamento de Rate Limiting: rotas e assets normais não consomem limite de honeypot, e decoys bloqueiam abuso', async () => {
+  // Navegação normal e download de assets não deve sofrer rate limit
+  for (let i = 1; i <= 30; i++) {
+    const assetRes = await fetch(`${baseUrl}/assets/chunk-${i}.js`);
+    assert.notEqual(assetRes.status, 429, `Asset #${i} não deve retornar 429`);
+  }
+
+  // Requisições abusivas em rotas decoy reais continuam protegidas e disparam 429
+  let rateLimited = false;
+  let rateLimitMessage = '';
+  for (let i = 1; i <= 16; i++) {
+    const decoyRes = await fetch(`${baseUrl}/internal-admin`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (decoyRes.status === 429) {
+      rateLimited = true;
+      const data = await decoyRes.json();
+      rateLimitMessage = data.message;
+      break;
+    }
+  }
+
+  assert.equal(rateLimited, true, 'Deve disparar 429 ao exceder 15 requisições em rota decoy');
+  assert.equal(rateLimitMessage, 'Rate limit exceeded on security monitored perimeter.');
+});
+

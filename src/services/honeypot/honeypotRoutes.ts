@@ -8,21 +8,28 @@
  */
 
 import express, { Router, Request, Response, NextFunction } from 'express';
+import { isIP } from 'node:net';
 import { getHoneypotService } from './honeypotService';
 import { detectHoneytoken } from './honeytokens';
 
 export const honeypotRouter = Router();
 
-// Habilita parsing de formulários e JSON apenas dentro do router honeypot
-honeypotRouter.use(express.urlencoded({ extended: false }));
-honeypotRouter.use(express.json());
+// Body parsers com escopo exclusivo para rotas de formulário e payload de decoy
+const honeypotUrlencodedParser = express.urlencoded({ extended: false });
+const honeypotJsonParser = express.json();
+
+function isTrustedEdge(req: Request): boolean {
+  const trust = req.app?.get('trust proxy fn');
+  return process.env.TRUST_CLOUDFLARE_HEADERS === 'true' && typeof trust === 'function' &&
+    !!req.socket?.remoteAddress && trust(req.socket.remoteAddress, 0);
+}
 
 function extractClientIp(req: Request): string {
   const cfIp = req.headers['cf-connecting-ip'];
-  if (typeof cfIp === 'string' && cfIp.trim()) {
+  if (isTrustedEdge(req) && typeof cfIp === 'string' && isIP(cfIp.trim())) {
     return cfIp.trim().replace(/^::ffff:/, '');
   }
-  if (req.ip && typeof req.ip === 'string') {
+  if (req.ip && typeof req.ip === 'string' && req.ip.trim()) {
     return req.ip.replace(/^::ffff:/, '').trim();
   }
   const remote = req.socket?.remoteAddress || '';
@@ -31,7 +38,7 @@ function extractClientIp(req: Request): string {
 
 // Middleware dedicado de Rate Limiting para as rotas Honeypot (Proteção contra Exaustão / DoS)
 const honeypotIpHitTracker = new Map<string, { count: number; resetAt: number }>();
-function honeypotRateLimiter(req: Request, res: Response, next: NextFunction) {
+export function honeypotRateLimiter(req: Request, res: Response, next: NextFunction) {
   const ip = extractClientIp(req);
   const now = Date.now();
   const entry = honeypotIpHitTracker.get(ip);
@@ -43,6 +50,8 @@ function honeypotRateLimiter(req: Request, res: Response, next: NextFunction) {
 
   entry.count++;
   if (entry.count > 15) {
+    // Log temporário estruturado sem expor credenciais, tokens ou segredos
+    console.warn(`[RATE_LIMIT_TRIGGERED] Limiter: honeypot_perimeter | Method: ${req.method} | Path: ${req.path} | Status: 429 | IP: ${ip}`);
     // Limita a 15 requisições por minuto nos endpoints honeypot
     return res.status(429).json({
       error: 'TOO_MANY_REQUESTS',
@@ -52,8 +61,6 @@ function honeypotRateLimiter(req: Request, res: Response, next: NextFunction) {
 
   next();
 }
-
-honeypotRouter.use(honeypotRateLimiter);
 
 /**
  * Middleware Global de Inspeção de Honeytokens
@@ -108,7 +115,7 @@ const CANARY_RESOURCES = [
 ];
 
 for (const resource of CANARY_RESOURCES) {
-  honeypotRouter.all(resource, (req: Request, res: Response) => {
+  honeypotRouter.all(resource, honeypotRateLimiter, (req: Request, res: Response) => {
     const service = getHoneypotService();
     const clientIp = extractClientIp(req);
     const userId = (req as any).user?.id || null;
@@ -145,7 +152,7 @@ const DECOY_UI_ROUTES = [
 
 for (const route of DECOY_UI_ROUTES) {
   // GET: Entrega a página de login falsa convincente ou JSON caso seja uma API call
-  honeypotRouter.get(route, (req: Request, res: Response) => {
+  honeypotRouter.get(route, honeypotRateLimiter, (req: Request, res: Response) => {
     const service = getHoneypotService();
     const clientIp = extractClientIp(req);
     const userId = (req as any).user?.id || null;
@@ -180,7 +187,7 @@ for (const route of DECOY_UI_ROUTES) {
   });
 
   // POST: Processamento de login falso (NUNCA autentica, NUNCA grava senhas, NUNCA toca na tabela users)
-  honeypotRouter.post(route, (req: Request, res: Response) => {
+  honeypotRouter.post(route, honeypotRateLimiter, honeypotUrlencodedParser, honeypotJsonParser, (req: Request, res: Response) => {
     const service = getHoneypotService();
     const clientIp = extractClientIp(req);
     const userId = (req as any).user?.id || null;
@@ -231,7 +238,7 @@ const DECOY_API_ROUTES = [
 ];
 
 for (const apiRoute of DECOY_API_ROUTES) {
-  honeypotRouter.all(apiRoute, (req: Request, res: Response) => {
+  honeypotRouter.all(apiRoute, honeypotRateLimiter, honeypotJsonParser, (req: Request, res: Response) => {
     const service = getHoneypotService();
     const clientIp = extractClientIp(req);
     const userId = (req as any).user?.id || null;
