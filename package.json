@@ -42,6 +42,7 @@
     "qrcode": "^1.5.4",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
+    "react-router-dom": "^7.18.3",
     "recharts": "^3.10.1",
     "resend": "^6.26.0",
     "three": "^0.186.0",

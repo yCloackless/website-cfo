@@ -73,7 +73,8 @@ const NotionAgendaTab = lazy(() => import('./components/NotionAgendaTab').then((
 const MonthlyStudyHeatmapTab = lazy(() => import('./components/MonthlyStudyHeatmapTab').then(({ MonthlyStudyHeatmapTab }) => ({ default: MonthlyStudyHeatmapTab })));
 import { CookieConsent } from './components/CookieConsent';
 const TacticalSimulations = lazy(() => import('./components/TacticalSimulations').then(({ TacticalSimulations }) => ({ default: TacticalSimulations })));
-import { TacticalSidebar, TabType } from './components/TacticalSidebar';
+import { useLocation, useNavigate, Navigate } from 'react-router-dom';
+import { TacticalSidebar, TabType, TAB_ROUTE_MAP, ROUTE_TAB_MAP } from './components/TacticalSidebar';
 import { StudentRadarTab } from './components/StudentRadarTab';
 import { StudentCoachPanel } from './components/StudentCoachPanel';
 import { StudentAnalyticsPanel } from './components/StudentAnalyticsPanel';
@@ -87,29 +88,26 @@ import { NotificationCenterDrawer, NotificationItem } from './components/Notific
 import { SecurityAlertPopup } from './components/SecurityAlertPopup';
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard').then(({ AdminDashboard }) => ({ default: AdminDashboard })));
 import { MaintenanceScreen } from './components/MaintenanceScreen';
+import { NotFound } from './components/NotFound';
 
 export default function App() {
-  // 🧭 Roteamento SPA (/admin e área do aluno)
-  const [currentPath, setCurrentPath] = useState<string>(() => window.location.pathname);
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  useEffect(() => {
-    const onPopState = () => setCurrentPath(window.location.pathname);
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, []);
+  // Active Tab derivado diretamente da URL
+  const activeTab = useMemo<TabType>(() => {
+    return ROUTE_TAB_MAP[location.pathname] || 'table';
+  }, [location.pathname]);
 
-  const navigateTo = useCallback((path: string) => {
-    if (window.location.pathname !== path) {
-      window.history.pushState({}, '', path);
-    }
-    setCurrentPath(path);
-  }, []);
+  const handleSelectTab = useCallback((tab: TabType) => {
+    const targetRoute = TAB_ROUTE_MAP[tab] || '/cronograma';
+    navigate(targetRoute);
+  }, [navigate]);
 
   // 🛡️ Security Gate (2FA TOTP Terminal) State
   const [isTerminalUnlocked, setIsTerminalUnlocked] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [isPersistentStateReady, setIsPersistentStateReady] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(false);
   const [canAccessNotion, setCanAccessNotion] = useState<boolean>(() => {
     const saved = localStorage.getItem('cfo_can_access_notion');
     return saved === null ? true : saved === 'true';
@@ -432,8 +430,8 @@ export default function App() {
     setUserProfile(null);
     setCanAccessNotion(true);
     setIsTerminalUnlocked(false);
-    setShowLoginModal(false);
-  }, []);
+    navigate('/login');
+  }, [navigate]);
 
   // Theme state ('dark' | 'light')
   const [theme, setTheme] = useState<AppTheme>(() => {
@@ -449,9 +447,6 @@ export default function App() {
   const toggleTheme = useCallback(() => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
-
-  // Active Tab
-  const [activeTab, setActiveTab] = useState<TabType>('table');
 
   // Modo de Manutenção
   const [maintenanceStatus, setMaintenanceStatus] = useState<{
@@ -1605,33 +1600,50 @@ export default function App() {
     );
   }
 
-  // 🛡️ Painel Administrativo (/admin)
-  if (currentPath === '/admin' || currentPath.startsWith('/admin')) {
+  const VALID_APP_ROUTES = [
+    '/',
+    '/login',
+    '/dashboard',
+    '/cronograma',
+    '/banco-de-provas',
+    '/bizuario',
+    '/mais-caem',
+    '/agenda-horas',
+    '/cronometro',
+    '/desempenho',
+    '/equilibrio-ia',
+    '/simulados',
+    '/caderno-de-erros',
+    '/agenda-notion',
+    '/perfil',
+    '/configuracoes',
+    '/admin',
+  ];
+
+  // 🧭 Verificação de Rotas Válidas e Fallback 404
+  const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
+  const isValidRoute = VALID_APP_ROUTES.includes(normalizedPath) || normalizedPath.startsWith('/admin');
+
+  if (!isValidRoute) {
     return (
-      <Suspense fallback={null}>
-      <AdminDashboard
+      <NotFound
         theme={theme}
-        sessionToken={localStorage.getItem('cfo_terminal_session')}
-        onBackToApp={() => navigateTo('/')}
+        onNavigate={(path) => navigate(path)}
+        isAuthenticated={isTerminalUnlocked}
       />
-      </Suspense>
     );
   }
 
-  // Se o terminal não estiver desbloqueado (visitante ou deslogado)
+  // Se o terminal NÃO estiver desbloqueado (visitante ou deslogado)
   if (!isTerminalUnlocked) {
-    if (showLoginModal) {
+    if (normalizedPath === '/login') {
       return (
         <>
           <SecurityGate
-            onAuthenticated={(_token, _expiresAt, is2faActive) => {
+            onAuthenticated={(_token, _expiresAt, _is2faActive) => {
               setIsTerminalUnlocked(true);
-              setShowLoginModal(false);
               const notionAccess = localStorage.getItem('cfo_can_access_notion') === 'true';
               setCanAccessNotion(notionAccess);
-              if (!notionAccess && activeTab === 'calendar') {
-                setActiveTab('table');
-              }
               // Recarrega matérias, ciclo e metas para a conta do usuário recém-autenticado
               setSubjects(loadSubjects());
               setWeeklyGoalHours(loadWeeklyGoalHours());
@@ -1639,9 +1651,11 @@ export default function App() {
               setCurrentCycle(newCycle);
               setCyclesHistory(getCyclesHistory());
               setRevisions(loadRevisions());
+              const target = (location.state as any)?.from?.pathname || '/cronograma';
+              navigate(target, { replace: true });
             }}
             onBackToLanding={() => {
-              setShowLoginModal(false);
+              navigate('/');
             }}
           />
           <CookieConsent />
@@ -1649,16 +1663,48 @@ export default function App() {
       );
     }
 
+    if (normalizedPath === '/') {
+      return (
+        <>
+          <LandingPage
+            onOpenLogin={() => {
+              navigate('/login');
+            }}
+          />
+          <CookieConsent />
+        </>
+      );
+    }
+
+    // Para qualquer outra rota protegida, redireciona para /login preservando o destino original
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // Se o terminal ESTIVER desbloqueado (autenticado)
+  // Redireciona /, /login e /dashboard para /cronograma
+  if (normalizedPath === '/' || normalizedPath === '/login' || normalizedPath === '/dashboard') {
+    return <Navigate to="/cronograma" replace />;
+  }
+
+  // 🛡️ Painel Administrativo (/admin)
+  if (normalizedPath === '/admin' || normalizedPath.startsWith('/admin/')) {
+    if (!isCurrentAdmin) {
+      return <Navigate to="/cronograma" replace />;
+    }
     return (
-      <>
-        <LandingPage
-          onOpenLogin={() => {
-            setShowLoginModal(true);
-          }}
+      <Suspense fallback={null}>
+        <AdminDashboard
+          theme={theme}
+          sessionToken={localStorage.getItem('cfo_terminal_session')}
+          onBackToApp={() => navigate('/cronograma')}
         />
-        <CookieConsent />
-      </>
+      </Suspense>
     );
+  }
+
+  // Se usuário sem permissão Notion tentar acessar a agenda Notion
+  if (normalizedPath === '/agenda-notion' && !canAccessNotion) {
+    return <Navigate to="/cronograma" replace />;
   }
 
   // Flag global consolidada de conexão do Google Calendar (persistente backend ou Firebase)
@@ -1721,16 +1767,10 @@ export default function App() {
       <Header
         user={user}
         userProfile={userProfile}
-        onOpenAccount={() => {
-          setAccountInitialTab('profile');
-          setIsMyAccountOpen(true);
-        }}
-        onOpenSettings={() => {
-          setAccountInitialTab('settings');
-          setIsMyAccountOpen(true);
-        }}
+        onOpenAccount={() => navigate('/perfil')}
+        onOpenSettings={() => navigate('/configuracoes')}
         isAdmin={userProfile?.role === 'admin' || localStorage.getItem('cfo_terminal_role') === 'admin'}
-        onOpenAdminSecurity={() => navigateTo('/admin')}
+        onOpenAdminSecurity={() => navigate('/admin')}
         hasCalendarAccess={isCalendarLinked}
         isCalendarApiDisabled={backendCalendar.connected && backendCalendar.apiOperational === false}
         calendarEmail={backendCalendar.email || user?.email}
@@ -1751,7 +1791,7 @@ export default function App() {
         theme={theme}
         onToggleTheme={toggleTheme}
         activeTab={activeTab}
-        onSelectTab={setActiveTab}
+        onSelectTab={handleSelectTab}
         onLockTerminal={handleLockTerminal}
         isSidebarOpen={isSidebarOpen}
         onToggleSidebar={handleToggleSidebar}
@@ -1761,7 +1801,7 @@ export default function App() {
       <div className="flex-1 flex w-full relative min-w-0">
         <TacticalSidebar
           activeTab={activeTab}
-          onSelectTab={setActiveTab}
+          onSelectTab={handleSelectTab}
           theme={theme}
           isOpen={isSidebarOpen}
           isCollapsed={isSidebarCollapsed}
@@ -1778,12 +1818,9 @@ export default function App() {
           onOpenRevisions={() => setIsRevisionsModalOpen(true)}
           onOpenAddSubject={() => setIsAddSubjectModalOpen(true)}
           onOpenHistory={() => setIsHistoryModalOpen(true)}
-          onOpenSettings={() => {
-            setAccountInitialTab('settings');
-            setIsMyAccountOpen(true);
-          }}
+          onOpenSettings={() => navigate('/configuracoes')}
           onOpenNotifications={() => setIsNotificationDrawerOpen(true)}
-          onOpenAdminSecurity={() => navigateTo('/admin')}
+          onOpenAdminSecurity={() => navigate('/admin')}
           onSignOut={handleLockTerminal}
         />
 
@@ -1800,10 +1837,7 @@ export default function App() {
               </span>
             </div>
             <button
-              onClick={() => {
-                setCurrentPath('/admin');
-                window.history.pushState({}, '', '/admin');
-              }}
+              onClick={() => navigate('/admin')}
               className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg font-bold text-[11px] transition-colors"
             >
               Gerenciar no Admin
@@ -1819,7 +1853,7 @@ export default function App() {
             pageName={activeTab}
             message={maintenanceStatus.message}
             isAdmin={false}
-            onGoHome={() => setActiveTab('table')}
+            onGoHome={() => navigate('/cronograma')}
             onRefresh={fetchMaintenanceStatus}
           />
         ) : (
@@ -2170,7 +2204,7 @@ export default function App() {
 
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={() => setActiveTab('ai')}
+                    onClick={() => handleSelectTab('ai')}
                     className="inline-flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 font-semibold transition-colors"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
@@ -2210,7 +2244,7 @@ export default function App() {
             theme={theme}
             subjects={subjects}
             showToast={showToast}
-            onNavigateToTimer={() => setActiveTab('timer')}
+            onNavigateToTimer={() => handleSelectTab('timer')}
             onStudySessionLogged={handleStudySessionLoggedFromAgenda}
           />
         )}
@@ -2230,7 +2264,7 @@ export default function App() {
           onLogStudySession={handleLogTimerStudySession}
           onOpenStudyModal={handleOpenStudyDetailFromTimer}
           isFloating={activeTab !== 'timer'}
-          onNavigateToTimer={() => setActiveTab('timer')}
+          onNavigateToTimer={() => handleSelectTab('timer')}
           weeklyGoalHours={weeklyGoalHours}
         />
 
@@ -2253,10 +2287,10 @@ export default function App() {
             theme={theme}
             onOpenNewBizuWithTopic={(subjectName, topicName) => {
               setPresetTopicForBizu({ subject: subjectName, title: topicName });
-              setActiveTab('bizuario');
+              handleSelectTab('bizuario');
               showToast(`Tópico "${topicName}" preparado no Bizuário. Clique em ✨ Gerar Anotações com Gemini AI!`, 'info');
             }}
-            onNavigateToSchedule={() => setActiveTab('table')}
+            onNavigateToSchedule={() => handleSelectTab('table')}
           />
         )}
 
@@ -2436,12 +2470,17 @@ export default function App() {
       )}
 
       <MyAccountModal
-        isOpen={isMyAccountOpen}
-        onClose={() => setIsMyAccountOpen(false)}
+        isOpen={isMyAccountOpen || normalizedPath === '/perfil' || normalizedPath === '/configuracoes'}
+        onClose={() => {
+          setIsMyAccountOpen(false);
+          if (normalizedPath === '/perfil' || normalizedPath === '/configuracoes') {
+            navigate('/cronograma');
+          }
+        }}
         theme={theme}
         sessionToken={localStorage.getItem('cfo_terminal_session')}
         onProfileUpdated={(updated) => setUserProfile(updated)}
-        initialTab={accountInitialTab}
+        initialTab={normalizedPath === '/configuracoes' ? 'settings' : (normalizedPath === '/perfil' ? 'profile' : accountInitialTab)}
         autoSpacedRevisions={autoSpacedRevisions}
         onToggleAutoSpacedRevisions={(enabled) => {
           setAutoSpacedRevisions(enabled);

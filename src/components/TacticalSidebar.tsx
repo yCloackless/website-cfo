@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   House,
   FileStack,
@@ -39,6 +40,35 @@ export type TabType =
   | 'simulations'
   | 'flashcards';
 
+export const TAB_ROUTE_MAP: Record<TabType, string> = {
+  table: '/cronograma',
+  examBank: '/banco-de-provas',
+  bizuario: '/bizuario',
+  highyield: '/mais-caem',
+  monthlyHours: '/agenda-horas',
+  timer: '/cronometro',
+  learning: '/desempenho',
+  ai: '/equilibrio-ia',
+  simulations: '/simulados',
+  flashcards: '/caderno-de-erros',
+  calendar: '/agenda-notion',
+};
+
+export const ROUTE_TAB_MAP: Record<string, TabType> = {
+  '/cronograma': 'table',
+  '/dashboard': 'table',
+  '/banco-de-provas': 'examBank',
+  '/bizuario': 'bizuario',
+  '/mais-caem': 'highyield',
+  '/agenda-horas': 'monthlyHours',
+  '/cronometro': 'timer',
+  '/desempenho': 'learning',
+  '/equilibrio-ia': 'ai',
+  '/simulados': 'simulations',
+  '/caderno-de-erros': 'flashcards',
+  '/agenda-notion': 'calendar',
+};
+
 interface TacticalSidebarProps {
   activeTab: TabType;
   onSelectTab: (tab: TabType) => void;
@@ -71,6 +101,7 @@ interface SidebarItem {
   label: string;
   icon: React.ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
   tabId?: TabType;
+  route?: string;
   action?: () => void;
   badge?: string;
   badgeClass?: { dark: string; light: string };
@@ -105,6 +136,9 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
   onSignOut,
 }) => {
   const isDark = theme === 'dark';
+  const location = useLocation();
+  const navigate = useNavigate();
+  const currentPath = location.pathname;
 
   // 3-state Machine: COLLAPSED, EXPANDED, PINNED
   const [isPinned, setIsPinned] = useState<boolean>(() => {
@@ -188,6 +222,17 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
     setIsFocused(true);
   };
 
+  const isItemActive = (item: SidebarItem) => {
+    const targetRoute = item.route || (item.tabId ? TAB_ROUTE_MAP[item.tabId] : undefined);
+    if (targetRoute) {
+      if (targetRoute === '/cronograma') {
+        return currentPath === '/cronograma' || currentPath === '/dashboard';
+      }
+      return currentPath === targetRoute;
+    }
+    return Boolean(item.tabId && activeTab === item.tabId);
+  };
+
   const handleBlur = (e: React.FocusEvent) => {
     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
       setIsFocused(false);
@@ -206,12 +251,14 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
           label: 'Cronograma',
           icon: House,
           tabId: 'table',
+          route: '/cronograma',
         },
         {
           id: 'examBank',
           label: 'Banco de Provas',
           icon: FileStack,
           tabId: 'examBank',
+          route: '/banco-de-provas',
           badge: 'IA',
           badgeClass: {
             dark: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
@@ -223,12 +270,14 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
           label: 'Bizuário',
           icon: BookOpenCheck,
           tabId: 'bizuario',
+          route: '/bizuario',
         },
         {
           id: 'highyield',
           label: 'Mais Caem',
           icon: Target,
           tabId: 'highyield',
+          route: '/mais-caem',
           badge: 'Raio-X',
           badgeClass: {
             dark: 'bg-blue-600 text-white border-blue-500',
@@ -245,6 +294,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
           label: 'Agenda de Horas',
           icon: CalendarDays,
           tabId: 'monthlyHours',
+          route: '/agenda-horas',
           badge: 'Horas',
           badgeClass: {
             dark: 'bg-blue-600/30 text-sky-300 border-blue-500/40',
@@ -256,12 +306,14 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
           label: 'Cronômetro',
           icon: Timer,
           tabId: 'timer',
+          route: '/cronometro',
         },
         {
           id: 'learning',
           label: 'Radar',
           icon: ChartSpline,
           tabId: 'learning',
+          route: '/desempenho',
           badge: 'Aluno',
           badgeClass: {
             dark: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
@@ -273,18 +325,21 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
           label: 'IA Equilíbrio',
           icon: Sparkles,
           tabId: 'ai',
+          route: '/equilibrio-ia',
         },
         {
           id: 'simulations',
           label: 'Simulados',
           icon: ClipboardCheck,
           tabId: 'simulations',
+          route: '/simulados',
         },
         {
           id: 'flashcards',
           label: 'Caderno de Erros',
           icon: Layers3,
           tabId: 'flashcards',
+          route: '/caderno-de-erros',
           badge: 'Anki',
           badgeClass: {
             dark: 'bg-indigo-950/80 text-indigo-300 border-indigo-800/60',
@@ -298,6 +353,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                 label: 'Agenda Notion',
                 icon: CalendarDays,
                 tabId: 'calendar' as TabType,
+                route: '/agenda-notion',
                 badge: 'Notion',
                 badgeClass: {
                   dark: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
@@ -374,6 +430,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                 id: 'settings',
                 label: 'Configurações',
                 icon: Settings,
+                route: '/configuracoes',
                 action: onOpenSettings,
               },
             ]
@@ -384,6 +441,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                 id: 'adminSecurity',
                 label: canReturnToAdmin ? 'Voltar ao ADM' : 'Painel de Segurança ADM',
                 icon: canReturnToAdmin ? UserCog : ShieldCheck,
+                route: canReturnToAdmin ? undefined : '/admin',
                 action: canReturnToAdmin ? onReturnToAdmin : onOpenAdminSecurity,
                 badge: 'ADM',
                 badgeClass: {
@@ -398,11 +456,16 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
   ];
 
   const handleItemClick = (item: SidebarItem) => {
-    if (item.tabId) {
-      onSelectTab(item.tabId);
-    } else if (item.action) {
-      item.action();
+    if (item.route) {
+      navigate(item.route);
+    } else if (item.tabId) {
+      const targetRoute = TAB_ROUTE_MAP[item.tabId];
+      if (targetRoute) {
+        navigate(targetRoute);
+      }
     }
+    if (item.tabId) onSelectTab(item.tabId);
+    if (item.action) item.action();
     if (onClose) onClose();
   };
 
@@ -475,7 +538,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                   </div>
                   {group.items.map((item) => {
                     const Icon = item.icon;
-                    const isActive = item.tabId && activeTab === item.tabId;
+                    const isActive = isItemActive(item);
                     const isSimulations = item.tabId === 'simulations';
 
                     return (
@@ -693,7 +756,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
 
               {group.items.map((item) => {
                 const Icon = item.icon;
-                const isActive = item.tabId && activeTab === item.tabId;
+                const isActive = isItemActive(item);
                 const isSimulations = item.tabId === 'simulations';
                 const isSettings = item.id === 'settings';
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Calendar, Flame, Moon, PanelLeft, ShieldCheck, Sun } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
@@ -67,7 +68,7 @@ export const Header: React.FC<HeaderProps> = ({
               <PanelLeft className="topbar-icon h-5 w-5" />
             </button>
           )}
-          <div className="flex min-w-0 items-center gap-2.5">
+          <Link to="/cronograma" className="flex min-w-0 items-center gap-2.5 hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-xl" title="Ir para o cronograma">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-500/20">
               <Flame className="h-5 w-5" />
             </div>
@@ -75,7 +76,7 @@ export const Header: React.FC<HeaderProps> = ({
               <h1 className="truncate bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-sm font-extrabold leading-none tracking-tight text-transparent">CFO CBMERJ</h1>
               <span className="hidden text-[10px] font-mono tracking-widest text-slate-400 sm:block">ESTUDOS TÁTICOS</span>
             </div>
-          </div>
+          </Link>
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
