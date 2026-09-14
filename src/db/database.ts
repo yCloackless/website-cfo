@@ -1023,6 +1023,31 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_privacy_requests_email ON privacy_requests(email);
     `,
   },
+  {
+    id: 28,
+    name: '028_security_deception_honeypot',
+    sql: `
+      -- Telemetria estrita e isolada da camada de decepção defensiva (honeypots, canários e honeytokens)
+      CREATE TABLE IF NOT EXISTS security_deception_events (
+        id TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL,
+        honeypot_id TEXT NOT NULL,
+        request_path TEXT NOT NULL,
+        method TEXT NOT NULL,
+        risk_score INTEGER NOT NULL,
+        user_id TEXT,
+        ip_hash TEXT,
+        user_agent_summary TEXT,
+        action_taken TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_deception_events_created_at ON security_deception_events(created_at);
+      CREATE INDEX IF NOT EXISTS idx_deception_events_type ON security_deception_events(event_type);
+      CREATE INDEX IF NOT EXISTS idx_deception_events_ip_hash ON security_deception_events(ip_hash);
+      CREATE INDEX IF NOT EXISTS idx_deception_events_risk_score ON security_deception_events(risk_score);
+    `,
+  },
 ];
 
 

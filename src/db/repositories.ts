@@ -54,7 +54,11 @@ import {
   ConsentStatus,
   PrivacyRequestType,
   PrivacyRequestStatus,
+  DbDeceptionEvent,
+  HoneypotEventType,
+  HoneypotAction,
 } from './schema';
+import { HoneypotMetrics } from '../services/honeypot/honeypotTypes';
 
 function normalizeExamOptions(raw: unknown): ExamOption[] {
   if (!Array.isArray(raw)) return [];
@@ -3514,3 +3518,207 @@ export class PrivacyRequestRepository {
     };
   }
 }
+
+export class HoneypotRepository {
+  constructor(private db: DatabaseSync) {}
+
+  public createEvent(data: {
+    eventType: HoneypotEventType;
+    honeypotId: string;
+    requestPath: string;
+    method: string;
+    riskScore: number;
+    userId?: string | null;
+    ipHash?: string | null;
+    userAgentSummary?: string | null;
+    actionTaken: HoneypotAction;
+  }): DbDeceptionEvent {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const userId = data.userId ?? null;
+    const ipHash = data.ipHash ?? null;
+    const userAgentSummary = (data.userAgentSummary || 'Unknown').slice(0, 200);
+
+    this.db.prepare(`
+      INSERT INTO security_deception_events (
+        id, event_type, honeypot_id, request_path, method,
+        risk_score, user_id, ip_hash, user_agent_summary, action_taken, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      data.eventType,
+      data.honeypotId,
+      data.requestPath,
+      data.method,
+      data.riskScore,
+      userId,
+      ipHash,
+      userAgentSummary,
+      data.actionTaken,
+      now
+    );
+
+    return {
+      id,
+      eventType: data.eventType,
+      honeypotId: data.honeypotId,
+      requestPath: data.requestPath,
+      method: data.method,
+      riskScore: data.riskScore,
+      userId,
+      ipHash,
+      userAgentSummary,
+      actionTaken: data.actionTaken,
+      createdAt: now,
+    };
+  }
+
+  public findFiltered(filters: {
+    page?: number;
+    limit?: number;
+    eventType?: string;
+    minRisk?: number;
+    search?: string;
+    startDate?: string;
+    endDate?: string;
+  }): { items: DbDeceptionEvent[]; total: number; page: number; limit: number; totalPages: number } {
+    const page = Math.max(1, filters.page || 1);
+    const limit = Math.min(100, Math.max(1, filters.limit || 20));
+    const offset = (page - 1) * limit;
+
+    const conditions: string[] = ['1=1'];
+    const params: any[] = [];
+
+    if (filters.eventType) {
+      conditions.push('event_type = ?');
+      params.push(filters.eventType);
+    }
+    if (filters.minRisk !== undefined && filters.minRisk > 0) {
+      conditions.push('risk_score >= ?');
+      params.push(filters.minRisk);
+    }
+    if (filters.startDate) {
+      conditions.push('created_at >= ?');
+      params.push(filters.startDate);
+    }
+    if (filters.endDate) {
+      conditions.push('created_at <= ?');
+      params.push(filters.endDate);
+    }
+    if (filters.search) {
+      conditions.push('(request_path LIKE ? OR honeypot_id LIKE ? OR action_taken LIKE ?)');
+      const term = `%${filters.search}%`;
+      params.push(term, term, term);
+    }
+
+    const whereSql = conditions.join(' AND ');
+
+    const countRow = this.db.prepare(`
+      SELECT COUNT(*) as total FROM security_deception_events WHERE ${whereSql}
+    `).get(...params) as any;
+    const total = Number(countRow?.total || 0);
+
+    const rows = this.db.prepare(`
+      SELECT id, event_type, honeypot_id, request_path, method,
+             risk_score, user_id, ip_hash, user_agent_summary, action_taken, created_at
+      FROM security_deception_events
+      WHERE ${whereSql}
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, limit, offset) as any[];
+
+    return {
+      items: rows.map((r) => this.mapEvent(r)),
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    };
+  }
+
+  public getMetrics(): HoneypotMetrics {
+    const now = new Date();
+    const past24h = new Date(now.getTime() - 24 * 3600 * 1000).toISOString();
+
+    const totalRow = this.db.prepare(`SELECT COUNT(*) as cnt FROM security_deception_events`).get() as any;
+    const totalEvents = Number(totalRow?.cnt || 0);
+
+    const events24hRow = this.db.prepare(`
+      SELECT COUNT(*) as cnt FROM security_deception_events WHERE created_at >= ?
+    `).get(past24h) as any;
+    const events24h = Number(events24hRow?.cnt || 0);
+
+    const highRiskRow = this.db.prepare(`
+      SELECT COUNT(*) as cnt FROM security_deception_events WHERE created_at >= ? AND risk_score >= 70
+    `).get(past24h) as any;
+    const highRiskEvents24h = Number(highRiskRow?.cnt || 0);
+
+    const blocksRow = this.db.prepare(`
+      SELECT COUNT(*) as cnt FROM cadet_temporary_source_blocks WHERE locked_until > ?
+    `).get(now.toISOString()) as any;
+    const activeTemporaryBlocks = Number(blocksRow?.cnt || 0);
+
+    const byTypeRows = this.db.prepare(`
+      SELECT event_type, COUNT(*) as cnt FROM security_deception_events GROUP BY event_type
+    `).all() as any[];
+    const eventsByType: Record<string, number> = {};
+    for (const r of byTypeRows) {
+      eventsByType[r.event_type] = Number(r.cnt);
+    }
+
+    const topDecoyRows = this.db.prepare(`
+      SELECT request_path, COUNT(*) as cnt
+      FROM security_deception_events
+      GROUP BY request_path
+      ORDER BY cnt DESC
+      LIMIT 5
+    `).all() as any[];
+    const topTargetedDecoys = topDecoyRows.map((r) => ({
+      path: r.request_path,
+      count: Number(r.cnt),
+    }));
+
+    return {
+      totalEvents,
+      events24h,
+      highRiskEvents24h,
+      activeTemporaryBlocks,
+      eventsByType,
+      topTargetedDecoys,
+    };
+  }
+
+  public countRecentEventsByIpHash(ipHash: string, windowSeconds = 300): number {
+    if (!ipHash) return 0;
+    const since = new Date(Date.now() - windowSeconds * 1000).toISOString();
+    const row = this.db.prepare(`
+      SELECT COUNT(*) as cnt FROM security_deception_events WHERE ip_hash = ? AND created_at >= ?
+    `).get(ipHash, since) as any;
+    return Number(row?.cnt || 0);
+  }
+
+  public cleanupExpiredEvents(retentionDays = 30): number {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 3600 * 1000).toISOString();
+    const res = this.db.prepare(`
+      DELETE FROM security_deception_events WHERE created_at < ?
+    `).run(cutoff);
+    return Number(res.changes);
+  }
+
+  private mapEvent(row: any): DbDeceptionEvent {
+    return {
+      id: row.id,
+      eventType: row.event_type as HoneypotEventType,
+      honeypotId: row.honeypot_id,
+      requestPath: row.request_path,
+      method: row.method,
+      riskScore: Number(row.risk_score),
+      userId: row.user_id,
+      ipHash: row.ip_hash,
+      userAgentSummary: row.user_agent_summary,
+      actionTaken: row.action_taken as HoneypotAction,
+      createdAt: row.created_at,
+    };
+  }
+}
+

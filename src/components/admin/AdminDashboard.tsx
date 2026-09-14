@@ -30,12 +30,14 @@ import { AppTheme } from '../../types';
 import { BoardIntelligencePanel } from './BoardIntelligencePanel';
 import { AdminMaintenanceTab } from './AdminMaintenanceTab';
 import { AdminPrivacyTab } from './AdminPrivacyTab';
+import { AdminHoneypotTab } from './AdminHoneypotTab';
 
 export type AdminTab =
   | 'dashboard'
   | 'boardIntelligence'
   | 'users'
   | 'security'
+  | 'honeypot'
   | 'sessions'
   | 'audit'
   | 'admins'
@@ -1175,6 +1177,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           <button
             type="button"
+            onClick={() => setActiveTab('honeypot')}
+            className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === 'honeypot'
+                ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
+            }`}
+          >
+            <Shield className="w-4 h-4 text-rose-400" />
+            Honeypots & Decepção
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab('sessions')}
             className={`shrink-0 w-auto md:w-full min-h-11 md:min-h-0 whitespace-nowrap flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               activeTab === 'sessions'
@@ -2147,6 +2162,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 ))}
               </div>
             </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* TAB: HONEYPOT & DECEPÇÃO DEFENSIVA                                */}
+          {/* ================================================================= */}
+          {activeTab === 'honeypot' && (
+            <AdminHoneypotTab
+              theme={theme}
+              getHeaders={getHeaders}
+            />
           )}
 
           {/* ================================================================= */}

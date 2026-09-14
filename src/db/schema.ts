@@ -590,3 +590,32 @@ export interface DbPrivacyRequest {
   processedAt?: string | null;
   updatedAt: string;
 }
+
+export type HoneypotEventType =
+  | 'HONEYPOT_ROUTE_ACCESSED'
+  | 'HONEYPOT_LOGIN_ATTEMPT'
+  | 'HONEYTOKEN_TRIGGERED'
+  | 'DECOY_RESOURCE_ACCESSED'
+  | 'AUTOMATED_ENUMERATION_SUSPECTED';
+
+export type HoneypotAction =
+  | 'LOGGED'
+  | 'THROTTLED'
+  | 'SOURCE_TEMPORARILY_BLOCKED'
+  | 'SESSION_INVALIDATED'
+  | 'PENTEST_BYPASS';
+
+export interface DbDeceptionEvent {
+  id: string;
+  eventType: HoneypotEventType;
+  honeypotId: string;
+  requestPath: string;
+  method: string;
+  riskScore: number;
+  userId: string | null;
+  ipHash: string | null;
+  userAgentSummary: string;
+  actionTaken: HoneypotAction;
+  createdAt: string;
+}
+

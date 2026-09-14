@@ -78,7 +78,10 @@ import {
   SystemIntegrationRepository,
   ConsentRepository,
   PrivacyRequestRepository,
+  HoneypotRepository,
+  TemporarySourceBlockRepository,
 } from "./src/db/repositories";
+import { honeypotRouter, honeytokenDetectionMiddleware } from "./src/services/honeypot/honeypotRoutes";
 import { UserRole, DbUser, DbExamPaper } from "./src/db/schema";
 import { validateImageBuffer } from "./src/services/avatarService";
 import { secureUploadService, SecureUploadService } from "./src/services/secureUploadService";
@@ -391,7 +394,7 @@ async function verifyTurnstileToken(token?: string, remoteip?: string): Promise<
   return false;
 }
 
-// 🛑 MIDDLEWARE GLOBAL DE BLOQUEIO DE IPs BANIDOS
+// 🛑 MIDDLEWARE GLOBAL DE BLOQUEIO DE IPs BANIDOS E BLOQUEIOS TEMPORÁRIOS
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === "/api/health") return next();
 
@@ -404,8 +407,25 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     });
   }
 
+  // Verifica se a origem possui bloqueio temporário ativo com TTL (ex: por gatilho de alta gravidade da camada de decepção)
+  const allowlistKey = process.env.SECURITY_TEST_ALLOWLIST_KEY;
+  const isBypass = Boolean(allowlistKey && req.headers['x-security-scan-bypass'] === allowlistKey);
+  if (!isBypass) {
+    const tempBlock = new TemporarySourceBlockRepository(getDb().getRawDb()).isIpBlocked(clientIp);
+    if (tempBlock.isBlocked) {
+      return res.status(403).json({
+        error: "SOURCE_TEMPORARILY_BLOCKED",
+        message: "403 FORBIDDEN: Seu endereço de origem está temporariamente restrito por medidas de segurança.",
+        lockedUntil: tempBlock.block?.lockedUntil,
+      });
+    }
+  }
+
   next();
 });
+
+// Middleware Global de Detecção de Honeytokens em todas as requisições
+app.use(honeytokenDetectionMiddleware);
 
 // Evita cache de dados autenticados, indexacao de APIs e payloads abusivos
 // antes que o parser JSON aloque memoria. Uploads conhecidos mantem o limite maior.
@@ -2401,6 +2421,85 @@ app.get("/api/admin/security/metrics", requireAdminAuth, (_req: Request, res: Re
   } catch (err: any) {
     console.error("[Admin Security Metrics Error]:", err);
     return res.status(500).json({ success: false, message: "Erro ao carregar métricas de segurança." });
+  }
+});
+
+// 12.1. Telemetria e Eventos da Camada de Decepção Defensiva (Honeypot & Honeytokens)
+app.get("/api/admin/honeypot/events", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const honeypotRepo = new HoneypotRepository(getDb().getRawDb());
+    const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || "20"), 10)));
+    const eventType = req.query.eventType ? String(req.query.eventType).trim() : undefined;
+    const minRisk = req.query.minRisk ? parseInt(String(req.query.minRisk), 10) : undefined;
+    const search = req.query.search ? String(req.query.search).trim() : undefined;
+    const startDate = req.query.startDate ? String(req.query.startDate).trim() : undefined;
+    const endDate = req.query.endDate ? String(req.query.endDate).trim() : undefined;
+
+    const result = honeypotRepo.findFiltered({
+      page,
+      limit,
+      eventType,
+      minRisk,
+      search,
+      startDate,
+      endDate,
+    });
+
+    return res.json({
+      success: true,
+      ...result,
+      items: sanitizeSecurityPayload(result.items),
+    });
+  } catch (err: any) {
+    console.error("[Admin Honeypot Events Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao carregar eventos da camada de decepção." });
+  }
+});
+
+app.get("/api/admin/honeypot/metrics", requireAdminAuth, (_req: Request, res: Response) => {
+  try {
+    const honeypotRepo = new HoneypotRepository(getDb().getRawDb());
+    const metrics = honeypotRepo.getMetrics();
+    return res.json({
+      success: true,
+      metrics,
+    });
+  } catch (err: any) {
+    console.error("[Admin Honeypot Metrics Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao carregar métricas de honeypot." });
+  }
+});
+
+app.post("/api/admin/honeypot/unblock", requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const { ip } = req.body || {};
+    if (!ip || typeof ip !== "string") {
+      return res.status(400).json({ success: false, message: "Endereço IP é obrigatório para desbloqueio." });
+    }
+
+    const cleanIp = ip.trim().replace(/^::ffff:/, "");
+    const blockRepo = new TemporarySourceBlockRepository(getDb().getRawDb());
+    const unblocked = blockRepo.unblockIp(cleanIp);
+
+    logAuditEvent({
+      eventType: 'SUSPICIOUS_ACCESS_DENIED',
+      action: 'ADMIN_SOURCE_UNBLOCKED',
+      actor: (req as any).user?.username || 'admin',
+      userId: (req as any).user?.id || null,
+      status: 'SUCCESS',
+      ip: getClientIp(req),
+      details: { unblockedIp: cleanIp, targetType: 'ip' },
+    });
+
+    return res.json({
+      success: true,
+      unblocked,
+      message: unblocked ? "Origem desbloqueada com sucesso." : "Nenhum bloqueio ativo encontrado para esta origem.",
+    });
+  } catch (err: any) {
+    console.error("[Admin Honeypot Unblock Error]:", err);
+    return res.status(500).json({ success: false, message: "Erro ao processar desbloqueio de origem." });
   }
 });
 
@@ -6961,6 +7060,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   res.on('close', () => { _activeRequests = Math.max(0, _activeRequests - 1); });
   next();
 });
+
+// 🛑 Camada de Decepção Defensiva (Honeypot, Canários e Rotas Decoy)
+app.use(honeypotRouter);
 
 // Middleware Centralizado de Tratamento de Erros (Evita vazamento de stacktrace)
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
