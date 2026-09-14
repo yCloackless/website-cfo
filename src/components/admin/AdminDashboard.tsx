@@ -246,10 +246,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // ⚡ Conexão Realtime Server-Sent Events (SSE)
   const [realtimeStatus, setRealtimeStatus] = useState<'connected' | 'reconnecting' | 'offline'>('reconnecting');
   const [lastRealtimeEventAt, setLastRealtimeEventAt] = useState<string | null>(null);
+  const [isLockdownActive, setIsLockdownActive] = useState<boolean>(false);
   const processedEventIds = React.useRef(new Set<string>());
 
   const handleRealtimeEvent = useCallback((type: string, payload: any) => {
     const eventData = payload.data || payload;
+
+    if (type === 'METRICS_UPDATED' && payload && typeof payload.global === 'boolean') {
+      setIsLockdownActive(payload.global);
+    }
 
     // Atualização reativa de contadores do dashboard
     setStats((prev) => {
@@ -461,6 +466,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           setAnomalies(data.anomalies || []);
           setRecentSessions(data.recentSessions || []);
           setRecentEvents(data.recentEvents || []);
+        }
+      })
+      .catch(() => {});
+
+    fetch('/api/maintenance/status')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && typeof data.global === 'boolean') {
+          setIsLockdownActive(data.global);
         }
       })
       .catch(() => {});
@@ -1056,6 +1070,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               OFFLINE
             </div>
           )}
+
+          {isLockdownActive && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('maintenance')}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-600 hover:bg-red-500 text-white font-mono font-black text-xs uppercase animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.7)] cursor-pointer"
+              title="Sistema em lockdown / modo invasão. Clique para gerenciar na aba de Manutenção."
+            >
+              <ShieldAlert className="w-3.5 h-3.5" />
+              SITE DESLIGADO (INVASÃO)
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => {

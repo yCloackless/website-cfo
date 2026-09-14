@@ -187,6 +187,7 @@ app.get("/api/health", (_req: Request, res: Response) => {
     version: "1.0.0",
     database: { connected: dbReady },
     redis: { connected: isRedisAvailable() },
+    lockdown: getMaintenanceConfig().global,
     memory: {
       rssMb: Math.round(mem.rss / (1024 * 1024)),
       heapUsedMb: Math.round(mem.heapUsed / (1024 * 1024)),
@@ -1292,6 +1293,7 @@ const {
   requireAdminAuth: baseRequireAdminAuth,
   requireAdminWriteAuth: baseRequireAdminWriteAuth,
   requireUserAuth,
+  authenticatedSession,
 } = createAuthMiddlewares(verifyTerminalSession);
 
 function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
@@ -1302,6 +1304,53 @@ function requireAdminWriteAuth(req: Request, res: Response, next: NextFunction) 
   return baseRequireAdminWriteAuth(req, res, next);
 }
 app.use('/avatars', requireUserAuth, express.static(path.join(process.cwd(), 'data', 'avatars'), { dotfiles: 'deny', index: false }));
+
+// ==========================================
+// 🚨 EMERGENCY LOCKDOWN & SYSTEM CONTAINMENT MIDDLEWARE
+// Desliga o acesso a todas as APIs para alunos, visitantes e invasores,
+// preservando acesso irrestrito para administradores autenticados.
+// ==========================================
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  const relPath = req.path;
+  const fullPath = req.originalUrl || req.url;
+
+  // 1. Endpoints que precisam responder mesmo durante lockdown
+  if (
+    relPath === '/maintenance/status' ||
+    relPath === '/health' ||
+    relPath === '/ready' ||
+    relPath.startsWith('/telemetry') ||
+    relPath.startsWith('/admin') ||
+    fullPath.startsWith('/api/admin') ||
+    fullPath.startsWith('/api/maintenance/status') ||
+    fullPath.startsWith('/api/health') ||
+    fullPath.startsWith('/api/ready') ||
+    fullPath.startsWith('/api/telemetry')
+  ) {
+    return next();
+  }
+
+  // 2. Consulta configuração de manutenção global / contenção de emergência
+  const config = getMaintenanceConfig();
+  if (config.global) {
+    // Se for administrador autenticado com sessão válida, permite o acesso normal
+    const session = authenticatedSession(req);
+    if (session.valid && (session.role === 'admin' || session.role === 'support')) {
+      return next();
+    }
+
+    // Para alunos, visitantes e potenciais invasores: bloqueio imediato no backend
+    res.setHeader('Retry-After', '300');
+    return res.status(503).json({
+      success: false,
+      error: 'SYSTEM_LOCKDOWN',
+      lockdown: true,
+      message: config.message || 'Sistema em procedimento de contingência e contenção de segurança. Acesso suspenso para manutenção emergencial.',
+    });
+  }
+
+  return next();
+});
 
 function createStepUpToken(username: string, userId?: string): { token: string; expiresIn: number } {
   const config = getSecurityConfig();
@@ -3781,6 +3830,107 @@ app.post("/api/admin/maintenance", requireAdminWriteAuth, (req: Request, res: Re
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: "Erro ao atualizar modo de manutenção." });
+  }
+});
+
+// 4. Modo de Emergência / Kill Switch Anti-Invasão (Desliga o site para todos exceto admin)
+app.post("/api/admin/system/emergency-lockdown", requireAdminWriteAuth, (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    const { active, message, revokeActiveSessions } = req.body || {};
+
+    const isLockdown = Boolean(active);
+    const previousConfig = getMaintenanceConfig();
+
+    const newConfig: MaintenanceConfig = {
+      ...previousConfig,
+      global: isLockdown,
+      message: typeof message === 'string' && message.trim()
+        ? message.trim().slice(0, 500)
+        : (isLockdown ? 'Sistema em procedimento de contingência e contenção de segurança. Acesso suspenso para manutenção emergencial.' : ''),
+      updatedAt: new Date().toISOString(),
+      updatedBy: adminUser?.username || 'admin',
+    };
+
+    saveMaintenanceConfig(newConfig);
+
+    let revokedCount = 0;
+    if (isLockdown && revokeActiveSessions) {
+      revokedCount = sessionRepoInstance.revokeAllNonAdminSessions();
+    }
+
+    logSecurityEvent(req, {
+      action: isLockdown ? 'EMERGENCY_LOCKDOWN_ACTIVATED' : 'EMERGENCY_LOCKDOWN_DEACTIVATED',
+      actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.userId || null,
+      targetType: 'system_lockdown',
+      targetId: 'global',
+      resource: '/api/admin/system/emergency-lockdown',
+      status: 'SUCCESS',
+      previousState: previousConfig,
+      newState: newConfig,
+      details: {
+        active: isLockdown,
+        revokeActiveSessions: Boolean(revokeActiveSessions),
+        revokedSessionsCount: revokedCount,
+        changedBy: adminUser?.username || 'admin',
+      },
+    });
+
+    try {
+      adminRealtimeHub.publish('METRICS_UPDATED' as AdminRealtimeEventType, newConfig);
+    } catch {}
+
+    return res.json({
+      success: true,
+      message: isLockdown
+        ? `Modo de emergência/invasão ATIVADO. O site foi desligado para todos os usuários comuns.${revokeActiveSessions ? ` (${revokedCount} sessões de alunos foram encerradas imediatamente)` : ''}`
+        : "Modo de emergência DESATIVADO. Acesso ao site normalizado com sucesso.",
+      config: newConfig,
+      revokedSessions: revokedCount,
+    });
+  } catch (err: any) {
+    console.error("Erro ao processar comando de emergência:", err);
+    return res.status(500).json({ success: false, message: "Erro ao processar comando de emergência." });
+  }
+});
+
+// 5. Reinicialização Tática do Servidor (Graceful Restart)
+app.post("/api/admin/system/restart", requireAdminWriteAuth, (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+
+    logSecurityEvent(req, {
+      action: 'SYSTEM_RESTART_TRIGGERED',
+      actor: adminUser?.username || 'admin',
+      actorUserId: adminUser?.userId || null,
+      targetType: 'system_process',
+      targetId: 'node_server',
+      resource: '/api/admin/system/restart',
+      status: 'SUCCESS',
+      details: {
+        triggeredBy: adminUser?.username || 'admin',
+        pid: process.pid,
+      },
+    });
+
+    res.json({
+      success: true,
+      message: "Comando de reinicialização aceito pelo servidor. O serviço será reiniciado em 800ms.",
+      restartingInMs: 800,
+    });
+
+    if (process.env.NODE_ENV === 'test') {
+      return;
+    }
+
+    setTimeout(() => {
+      console.warn(`🚨 [RESTART] Servidor reiniciando por solicitação do administrador ${adminUser?.username || 'admin'} (PID: ${process.pid})...`);
+      process.kill(process.pid, 'SIGTERM');
+    }, 800);
+  } catch (err: any) {
+    console.error("Erro ao acionar reinicialização do servidor:", err);
+    return res.status(500).json({ success: false, message: "Falha ao acionar reinicialização do servidor." });
   }
 });
 

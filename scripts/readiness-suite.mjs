@@ -15,6 +15,7 @@ const files = ['models', 'auth', 'profile', 'audit_security', 'admin_panel',
   'security_hardening', 'secure_uploads', 'exam_bank', 'exam_phase1_workflow', 'student_learning', 'database_resilience', 'calendar_persistence', 'maintenance_mode', 'study_session_range',
   'lgpd_privacy_compliance', 'zap_remediation', 'honeypot_deception', 'not_found_routing', 'bizuario_enhancements'];
 files.push('student_release45');
+files.push('emergency_lockdown');
 files.splice(files.indexOf('exam_bank'), 0, 'board_intelligence');
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|HOME|USERPROFILE|COMSPEC|PATHEXT)$/i.test(key)));

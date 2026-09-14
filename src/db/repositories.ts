@@ -1415,6 +1415,12 @@ export class SessionRepository {
     this.db.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ?').run(now, userId);
   }
 
+  public revokeAllNonAdminSessions(): number {
+    const now = new Date().toISOString();
+    const result = this.db.prepare("UPDATE sessions SET revoked_at = ? WHERE role NOT IN ('admin') AND revoked_at IS NULL").run(now);
+    return Number(result.changes || 0);
+  }
+
   public listActiveSessions(limit: number = 50): Array<{
     id: string;
     userId: string;

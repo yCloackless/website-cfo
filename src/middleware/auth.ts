@@ -49,5 +49,5 @@ export function createAuthMiddlewares(verifySession: VerifySession) {
     if (session.valid) { (req as any).user = session; return next(); }
     return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Autenticação necessária.' });
   }
-  return { requireAdminAuth, requireAdminWriteAuth, requireUserAuth };
+  return { requireAdminAuth, requireAdminWriteAuth, requireUserAuth, authenticatedSession };
 }
