@@ -38,6 +38,18 @@ test('1. Rota pública legítima (/api/health) responde com status 200 e status 
   assert.equal(data.service, 'cfo-cbmerj-backend');
 });
 
+test('1a. Readiness verifica o banco sem expor detalhes internos', async () => {
+  const res = await fetch(`${baseUrl}/api/ready`);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { status: 'ready' });
+  assert.match(res.headers.get('x-request-id') || '', /^[a-z0-9-]{36}$/i);
+});
+
+test('1b. Request ID fornecido em formato seguro é propagado', async () => {
+  const res = await fetch(`${baseUrl}/api/health`, { headers: { 'X-Request-ID': 'readiness-check-2026' } });
+  assert.equal(res.headers.get('x-request-id'), 'readiness-check-2026');
+});
+
 test('2. Rota de API inexistente simples (/api/nonexistent-endpoint-12345) retorna HTTP 404 e JSON seguro', async () => {
   const res = await fetch(`${baseUrl}/api/nonexistent-endpoint-12345`);
   assert.equal(res.status, 404);

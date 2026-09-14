@@ -361,7 +361,10 @@ export function getBackupStatus(): BackupStatus {
 /**
  * Inicializa o agendamento de backup diário (03:00)
  */
+let backupSchedulerTimer: NodeJS.Timeout | null = null;
+
 export function initBackupScheduler(): void {
+  if (backupSchedulerTimer) return;
   try {
     const migrated = migrateLegacyBackups();
     if (migrated) console.info(`[Backup] ${migrated} backup(s) legado(s) migrado(s) para AES-256-GCM.`);
@@ -370,7 +373,7 @@ export function initBackupScheduler(): void {
     return;
   }
   // Executa verificação a cada 1 hora se já passou das 03:00 e não houve backup no dia
-  setInterval(async () => {
+  backupSchedulerTimer = setInterval(async () => {
     const now = new Date();
     if (now.getHours() === 3 && now.getMinutes() < 15) {
       const status = getBackupStatus();
@@ -385,4 +388,10 @@ export function initBackupScheduler(): void {
       }
     }
   }, 15 * 60 * 1000);
+  backupSchedulerTimer.unref?.();
+}
+
+export function stopBackupScheduler(): void {
+  if (backupSchedulerTimer) clearInterval(backupSchedulerTimer);
+  backupSchedulerTimer = null;
 }

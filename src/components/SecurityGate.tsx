@@ -18,8 +18,8 @@ declare global {
   }
 }
 
-import React, { useState, useRef, useEffect } from 'react';
-import FibonacciSphere from './FibonacciSphere';
+import React, { useState, useRef, useEffect, lazy, Suspense } from 'react';
+const FibonacciSphere = lazy(() => import('./FibonacciSphere'));
 import { PrivacyPolicyModal } from './PrivacyPolicyModal';
 import { TermsOfUseModal } from './TermsOfUseModal';
 import { CookiePolicyModal } from './CookiePolicyModal';
@@ -426,7 +426,9 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
     >
       {(step === 'register-key' || step === 'register') && (
         <div className="absolute inset-0 z-0 overflow-hidden bg-black" aria-hidden="true">
-          <FibonacciSphere className="absolute inset-0" pointColor="#ffffff" />
+          <Suspense fallback={null}>
+            <FibonacciSphere className="absolute inset-0" pointColor="#ffffff" />
+          </Suspense>
           <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/55 to-slate-950/20 pointer-events-none" />
         </div>
       )}

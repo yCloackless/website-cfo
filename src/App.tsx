@@ -4,7 +4,7 @@
  */
 
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo } from 'react';
-import { User } from 'firebase/auth';
+import type { User } from 'firebase/auth';
 import {
   Flame,
   Calendar,
@@ -42,7 +42,7 @@ import {
   saveAutoSpacedRevisionsEnabled,
 } from './services/storageService';
 import { loadBizuItems, initBizuStorageAsync, subscribeBizuItems } from './utils/bizuarioStorage';
-import { initAuth, googleSignIn, logout, getAccessToken } from './services/firebaseAuth';
+const getFirebaseAuthService = () => import('./services/firebaseAuth');
 import {
   syncStudySessionAndRevisions,
   createGoogleCalendarEvent,
@@ -57,17 +57,17 @@ import { hydratePersistentState, startPersistentStateSync, clearPersistentStateC
 import { apiFetch } from './services/apiFetch';
 
 import { Header } from './components/Header';
-import { HorizontalWeeklyTable } from './components/HorizontalWeeklyTable';
+const HorizontalWeeklyTable = lazy(() => import('./components/HorizontalWeeklyTable').then(({ HorizontalWeeklyTable }) => ({ default: HorizontalWeeklyTable })));
 const AIBalanceTab = lazy(() => import('./components/AIBalanceTab').then(({ AIBalanceTab }) => ({ default: AIBalanceTab })));
 const BizuarioTab = lazy(() => import('./components/BizuarioTab').then(({ BizuarioTab }) => ({ default: BizuarioTab })));
 const HighYieldTab = lazy(() => import('./components/HighYieldTab').then(({ HighYieldTab }) => ({ default: HighYieldTab })));
-import { StudyDetailModal } from './components/StudyDetailModal';
-import { SmartRevisionsModal } from './components/SmartRevisionsModal';
-import { AddCustomSubjectModal } from './components/AddCustomSubjectModal';
-import { CycleHistoryModal } from './components/CycleHistoryModal';
-import { WeeklyGoalModal } from './components/WeeklyGoalModal';
-import { SecurityGate } from './components/SecurityGate';
-import { LandingPage } from './components/LandingPage';
+const StudyDetailModal = lazy(() => import('./components/StudyDetailModal').then(({ StudyDetailModal }) => ({ default: StudyDetailModal })));
+const SmartRevisionsModal = lazy(() => import('./components/SmartRevisionsModal').then(({ SmartRevisionsModal }) => ({ default: SmartRevisionsModal })));
+const AddCustomSubjectModal = lazy(() => import('./components/AddCustomSubjectModal').then(({ AddCustomSubjectModal }) => ({ default: AddCustomSubjectModal })));
+const CycleHistoryModal = lazy(() => import('./components/CycleHistoryModal').then(({ CycleHistoryModal }) => ({ default: CycleHistoryModal })));
+const WeeklyGoalModal = lazy(() => import('./components/WeeklyGoalModal').then(({ WeeklyGoalModal }) => ({ default: WeeklyGoalModal })));
+const SecurityGate = lazy(() => import('./components/SecurityGate').then(({ SecurityGate }) => ({ default: SecurityGate })));
+const LandingPage = lazy(() => import('./components/LandingPage').then(({ LandingPage }) => ({ default: LandingPage })));
 const TimerTab = lazy(() => import('./components/TimerTab').then(({ TimerTab }) => ({ default: TimerTab })));
 const NotionAgendaTab = lazy(() => import('./components/NotionAgendaTab').then(({ NotionAgendaTab }) => ({ default: NotionAgendaTab })));
 const MonthlyStudyHeatmapTab = lazy(() => import('./components/MonthlyStudyHeatmapTab').then(({ MonthlyStudyHeatmapTab }) => ({ default: MonthlyStudyHeatmapTab })));
@@ -75,20 +75,21 @@ import { CookieConsent } from './components/CookieConsent';
 const TacticalSimulations = lazy(() => import('./components/TacticalSimulations').then(({ TacticalSimulations }) => ({ default: TacticalSimulations })));
 import { useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { TacticalSidebar, TabType, TAB_ROUTE_MAP, ROUTE_TAB_MAP } from './components/TacticalSidebar';
-import { StudentRadarTab } from './components/StudentRadarTab';
-import { StudentCoachPanel } from './components/StudentCoachPanel';
-import { StudentAnalyticsPanel } from './components/StudentAnalyticsPanel';
-import { Release3StudyPanel } from './components/Release3StudyPanel';
+const StudentRadarTab = lazy(() => import('./components/StudentRadarTab').then(({ StudentRadarTab }) => ({ default: StudentRadarTab })));
+const StudentCoachPanel = lazy(() => import('./components/StudentCoachPanel').then(({ StudentCoachPanel }) => ({ default: StudentCoachPanel })));
+const StudentAnalyticsPanel = lazy(() => import('./components/StudentAnalyticsPanel').then(({ StudentAnalyticsPanel }) => ({ default: StudentAnalyticsPanel })));
+const Release3StudyPanel = lazy(() => import('./components/Release3StudyPanel').then(({ Release3StudyPanel }) => ({ default: Release3StudyPanel })));
 const ErrorNotebookTab = lazy(() => import('./components/ErrorNotebookTab').then(({ ErrorNotebookTab }) => ({ default: ErrorNotebookTab })));
 const ExamBankTab = lazy(() => import('./components/ExamBankTab').then(({ ExamBankTab }) => ({ default: ExamBankTab })));
-import { MyAccountModal } from './components/MyAccountModal';
-import { AdminSecurityPanelModal } from './components/AdminSecurityPanelModal';
-import { UpdateNoticeModal } from './components/UpdateNoticeModal';
-import { NotificationCenterDrawer, NotificationItem } from './components/NotificationCenterDrawer';
-import { SecurityAlertPopup } from './components/SecurityAlertPopup';
+const MyAccountModal = lazy(() => import('./components/MyAccountModal').then(({ MyAccountModal }) => ({ default: MyAccountModal })));
+const AdminSecurityPanelModal = lazy(() => import('./components/AdminSecurityPanelModal').then(({ AdminSecurityPanelModal }) => ({ default: AdminSecurityPanelModal })));
+const UpdateNoticeModal = lazy(() => import('./components/UpdateNoticeModal').then(({ UpdateNoticeModal }) => ({ default: UpdateNoticeModal })));
+const NotificationCenterDrawer = lazy(() => import('./components/NotificationCenterDrawer').then(({ NotificationCenterDrawer }) => ({ default: NotificationCenterDrawer })));
+import type { NotificationItem } from './components/NotificationCenterDrawer';
+const SecurityAlertPopup = lazy(() => import('./components/SecurityAlertPopup').then(({ SecurityAlertPopup }) => ({ default: SecurityAlertPopup })));
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard').then(({ AdminDashboard }) => ({ default: AdminDashboard })));
-import { MaintenanceScreen } from './components/MaintenanceScreen';
-import { NotFound } from './components/NotFound';
+const MaintenanceScreen = lazy(() => import('./components/MaintenanceScreen').then(({ MaintenanceScreen }) => ({ default: MaintenanceScreen })));
+const NotFound = lazy(() => import('./components/NotFound').then(({ NotFound }) => ({ default: NotFound })));
 
 export default function App() {
   const location = useLocation();
@@ -471,9 +472,10 @@ export default function App() {
 
   useEffect(() => {
     fetchMaintenanceStatus();
+    if (!isTerminalUnlocked) return;
     const interval = setInterval(fetchMaintenanceStatus, 45000);
     return () => clearInterval(interval);
-  }, [fetchMaintenanceStatus]);
+  }, [fetchMaintenanceStatus, isTerminalUnlocked]);
 
   // Preset topic for creating a Bizu from HighYield tab
   const [presetTopicForBizu, setPresetTopicForBizu] = useState<{
@@ -786,20 +788,23 @@ export default function App() {
     setCyclesHistory(getCyclesHistory());
 
     // 4. Setup Firebase Auth listener with token persistence
-    const unsubscribe = initAuth(
-      (currentUser, token) => {
-        setUser(currentUser);
-        setAccessToken(token);
-      },
-      () => {
-        setUser(null);
-        setAccessToken(null);
-      },
-      (currentUser) => {
-        setUser(currentUser);
-        setAccessToken(null);
-      }
-    );
+    let unsubscribe: (() => void) | undefined;
+    getFirebaseAuthService().then(({ initAuth }) => {
+      unsubscribe = initAuth(
+        (currentUser, token) => {
+          setUser(currentUser);
+          setAccessToken(token);
+        },
+        () => {
+          setUser(null);
+          setAccessToken(null);
+        },
+        (currentUser) => {
+          setUser(currentUser);
+          setAccessToken(null);
+        }
+      );
+    });
 
     // 5. Check backend Google Calendar permanent session status
     refreshCalendarStatus();
@@ -868,7 +873,7 @@ export default function App() {
     window.addEventListener('message', handleAuthMessage);
 
     return () => {
-      unsubscribe();
+      if (unsubscribe) unsubscribe();
       window.removeEventListener('message', handleAuthMessage);
       window.removeEventListener('storage', handleStorageChange);
       if (authChannel) {
@@ -957,12 +962,23 @@ export default function App() {
   // Account logout keeps the real existing authentication/session invalidation flow.
   const handleSignOut = async () => {
     await handleDisconnectCalendar();
-    await logout();
+    try {
+      const { logout } = await getFirebaseAuthService();
+      await logout();
+    } catch (_) {}
     setUser(null);
     setAccessToken(null);
   };
 
-
+  const getStoredOrFreshToken = useCallback(async () => {
+    if (accessToken) return accessToken;
+    try {
+      const { getAccessToken } = await getFirebaseAuthService();
+      return await getAccessToken();
+    } catch (_) {
+      return null;
+    }
+  }, [accessToken]);
 
   // Week days calculation
   const weekDays = useMemo(() => {
@@ -1054,7 +1070,7 @@ export default function App() {
     };
 
     // If Google Calendar is connected (either client token or backend permanent session)
-    const token = accessToken || (await getAccessToken());
+    const token = await getStoredOrFreshToken();
     let calendarResult: any = null;
 
     if (token || backendCalendar.connected) {
@@ -1159,7 +1175,7 @@ export default function App() {
     let calendarResult: any = null;
 
     if (data.completed && data.syncWithCalendar) {
-      const token = accessToken || (await getAccessToken());
+      const token = await getStoredOrFreshToken();
       if (token || backendCalendar.connected) {
         try {
           calendarResult = await syncStudySessionAndRevisions(
@@ -1498,7 +1514,7 @@ export default function App() {
 
   // Sync individual revision to calendar
   const handleSyncRevisionToCalendar = async (revision: SmartRevisionItem) => {
-    const token = accessToken || (await getAccessToken());
+    const token = await getStoredOrFreshToken();
     if (!token && !backendCalendar.connected) {
       showToast('Conecte sua conta do Google Agenda no topo primeiro.', 'error');
       return;
@@ -1626,11 +1642,13 @@ export default function App() {
 
   if (!isValidRoute) {
     return (
-      <NotFound
-        theme={theme}
-        onNavigate={(path) => navigate(path)}
-        isAuthenticated={isTerminalUnlocked}
-      />
+      <Suspense fallback={<div className="min-h-screen bg-black" />}>
+        <NotFound
+          theme={theme}
+          onNavigate={(path) => navigate(path)}
+          isAuthenticated={isTerminalUnlocked}
+        />
+      </Suspense>
     );
   }
 
@@ -1638,7 +1656,7 @@ export default function App() {
   if (!isTerminalUnlocked) {
     if (normalizedPath === '/login') {
       return (
-        <>
+        <Suspense fallback={<div className="min-h-screen bg-black" />}>
           <SecurityGate
             onAuthenticated={(_token, _expiresAt, _is2faActive) => {
               setIsTerminalUnlocked(true);
@@ -1659,20 +1677,20 @@ export default function App() {
             }}
           />
           <CookieConsent />
-        </>
+        </Suspense>
       );
     }
 
     if (normalizedPath === '/') {
       return (
-        <>
+        <Suspense fallback={<div className="min-h-screen bg-[#fbfcfe]" />}>
           <LandingPage
             onOpenLogin={() => {
               navigate('/login');
             }}
           />
           <CookieConsent />
-        </>
+        </Suspense>
       );
     }
 
@@ -2222,17 +2240,18 @@ export default function App() {
                 </div>
               </div>
 
-              <HorizontalWeeklyTable
-                subjects={subjects}
-                weekDays={weekDays}
-                entries={currentCycle?.entries || {}}
-                onCellClick={handleCellClick}
-                onQuickToggle={handleQuickToggle}
-                onDeleteCustomSubject={handleDeleteCustomSubject}
-                hasGoogleCalendar={isCalendarLinked}
-                theme={theme}
-
-              />
+              <Suspense fallback={<div className="w-full min-h-[300px] flex items-center justify-center text-slate-500 text-xs">Carregando cronograma...</div>}>
+                <HorizontalWeeklyTable
+                  subjects={subjects}
+                  weekDays={weekDays}
+                  entries={currentCycle?.entries || {}}
+                  onCellClick={handleCellClick}
+                  onQuickToggle={handleQuickToggle}
+                  onDeleteCustomSubject={handleDeleteCustomSubject}
+                  hasGoogleCalendar={isCalendarLinked}
+                  theme={theme}
+                />
+              </Suspense>
             </section>
           </>
         )}
@@ -2380,6 +2399,7 @@ export default function App() {
       )}
 
       {/* Modals */}
+      <Suspense fallback={null}>
       <StudyDetailModal
         isOpen={isStudyModalOpen}
         onClose={() => {
@@ -2524,6 +2544,7 @@ export default function App() {
       />
 
       <UpdateNoticeModal />
+      </Suspense>
     </div>
   );
 }

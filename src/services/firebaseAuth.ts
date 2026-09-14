@@ -10,13 +10,31 @@ import {
 } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-export const auth = getAuth(app);
+let authInstance: any = null;
+let providerInstance: GoogleAuthProvider | null = null;
 
-const provider = new GoogleAuthProvider();
-// Request Calendar Events scope
-provider.addScope('https://www.googleapis.com/auth/calendar.events');
-provider.setCustomParameters({ prompt: 'select_account' });
+export function getFirebaseAuth() {
+  if (!authInstance) {
+    const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+    authInstance = getAuth(app);
+  }
+  return authInstance;
+}
+
+export function getGoogleProvider(): GoogleAuthProvider {
+  if (!providerInstance) {
+    providerInstance = new GoogleAuthProvider();
+    providerInstance.addScope('https://www.googleapis.com/auth/calendar.events');
+    providerInstance.setCustomParameters({ prompt: 'select_account' });
+  }
+  return providerInstance;
+}
+
+export const auth = new Proxy({} as ReturnType<typeof getAuth>, {
+  get(_, prop) {
+    return (getFirebaseAuth() as any)[prop];
+  },
+});
 
 const STORAGE_TOKEN_KEY = 'cfo_cbmerj_google_calendar_token';
 const STORAGE_EXPIRY_KEY = 'cfo_cbmerj_google_calendar_token_expiry';
@@ -141,7 +159,7 @@ export const initAuth = (
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
+    const result = await signInWithPopup(auth, getGoogleProvider());
     
     // Validação de segurança por e-mail
     if (result.user?.email && !isEmailAuthorized(result.user.email)) {

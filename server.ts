@@ -54,6 +54,7 @@ import {
   verifyBackupIntegrity,
   restoreBackup,
   initBackupScheduler,
+  stopBackupScheduler,
 } from "./src/services/backupService";
 import { logAuditEvent, readRecentAuditLogs } from "./src/services/auditLogger";
 import { AuthService } from "./src/db/authService";
@@ -95,6 +96,16 @@ import { createAuthMiddlewares } from "./src/middleware/auth";
 const app = express();
 app.disable("x-powered-by");
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const supplied = req.headers['x-request-id'];
+  const requestId = typeof supplied === 'string' && /^[a-zA-Z0-9._:-]{8,128}$/.test(supplied)
+    ? supplied
+    : crypto.randomUUID();
+  (req as any).requestId = requestId;
+  res.setHeader('X-Request-ID', requestId);
+  next();
+});
 
 const SESSION_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-cfo_session' : 'cfo_session';
 function readSessionCookie(req: Request): string | null {
@@ -138,6 +149,16 @@ app.get("/api/health", (_req: Request, res: Response) => {
     timestamp: Date.now(),
     service: "cfo-cbmerj-backend",
   });
+});
+
+app.get("/api/ready", (_req: Request, res: Response) => {
+  try {
+    const result = getDb().getRawDb().prepare('SELECT 1 AS ok').get();
+    if (result?.ok !== 1) throw new Error('DATABASE_NOT_READY');
+    return res.status(200).json({ status: 'ready' });
+  } catch {
+    return res.status(503).json({ status: 'not_ready' });
+  }
 });
 
 app.get('/oauth-callback.js', (_req: Request, res: Response) => {
@@ -7076,11 +7097,12 @@ app.all(["/api", "/api/*"], (_req: Request, res: Response) => {
 });
 
 // Middleware Centralizado de Tratamento de Erros (Evita vazamento de stacktrace)
-app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
   logInternalError("Unhandled Server Exception", err);
   return res.status(err?.status || 500).json({
     error: "INTERNAL_SERVER_ERROR",
     message: "Ocorreu uma falha no processamento. Tente novamente.",
+    requestId: (req as any).requestId,
   });
 });
 
@@ -7147,6 +7169,23 @@ async function startServer() {
   server.headersTimeout = 10_000;   // 10s — reduzido de 15s; mata Slowloris na fase de headers
   server.keepAliveTimeout = 5_000;  // 5s — conexões idle fecham rápido
   server.maxHeadersCount = 100;     // Limite de headers por request
+
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.info(`[Shutdown] Recebido ${signal}; encerrando componentes com segurança.`);
+    examJobWorker.stop();
+    stopBackupScheduler();
+    adminRealtimeHub.destroy();
+    server.close(() => {
+      try { getDb().close(); } catch (error) { logInternalError('Database shutdown', error); }
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
 }
 
 const isTestEnv = process.env.NODE_ENV === "test";

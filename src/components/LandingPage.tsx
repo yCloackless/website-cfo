@@ -1,9 +1,33 @@
-import React from 'react';
+import React, { lazy, Suspense, useState, useEffect } from 'react';
 import {
   ArrowRight, BarChart3, BookOpen, CalendarDays, CheckCircle2, Flame,
   Home, Search, Settings, ShieldCheck, Target, Trophy,
 } from 'lucide-react';
-import FibonacciSphere from './FibonacciSphere';
+
+const FibonacciSphere = lazy(() => import('./FibonacciSphere'));
+
+function DeferredFibonacciSphere() {
+  const [shouldRender, setShouldRender] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if ('requestIdleCallback' in window) {
+      const id = (window as any).requestIdleCallback(() => setShouldRender(true), { timeout: 1200 });
+      return () => (window as any).cancelIdleCallback?.(id);
+    } else {
+      const timer = setTimeout(() => setShouldRender(true), 400);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  if (!shouldRender) return null;
+
+  return (
+    <Suspense fallback={null}>
+      <FibonacciSphere className="hero-sphere" pointColor="#ffffff" />
+    </Suspense>
+  );
+}
 
 interface LandingPageProps { onOpenLogin: () => void; }
 
@@ -29,9 +53,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => (
           <div className="motto">“Disciplina hoje.<br />Oficial amanhã.” <b /></div>
         </div>
         <div className="hero-art">
-          <div className="hero-sphere-stage" aria-hidden="true"><FibonacciSphere className="hero-sphere" pointColor="#ffffff" /></div>
-          <div className="blue-panel"><small>DISCIPLINA<br />PROTEGE<br />SONHOS</small><b /><img src="/pm-officer.jpg" alt="Oficial da Polícia Militar" /></div>
-          <div className="orange-panel"><small>CORAGEM<br />TAMBÉM<br />SALVA VIDAS</small><img src="/bombeiro-officer.jpg" alt="Oficial do Corpo de Bombeiros" /></div>
+          <div className="hero-sphere-stage" aria-hidden="true"><DeferredFibonacciSphere /></div>
+          <div className="blue-panel"><small>DISCIPLINA<br />PROTEGE<br />SONHOS</small><b /><img src="/pm-officer.jpg" alt="Oficial da Polícia Militar" width="275" height="390" loading="lazy" decoding="async" /></div>
+          <div className="orange-panel"><small>CORAGEM<br />TAMBÉM<br />SALVA VIDAS</small><img src="/bombeiro-officer.jpg" alt="Oficial do Corpo de Bombeiros" width="246" height="440" loading="lazy" decoding="async" /></div>
           <DashboardMockup />
         </div>
       </div>
@@ -44,7 +68,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => (
   </main>
 );
 
-function Logo() { return <div className="logo-mark"><img className="brand-phoenix" src="/phoenix-logo-cropped.png" alt="Fênix Rumo ao CFO" /><div><strong>RUMO AO <span>CFO</span></strong><small>DISCIPLINA HOJE. OFICIAL AMANHÃ.</small></div></div>; }
+function Logo() {
+  return (
+    <div className="logo-mark">
+      <picture>
+        <source srcSet="/phoenix-logo-header.webp" type="image/webp" />
+        <img className="brand-phoenix" src="/phoenix-logo-header.png" alt="Fênix Rumo ao CFO" width="38" height="38" decoding="async" />
+      </picture>
+      <div><strong>RUMO AO <span>CFO</span></strong><small>DISCIPLINA HOJE. OFICIAL AMANHÃ.</small></div>
+    </div>
+  );
+}
 function Stat({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <div className="stat"><div className="stat-icon">{icon}</div><div><h3>{title}</h3><p>{text}</p></div></div>; }
 function Benefit({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <article className="benefit"><div className="benefit-icon">{icon}</div><CheckCircle2 size={18} className="benefit-check" /><h3>{title}</h3><p>{text}</p><a href="#inicio">Saiba mais <ArrowRight size={15} /></a></article>; }
 function DashboardMockup() {
