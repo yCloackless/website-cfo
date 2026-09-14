@@ -1,7 +1,6 @@
 import React, { lazy, Suspense, useState, useEffect } from 'react';
 import {
-  ArrowRight, BarChart3, BookOpen, CalendarDays, CheckCircle2, Flame,
-  Home, Search, Settings, ShieldCheck, Target, Trophy,
+  ArrowRight, BarChart3, BookOpen, CalendarDays, CheckCircle2, Flame, Target, Trophy,
 } from 'lucide-react';
 
 const FibonacciSphere = lazy(() => import('./FibonacciSphere'));
@@ -11,8 +10,9 @@ function DeferredFibonacciSphere() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    let idleId: any;
-    let timeoutId: any;
+    // Em viewports móveis estreitos (< 640px), o texto do Hero ocupa a tela inteira.
+    // Evita inicialização de WebGL na carga inicial mobile.
+    if (window.innerWidth < 640) return;
 
     const activate = () => {
       setShouldRender(true);
@@ -21,29 +21,17 @@ function DeferredFibonacciSphere() {
 
     const cleanup = () => {
       window.removeEventListener('scroll', activate);
+      window.removeEventListener('pointerdown', activate);
       window.removeEventListener('pointermove', activate);
       window.removeEventListener('touchstart', activate);
-      if (idleId && (window as any).cancelIdleCallback) (window as any).cancelIdleCallback(idleId);
-      if (timeoutId) clearTimeout(timeoutId);
+      window.removeEventListener('keydown', activate);
     };
 
     window.addEventListener('scroll', activate, { passive: true, once: true });
+    window.addEventListener('pointerdown', activate, { passive: true, once: true });
     window.addEventListener('pointermove', activate, { passive: true, once: true });
     window.addEventListener('touchstart', activate, { passive: true, once: true });
-
-    const scheduleIdle = () => {
-      if ('requestIdleCallback' in window) {
-        idleId = (window as any).requestIdleCallback(activate, { timeout: 4000 });
-      } else {
-        timeoutId = setTimeout(activate, 2500);
-      }
-    };
-
-    if (document.readyState === 'complete') {
-      scheduleIdle();
-    } else {
-      window.addEventListener('load', scheduleIdle, { once: true });
-    }
+    window.addEventListener('keydown', activate, { passive: true, once: true });
 
     return cleanup;
   }, []);
@@ -82,9 +70,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => (
         </div>
         <div className="hero-art">
           <div className="hero-sphere-stage" aria-hidden="true"><DeferredFibonacciSphere /></div>
-          <div className="blue-panel"><small>DISCIPLINA<br />PROTEGE<br />SONHOS</small><b /><picture><source srcSet="/pm-officer.webp" type="image/webp" /><img src="/pm-officer.jpg" alt="Oficial da Polícia Militar" width="275" height="390" loading="lazy" decoding="async" /></picture></div>
-          <div className="orange-panel"><small>CORAGEM<br />TAMBÉM<br />SALVA VIDAS</small><picture><source srcSet="/bombeiro-officer.webp" type="image/webp" /><img src="/bombeiro-officer.jpg" alt="Oficial do Corpo de Bombeiros" width="246" height="440" loading="lazy" decoding="async" /></picture></div>
-          <DashboardMockup />
         </div>
       </div>
     </section>
@@ -109,20 +94,3 @@ function Logo() {
 }
 function Stat({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <div className="stat"><div className="stat-icon">{icon}</div><div><h3>{title}</h3><p>{text}</p></div></div>; }
 function Benefit({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <article className="benefit"><div className="benefit-icon">{icon}</div><CheckCircle2 size={18} className="benefit-check" /><h3>{title}</h3><p>{text}</p><a href="#inicio">Saiba mais <ArrowRight size={15} /></a></article>; }
-function DashboardMockup() {
-  return (
-    <div className="dashboard">
-      <div className="dash-top"><strong>RUMO AO <span>CFO</span></strong><div className="search"><Search size={11} /> Buscar uma disciplina...</div><b>JP</b></div>
-      <div className="dash-body">
-        <aside><DashItem icon={<Home />} text="Início" active /><DashItem icon={<BookOpen />} text="Questões" /><DashItem icon={<ShieldCheck />} text="Simulados" /><DashItem icon={<CalendarDays />} text="Cronograma" /><DashItem icon={<Target />} text="Revisões" /><DashItem icon={<BarChart3 />} text="Desempenho" /><div className="dash-spacer" /><DashItem icon={<Settings />} text="Configurações" /></aside>
-        <div className="dash-content"><h3>Boa tarde, futuro oficial! 👋</h3><small>Disciplina hoje. Oficial amanhã.</small>
-          <div className="metrics"><Metric icon={<BookOpen />} title="Questões resolvidas" value="2.847" /><Metric icon={<BarChart3 />} title="Taxa de acerto" value="78%" green /><Metric icon={<Flame />} title="Dias de estudo" value="42" orange /></div>
-          <div className="dash-bottom"><div className="chart"><b>Seu progresso</b><svg viewBox="0 0 400 120"><path d="M5 100 C50 82 65 95 100 75 S150 85 190 70 S230 65 270 50 S330 50 395 12" /></svg><div>Jan　 Fev　 Mar　 Abr　 Mai　 Jun</div></div><div className="week"><b>Cronograma da semana</b>{['Seg  12 questões','Ter  30 questões','Qua  Revisão','Qui  Simulado','Sex  Revisão de erros'].map(x => <span key={x}>{x}</span>)}</div></div>
-        </div>
-      </div>
-      <div className="laptop-base" />
-    </div>
-  );
-}
-function DashItem({ icon, text, active }: { icon: React.ReactNode; text: string; active?: boolean }) { return <span className={active ? 'active' : ''}>{icon}{text}</span>; }
-function Metric({ icon, title, value, green, orange }: { icon: React.ReactNode; title: string; value: string; green?: boolean; orange?: boolean }) { return <div className="metric"><div className={green ? 'metric-icon green' : orange ? 'metric-icon orange' : 'metric-icon'}>{icon}</div><small>{title}</small><strong>{value}</strong><em className={green ? 'green-text' : ''}>+12% na última semana</em></div>; }

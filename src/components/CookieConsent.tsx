@@ -6,17 +6,16 @@ import { PrivacyPolicyModal } from './PrivacyPolicyModal';
 const STORAGE_KEY = 'cfo_cookie_consent';
 
 export const CookieConsent: React.FC = () => {
-  const [acknowledged, setAcknowledged] = useState<boolean | null>(null);
+  const [acknowledged, setAcknowledged] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      return Boolean(localStorage.getItem(STORAGE_KEY));
+    } catch {
+      return true;
+    }
+  });
   const [isCookieModalOpen, setIsCookieModalOpen] = useState(false);
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
-
-  useEffect(() => {
-    try {
-      setAcknowledged(Boolean(localStorage.getItem(STORAGE_KEY)));
-    } catch {
-      setAcknowledged(true);
-    }
-  }, []);
 
   const acknowledgeNecessary = () => {
     try {
@@ -37,7 +36,8 @@ export const CookieConsent: React.FC = () => {
         <div
           role="region"
           aria-label="Aviso de privacidade e cookies"
-          className="fixed bottom-0 left-0 right-0 z-50 w-full border-t border-blue-900/50 bg-slate-950/95 shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-3 duration-300"
+          className="fixed bottom-0 left-0 right-0 z-50 w-full border-t border-blue-900/50 bg-slate-950/95 shadow-2xl backdrop-blur-md"
+          style={{ contain: 'layout paint' }}
         >
           <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 py-3.5 sm:px-6 md:flex-row lg:px-8">
             <div className="flex w-full items-start gap-3 md:w-auto sm:items-center">

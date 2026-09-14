@@ -5,9 +5,12 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    esbuild: {
+      legalComments: 'none',
+    },
     build: {
       outDir: 'dist/public',
-      sourcemap: false,
+      sourcemap: 'hidden',
       chunkSizeWarningLimit: 600,
       rollupOptions: {
         output: {

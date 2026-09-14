@@ -67,7 +67,7 @@ const AddCustomSubjectModal = lazy(() => import('./components/AddCustomSubjectMo
 const CycleHistoryModal = lazy(() => import('./components/CycleHistoryModal').then(({ CycleHistoryModal }) => ({ default: CycleHistoryModal })));
 const WeeklyGoalModal = lazy(() => import('./components/WeeklyGoalModal').then(({ WeeklyGoalModal }) => ({ default: WeeklyGoalModal })));
 const SecurityGate = lazy(() => import('./components/SecurityGate').then(({ SecurityGate }) => ({ default: SecurityGate })));
-const LandingPage = lazy(() => import('./components/LandingPage').then(({ LandingPage }) => ({ default: LandingPage })));
+import { LandingPage } from './components/LandingPage';
 const TimerTab = lazy(() => import('./components/TimerTab').then(({ TimerTab }) => ({ default: TimerTab })));
 const NotionAgendaTab = lazy(() => import('./components/NotionAgendaTab').then(({ NotionAgendaTab }) => ({ default: NotionAgendaTab })));
 const MonthlyStudyHeatmapTab = lazy(() => import('./components/MonthlyStudyHeatmapTab').then(({ MonthlyStudyHeatmapTab }) => ({ default: MonthlyStudyHeatmapTab })));
@@ -1683,14 +1683,14 @@ export default function App() {
 
     if (normalizedPath === '/') {
       return (
-        <Suspense fallback={<div className="min-h-screen bg-[#fbfcfe]" />}>
+        <>
           <LandingPage
             onOpenLogin={() => {
               navigate('/login');
             }}
           />
           <CookieConsent />
-        </Suspense>
+        </>
       );
     }
 

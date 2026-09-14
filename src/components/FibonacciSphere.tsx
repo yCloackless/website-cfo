@@ -1,10 +1,24 @@
 import { useEffect, useRef } from 'react';
-import * as THREE from 'three';
+import {
+  Scene,
+  PerspectiveCamera,
+  WebGLRenderer,
+  BufferGeometry,
+  BufferAttribute,
+  ShaderMaterial,
+  Vector2,
+  Color,
+  MathUtils,
+  Clock,
+  Points,
+  NormalBlending,
+  type ColorRepresentation,
+} from 'three';
 
 interface FibonacciSphereProps {
   className?: string;
   pointCount?: number;
-  pointColor?: THREE.ColorRepresentation;
+  pointColor?: ColorRepresentation;
   scale?: number;
   openingRadius?: number;
 }
@@ -27,10 +41,10 @@ export default function FibonacciSphere({
     const lowPower = (navigator.hardwareConcurrency || 8) <= 4;
     const count = isMobile ? 1200 : (lowPower ? Math.max(3000, Math.round(pointCount * 0.6)) : pointCount);
     const pixelRatio = isMobile ? 1 : Math.min(window.devicePixelRatio || 1, 2);
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+    const scene = new Scene();
+    const camera = new PerspectiveCamera(42, 1, 0.1, 100);
     camera.position.z = 4.1;
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
+    const renderer = new WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
     renderer.setClearColor(0x000000, 0);
     renderer.setPixelRatio(pixelRatio);
     renderer.domElement.setAttribute('aria-hidden', 'true');
@@ -48,17 +62,17 @@ export default function FibonacciSphere({
       positions[i * 3 + 2] = Math.sin(theta) * radius;
     }
 
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new BufferAttribute(positions, 3));
     const themeColor = pointColor ?? (document.body.classList.contains('theme-dark') ? '#ffffff' : '#000000');
     const uniforms = {
       uTime: { value: 0 }, uPointSize: { value: 1.65 * pixelRatio },
-      uMouse: { value: new THREE.Vector2() }, uHover: { value: 0 }, uAspect: { value: 1 },
-      uPointColor: { value: new THREE.Color(themeColor) },
+      uMouse: { value: new Vector2() }, uHover: { value: 0 }, uAspect: { value: 1 },
+      uPointColor: { value: new Color(themeColor) },
       uOpeningRadius: { value: openingRadius },
     };
-    const material = new THREE.ShaderMaterial({
-      uniforms, transparent: true, depthWrite: false, blending: THREE.NormalBlending,
+    const material = new ShaderMaterial({
+      uniforms, transparent: true, depthWrite: false, blending: NormalBlending,
       vertexShader: `
         uniform float uTime;
         uniform float uPointSize;
@@ -106,13 +120,13 @@ export default function FibonacciSphere({
         }
       `,
     });
-    const sphere = new THREE.Points(geometry, material);
+    const sphere = new Points(geometry, material);
     sphere.scale.setScalar(scale);
     scene.add(sphere);
 
     const canvas = renderer.domElement;
-    const targetMouse = new THREE.Vector2();
-    const currentMouse = new THREE.Vector2();
+    const targetMouse = new Vector2();
+    const currentMouse = new Vector2();
     let dragging = false; let previousX = 0; let previousY = 0;
     let dragYawOffset = 0; let dragPitchOffset = 0; let currentYaw = 0; let currentPitch = 0;
     let autoRotation = 0; let targetHover = 0; let currentHover = 0;
@@ -129,7 +143,7 @@ export default function FibonacciSphere({
       uniforms.uHover.value = hoverStrength;
       if (dragging) {
         dragYawOffset += (event.clientX - previousX) * 0.005;
-        dragPitchOffset = THREE.MathUtils.clamp(dragPitchOffset + (event.clientY - previousY) * 0.005, -1.25, 1.25);
+        dragPitchOffset = MathUtils.clamp(dragPitchOffset + (event.clientY - previousY) * 0.005, -1.25, 1.25);
         previousX = event.clientX; previousY = event.clientY;
       }
     };
@@ -164,7 +178,7 @@ export default function FibonacciSphere({
       uniforms.uPointColor.value.set(isDark ? '#ffffff' : '#000000');
     });
     themeObserver?.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-    const clock = new THREE.Clock(); let animationFrame = 0;
+    const clock = new Clock(); let animationFrame = 0;
     const animate = () => {
       animationFrame = requestAnimationFrame(animate); uniforms.uTime.value = clock.getElapsedTime();
       autoRotation += reducedMotion ? 0.0008 : 0.0032;

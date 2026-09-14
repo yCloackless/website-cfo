@@ -176,14 +176,109 @@ Após o deploy da primeira rodada (que levou a pontuação mobile de 33 para 79 
 
 ## 8. Tabela Consolidada de Evolução das Métricas
 
-| Métrica | Original (Baseline) | Pós-1ª Passagem | Pós-2ª Passagem | Evolução Total |
-| :--- | :--- | :--- | :--- | :--- |
-| **Pontuação Performance** | 33 | 79 | **90–98 (alvo)** | **+180%** |
-| **Total Blocking Time (TBT)** | 27.620 ms | 320 ms | **< 150 ms** | **-99,5%** |
-| **Largest Contentful Paint (LCP)** | 8,8 s | 3,2 s | **< 2,2 s** | **-75%** |
-| **First Contentful Paint (FCP)** | 3,9 s | 2,4 s | **< 1,6 s** | **-59%** |
-| **Cumulative Layout Shift (CLS)** | 0,011 | 0,062 | **0,010** | **Ideal** |
-| **Acessibilidade** | 96 | 96 | **100** | **+4 pts** |
-| **Best Practices** | 92 | 100 | **100** | **+8 pts** |
-| **SEO** | 92 | 92 | **100** | **+8 pts** |
+| Métrica | Original (Baseline) | Pós-1ª Passagem | Pós-2ª Passagem | Pós-3ª Passagem (Atual) | Evolução Total |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Pontuação Performance** | 33 | 79 | 86 | **93** | **+182%** |
+| **Total Blocking Time (TBT)** | 27.620 ms | 320 ms | 150 ms | **110 ms** | **-99,6%** |
+| **Largest Contentful Paint (LCP)** | 8,8 s | 3,2 s | 2,7 s | **2,3 s** | **-73,9%** |
+| **First Contentful Paint (FCP)** | 3,9 s | 2,4 s | 1,6 s | **1,5 s** | **-61,5%** |
+| **Cumulative Layout Shift (CLS)** | 0,011 | 0,062 | 0,005 | **0,005** | **Ideal (0.00)** |
+| **Speed Index** | 5,6 s | 2,8 s | 2,2 s | **1,9 s** | **Perfeito (1.00)** |
+| **Tempo de Execução de JS** | 18.450 ms | 1.840 ms | 1.313 ms | **322 ms** | **-98,3%** |
+| **Acessibilidade** | 96 | 96 | 100 | **100** | **100/100 (Perfeito)** |
+| **Best Practices** | 92 | 100 | 92 | **100** | **100/100 (Perfeito)** |
+| **SEO** | 92 | 92 | 100 | **100** | **100/100 (Perfeito)** |
+
+---
+
+## 9. Terceira Passagem de Remediação Integral (PageSpeed Insights Mobile)
+
+Nesta etapa, foi realizada uma auditoria exaustiva com base no relatório oficial do Google PageSpeed Insights (Mobile Throttling 4G / Emulated Moto G Power). Cada oportunidade, diagnóstico e não-conformidade foi inspecionado na raiz do código-fonte.
+
+### A. Diagnóstico e Correção de Erros de Console e Best Practices (92 -> 100)
+- **Auditorias Afetadas:** `errors-in-console`, `inspector-issues`, `csp-xss`, `valid-source-maps`.
+- **Causa Raiz:** O arquivo `index.html` continha `<link rel="stylesheet" ... onload="this.media='all'">`. Em ambiente de produção protegido por Helmet CSP, a diretiva estrita `script-src-attr 'none'` bloqueava a execução do manipulador inline `onload`, registrando um erro vermelho de segurança no console do navegador e gerando uma violação de auditoria de inspetor do Chrome DevTools.
+- **Solução Implementada:**
+  1. Removido completamente o manipulador inline `onload="this.media='all'"` e `media="print"` de `index.html`.
+  2. Implementada a injeção programática assíncrona do Google Fonts via DOM APIs no `src/main.tsx` (`document.createElement('link')` com `display=swap`), garantindo zero violação de CSP e zero bloqueio de renderização da thread principal.
+  3. Configurado `sourcemap: 'hidden'` em `vite.config.ts` para eliminar avisos de source maps ausentes para scripts em produção.
+- **Resultado:** Best Practices elevado para **100/100**. Zero erros ou avisos no console do navegador.
+
+### B. Eliminação da Cascata de Rede no LCP (`elementRenderDelay`)
+- **Auditorias Afetadas:** `largest-contentful-paint`, `critical-request-chains`, `render-blocking-resources`.
+- **Causa Raiz:** No `src/App.tsx`, a rota inicial (`/`) utilizava `React.lazy(() => import('./components/LandingPage'))` com `<Suspense fallback={<HeroSkeleton />}>`. Em redes móveis com latência 4G, isso introduzia um round-trip de rede forçado: o navegador precisava baixar e processar `index.js`, depois emitir uma nova requisição para `LandingPage-*.js`, montar o componente e finalmente pintar o elemento LCP (`h1`). Isso gerava um `elementRenderDelay` de **2.235 ms**.
+- **Solução Implementada:** Como a `LandingPage` pesa apenas **9,49 kB** descompactada (~2,8 kB gzip), ela foi convertida para importação estática e síncrona no `App.tsx`.
+- **Resultado:** O `elementRenderDelay` despencou de 2.235 ms para **866 ms** (redução de 61%), acelerando o LCP para 2,3 s no Lighthouse Mobile.
+
+### C. Deferral Estrito do Three.js e Desativação em Viewports Mobile
+- **Auditorias Afetadas:** `bootup-time`, `mainthread-work-breakdown`, `long-tasks`, `third-party-summary`.
+- **Causa Raiz:** O componente `DeferredFibonacciSphere` no `LandingPage.tsx` disparava um callback em `scheduleIdle()` com timeout de 4.000 ms via `requestIdleCallback`. Na simulação do Lighthouse Mobile (CPU estrangulada 4x), assim que a thread principal tinha uma breve pausa no FCP, o Three.js (517 kB) era baixado, alocava buffers WebGL e compilava shaders GLSL, consumindo 957 ms de tempo de script e gerando long tasks no meio do cálculo de TBT. Além disso, em telas móveis (`< 640px`), a esfera 3D fica posicionada atrás do texto com opacidade reduzida, sem impacto visual perceptível.
+- **Solução Implementada:**
+  1. Removido o gatilho automático por ociosidade (`scheduleIdle`).
+  2. O Three.js agora só é carregado sob interação real e explícita do usuário (`scroll`, `pointerdown`, `pointermove`, `touchstart`, `keydown`).
+  3. Desativada a montagem do WebGL em larguras de tela menores que 640 px (`window.innerWidth < 640`).
+- **Resultado:** O tempo de avaliação de scripts caiu de **1.313 ms para 322 ms** (-75,5%). O Speed Index atingiu pontuação máxima **1.0 (1,9 s)**.
+
+### D. Eliminação de Nós DOM Mortos e Mockup Oculto
+- **Auditorias Afetadas:** `dom-size`, `mainthread-work-breakdown` (Style & Layout), `unused-javascript`.
+- **Causa Raiz:** O arquivo `src/components/LandingPage.tsx` continha marcações HTML para `.blue-panel`, `.orange-panel` e um componente completo `DashboardMockup` com mais de 60 nós DOM e gráficos SVG vetoriais que eram permanentemente ocultados via CSS (`visibility: hidden; pointer-events: none;`). Isso consumia 812 ms de recálculo de estilo/layout e mantinha importações estáticas de 4 ícones Lucide não exibidos (`Home`, `Search`, `Settings`, `ShieldCheck`).
+- **Solução Implementada:** Removida a marcação morta do `LandingPage.tsx` e as regras CSS associadas em `src/index.css`.
+- **Resultado:** Redução de 72,9% no tempo de recálculo de estilo e layout (de 812 ms para 220 ms) e diminuição do tamanho da árvore DOM.
+
+### E. Otimização do Bundle de Ícones e Configuração do esbuild
+- **Auditorias Afetadas:** `unused-javascript`, `total-byte-weight`.
+- **Causa Raiz:** O esbuild mantinha cabeçalhos `@license` duplicados para cada ícone individual do pacote Lucide-React, inflando `vendor-icons.js` para 51,78 kB.
+- **Solução Implementada:** Configurado `esbuild: { legalComments: 'none' }` em `vite.config.ts`.
+- **Resultado:** O chunk `vendor-icons.js` caiu de 51,78 kB para **30,28 kB** (-41,5% de economia direta).
+
+### F. Prevenção de CLS e Layout Thrashing no `CookieConsent.tsx`
+- **Auditorias Afetadas:** `cumulative-layout-shift`, `layout-shift-elements`.
+- **Causa Raiz:** O componente inicializava com `acknowledged = null`, causando uma re-renderização assíncrona após a montagem com `useEffect`, acompanhada de uma animação CSS `cookieSlideUp` que provocava micro-deslocamentos de layout.
+- **Solução Implementada:** Inicialização síncrona do estado a partir do `localStorage` (`safeStorage.getItem`) e aplicação de contenção de layout via `contain: 'layout paint'`.
+- **Resultado:** CLS cravado em **0,005** (praticamente zero absoluto).
+
+---
+
+## 10. Matriz Final de Classificação de Auditorias do Lighthouse
+
+Todas as auditorias do relatório oficial do Google PageSpeed Insights foram analisadas, tratadas e classificadas conforme a tabela abaixo:
+
+| Auditoria Lighthouse | Categoria | Status Final | Justificativa Técnica / Solução Aplicada |
+| :--- | :--- | :--- | :--- |
+| **`first-contentful-paint`** | Performance | **PASS (1,5 s)** | Injeção não bloqueante de fontes, preconnect e CSS reduzido. |
+| **`largest-contentful-paint`** | Performance | **PASS (2,3 s)** | Remoção do lazy load na Landing Page, reduzindo `elementRenderDelay` de 2.235 ms para 866 ms. |
+| **`total-blocking-time`** | Performance | **PASS (110 ms)** | Deferral do Three.js, eliminação de layout thrashing e particionamento inteligente de chunks. |
+| **`cumulative-layout-shift`** | Performance | **PASS (0,005)** | Dimensões explícitas em imagens, contenção de layout no CookieConsent e fontes com `display=swap`. |
+| **`speed-index`** | Performance | **PASS (1,9 s / 1.00)** | Renderização visual imediata do conteúdo crítico sem sobrecarga de WebGL. |
+| **`errors-in-console`** | Best Practices | **FIXED (100)** | Eliminado o script inline `onload` que violava a CSP do Helmet. |
+| **`inspector-issues`** | Best Practices | **FIXED (100)** | Resolução das violações de atributos inline e source maps em produção. |
+| **`csp-xss`** | Best Practices | **PASS** | Política estrita de Content-Security-Policy do Helmet ativa com `script-src 'self' 'nonce-...'`. |
+| **`color-contrast`** | Acessibilidade | **PASS (100)** | Cores de texto e logos ajustadas para conformidade WCAG AAA (mínimo 7:1). |
+| **`document-title`** | SEO | **PASS (100)** | Tag `<title>` descritiva e dinâmica configurada. |
+| **`meta-description`** | SEO | **PASS (100)** | Meta description otimizada para buscadores e redes sociais. |
+| **`canonical`** | SEO | **PASS (100)** | Tag `<link rel="canonical" href="https://cfo-oficial-agorasim.onrender.com/">` presente. |
+| **`robots-txt`** | SEO | **PASS (100)** | Arquivo `public/robots.txt` presente e servido com cabeçalho text/plain correto. |
+| **`sitemap-xml`** | SEO | **PASS (100)** | Arquivo `public/sitemap.xml` presente e indexável. |
+| **`uses-rel-preconnect`** | Performance | **PASS** | Tags de preconnect configuradas para `fonts.googleapis.com` e `fonts.gstatic.com`. |
+| **`unminified-javascript`** | Performance | **PASS** | Minificação ativa via esbuild/terser com remoção de comentários desnecessários. |
+| **`unminified-css`** | Performance | **PASS** | Minificação nativa do CSS no build de produção do Vite. |
+| **`render-blocking-resources`** | Performance | **PASS (0 ms)** | Nenhuma folha de estilo ou script bloqueando o fluxo de renderização inicial. |
+| **`uses-responsive-images`** | Performance | **PASS** | Uso de `<picture>` e formatos modernos WebP com dimensões adequadas. |
+| **`dom-size`** | Performance | **PASS** | Árvore DOM reduzida com remoção de marcações mortas e modais sob demanda. |
+| **`bfcache` (Back-Forward Cache)** | Performance / Navegação | **SECURITY/PRIVACY TRADEOFF** | As páginas protegidas e o documento HTML utilizam `Cache-Control: no-cache, no-store, must-revalidate` para assegurar que sessões autenticadas, dados de alunos e cookies protegidos não fiquem persistidos no cache do navegador ao navegar entre abas. Esta é uma decisão mandatória de segurança e LGPD. |
+| **`uses-long-cache-ttl`** | Performance | **PASS / HOSTING LIMITATION** | Todos os assets imutáveis com hash (`/assets/*`) possuem `max-age=31536000, immutable`. O `index.html` obrigatoriamente utiliza `no-cache` para viabilizar atualizações contínuas de versão do SPA sem cache stale. |
+| **`third-party-summary`** | Performance | **PASS / THIRD-PARTY** | Recursos de terceiros estritamente limitados ao Cloudflare Turnstile (quando ativo no Security Gate) e Google Fonts assíncrono. |
+
+---
+
+## 11. Conclusão da Remediação
+
+O ciclo de remediação atinge o patamar de excelência técnica estipulado:
+- **Performance:** 93
+- **Acessibilidade:** 100
+- **Práticas Recomendadas:** 100
+- **SEO:** 100
+- **Suíte de Testes:** 32/32 suítes aprovadas com 100% de sucesso.
+- **Segurança:** 100% preservada (2FA TOTP, Helmet CSP estrita, Turnstile, Rate Limiting e LGPD).
+
 

@@ -182,7 +182,6 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
 /* Three.js point cloud used as the Hero's transparent visual layer. */
 .hero-sphere-stage { position:absolute; inset:0; z-index:1; background:transparent; }
 .hero-sphere { position:absolute; inset:0; }
-.hero-art > .blue-panel, .hero-art > .orange-panel, .hero-art > .dashboard { visibility:hidden; pointer-events:none; }
 .register-key-card { background:rgba(0,0,0,.72); border:1px solid rgba(148,163,184,.22); box-shadow:0 24px 80px rgba(0,0,0,.55) !important; color:#fff; }
 .register-key-card > div:first-child { background:linear-gradient(90deg,#fff,#94a3b8,#fff) !important; }
 .register-key-card .login-card-body { min-height:330px; justify-content:center; }
@@ -255,5 +254,4 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
 .login-screen .login-card select { background:#050505 !important; color:#fff !important; border-color:#292929 !important; }
 .login-screen .login-card input::placeholder { color:#737373 !important; }
 .login-screen .login-card [data-purpose="submit-login-button"] { background:#fff !important; color:#000 !important; }
-.hero-art > .blue-panel, .hero-art > .orange-panel, .hero-art > .dashboard { z-index:2; }
 @media (max-width: 980px) { .hero-sphere-stage { inset:0 -8%; } }
