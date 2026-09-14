@@ -81,6 +81,7 @@ import {
   PrivacyRequestRepository,
   HoneypotRepository,
   TemporarySourceBlockRepository,
+  FlashcardRepository,
 } from "./src/db/repositories";
 import { honeypotRouter, honeytokenDetectionMiddleware } from "./src/services/honeypot/honeypotRoutes";
 import { UserRole, DbUser, DbExamPaper } from "./src/db/schema";
@@ -1148,6 +1149,7 @@ const questionAuditRepoInstance = new QuestionAuditRepository(getDb().getRawDb()
 systemIntegrationRepoInstance = new SystemIntegrationRepository(getDb().getRawDb());
 const consentRepoInstance = new ConsentRepository(getDb().getRawDb());
 const privacyRequestRepoInstance = new PrivacyRequestRepository(getDb().getRawDb());
+const flashcardRepoInstance = new FlashcardRepository(getDb().getRawDb());
 
 // Migração inicial e garantia de persistência no boot do servidor
 try {
@@ -6641,19 +6643,478 @@ app.get('/api/student/revisions', requireUserAuth, (req: Request, res: Response)
   return res.json({ success: true, revisions: studentLearningService.listRevisions(user.userId, req.query.dueOnly === 'true') });
 });
 
+// =========================================================================
+// 🗂️ FLASHCARDS ANKI RELACIONAIS — HIERARQUIA, SRS (SM-2) & ISOLAMENTO
+// =========================================================================
+
+// Métricas Globais de Flashcards do Usuário
+app.get('/api/flashcards/stats', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const stats = flashcardRepoInstance.getStats(user.userId);
+    return res.json({ success: true, stats });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'GET_FLASHCARD_STATS_FAILED', message: 'Falha ao obter estatísticas de flashcards.' });
+  }
+});
+
+// --- DISCIPLINAS (SUBJECTS) ---
+
+app.get('/api/flashcards/subjects', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    // Auto-migra dados legados na primeira leitura caso as tabelas relacionais estejam vazias
+    const existingSubs = flashcardRepoInstance.listSubjects(user.userId);
+    if (existingSubs.length === 0) {
+      flashcardRepoInstance.migrateLegacyState(user.userId);
+    }
+    const subjects = flashcardRepoInstance.listSubjects(user.userId);
+    return res.json({ success: true, subjects });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'LIST_SUBJECTS_FAILED', message: 'Falha ao listar disciplinas.' });
+  }
+});
+
+app.post('/api/flashcards/subjects', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { name, description, icon, color } = req.body || {};
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'INVALID_NAME', message: 'O nome da disciplina é obrigatório.' });
+    }
+    if (name.trim().length > 100) {
+      return res.status(400).json({ error: 'NAME_TOO_LONG', message: 'O nome da disciplina não pode exceder 100 caracteres.' });
+    }
+
+    const subject = flashcardRepoInstance.createSubject(user.userId, {
+      name: name.trim(),
+      description: typeof description === 'string' ? description.trim().slice(0, 500) : null,
+      icon: typeof icon === 'string' ? icon.trim().slice(0, 50) : null,
+      color: typeof color === 'string' ? color.trim().slice(0, 50) : null,
+    });
+    return res.status(201).json({ success: true, subject });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'CREATE_SUBJECT_FAILED', message: 'Falha ao criar disciplina.' });
+  }
+});
+
+app.get('/api/flashcards/subjects/:id', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const subject = flashcardRepoInstance.getSubject(user.userId, req.params.id);
+    if (!subject) {
+      return res.status(404).json({ error: 'SUBJECT_NOT_FOUND', message: 'Disciplina não encontrada.' });
+    }
+    const decks = flashcardRepoInstance.listDecks(user.userId, subject.id);
+    return res.json({ success: true, subject, decks });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'GET_SUBJECT_FAILED', message: 'Falha ao obter detalhes da disciplina.' });
+  }
+});
+
+app.patch('/api/flashcards/subjects/:id', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { name, description, icon, color } = req.body || {};
+    if (name !== undefined && (typeof name !== 'string' || !name.trim())) {
+      return res.status(400).json({ error: 'INVALID_NAME', message: 'Nome da disciplina inválido.' });
+    }
+
+    const updated = flashcardRepoInstance.updateSubject(user.userId, req.params.id, {
+      name: typeof name === 'string' ? name.trim() : undefined,
+      description: typeof description === 'string' ? description.trim() : description === null ? null : undefined,
+      icon: typeof icon === 'string' ? icon.trim() : icon === null ? null : undefined,
+      color: typeof color === 'string' ? color.trim() : color === null ? null : undefined,
+    });
+    if (!updated) {
+      return res.status(404).json({ error: 'SUBJECT_NOT_FOUND', message: 'Disciplina não encontrada.' });
+    }
+    return res.json({ success: true, subject: updated });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'UPDATE_SUBJECT_FAILED', message: 'Falha ao atualizar disciplina.' });
+  }
+});
+
+app.get('/api/flashcards/subjects/:id/cascade-stats', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const stats = flashcardRepoInstance.getSubjectCascadeStats(user.userId, req.params.id);
+    if (!stats) {
+      return res.status(404).json({ error: 'SUBJECT_NOT_FOUND', message: 'Disciplina não encontrada.' });
+    }
+    return res.json({ success: true, stats });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'GET_CASCADE_STATS_FAILED', message: 'Falha ao obter contagem de dependências.' });
+  }
+});
+
+app.delete('/api/flashcards/subjects/:id', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const result = flashcardRepoInstance.deleteSubject(user.userId, req.params.id);
+    if (!result.deleted) {
+      return res.status(404).json({ error: 'SUBJECT_NOT_FOUND', message: 'Disciplina não encontrada.' });
+    }
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'DELETE_SUBJECT_FAILED', message: 'Falha ao excluir disciplina.' });
+  }
+});
+
+// --- BARALHOS / TÓPICOS (DECKS) ---
+
+app.get('/api/flashcards/decks', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const subjectId = typeof req.query.subjectId === 'string' ? req.query.subjectId : undefined;
+    const decks = flashcardRepoInstance.listDecks(user.userId, subjectId);
+    return res.json({ success: true, decks });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'LIST_DECKS_FAILED', message: 'Falha ao listar baralhos.' });
+  }
+});
+
+app.post('/api/flashcards/decks', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { subjectId, name, description } = req.body || {};
+    if (!subjectId || typeof subjectId !== 'string') {
+      return res.status(400).json({ error: 'MISSING_SUBJECT_ID', message: 'ID da disciplina é obrigatório.' });
+    }
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'INVALID_NAME', message: 'Nome do baralho é obrigatório.' });
+    }
+    if (name.trim().length > 150) {
+      return res.status(400).json({ error: 'NAME_TOO_LONG', message: 'O nome do baralho não pode exceder 150 caracteres.' });
+    }
+
+    try {
+      const deck = flashcardRepoInstance.createDeck(user.userId, {
+        subjectId,
+        name: name.trim(),
+        description: typeof description === 'string' ? description.trim().slice(0, 500) : null,
+      });
+      return res.status(201).json({ success: true, deck });
+    } catch (createErr: any) {
+      if (createErr.message === 'SUBJECT_NOT_FOUND') {
+        return res.status(404).json({ error: 'SUBJECT_NOT_FOUND', message: 'Disciplina não encontrada ou não pertence a você.' });
+      }
+      throw createErr;
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: 'CREATE_DECK_FAILED', message: 'Falha ao criar baralho.' });
+  }
+});
+
+app.get('/api/flashcards/decks/:id', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const deck = flashcardRepoInstance.getDeck(user.userId, req.params.id);
+    if (!deck) {
+      return res.status(404).json({ error: 'DECK_NOT_FOUND', message: 'Baralho não encontrado.' });
+    }
+    return res.json({ success: true, deck });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'GET_DECK_FAILED', message: 'Falha ao obter detalhes do baralho.' });
+  }
+});
+
+app.patch('/api/flashcards/decks/:id', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { name, description, subjectId } = req.body || {};
+    if (name !== undefined && (typeof name !== 'string' || !name.trim())) {
+      return res.status(400).json({ error: 'INVALID_NAME', message: 'Nome do baralho inválido.' });
+    }
+
+    try {
+      const updated = flashcardRepoInstance.updateDeck(user.userId, req.params.id, {
+        name: typeof name === 'string' ? name.trim() : undefined,
+        description: typeof description === 'string' ? description.trim() : description === null ? null : undefined,
+        subjectId: typeof subjectId === 'string' ? subjectId : undefined,
+      });
+      if (!updated) {
+        return res.status(404).json({ error: 'DECK_NOT_FOUND', message: 'Baralho não encontrado.' });
+      }
+      return res.json({ success: true, deck: updated });
+    } catch (updateErr: any) {
+      if (updateErr.message === 'SUBJECT_NOT_FOUND') {
+        return res.status(404).json({ error: 'SUBJECT_NOT_FOUND', message: 'Disciplina informada não encontrada.' });
+      }
+      throw updateErr;
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: 'UPDATE_DECK_FAILED', message: 'Falha ao atualizar baralho.' });
+  }
+});
+
+app.get('/api/flashcards/decks/:id/cascade-stats', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const stats = flashcardRepoInstance.getDeckCascadeStats(user.userId, req.params.id);
+    if (!stats) {
+      return res.status(404).json({ error: 'DECK_NOT_FOUND', message: 'Baralho não encontrado.' });
+    }
+    return res.json({ success: true, stats });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'GET_CASCADE_STATS_FAILED', message: 'Falha ao obter dados do baralho.' });
+  }
+});
+
+app.delete('/api/flashcards/decks/:id', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const result = flashcardRepoInstance.deleteDeck(user.userId, req.params.id);
+    if (!result.deleted) {
+      return res.status(404).json({ error: 'DECK_NOT_FOUND', message: 'Baralho não encontrado.' });
+    }
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'DELETE_DECK_FAILED', message: 'Falha ao excluir baralho.' });
+  }
+});
+
+// --- FLASHCARDS CRUD & REPETIÇÃO ESPAÇADA ---
+
+app.get('/api/flashcards/decks/:id/cards', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const deck = flashcardRepoInstance.getDeck(user.userId, req.params.id);
+    if (!deck) {
+      return res.status(404).json({ error: 'DECK_NOT_FOUND', message: 'Baralho não encontrado.' });
+    }
+    const { status, dueOnly, search, limit, offset } = req.query;
+    const result = flashcardRepoInstance.listCards(user.userId, {
+      deckId: deck.id,
+      status: typeof status === 'string' ? (status as any) : undefined,
+      dueOnly: dueOnly === 'true',
+      search: typeof search === 'string' ? search : undefined,
+      limit: limit ? Number(limit) : 100,
+      offset: offset ? Number(offset) : 0,
+    });
+    return res.json({ success: true, deck, ...result });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'LIST_DECK_CARDS_FAILED', message: 'Falha ao listar cartões do baralho.' });
+  }
+});
+
+app.get('/api/flashcards/cards', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { deckId, subjectId, status, dueOnly, search, limit, offset } = req.query;
+    const result = flashcardRepoInstance.listCards(user.userId, {
+      deckId: typeof deckId === 'string' ? deckId : undefined,
+      subjectId: typeof subjectId === 'string' ? subjectId : undefined,
+      status: typeof status === 'string' ? (status as any) : undefined,
+      dueOnly: dueOnly === 'true',
+      search: typeof search === 'string' ? search : undefined,
+      limit: limit ? Number(limit) : 100,
+      offset: offset ? Number(offset) : 0,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'LIST_CARDS_FAILED', message: 'Falha ao listar flashcards.' });
+  }
+});
+
+app.post('/api/flashcards/cards', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { deckId, front, back, frontImage, backImage } = req.body || {};
+    if (!deckId || typeof deckId !== 'string') {
+      return res.status(400).json({ error: 'MISSING_DECK_ID', message: 'ID do baralho é obrigatório.' });
+    }
+    const cleanFront = typeof front === 'string' ? front.trim() : '';
+    const cleanBack = typeof back === 'string' ? back.trim() : '';
+
+    if (!cleanFront && !frontImage) {
+      return res.status(400).json({ error: 'MISSING_FRONT', message: 'Informe a pergunta ou anexe uma imagem na frente.' });
+    }
+    if (!cleanBack && !backImage) {
+      return res.status(400).json({ error: 'MISSING_BACK', message: 'Informe a resposta ou anexe uma imagem no verso.' });
+    }
+
+    try {
+      const card = flashcardRepoInstance.createCard(user.userId, {
+        deckId,
+        front: cleanFront || '(Imagem)',
+        back: cleanBack || '(Imagem)',
+        frontImage: typeof frontImage === 'string' ? frontImage : null,
+        backImage: typeof backImage === 'string' ? backImage : null,
+      });
+      return res.status(201).json({ success: true, card });
+    } catch (createErr: any) {
+      if (createErr.message === 'DECK_NOT_FOUND') {
+        return res.status(404).json({ error: 'DECK_NOT_FOUND', message: 'Baralho não encontrado ou não pertence a você.' });
+      }
+      throw createErr;
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: 'CREATE_CARD_FAILED', message: 'Falha ao criar flashcard.' });
+  }
+});
+
+app.get('/api/flashcards/cards/:id', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const card = flashcardRepoInstance.getCard(user.userId, req.params.id);
+    if (!card) {
+      return res.status(404).json({ error: 'FLASHCARD_NOT_FOUND', message: 'Flashcard não encontrado.' });
+    }
+    return res.json({ success: true, card });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'GET_CARD_FAILED', message: 'Falha ao buscar flashcard.' });
+  }
+});
+
+app.patch('/api/flashcards/cards/:id', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { front, back, frontImage, backImage, deckId } = req.body || {};
+
+    try {
+      const updated = flashcardRepoInstance.updateCard(user.userId, req.params.id, {
+        front: typeof front === 'string' ? front.trim() : undefined,
+        back: typeof back === 'string' ? back.trim() : undefined,
+        frontImage: typeof frontImage === 'string' ? frontImage : frontImage === null ? null : undefined,
+        backImage: typeof backImage === 'string' ? backImage : backImage === null ? null : undefined,
+        deckId: typeof deckId === 'string' ? deckId : undefined,
+      });
+      if (!updated) {
+        return res.status(404).json({ error: 'FLASHCARD_NOT_FOUND', message: 'Flashcard não encontrado.' });
+      }
+      return res.json({ success: true, card: updated });
+    } catch (updateErr: any) {
+      if (updateErr.message === 'DECK_NOT_FOUND') {
+        return res.status(404).json({ error: 'DECK_NOT_FOUND', message: 'Baralho de destino não encontrado.' });
+      }
+      throw updateErr;
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: 'UPDATE_CARD_FAILED', message: 'Falha ao atualizar flashcard.' });
+  }
+});
+
+app.delete('/api/flashcards/cards/:id', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const deleted = flashcardRepoInstance.deleteCard(user.userId, req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'FLASHCARD_NOT_FOUND', message: 'Flashcard não encontrado.' });
+    }
+    return res.json({ success: true, message: 'Flashcard excluído com sucesso.' });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'DELETE_CARD_FAILED', message: 'Falha ao excluir flashcard.' });
+  }
+});
+
+// Endpoint do Algoritmo Anki / SM-2: Avaliação de Estudo
+app.post('/api/flashcards/cards/:id/review', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { rating } = req.body || {};
+    const numericRating = Number(rating);
+    if (![1, 2, 3, 4].includes(numericRating)) {
+      return res.status(400).json({
+        error: 'INVALID_RATING',
+        message: 'A avaliação deve ser 1 (Errei), 2 (Difícil), 3 (Bom) ou 4 (Fácil).',
+      });
+    }
+
+    try {
+      const result = flashcardRepoInstance.reviewCard(user.userId, req.params.id, numericRating as any);
+      return res.json({ success: true, ...result });
+    } catch (revErr: any) {
+      if (revErr.message === 'FLASHCARD_NOT_FOUND') {
+        return res.status(404).json({ error: 'FLASHCARD_NOT_FOUND', message: 'Flashcard não encontrado.' });
+      }
+      throw revErr;
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: 'REVIEW_CARD_FAILED', message: 'Falha ao processar revisão de flashcard.' });
+  }
+});
+
+// Fila de Estudo Prioritária do Baralho
+app.get('/api/flashcards/study-queue/:deckId', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const deck = flashcardRepoInstance.getDeck(user.userId, req.params.deckId);
+    if (!deck) {
+      return res.status(404).json({ error: 'DECK_NOT_FOUND', message: 'Baralho não encontrado.' });
+    }
+    const limit = req.query.limit ? Math.min(100, Math.max(1, Number(req.query.limit))) : 50;
+    const queue = flashcardRepoInstance.getStudyQueue(user.userId, deck.id, limit);
+    return res.json({ success: true, deck, queue, total: queue.length });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'STUDY_QUEUE_FAILED', message: 'Falha ao carregar fila de estudo.' });
+  }
+});
+
+// --- ROTA DE COMPATIBILIDADE LEGADA COM SINCRONIZAÇÃO AUTOMÁTICA ---
 app.get('/api/student/flashcards', requireUserAuth, (req: Request, res: Response) => {
   const user = (req as any).user;
-  const row = rawDb.prepare('SELECT decks_json, cards_json, updated_at FROM student_flashcard_state WHERE user_id = ?').get(user.userId) as any;
-  return res.json({ success: true, decks: row ? JSON.parse(row.decks_json || '[]') : [], cards: row ? JSON.parse(row.cards_json || '[]') : [], updatedAt: row?.updated_at || null });
+  // Consulta estado relacional
+  const subjects = flashcardRepoInstance.listSubjects(user.userId);
+  if (subjects.length === 0) {
+    flashcardRepoInstance.migrateLegacyState(user.userId);
+  }
+
+  const decks = flashcardRepoInstance.listDecks(user.userId);
+  const { cards } = flashcardRepoInstance.listCards(user.userId, { limit: 500 });
+
+  // Converte para o formato consumido pelo cliente legado se necessário
+  const formattedDecks = decks.map((d) => ({
+    id: d.id,
+    title: d.name,
+    subject: d.subjectName || 'Geral',
+    description: d.description || undefined,
+    createdAt: d.createdAt,
+  }));
+
+  const formattedCards = cards.map((c) => ({
+    id: c.id,
+    deckId: c.deckId,
+    question: c.front,
+    answer: c.back,
+    questionImage: c.frontImage || undefined,
+    answerImage: c.backImage || undefined,
+    createdAt: c.createdAt,
+    lastReviewedAt: c.lastReviewedAt || undefined,
+    state: c.status,
+    repetitions: c.reviewCount,
+    intervalDays: c.intervalDays,
+    nextReviewDate: c.nextReviewAt,
+  }));
+
+  const row = rawDb.prepare('SELECT updated_at FROM student_flashcard_state WHERE user_id = ?').get(user.userId) as any;
+  return res.json({
+    success: true,
+    decks: formattedDecks,
+    cards: formattedCards,
+    updatedAt: row?.updated_at || new Date().toISOString(),
+  });
 });
 
 app.put('/api/student/flashcards', requireUserAuth, (req: Request, res: Response) => {
   const user = (req as any).user;
   const decks = Array.isArray(req.body?.decks) ? req.body.decks : [];
   const cards = Array.isArray(req.body?.cards) ? req.body.cards : [];
-  if (JSON.stringify(decks).length + JSON.stringify(cards).length > 10_000_000) return res.status(413).json({ error: 'FLASHCARD_STATE_TOO_LARGE' });
+  if (JSON.stringify(decks).length + JSON.stringify(cards).length > 10_000_000) {
+    return res.status(413).json({ error: 'FLASHCARD_STATE_TOO_LARGE' });
+  }
   const now = new Date().toISOString();
-  rawDb.prepare(`INSERT INTO student_flashcard_state (user_id, decks_json, cards_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET decks_json = excluded.decks_json, cards_json = excluded.cards_json, updated_at = excluded.updated_at`).run(user.userId, JSON.stringify(decks), JSON.stringify(cards), now, now);
+  rawDb.prepare(`
+    INSERT INTO student_flashcard_state (user_id, decks_json, cards_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET decks_json = excluded.decks_json, cards_json = excluded.cards_json, updated_at = excluded.updated_at
+  `).run(user.userId, JSON.stringify(decks), JSON.stringify(cards), now, now);
+
+  // Sincroniza com as tabelas relacionais em background
+  try {
+    flashcardRepoInstance.migrateLegacyState(user.userId);
+  } catch {}
+
   return res.json({ success: true, updatedAt: now });
 });
 

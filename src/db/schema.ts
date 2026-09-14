@@ -619,3 +619,60 @@ export interface DbDeceptionEvent {
   createdAt: string;
 }
 
+export type FlashcardStatus = 'new' | 'learning' | 'review' | 'mastered';
+export type FlashcardRating = 1 | 2 | 3 | 4;
+
+export interface DbFlashcardSubject {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string | null;
+  icon?: string | null;
+  color?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DbFlashcardDeck {
+  id: string;
+  userId: string;
+  subjectId: string;
+  name: string;
+  description?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DbFlashcard {
+  id: string;
+  userId: string;
+  subjectId: string;
+  deckId: string;
+  front: string;
+  back: string;
+  frontImage?: string | null;
+  backImage?: string | null;
+  lastReviewedAt?: string | null;
+  nextReviewAt: string;
+  intervalDays: number;
+  easeFactor: number;
+  reviewCount: number;
+  lapses: number;
+  status: FlashcardStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DbFlashcardReview {
+  id: string;
+  userId: string;
+  flashcardId: string;
+  rating: FlashcardRating;
+  reviewedAt: string;
+  previousInterval: number;
+  newInterval: number;
+  previousEaseFactor: number;
+  newEaseFactor: number;
+}
+
+

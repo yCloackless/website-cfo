@@ -57,6 +57,12 @@ import {
   DbDeceptionEvent,
   HoneypotEventType,
   HoneypotAction,
+  DbFlashcardSubject,
+  DbFlashcardDeck,
+  DbFlashcard,
+  DbFlashcardReview,
+  FlashcardStatus,
+  FlashcardRating,
 } from './schema';
 import { HoneypotMetrics } from '../services/honeypot/honeypotTypes';
 
@@ -3739,4 +3745,879 @@ export class HoneypotRepository {
     };
   }
 }
+
+export interface SubjectWithStats extends DbFlashcardSubject {
+  deckCount: number;
+  cardCount: number;
+  dueCount: number;
+}
+
+export interface DeckWithStats extends DbFlashcardDeck {
+  subjectName?: string;
+  cardCount: number;
+  dueCount: number;
+  newCount: number;
+  learningCount: number;
+  reviewCount: number;
+  masteredCount: number;
+}
+
+export class FlashcardRepository {
+  constructor(private db: DatabaseSync | any) {}
+
+  // ==========================================
+  // DISCIPLINAS (SUBJECTS)
+  // ==========================================
+
+  public listSubjects(userId: string): SubjectWithStats[] {
+    const today = new Date().toISOString().split('T')[0];
+    const rows = this.db.prepare(`
+      SELECT 
+        s.*,
+        COUNT(DISTINCT d.id) as deck_count,
+        COUNT(DISTINCT c.id) as card_count,
+        COUNT(DISTINCT CASE WHEN c.next_review_at <= ? THEN c.id ELSE NULL END) as due_count
+      FROM flashcard_subjects s
+      LEFT JOIN flashcard_decks d ON d.subject_id = s.id AND d.user_id = s.user_id
+      LEFT JOIN flashcards c ON c.deck_id = d.id AND c.user_id = s.user_id
+      WHERE s.user_id = ?
+      GROUP BY s.id
+      ORDER BY s.name COLLATE NOCASE ASC
+    `).all(today, userId) as any[];
+
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      name: r.name,
+      description: r.description || null,
+      icon: r.icon || null,
+      color: r.color || null,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      deckCount: Number(r.deck_count || 0),
+      cardCount: Number(r.card_count || 0),
+      dueCount: Number(r.due_count || 0),
+    }));
+  }
+
+  public getSubject(userId: string, id: string): SubjectWithStats | null {
+    const today = new Date().toISOString().split('T')[0];
+    const row = this.db.prepare(`
+      SELECT 
+        s.*,
+        COUNT(DISTINCT d.id) as deck_count,
+        COUNT(DISTINCT c.id) as card_count,
+        COUNT(DISTINCT CASE WHEN c.next_review_at <= ? THEN c.id ELSE NULL END) as due_count
+      FROM flashcard_subjects s
+      LEFT JOIN flashcard_decks d ON d.subject_id = s.id AND d.user_id = s.user_id
+      LEFT JOIN flashcards c ON c.deck_id = d.id AND c.user_id = s.user_id
+      WHERE s.user_id = ? AND s.id = ?
+      GROUP BY s.id
+    `).get(today, userId, id) as any;
+
+    if (!row) return null;
+    return {
+      id: row.id,
+      userId: row.user_id,
+      name: row.name,
+      description: row.description || null,
+      icon: row.icon || null,
+      color: row.color || null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      deckCount: Number(row.deck_count || 0),
+      cardCount: Number(row.card_count || 0),
+      dueCount: Number(row.due_count || 0),
+    };
+  }
+
+  public createSubject(userId: string, data: {
+    name: string;
+    description?: string | null;
+    icon?: string | null;
+    color?: string | null;
+  }): DbFlashcardSubject {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO flashcard_subjects (id, user_id, name, description, icon, color, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, userId, data.name.trim(), data.description?.trim() || null, data.icon || null, data.color || null, now, now);
+
+    return {
+      id,
+      userId,
+      name: data.name.trim(),
+      description: data.description?.trim() || null,
+      icon: data.icon || null,
+      color: data.color || null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  public updateSubject(userId: string, id: string, data: {
+    name?: string;
+    description?: string | null;
+    icon?: string | null;
+    color?: string | null;
+  }): DbFlashcardSubject | null {
+    const existing = this.getSubject(userId, id);
+    if (!existing) return null;
+
+    const now = new Date().toISOString();
+    const name = data.name !== undefined ? data.name.trim() : existing.name;
+    const description = data.description !== undefined ? (data.description ? data.description.trim() : null) : existing.description;
+    const icon = data.icon !== undefined ? data.icon : existing.icon;
+    const color = data.color !== undefined ? data.color : existing.color;
+
+    this.db.prepare(`
+      UPDATE flashcard_subjects
+      SET name = ?, description = ?, icon = ?, color = ?, updated_at = ?
+      WHERE user_id = ? AND id = ?
+    `).run(name, description, icon, color, now, userId, id);
+
+    return {
+      id,
+      userId,
+      name,
+      description,
+      icon,
+      color,
+      createdAt: existing.createdAt,
+      updatedAt: now,
+    };
+  }
+
+  public getSubjectCascadeStats(userId: string, id: string): { deckCount: number; cardCount: number } | null {
+    const row = this.db.prepare(`
+      SELECT 
+        COUNT(DISTINCT d.id) as deck_count,
+        COUNT(DISTINCT c.id) as card_count
+      FROM flashcard_subjects s
+      LEFT JOIN flashcard_decks d ON d.subject_id = s.id AND d.user_id = s.user_id
+      LEFT JOIN flashcards c ON c.deck_id = d.id AND c.user_id = s.user_id
+      WHERE s.user_id = ? AND s.id = ?
+      GROUP BY s.id
+    `).get(userId, id) as any;
+
+    if (!row) return null;
+    return {
+      deckCount: Number(row.deck_count || 0),
+      cardCount: Number(row.card_count || 0),
+    };
+  }
+
+  public deleteSubject(userId: string, id: string): { deleted: boolean; deckCount: number; cardCount: number } {
+    const stats = this.getSubjectCascadeStats(userId, id);
+    if (!stats) return { deleted: false, deckCount: 0, cardCount: 0 };
+
+    this.db.prepare(`
+      DELETE FROM flashcard_subjects WHERE user_id = ? AND id = ?
+    `).run(userId, id);
+
+    return {
+      deleted: true,
+      deckCount: stats.deckCount,
+      cardCount: stats.cardCount,
+    };
+  }
+
+  // ==========================================
+  // BARALHOS (DECKS)
+  // ==========================================
+
+  public listDecks(userId: string, subjectId?: string): DeckWithStats[] {
+    const today = new Date().toISOString().split('T')[0];
+    let query = `
+      SELECT 
+        d.*,
+        s.name as subject_name,
+        COUNT(DISTINCT c.id) as card_count,
+        COUNT(DISTINCT CASE WHEN c.next_review_at <= ? THEN c.id ELSE NULL END) as due_count,
+        COUNT(DISTINCT CASE WHEN c.status = 'new' THEN c.id ELSE NULL END) as new_count,
+        COUNT(DISTINCT CASE WHEN c.status = 'learning' THEN c.id ELSE NULL END) as learning_count,
+        COUNT(DISTINCT CASE WHEN c.status = 'review' THEN c.id ELSE NULL END) as review_count,
+        COUNT(DISTINCT CASE WHEN c.status = 'mastered' THEN c.id ELSE NULL END) as mastered_count
+      FROM flashcard_decks d
+      JOIN flashcard_subjects s ON s.id = d.subject_id AND s.user_id = d.user_id
+      LEFT JOIN flashcards c ON c.deck_id = d.id AND c.user_id = d.user_id
+      WHERE d.user_id = ?
+    `;
+    const params: any[] = [today, userId];
+
+    if (subjectId) {
+      query += ` AND d.subject_id = ?`;
+      params.push(subjectId);
+    }
+
+    query += ` GROUP BY d.id ORDER BY d.name COLLATE NOCASE ASC`;
+
+    const rows = this.db.prepare(query).all(...params) as any[];
+    return rows.map((r) => this.mapDeckWithStats(r));
+  }
+
+  public getDeck(userId: string, id: string): DeckWithStats | null {
+    const today = new Date().toISOString().split('T')[0];
+    const row = this.db.prepare(`
+      SELECT 
+        d.*,
+        s.name as subject_name,
+        COUNT(DISTINCT c.id) as card_count,
+        COUNT(DISTINCT CASE WHEN c.next_review_at <= ? THEN c.id ELSE NULL END) as due_count,
+        COUNT(DISTINCT CASE WHEN c.status = 'new' THEN c.id ELSE NULL END) as new_count,
+        COUNT(DISTINCT CASE WHEN c.status = 'learning' THEN c.id ELSE NULL END) as learning_count,
+        COUNT(DISTINCT CASE WHEN c.status = 'review' THEN c.id ELSE NULL END) as review_count,
+        COUNT(DISTINCT CASE WHEN c.status = 'mastered' THEN c.id ELSE NULL END) as mastered_count
+      FROM flashcard_decks d
+      JOIN flashcard_subjects s ON s.id = d.subject_id AND s.user_id = d.user_id
+      LEFT JOIN flashcards c ON c.deck_id = d.id AND c.user_id = d.user_id
+      WHERE d.user_id = ? AND d.id = ?
+      GROUP BY d.id
+    `).get(today, userId, id) as any;
+
+    if (!row) return null;
+    return this.mapDeckWithStats(row);
+  }
+
+  public createDeck(userId: string, data: {
+    subjectId: string;
+    name: string;
+    description?: string | null;
+  }): DbFlashcardDeck {
+    // Validação estrita de autorização em relacionamentos: Subject deve pertencer ao usuário autenticado
+    const subject = this.db.prepare(`SELECT id FROM flashcard_subjects WHERE user_id = ? AND id = ?`).get(userId, data.subjectId);
+    if (!subject) {
+      throw new Error('SUBJECT_NOT_FOUND');
+    }
+
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    this.db.prepare(`
+      INSERT INTO flashcard_decks (id, user_id, subject_id, name, description, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, userId, data.subjectId, data.name.trim(), data.description?.trim() || null, now, now);
+
+    return {
+      id,
+      userId,
+      subjectId: data.subjectId,
+      name: data.name.trim(),
+      description: data.description?.trim() || null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  public updateDeck(userId: string, id: string, data: {
+    name?: string;
+    description?: string | null;
+    subjectId?: string;
+  }): DbFlashcardDeck | null {
+    const existing = this.getDeck(userId, id);
+    if (!existing) return null;
+
+    let targetSubjectId = existing.subjectId;
+    if (data.subjectId && data.subjectId !== existing.subjectId) {
+      const subject = this.db.prepare(`SELECT id FROM flashcard_subjects WHERE user_id = ? AND id = ?`).get(userId, data.subjectId);
+      if (!subject) throw new Error('SUBJECT_NOT_FOUND');
+      targetSubjectId = data.subjectId;
+    }
+
+    const now = new Date().toISOString();
+    const name = data.name !== undefined ? data.name.trim() : existing.name;
+    const description = data.description !== undefined ? (data.description ? data.description.trim() : null) : existing.description;
+
+    this.db.prepare(`
+      UPDATE flashcard_decks
+      SET name = ?, description = ?, subject_id = ?, updated_at = ?
+      WHERE user_id = ? AND id = ?
+    `).run(name, description, targetSubjectId, now, userId, id);
+
+    // Se o assunto mudou, atualiza subject_id dos cards vinculados para manter integridade
+    if (targetSubjectId !== existing.subjectId) {
+      this.db.prepare(`
+        UPDATE flashcards
+        SET subject_id = ?, updated_at = ?
+        WHERE user_id = ? AND deck_id = ?
+      `).run(targetSubjectId, now, userId, id);
+    }
+
+    return {
+      id,
+      userId,
+      subjectId: targetSubjectId,
+      name,
+      description,
+      createdAt: existing.createdAt,
+      updatedAt: now,
+    };
+  }
+
+  public getDeckCascadeStats(userId: string, id: string): { cardCount: number } | null {
+    const row = this.db.prepare(`
+      SELECT COUNT(*) as card_count
+      FROM flashcards
+      WHERE user_id = ? AND deck_id = ?
+    `).get(userId, id) as any;
+
+    if (!this.getDeck(userId, id)) return null;
+    return { cardCount: Number(row?.card_count || 0) };
+  }
+
+  public deleteDeck(userId: string, id: string): { deleted: boolean; cardCount: number } {
+    const stats = this.getDeckCascadeStats(userId, id);
+    if (!stats) return { deleted: false, cardCount: 0 };
+
+    this.db.prepare(`
+      DELETE FROM flashcard_decks WHERE user_id = ? AND id = ?
+    `).run(userId, id);
+
+    return {
+      deleted: true,
+      cardCount: stats.cardCount,
+    };
+  }
+
+  // ==========================================
+  // FLASHCARDS & REPETIÇÃO ESPAÇADA (SM-2)
+  // ==========================================
+
+  public listCards(userId: string, filters?: {
+    deckId?: string;
+    subjectId?: string;
+    status?: FlashcardStatus;
+    dueOnly?: boolean;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): { cards: DbFlashcard[]; total: number } {
+    const today = new Date().toISOString().split('T')[0];
+    let where = `WHERE c.user_id = ?`;
+    const params: any[] = [userId];
+
+    if (filters?.deckId) {
+      where += ` AND c.deck_id = ?`;
+      params.push(filters.deckId);
+    }
+    if (filters?.subjectId) {
+      where += ` AND c.subject_id = ?`;
+      params.push(filters.subjectId);
+    }
+    if (filters?.status) {
+      where += ` AND c.status = ?`;
+      params.push(filters.status);
+    }
+    if (filters?.dueOnly) {
+      where += ` AND c.next_review_at <= ?`;
+      params.push(today);
+    }
+    if (filters?.search) {
+      where += ` AND (c.front LIKE ? OR c.back LIKE ?)`;
+      params.push(`%${filters.search}%`, `%${filters.search}%`);
+    }
+
+    const countRow = this.db.prepare(`
+      SELECT COUNT(*) as total FROM flashcards c ${where}
+    `).get(...params) as any;
+    const total = Number(countRow?.total || 0);
+
+    const limit = Math.max(1, Math.min(filters?.limit || 100, 500));
+    const offset = Math.max(0, filters?.offset || 0);
+
+    let query = `
+      SELECT c.* FROM flashcards c
+      ${where}
+      ORDER BY 
+        CASE WHEN c.next_review_at <= ? THEN 0 ELSE 1 END,
+        c.next_review_at ASC,
+        c.created_at DESC
+      LIMIT ? OFFSET ?
+    `;
+    const listParams = [userId, ...params.slice(1), today, limit, offset];
+
+    const rows = this.db.prepare(query).all(...listParams) as any[];
+    return {
+      cards: rows.map((r) => this.mapCard(r)),
+      total,
+    };
+  }
+
+  public getCard(userId: string, id: string): DbFlashcard | null {
+    const row = this.db.prepare(`
+      SELECT * FROM flashcards WHERE user_id = ? AND id = ?
+    `).get(userId, id) as any;
+    if (!row) return null;
+    return this.mapCard(row);
+  }
+
+  public createCard(userId: string, data: {
+    deckId: string;
+    front: string;
+    back: string;
+    frontImage?: string | null;
+    backImage?: string | null;
+  }): DbFlashcard {
+    // Validação estrita de autorização em relacionamentos: Deck deve pertencer ao usuário autenticado
+    const deck = this.db.prepare(`
+      SELECT id, subject_id FROM flashcard_decks WHERE user_id = ? AND id = ?
+    `).get(userId, data.deckId) as any;
+
+    if (!deck) {
+      throw new Error('DECK_NOT_FOUND');
+    }
+
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+
+    this.db.prepare(`
+      INSERT INTO flashcards (
+        id, user_id, subject_id, deck_id, front, back, front_image, back_image,
+        last_reviewed_at, next_review_at, interval_days, ease_factor, review_count, lapses, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      userId,
+      deck.subject_id,
+      deck.id,
+      data.front.trim(),
+      data.back.trim(),
+      data.frontImage || null,
+      data.backImage || null,
+      null,
+      today,
+      0,
+      2.5,
+      0,
+      0,
+      'new',
+      now,
+      now
+    );
+
+    return {
+      id,
+      userId,
+      subjectId: deck.subject_id,
+      deckId: deck.id,
+      front: data.front.trim(),
+      back: data.back.trim(),
+      frontImage: data.frontImage || null,
+      backImage: data.backImage || null,
+      lastReviewedAt: null,
+      nextReviewAt: today,
+      intervalDays: 0,
+      easeFactor: 2.5,
+      reviewCount: 0,
+      lapses: 0,
+      status: 'new',
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  public updateCard(userId: string, id: string, data: {
+    front?: string;
+    back?: string;
+    frontImage?: string | null;
+    backImage?: string | null;
+    deckId?: string;
+  }): DbFlashcard | null {
+    const existing = this.getCard(userId, id);
+    if (!existing) return null;
+
+    let targetDeckId = existing.deckId;
+    let targetSubjectId = existing.subjectId;
+
+    if (data.deckId && data.deckId !== existing.deckId) {
+      const deck = this.db.prepare(`
+        SELECT id, subject_id FROM flashcard_decks WHERE user_id = ? AND id = ?
+      `).get(userId, data.deckId) as any;
+      if (!deck) throw new Error('DECK_NOT_FOUND');
+      targetDeckId = deck.id;
+      targetSubjectId = deck.subject_id;
+    }
+
+    const now = new Date().toISOString();
+    const front = data.front !== undefined ? data.front.trim() : existing.front;
+    const back = data.back !== undefined ? data.back.trim() : existing.back;
+    const frontImage = data.frontImage !== undefined ? data.frontImage : existing.frontImage;
+    const backImage = data.backImage !== undefined ? data.backImage : existing.backImage;
+
+    this.db.prepare(`
+      UPDATE flashcards
+      SET front = ?, back = ?, front_image = ?, back_image = ?, deck_id = ?, subject_id = ?, updated_at = ?
+      WHERE user_id = ? AND id = ?
+    `).run(front, back, frontImage, backImage, targetDeckId, targetSubjectId, now, userId, id);
+
+    return {
+      ...existing,
+      front,
+      back,
+      frontImage,
+      backImage,
+      deckId: targetDeckId,
+      subjectId: targetSubjectId,
+      updatedAt: now,
+    };
+  }
+
+  public deleteCard(userId: string, id: string): boolean {
+    const res = this.db.prepare(`
+      DELETE FROM flashcards WHERE user_id = ? AND id = ?
+    `).run(userId, id);
+    return Number(res.changes) > 0;
+  }
+
+  /**
+   * Executa a avaliação da repetição espaçada no padrão Anki / SuperMemo-2
+   * Rating: 1 = Errei (Again), 2 = Difícil (Hard), 3 = Bom (Good), 4 = Fácil (Easy)
+   */
+  public reviewCard(userId: string, cardId: string, rating: FlashcardRating): {
+    card: DbFlashcard;
+    review: DbFlashcardReview;
+  } {
+    const card = this.getCard(userId, cardId);
+    if (!card) throw new Error('FLASHCARD_NOT_FOUND');
+
+    const previousInterval = card.intervalDays;
+    const previousEaseFactor = card.easeFactor;
+
+    let newInterval: number;
+    let newEaseFactor = previousEaseFactor;
+    let newLapses = card.lapses;
+    let newStatus: FlashcardStatus = card.status;
+    let newReviewCount = card.reviewCount + 1;
+
+    if (rating === 1) {
+      // Errei: lapse, reseta intervalo, diminui facilidade
+      newLapses += 1;
+      newInterval = 0; // Para revisão imediata / mesmo dia
+      newEaseFactor = Math.max(1.3, previousEaseFactor - 0.20);
+      newStatus = 'learning';
+    } else if (rating === 2) {
+      // Difícil: pequeno incremento, diminui levemente facilidade
+      if (previousInterval === 0) {
+        newInterval = 1;
+      } else {
+        newInterval = Math.max(1, Math.round(previousInterval * 1.2));
+      }
+      newEaseFactor = Math.max(1.3, previousEaseFactor - 0.15);
+      newStatus = 'review';
+    } else if (rating === 3) {
+      // Bom: progressão normal do SM-2
+      if (previousInterval === 0) {
+        newInterval = 1;
+      } else if (previousInterval === 1) {
+        newInterval = 3;
+      } else {
+        newInterval = Math.round(previousInterval * previousEaseFactor);
+      }
+      newStatus = newInterval >= 21 ? 'mastered' : 'review';
+    } else {
+      // Fácil: grande incremento, aumenta facilidade
+      if (previousInterval === 0) {
+        newInterval = 4;
+      } else if (previousInterval === 1) {
+        newInterval = 6;
+      } else {
+        newInterval = Math.round(previousInterval * previousEaseFactor * 1.3);
+      }
+      newEaseFactor = Math.min(3.0, previousEaseFactor + 0.15);
+      newStatus = newInterval >= 21 ? 'mastered' : 'review';
+    }
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+
+    const targetDate = new Date();
+    targetDate.setDate(targetDate.getDate() + Math.max(0, newInterval));
+    const nextReviewAt = targetDate.toISOString().split('T')[0];
+
+    const reviewId = crypto.randomUUID();
+
+    // Transação para consistência
+    this.db.prepare(`
+      UPDATE flashcards
+      SET 
+        interval_days = ?,
+        ease_factor = ?,
+        review_count = ?,
+        lapses = ?,
+        status = ?,
+        last_reviewed_at = ?,
+        next_review_at = ?,
+        updated_at = ?
+      WHERE user_id = ? AND id = ?
+    `).run(
+      newInterval,
+      newEaseFactor,
+      newReviewCount,
+      newLapses,
+      newStatus,
+      nowIso,
+      nextReviewAt,
+      nowIso,
+      userId,
+      cardId
+    );
+
+    this.db.prepare(`
+      INSERT INTO flashcard_reviews (
+        id, user_id, flashcard_id, rating, reviewed_at,
+        previous_interval, new_interval, previous_ease_factor, new_ease_factor
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      reviewId,
+      userId,
+      cardId,
+      rating,
+      nowIso,
+      previousInterval,
+      newInterval,
+      previousEaseFactor,
+      newEaseFactor
+    );
+
+    const updatedCard: DbFlashcard = {
+      ...card,
+      intervalDays: newInterval,
+      easeFactor: newEaseFactor,
+      reviewCount: newReviewCount,
+      lapses: newLapses,
+      status: newStatus,
+      lastReviewedAt: nowIso,
+      nextReviewAt,
+      updatedAt: nowIso,
+    };
+
+    const reviewRecord: DbFlashcardReview = {
+      id: reviewId,
+      userId,
+      flashcardId: cardId,
+      rating,
+      reviewedAt: nowIso,
+      previousInterval,
+      newInterval,
+      previousEaseFactor,
+      newEaseFactor,
+    };
+
+    return { card: updatedCard, review: reviewRecord };
+  }
+
+  public getStudyQueue(userId: string, deckId: string, limit = 50): DbFlashcard[] {
+    const today = new Date().toISOString().split('T')[0];
+    // Primeiro busca cartões pendentes de revisão ou novos
+    const rows = this.db.prepare(`
+      SELECT * FROM flashcards
+      WHERE user_id = ? AND deck_id = ?
+      ORDER BY 
+        CASE 
+          WHEN next_review_at <= ? THEN 0
+          WHEN status = 'new' THEN 1
+          ELSE 2 
+        END,
+        next_review_at ASC,
+        created_at ASC
+      LIMIT ?
+    `).all(userId, deckId, today, limit) as any[];
+
+    return rows.map((r) => this.mapCard(r));
+  }
+
+  public getStats(userId: string): {
+    totalSubjects: number;
+    totalDecks: number;
+    totalCards: number;
+    dueToday: number;
+    newCards: number;
+    learningCards: number;
+    reviewCards: number;
+    masteredCards: number;
+  } {
+    const today = new Date().toISOString().split('T')[0];
+
+    const subjectsRow = this.db.prepare(`SELECT COUNT(*) as count FROM flashcard_subjects WHERE user_id = ?`).get(userId) as any;
+    const decksRow = this.db.prepare(`SELECT COUNT(*) as count FROM flashcard_decks WHERE user_id = ?`).get(userId) as any;
+    const cardsRow = this.db.prepare(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(CASE WHEN next_review_at <= ? THEN 1 END) as due_today,
+        COUNT(CASE WHEN status = 'new' THEN 1 END) as new_cards,
+        COUNT(CASE WHEN status = 'learning' THEN 1 END) as learning_cards,
+        COUNT(CASE WHEN status = 'review' THEN 1 END) as review_cards,
+        COUNT(CASE WHEN status = 'mastered' THEN 1 END) as mastered_cards
+      FROM flashcards
+      WHERE user_id = ?
+    `).get(today, userId) as any;
+
+    return {
+      totalSubjects: Number(subjectsRow?.count || 0),
+      totalDecks: Number(decksRow?.count || 0),
+      totalCards: Number(cardsRow?.total || 0),
+      dueToday: Number(cardsRow?.due_today || 0),
+      newCards: Number(cardsRow?.new_cards || 0),
+      learningCards: Number(cardsRow?.learning_cards || 0),
+      reviewCards: Number(cardsRow?.review_cards || 0),
+      masteredCards: Number(cardsRow?.mastered_cards || 0),
+    };
+  }
+
+  /**
+   * Migração de dados legados de student_flashcard_state para tabelas normalizadas
+   */
+  public migrateLegacyState(userId: string): { migratedDecks: number; migratedCards: number } {
+    const row = this.db.prepare(`
+      SELECT decks_json, cards_json FROM student_flashcard_state WHERE user_id = ?
+    `).get(userId) as any;
+
+    if (!row) return { migratedDecks: 0, migratedCards: 0 };
+
+    let rawDecks: any[] = [];
+    let rawCards: any[] = [];
+    try { rawDecks = JSON.parse(row.decks_json || '[]'); } catch {}
+    try { rawCards = JSON.parse(row.cards_json || '[]'); } catch {}
+
+    if (!Array.isArray(rawDecks) || rawDecks.length === 0) {
+      return { migratedDecks: 0, migratedCards: 0 };
+    }
+
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+    let migratedDecks = 0;
+    let migratedCards = 0;
+
+    // Agrupa decks por matéria ou cria a disciplina 'Geral'
+    const subjectMap = new Map<string, string>();
+
+    for (const d of rawDecks) {
+      const subjectName = String(d.subject || 'Geral').trim() || 'Geral';
+      let subjectId = subjectMap.get(subjectName);
+
+      if (!subjectId) {
+        // Verifica se disciplina com esse nome já existe
+        const existingSub = this.db.prepare(`
+          SELECT id FROM flashcard_subjects WHERE user_id = ? AND name = ? COLLATE NOCASE
+        `).get(userId, subjectName) as any;
+
+        if (existingSub) {
+          subjectId = existingSub.id;
+        } else {
+          subjectId = crypto.randomUUID();
+          this.db.prepare(`
+            INSERT INTO flashcard_subjects (id, user_id, name, description, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).run(subjectId, userId, subjectName, `Disciplina importada automaticamente`, now, now);
+        }
+        subjectMap.set(subjectName, subjectId);
+      }
+
+      // Verifica se o deck já existe
+      const deckName = String(d.title || d.name || 'Baralho sem título').trim();
+      const existingDeck = this.db.prepare(`
+        SELECT id FROM flashcard_decks WHERE user_id = ? AND (id = ? OR (subject_id = ? AND name = ? COLLATE NOCASE))
+      `).get(userId, d.id, subjectId, deckName) as any;
+
+      let targetDeckId = existingDeck ? existingDeck.id : d.id;
+      if (!existingDeck) {
+        this.db.prepare(`
+          INSERT INTO flashcard_decks (id, user_id, subject_id, name, description, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(targetDeckId, userId, subjectId, deckName, d.description || null, d.createdAt || now, now);
+        migratedDecks++;
+      }
+
+      // Migra cartões deste deck
+      const deckCards = rawCards.filter((c) => c.deckId === d.id);
+      for (const c of deckCards) {
+        const existingCard = this.db.prepare(`
+          SELECT id FROM flashcards WHERE user_id = ? AND id = ?
+        `).get(userId, c.id) as any;
+
+        if (!existingCard) {
+          const front = String(c.question || c.front || '').trim();
+          const back = String(c.answer || c.back || '').trim();
+          if (!front && !c.questionImage) continue;
+
+          this.db.prepare(`
+            INSERT INTO flashcards (
+              id, user_id, subject_id, deck_id, front, back, front_image, back_image,
+              last_reviewed_at, next_review_at, interval_days, ease_factor, review_count, lapses, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            c.id || crypto.randomUUID(),
+            userId,
+            subjectId,
+            targetDeckId,
+            front || '(Imagem)',
+            back || '(Imagem)',
+            c.questionImage || c.frontImage || null,
+            c.answerImage || c.backImage || null,
+            c.lastReviewedAt || null,
+            c.nextReviewDate || c.nextReviewAt || today,
+            Number(c.intervalDays || 0),
+            2.5,
+            Number(c.repetitions || 0),
+            0,
+            c.state === 'mastered' ? 'mastered' : c.state === 'learning' ? 'learning' : c.state === 'review' ? 'review' : 'new',
+            c.createdAt || now,
+            now
+          );
+          migratedCards++;
+        }
+      }
+    }
+
+    return { migratedDecks, migratedCards };
+  }
+
+  // ==========================================
+  // HELPERS
+  // ==========================================
+
+  private mapDeckWithStats(r: any): DeckWithStats {
+    return {
+      id: r.id,
+      userId: r.user_id,
+      subjectId: r.subject_id,
+      subjectName: r.subject_name || undefined,
+      name: r.name,
+      description: r.description || null,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      cardCount: Number(r.card_count || 0),
+      dueCount: Number(r.due_count || 0),
+      newCount: Number(r.new_count || 0),
+      learningCount: Number(r.learning_count || 0),
+      reviewCount: Number(r.review_count || 0),
+      masteredCount: Number(r.mastered_count || 0),
+    };
+  }
+
+  private mapCard(r: any): DbFlashcard {
+    return {
+      id: r.id,
+      userId: r.user_id,
+      subjectId: r.subject_id,
+      deckId: r.deck_id,
+      front: r.front,
+      back: r.back,
+      frontImage: r.front_image || null,
+      backImage: r.back_image || null,
+      lastReviewedAt: r.last_reviewed_at || null,
+      nextReviewAt: r.next_review_at,
+      intervalDays: Number(r.interval_days || 0),
+      easeFactor: Number(r.ease_factor || 2.5),
+      reviewCount: Number(r.review_count || 0),
+      lapses: Number(r.lapses || 0),
+      status: r.status as FlashcardStatus,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  }
+}
+
 

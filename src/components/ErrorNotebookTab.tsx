@@ -2,6 +2,7 @@ import { apiFetch } from '../services/apiFetch';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Layers,
+  Layers3,
   Sparkles,
   PlusCircle,
   Play,
@@ -14,52 +15,87 @@ import {
   BookOpen,
   ArrowLeft,
   Search,
-  Filter,
-  Eye,
   Check,
   X,
-  Volume2,
   Calendar,
-  Shuffle,
-  Tag,
-  Zap,
   Image as ImageIcon,
   Upload,
   Edit3,
   Maximize2,
+  FolderPlus,
+  Folder,
+  GraduationCap,
+  Clock,
+  Zap,
+  ChevronRight,
+  TrendingUp,
+  BrainCircuit,
+  Info,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { AppTheme } from '../types';
-import { getUserStorageKey } from '../utils/userStorage';
+
+export interface SubjectWithStats {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string | null;
+  icon?: string | null;
+  color?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deckCount: number;
+  cardCount: number;
+  dueCount: number;
+}
+
+export interface DeckWithStats {
+  id: string;
+  userId: string;
+  subjectId: string;
+  subjectName?: string;
+  name: string;
+  description?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  cardCount: number;
+  dueCount: number;
+  newCount: number;
+  learningCount: number;
+  reviewCount: number;
+  masteredCount: number;
+}
 
 export interface Flashcard {
   id: string;
+  userId: string;
+  subjectId: string;
   deckId: string;
-  question: string;
-  answer: string;
-  questionImage?: string; // Data URL Base64 da imagem da pergunta
-  answerImage?: string; // Data URL Base64 da imagem da resposta
-  createdAt: string;
-  lastReviewedAt?: string;
-  state: 'new' | 'learning' | 'review' | 'mastered';
-  repetitions: number;
+  front: string;
+  back: string;
+  frontImage?: string | null;
+  backImage?: string | null;
+  lastReviewedAt?: string | null;
+  nextReviewAt: string;
   intervalDays: number;
-  nextReviewDate: string; // YYYY-MM-DD
+  easeFactor: number;
+  reviewCount: number;
+  lapses: number;
+  status: 'new' | 'learning' | 'review' | 'mastered';
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface Deck {
-  id: string;
-  title: string;
-  subject: string;
-  description?: string;
-  createdAt: string;
-}
+// Backward compatibility aliases
+export type Deck = DeckWithStats;
+export type Subject = SubjectWithStats;
 
 interface ErrorNotebookTabProps {
   theme?: AppTheme;
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-// Compactador automático de imagens para não estourar o localStorage
+// Compactador automático de imagens para payloads otimizados
 function compressImage(base64Str: string, maxWidth = 1000, quality = 0.8): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -84,113 +120,13 @@ function compressImage(base64Str: string, maxWidth = 1000, quality = 0.8): Promi
   });
 }
 
-// Baralhos iniciais de alta retenção para o CFO CBMERJ
-const INITIAL_DECKS: Deck[] = [
-  {
-    id: 'deck_quimica_estequio',
-    title: 'Química // Estequiometria & Soluções',
-    subject: 'Química',
-    description: 'Leis ponderais, proporção molar, pureza e rendimento.',
-    createdAt: '2026-05-01T10:00:00Z',
-  },
-  {
-    id: 'deck_fisica_cinematica',
-    title: 'Física // Cinemática & Torricelli',
-    subject: 'Física',
-    description: 'Equações horárias, Torricelli, lançamentos e gráficos.',
-    createdAt: '2026-05-01T10:00:00Z',
-  },
-];
-
-const INITIAL_CARDS: Flashcard[] = [
-  {
-    id: 'c_q_01',
-    deckId: 'deck_quimica_estequio',
-    question: 'O que diz a Lei de Lavoisier?',
-    answer: 'Na natureza nada se cria, tudo se transforma (conservação da massa total).',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_q_02',
-    deckId: 'deck_quimica_estequio',
-    question: 'O que diz a Lei de Proust?',
-    answer: 'Proporção em massa entre reagentes e produtos é sempre fixa e constante.',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_q_03',
-    deckId: 'deck_quimica_estequio',
-    question: 'Qual o valor do volume molar nas CNTP?',
-    answer: '22,4 L/mol para qualquer gás ideal.',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_q_04',
-    deckId: 'deck_quimica_estequio',
-    question: 'Qual o valor do número de Avogadro?',
-    answer: '6,02 x 10²³ entidades por mol.',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_q_05',
-    deckId: 'deck_quimica_estequio',
-    question: 'Quando aplicar a pureza no cálculo estequiométrico?',
-    answer: 'Logo no início, sobre a massa do reagente bruto impuro.',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_f_01',
-    deckId: 'deck_fisica_cinematica',
-    question: 'Qual a Equação de Torricelli?',
-    answer: 'v² = v₀² + 2 * a * Δs.',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_f_02',
-    deckId: 'deck_fisica_cinematica',
-    question: 'Quando usar a Equação de Torricelli?',
-    answer: 'Sempre que o tempo (t) não for fornecido nem requisitado.',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'c_f_03',
-    deckId: 'deck_fisica_cinematica',
-    question: 'Qual a aceleração no topo de um lançamento vertical?',
-    answer: 'Gravidade (g = 10 m/s² orientada para baixo).',
-    createdAt: '2026-05-01T10:00:00Z',
-    state: 'new',
-    repetitions: 0,
-    intervalDays: 0,
-    nextReviewDate: new Date().toISOString().split('T')[0],
-  },
+const PALETTE_COLORS = [
+  { name: 'Vermelho CBMERJ', value: 'red' },
+  { name: 'Azul Tático', value: 'blue' },
+  { name: 'Esmeralda', value: 'emerald' },
+  { name: 'Âmbar', value: 'amber' },
+  { name: 'Roxo / Índigo', value: 'indigo' },
+  { name: 'Ciano', value: 'cyan' },
 ];
 
 export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
@@ -199,174 +135,523 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 }) => {
   const isDark = theme === 'dark';
 
-  // 1. Estado dos Baralhos (Decks)
-  const [decks, setDecks] = useState<Deck[]>(() => {
-    try {
-      const storageKey = getUserStorageKey('cfo_anki_decks');
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {}
-    return INITIAL_DECKS;
-  });
+  // Navegação Hierárquica: 'subjects' (Nível 1) -> 'decks' (Nível 2) -> 'cards' (Nível 3) -> 'study' (Nível 4)
+  const [viewMode, setViewMode] = useState<'subjects' | 'decks' | 'cards' | 'study'>('subjects');
 
-  // 2. Estado dos Flashcards (Conta nova de cadete começa limpa)
-  const [cards, setCards] = useState<Flashcard[]>(() => {
-    try {
-      const storageKey = getUserStorageKey('cfo_anki_cards');
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {}
-    const isMasterAdmin = !localStorage.getItem('cfo_terminal_user') || localStorage.getItem('cfo_terminal_user') === 'admin';
-    return isMasterAdmin ? INITIAL_CARDS : [];
-  });
-  const [remoteFlashcardsReady, setRemoteFlashcardsReady] = useState(false);
+  // Seleções ativas de navegação
+  const [currentSubject, setCurrentSubject] = useState<SubjectWithStats | null>(null);
+  const [currentDeck, setCurrentDeck] = useState<DeckWithStats | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    void apiFetch('/api/student/flashcards').then(async (response) => {
-      if (!response.ok || cancelled) return;
-      const data = await response.json();
-      if (Array.isArray(data.decks) && data.decks.length > 0) setDecks(data.decks);
-      if (Array.isArray(data.cards) && data.cards.length > 0) setCards(data.cards);
-    }).catch(() => undefined).finally(() => { if (!cancelled) setRemoteFlashcardsReady(true); });
-    return () => { cancelled = true; };
-  }, []);
+  // Dados do Servidor
+  const [subjects, setSubjects] = useState<SubjectWithStats[]>([]);
+  const [decks, setDecks] = useState<DeckWithStats[]>([]);
+  const [cards, setCards] = useState<Flashcard[]>([]);
+  const [globalStats, setGlobalStats] = useState<any>(null);
 
-  useEffect(() => {
-    if (!remoteFlashcardsReady) return;
-    const timer = window.setTimeout(() => {
-      void apiFetch('/api/student/flashcards', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decks, cards }) }).catch(() => undefined);
-    }, 500);
-    return () => window.clearTimeout(timer);
-  }, [decks, cards, remoteFlashcardsReady]);
+  // Estados de Carregamento
+  const [loading, setLoading] = useState(true);
+  const [loadingCards, setLoadingCards] = useState(false);
 
-  // Salva no localStorage
-  useEffect(() => {
-    try {
-      const storageKey = getUserStorageKey('cfo_anki_decks');
-      localStorage.setItem(storageKey, JSON.stringify(decks));
-    } catch {}
-  }, [decks]);
-
-  useEffect(() => {
-    try {
-      const storageKey = getUserStorageKey('cfo_anki_cards');
-      localStorage.setItem(storageKey, JSON.stringify(cards));
-    } catch (err) {
-      console.warn('LocalStorage limit reached for cards:', err);
-    }
-  }, [cards]);
-
-  // Filtros de Baralhos
+  // Busca e Filtros
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedSubjectFilter, setSelectedSubjectFilter] = useState('TODOS');
+  const [cardFilter, setCardFilter] = useState<'ALL' | 'DUE' | 'new' | 'learning' | 'review' | 'mastered'>('ALL');
 
-  // Modais e Estados de Visualização
-  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
-  const [isCreateDeckModalOpen, setIsCreateDeckModalOpen] = useState(false);
+  // Modais de Criação e Edição
+  const [isSubjectModalOpen, setIsSubjectModalOpen] = useState(false);
+  const [editingSubject, setEditingSubject] = useState<SubjectWithStats | null>(null);
+  const [subjectFormName, setSubjectFormName] = useState('');
+  const [subjectFormDesc, setSubjectFormDesc] = useState('');
+  const [subjectFormColor, setSubjectFormColor] = useState('red');
+
+  const [isDeckModalOpen, setIsDeckModalOpen] = useState(false);
+  const [editingDeck, setEditingDeck] = useState<DeckWithStats | null>(null);
+  const [deckFormName, setDeckFormName] = useState('');
+  const [deckFormDesc, setDeckFormDesc] = useState('');
+  const [deckFormSubjectId, setDeckFormSubjectId] = useState('');
+
   const [isCardModalOpen, setIsCardModalOpen] = useState(false);
-  const [editingCardId, setEditingCardId] = useState<string | null>(null);
-  const [activeDeckForAdd, setActiveDeckForAdd] = useState<string>('');
+  const [editingCard, setEditingCard] = useState<Flashcard | null>(null);
+  const [cardFormFront, setCardFormFront] = useState('');
+  const [cardFormBack, setCardFormBack] = useState('');
+  const [cardFormFrontImage, setCardFormFrontImage] = useState<string | null>(null);
+  const [cardFormBackImage, setCardFormBackImage] = useState<string | null>(null);
 
-  // Modal para expandir imagem em tela cheia
+  // Modal de Exclusão com Confirmação e Contagem em Cascata
+  const [deleteModal, setDeleteModal] = useState<{
+    type: 'subject' | 'deck' | 'card';
+    id: string;
+    title: string;
+    deckCount?: number;
+    cardCount?: number;
+  } | null>(null);
+
+  // Modal Gerador IA
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [aiTopicInput, setAiTopicInput] = useState('');
+  const [aiTargetSubjectId, setAiTargetSubjectId] = useState('');
+  const [aiTargetDeckId, setAiTargetDeckId] = useState('');
+  const [aiNewDeckTitle, setAiNewDeckTitle] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiPreviewCards, setAiPreviewCards] = useState<Array<{ question: string; answer: string }>>([]);
+
+  // Modal Visualização de Foto em Tela Cheia
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
 
-  // Modo de Treino (Anki Player)
-  const [activeStudyingDeckId, setActiveStudyingDeckId] = useState<string | null>(null);
+  // =========================================================================
+  // 🎮 ESTADO DO MODO DE ESTUDO (ANKI PLAYER / SM-2)
+  // =========================================================================
   const [studyQueue, setStudyQueue] = useState<Flashcard[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [isAnswerRevealed, setIsAnswerRevealed] = useState(false);
   const [studySessionFinished, setStudySessionFinished] = useState(false);
+  const [studySessionStats, setStudySessionStats] = useState({ again: 0, hard: 0, good: 0, easy: 0, total: 0 });
 
-  // Visualização de Lista de Cards do Baralho
-  const [inspectingDeckId, setInspectingDeckId] = useState<string | null>(null);
-
-  // Estado do Gerador com IA
-  const [aiTopicInput, setAiTopicInput] = useState('');
-  const [aiTargetDeckId, setAiTargetDeckId] = useState<string>('new_deck');
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [aiPreviewCards, setAiPreviewCards] = useState<Array<{ question: string; answer: string }>>([]);
-
-  // Estado do Criador de Baralho Manual
-  const [newDeckTitle, setNewDeckTitle] = useState('');
-  const [newDeckSubject, setNewDeckSubject] = useState('Geral');
-
-  // Estado do Criador/Editor de Card Manual (com fotos e múltiplas linhas)
-  const [manualQuestion, setManualQuestion] = useState('');
-  const [manualAnswer, setManualAnswer] = useState('');
-  const [manualQuestionImage, setManualQuestionImage] = useState<string | null>(null);
-  const [manualAnswerImage, setManualAnswerImage] = useState<string | null>(null);
-
-  // Refs de arquivo
+  // Refs para inputs de imagem
   const questionFileInputRef = useRef<HTMLInputElement | null>(null);
   const answerFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Matérias disponíveis para filtro
-  const availableSubjects = useMemo(() => {
-    const subs = new Set<string>();
-    decks.forEach((d) => {
-      if (d.subject) subs.add(d.subject);
-    });
-    return ['TODOS', ...Array.from(subs)];
-  }, [decks]);
+  // =========================================================================
+  // 📡 CARREGAMENTO INICIAL E SINCRONIZAÇÃO COM O BACKEND
+  // =========================================================================
 
-  // Estatísticas por Baralho
-  const deckStats = useMemo(() => {
-    const map: Record<
-      string,
-      { total: number; newCount: number; learningCount: number; masteredCount: number }
-    > = {};
+  const fetchGlobalData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [subjectsRes, statsRes] = await Promise.all([
+        apiFetch('/api/flashcards/subjects'),
+        apiFetch('/api/flashcards/stats'),
+      ]);
 
-    decks.forEach((deck) => {
-      const deckCards = cards.filter((c) => c.deckId === deck.id);
-      map[deck.id] = {
-        total: deckCards.length,
-        newCount: deckCards.filter((c) => c.state === 'new').length,
-        learningCount: deckCards.filter((c) => c.state === 'learning' || c.state === 'review')
-          .length,
-        masteredCount: deckCards.filter((c) => c.state === 'mastered').length,
-      };
-    });
+      if (subjectsRes.ok) {
+        const data = await subjectsRes.json();
+        setSubjects(data.subjects || []);
+      }
+      if (statsRes.ok) {
+        const data = await statsRes.json();
+        setGlobalStats(data.stats || null);
+      }
+    } catch (err) {
+      showToast?.('Falha ao sincronizar flashcards com o servidor.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
 
-    return map;
-  }, [decks, cards]);
+  useEffect(() => {
+    void fetchGlobalData();
+  }, [fetchGlobalData]);
 
-  // Baralhos filtrados
-  const filteredDecks = useMemo(() => {
-    return decks.filter((d) => {
-      const matchesSearch =
-        d.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        d.subject.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesSubject =
-        selectedSubjectFilter === 'TODOS' || d.subject === selectedSubjectFilter;
-      return matchesSearch && matchesSubject;
-    });
-  }, [decks, searchQuery, selectedSubjectFilter]);
+  // Carrega baralhos da disciplina selecionada
+  const fetchDecksForSubject = useCallback(async (subjectId: string) => {
+    try {
+      const res = await apiFetch(`/api/flashcards/decks?subjectId=${encodeURIComponent(subjectId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setDecks(data.decks || []);
+      }
+    } catch {
+      showToast?.('Erro ao carregar baralhos da disciplina.', 'error');
+    }
+  }, [showToast]);
+
+  // Carrega flashcards do baralho selecionado
+  const fetchCardsForDeck = useCallback(async (deckId: string) => {
+    try {
+      setLoadingCards(true);
+      const res = await apiFetch(`/api/flashcards/decks/${encodeURIComponent(deckId)}/cards`);
+      if (res.ok) {
+        const data = await res.json();
+        setCards(data.cards || []);
+      }
+    } catch {
+      showToast?.('Erro ao carregar flashcards deste baralho.', 'error');
+    } finally {
+      setLoadingCards(false);
+    }
+  }, [showToast]);
 
   // =========================================================================
-  // 📷 CAPTURA E COLAGEM DE IMAGENS (CLIPBOARD E ARQUIVO)
+  // 🧭 TRANSIÇÕES DE NAVEGAÇÃO
   // =========================================================================
-  const processImageFile = async (file: File, target: 'question' | 'answer') => {
+
+  const handleOpenSubject = (subject: SubjectWithStats) => {
+    setCurrentSubject(subject);
+    setCurrentDeck(null);
+    setViewMode('decks');
+    setSearchQuery('');
+    void fetchDecksForSubject(subject.id);
+  };
+
+  const handleOpenDeck = (deck: DeckWithStats) => {
+    setCurrentDeck(deck);
+    setViewMode('cards');
+    setSearchQuery('');
+    setCardFilter('ALL');
+    void fetchCardsForDeck(deck.id);
+  };
+
+  const handleBackToSubjects = () => {
+    setViewMode('subjects');
+    setCurrentSubject(null);
+    setCurrentDeck(null);
+    setSearchQuery('');
+    void fetchGlobalData();
+  };
+
+  const handleBackToDecks = () => {
+    if (!currentSubject) {
+      handleBackToSubjects();
+      return;
+    }
+    setViewMode('decks');
+    setCurrentDeck(null);
+    setSearchQuery('');
+    void fetchDecksForSubject(currentSubject.id);
+    void fetchGlobalData();
+  };
+
+  // =========================================================================
+  // 📚 CRUD DISCIPLINAS (SUBJECTS)
+  // =========================================================================
+
+  const handleOpenCreateSubject = () => {
+    setEditingSubject(null);
+    setSubjectFormName('');
+    setSubjectFormDesc('');
+    setSubjectFormColor('red');
+    setIsSubjectModalOpen(true);
+  };
+
+  const handleOpenEditSubject = (sub: SubjectWithStats, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingSubject(sub);
+    setSubjectFormName(sub.name);
+    setSubjectFormDesc(sub.description || '');
+    setSubjectFormColor(sub.color || 'red');
+    setIsSubjectModalOpen(true);
+  };
+
+  const handleSaveSubject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!subjectFormName.trim()) {
+      showToast?.('Informe o nome da disciplina.', 'error');
+      return;
+    }
+
+    try {
+      if (editingSubject) {
+        const res = await apiFetch(`/api/flashcards/subjects/${editingSubject.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: subjectFormName.trim(),
+            description: subjectFormDesc.trim() || null,
+            color: subjectFormColor,
+          }),
+        });
+        if (res.ok) {
+          showToast?.('Disciplina atualizada com sucesso!', 'success');
+          setIsSubjectModalOpen(false);
+          void fetchGlobalData();
+          if (currentSubject?.id === editingSubject.id) {
+            setCurrentSubject((prev) => prev ? { ...prev, name: subjectFormName.trim(), description: subjectFormDesc.trim() || null, color: subjectFormColor } : null);
+          }
+        } else {
+          showToast?.('Falha ao atualizar disciplina.', 'error');
+        }
+      } else {
+        const res = await apiFetch('/api/flashcards/subjects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: subjectFormName.trim(),
+            description: subjectFormDesc.trim() || null,
+            color: subjectFormColor,
+          }),
+        });
+        if (res.ok) {
+          showToast?.('Disciplina criada com sucesso!', 'success');
+          setIsSubjectModalOpen(false);
+          void fetchGlobalData();
+        } else {
+          showToast?.('Falha ao criar disciplina.', 'error');
+        }
+      }
+    } catch {
+      showToast?.('Erro de conexão com o servidor.', 'error');
+    }
+  };
+
+  const handlePromptDeleteSubject = async (sub: SubjectWithStats, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const res = await apiFetch(`/api/flashcards/subjects/${sub.id}/cascade-stats`);
+      const data = res.ok ? await res.json() : { stats: { deckCount: sub.deckCount, cardCount: sub.cardCount } };
+      setDeleteModal({
+        type: 'subject',
+        id: sub.id,
+        title: sub.name,
+        deckCount: data.stats?.deckCount ?? sub.deckCount,
+        cardCount: data.stats?.cardCount ?? sub.cardCount,
+      });
+    } catch {
+      setDeleteModal({
+        type: 'subject',
+        id: sub.id,
+        title: sub.name,
+        deckCount: sub.deckCount,
+        cardCount: sub.cardCount,
+      });
+    }
+  };
+
+  // =========================================================================
+  // 🗃️ CRUD BARALHOS (DECKS)
+  // =========================================================================
+
+  const handleOpenCreateDeck = () => {
+    setEditingDeck(null);
+    setDeckFormName('');
+    setDeckFormDesc('');
+    setDeckFormSubjectId(currentSubject ? currentSubject.id : (subjects[0]?.id || ''));
+    setIsDeckModalOpen(true);
+  };
+
+  const handleOpenEditDeck = (deck: DeckWithStats, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingDeck(deck);
+    setDeckFormName(deck.name);
+    setDeckFormDesc(deck.description || '');
+    setDeckFormSubjectId(deck.subjectId);
+    setIsDeckModalOpen(true);
+  };
+
+  const handleSaveDeck = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deckFormName.trim()) {
+      showToast?.('Informe o nome do baralho.', 'error');
+      return;
+    }
+    const targetSubId = deckFormSubjectId || currentSubject?.id;
+    if (!targetSubId) {
+      showToast?.('Selecione a disciplina do baralho.', 'error');
+      return;
+    }
+
+    try {
+      if (editingDeck) {
+        const res = await apiFetch(`/api/flashcards/decks/${editingDeck.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: deckFormName.trim(),
+            description: deckFormDesc.trim() || null,
+            subjectId: targetSubId,
+          }),
+        });
+        if (res.ok) {
+          showToast?.('Baralho atualizado com sucesso!', 'success');
+          setIsDeckModalOpen(false);
+          if (currentSubject) void fetchDecksForSubject(currentSubject.id);
+          void fetchGlobalData();
+        } else {
+          showToast?.('Falha ao atualizar baralho.', 'error');
+        }
+      } else {
+        const res = await apiFetch('/api/flashcards/decks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subjectId: targetSubId,
+            name: deckFormName.trim(),
+            description: deckFormDesc.trim() || null,
+          }),
+        });
+        if (res.ok) {
+          showToast?.('Baralho criado com sucesso!', 'success');
+          setIsDeckModalOpen(false);
+          if (currentSubject) void fetchDecksForSubject(currentSubject.id);
+          void fetchGlobalData();
+        } else {
+          showToast?.('Falha ao criar baralho.', 'error');
+        }
+      }
+    } catch {
+      showToast?.('Erro de conexão ao salvar baralho.', 'error');
+    }
+  };
+
+  const handlePromptDeleteDeck = async (deck: DeckWithStats, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const res = await apiFetch(`/api/flashcards/decks/${deck.id}/cascade-stats`);
+      const data = res.ok ? await res.json() : { stats: { cardCount: deck.cardCount } };
+      setDeleteModal({
+        type: 'deck',
+        id: deck.id,
+        title: deck.name,
+        cardCount: data.stats?.cardCount ?? deck.cardCount,
+      });
+    } catch {
+      setDeleteModal({
+        type: 'deck',
+        id: deck.id,
+        title: deck.name,
+        cardCount: deck.cardCount,
+      });
+    }
+  };
+
+  // =========================================================================
+  // 🃏 CRUD FLASHCARDS
+  // =========================================================================
+
+  const handleOpenAddCardModal = () => {
+    setEditingCard(null);
+    setCardFormFront('');
+    setCardFormBack('');
+    setCardFormFrontImage(null);
+    setCardFormBackImage(null);
+    setIsCardModalOpen(true);
+  };
+
+  const handleOpenEditCardModal = (card: Flashcard, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingCard(card);
+    setCardFormFront(card.front);
+    setCardFormBack(card.back);
+    setCardFormFrontImage(card.frontImage || null);
+    setCardFormBackImage(card.backImage || null);
+    setIsCardModalOpen(true);
+  };
+
+  const handleSaveCard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cardFormFront.trim() && !cardFormFrontImage) {
+      showToast?.('Informe a pergunta ou cole uma foto na frente.', 'error');
+      return;
+    }
+    if (!cardFormBack.trim() && !cardFormBackImage) {
+      showToast?.('Informe a resposta ou cole uma foto no verso.', 'error');
+      return;
+    }
+    if (!currentDeck) {
+      showToast?.('Baralho não selecionado.', 'error');
+      return;
+    }
+
+    try {
+      if (editingCard) {
+        const res = await apiFetch(`/api/flashcards/cards/${editingCard.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            front: cardFormFront.trim(),
+            back: cardFormBack.trim(),
+            frontImage: cardFormFrontImage,
+            backImage: cardFormBackImage,
+          }),
+        });
+        if (res.ok) {
+          showToast?.('Flashcard atualizado!', 'success');
+          setIsCardModalOpen(false);
+          void fetchCardsForDeck(currentDeck.id);
+          if (currentSubject) void fetchDecksForSubject(currentSubject.id);
+        } else {
+          showToast?.('Falha ao atualizar flashcard.', 'error');
+        }
+      } else {
+        const res = await apiFetch('/api/flashcards/cards', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deckId: currentDeck.id,
+            front: cardFormFront.trim(),
+            back: cardFormBack.trim(),
+            frontImage: cardFormFrontImage,
+            backImage: cardFormBackImage,
+          }),
+        });
+        if (res.ok) {
+          showToast?.('Flashcard adicionado ao baralho!', 'success');
+          setIsCardModalOpen(false);
+          void fetchCardsForDeck(currentDeck.id);
+          if (currentSubject) void fetchDecksForSubject(currentSubject.id);
+        } else {
+          showToast?.('Falha ao criar flashcard.', 'error');
+        }
+      }
+    } catch {
+      showToast?.('Erro de conexão ao salvar cartão.', 'error');
+    }
+  };
+
+  const handlePromptDeleteCard = (card: Flashcard, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeleteModal({
+      type: 'card',
+      id: card.id,
+      title: card.front.slice(0, 40) || 'Flashcard',
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteModal) return;
+
+    try {
+      if (deleteModal.type === 'subject') {
+        const res = await apiFetch(`/api/flashcards/subjects/${deleteModal.id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast?.('Disciplina e dependências excluídas.', 'success');
+          setDeleteModal(null);
+          if (currentSubject?.id === deleteModal.id) {
+            handleBackToSubjects();
+          } else {
+            void fetchGlobalData();
+          }
+        }
+      } else if (deleteModal.type === 'deck') {
+        const res = await apiFetch(`/api/flashcards/decks/${deleteModal.id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast?.('Baralho excluído com sucesso.', 'success');
+          setDeleteModal(null);
+          if (currentDeck?.id === deleteModal.id) {
+            handleBackToDecks();
+          } else if (currentSubject) {
+            void fetchDecksForSubject(currentSubject.id);
+          }
+        }
+      } else if (deleteModal.type === 'card') {
+        const res = await apiFetch(`/api/flashcards/cards/${deleteModal.id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast?.('Flashcard excluído.', 'success');
+          setDeleteModal(null);
+          if (currentDeck) void fetchCardsForDeck(currentDeck.id);
+        }
+      }
+    } catch {
+      showToast?.('Erro ao processar exclusão.', 'error');
+    }
+  };
+
+  // =========================================================================
+  // 📷 UPLOAD, COLAGEM E TRATAMENTO DE IMAGENS
+  // =========================================================================
+
+  const processImageFile = async (file: File, target: 'front' | 'back') => {
     if (!file.type.startsWith('image/')) {
       showToast?.('Apenas arquivos de imagem são aceitos.', 'error');
       return;
     }
-
     const reader = new FileReader();
     reader.onload = async (event) => {
       const rawBase64 = event.target?.result as string;
       if (rawBase64) {
         const compressed = await compressImage(rawBase64);
-        if (target === 'question') {
-          setManualQuestionImage(compressed);
+        if (target === 'front') {
+          setCardFormFrontImage(compressed);
         } else {
-          setManualAnswerImage(compressed);
+          setCardFormBackImage(compressed);
         }
         showToast?.('Foto anexada com sucesso!', 'success');
       }
@@ -374,150 +659,34 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     reader.readAsDataURL(file);
   };
 
-  const handlePasteImage = (e: React.ClipboardEvent, target: 'question' | 'answer') => {
+  const handlePasteImage = (e: React.ClipboardEvent, target: 'front' | 'back') => {
     const items = e.clipboardData?.items;
     if (!items) return;
-
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
         e.preventDefault();
         const file = items[i].getAsFile();
         if (file) {
-          processImageFile(file, target);
+          void processImageFile(file, target);
           return;
         }
       }
     }
   };
 
-  const handleFileInputChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    target: 'question' | 'answer'
-  ) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      processImageFile(file, target);
-    }
-    e.target.value = '';
+  // =========================================================================
+  // ⚡ GERADOR DE 20 FLASHCARDS COM IA
+  // =========================================================================
+
+  const handleOpenAiGenerator = () => {
+    setAiTopicInput(currentDeck ? currentDeck.name : currentSubject ? currentSubject.name : '');
+    setAiTargetSubjectId(currentSubject ? currentSubject.id : (subjects[0]?.id || ''));
+    setAiTargetDeckId(currentDeck ? currentDeck.id : 'new_deck');
+    setAiNewDeckTitle('');
+    setAiPreviewCards([]);
+    setIsAiModalOpen(true);
   };
 
-  // =========================================================================
-  // 🎮 MODO DE TREINO (PLAYER ESTILO ANKI COM SRS)
-  // =========================================================================
-  const handleStartStudySession = (deckId: string) => {
-    const deckCards = cards.filter((c) => c.deckId === deckId);
-    if (deckCards.length === 0) {
-      showToast?.('Este baralho ainda não tem flashcards.', 'info');
-      return;
-    }
-
-    const shuffled = [...deckCards].sort(() => Math.random() - 0.5);
-    setStudyQueue(shuffled);
-    setCurrentCardIndex(0);
-    setIsAnswerRevealed(false);
-    setStudySessionFinished(false);
-    setActiveStudyingDeckId(deckId);
-  };
-
-  const handleRevealAnswer = useCallback(() => {
-    setIsAnswerRevealed(true);
-  }, []);
-
-  const handleRateCard = useCallback(
-    (rating: 1 | 2 | 3) => {
-      if (!studyQueue[currentCardIndex]) return;
-
-      const currentCard = studyQueue[currentCardIndex];
-      const today = new Date().toISOString().split('T')[0];
-
-      let nextState: 'new' | 'learning' | 'review' | 'mastered' = currentCard.state;
-      let nextRepetitions = currentCard.repetitions;
-      let nextIntervalDays = currentCard.intervalDays;
-
-      if (rating === 1) {
-        nextState = 'learning';
-        nextRepetitions = 0;
-        nextIntervalDays = 0;
-      } else if (rating === 2) {
-        nextState = 'review';
-        nextRepetitions += 1;
-        nextIntervalDays = nextRepetitions === 1 ? 1 : Math.round(nextIntervalDays * 1.5) || 2;
-      } else {
-        nextState = 'mastered';
-        nextRepetitions += 1;
-        nextIntervalDays = nextRepetitions === 1 ? 3 : Math.round(nextIntervalDays * 2.5) || 4;
-      }
-
-      const targetDate = new Date();
-      targetDate.setDate(targetDate.getDate() + Math.max(1, nextIntervalDays));
-      const nextReviewDate = targetDate.toISOString().split('T')[0];
-
-      setCards((prev) =>
-        prev.map((c) =>
-          c.id === currentCard.id
-            ? {
-                ...c,
-                state: nextState,
-                repetitions: nextRepetitions,
-                intervalDays: nextIntervalDays,
-                lastReviewedAt: today,
-                nextReviewDate,
-              }
-            : c
-        )
-      );
-
-      if (rating === 1) {
-        setStudyQueue((prev) => [...prev, currentCard]);
-      }
-
-      if (currentCardIndex + 1 < studyQueue.length) {
-        setCurrentCardIndex((prev) => prev + 1);
-        setIsAnswerRevealed(false);
-      } else {
-        setStudySessionFinished(true);
-      }
-    },
-    [studyQueue, currentCardIndex]
-  );
-
-  // Atalhos de teclado no modo estudo
-  useEffect(() => {
-    if (!activeStudyingDeckId || studySessionFinished) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
-      if (!isAnswerRevealed) {
-        if (e.code === 'Space' || e.key === 'Enter') {
-          e.preventDefault();
-          handleRevealAnswer();
-        }
-      } else {
-        if (e.key === '1') {
-          e.preventDefault();
-          handleRateCard(1);
-        } else if (e.key === '2') {
-          e.preventDefault();
-          handleRateCard(2);
-        } else if (e.key === '3') {
-          e.preventDefault();
-          handleRateCard(3);
-        }
-      }
-
-      if (e.key === 'Escape') {
-        setActiveStudyingDeckId(null);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeStudyingDeckId, isAnswerRevealed, studySessionFinished, handleRevealAnswer, handleRateCard]);
-
-  // =========================================================================
-  // ⚡ GERADOR DE 20 FLASHCARDS COM IA (Rigorosamente 1 linha)
-  // =========================================================================
   const handleGenerateWithAi = async () => {
     if (!aiTopicInput.trim()) {
       showToast?.('Por favor, informe a matéria ou tópico.', 'error');
@@ -535,1314 +704,1598 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
       });
 
       const data = await response.json();
-
       if (response.ok && data.cards && data.cards.length > 0) {
         setAiPreviewCards(data.cards);
-        showToast?.(`IA gerou ${data.cards.length} flashcards bate-pronto!`, 'success');
+        showToast?.(`IA gerou ${data.cards.length} flashcards de alta retenção!`, 'success');
       } else {
         showToast?.(data.message || 'Falha ao gerar flashcards pela IA.', 'error');
       }
-    } catch (err: any) {
+    } catch {
       showToast?.('Erro de conexão ao gerar com IA.', 'error');
     } finally {
       setIsAiLoading(false);
     }
   };
 
-  const handleSaveAiCards = () => {
+  const handleSaveAiCards = async () => {
     if (aiPreviewCards.length === 0) return;
 
     let targetDeckId = aiTargetDeckId;
-    const topicTitle = aiTopicInput.trim();
+    let targetSubId = aiTargetSubjectId || currentSubject?.id || subjects[0]?.id;
 
-    if (targetDeckId === 'new_deck') {
-      const newDeck: Deck = {
-        id: `deck_${Date.now()}`,
-        title: topicTitle,
-        subject: topicTitle.includes('Química')
-          ? 'Química'
-          : topicTitle.includes('Física')
-          ? 'Física'
-          : topicTitle.includes('Português')
-          ? 'Português'
-          : 'Geral',
-        description: `Baralho gerado por IA com 20 flashcards bate-pronto.`,
-        createdAt: new Date().toISOString(),
-      };
-      setDecks((prev) => [newDeck, ...prev]);
-      targetDeckId = newDeck.id;
+    if (!targetSubId) {
+      showToast?.('Selecione ou crie uma disciplina primeiro.', 'error');
+      return;
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    try {
+      // Se optou por criar novo baralho
+      if (targetDeckId === 'new_deck') {
+        const deckTitle = aiNewDeckTitle.trim() || aiTopicInput.trim() || 'Novo Baralho IA';
+        const deckRes = await apiFetch('/api/flashcards/decks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subjectId: targetSubId,
+            name: deckTitle,
+            description: `Baralho gerado por IA com 20 flashcards bate-pronto.`,
+          }),
+        });
 
-    const newCards: Flashcard[] = aiPreviewCards.map((c, idx) => ({
-      id: `card_${Date.now()}_${idx}`,
-      deckId: targetDeckId,
-      question: c.question,
-      answer: c.answer,
-      createdAt: new Date().toISOString(),
-      state: 'new',
-      repetitions: 0,
-      intervalDays: 0,
-      nextReviewDate: today,
-    }));
+        if (!deckRes.ok) {
+          showToast?.('Falha ao criar baralho de destino.', 'error');
+          return;
+        }
+        const deckData = await deckRes.json();
+        targetDeckId = deckData.deck.id;
+      }
 
-    setCards((prev) => [...newCards, ...prev]);
-    setIsAiModalOpen(false);
-    setAiPreviewCards([]);
-    setAiTopicInput('');
+      // Salva cada cartão no backend
+      let savedCount = 0;
+      for (const c of aiPreviewCards) {
+        const cardRes = await apiFetch('/api/flashcards/cards', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deckId: targetDeckId,
+            front: c.question,
+            back: c.answer,
+          }),
+        });
+        if (cardRes.ok) savedCount++;
+      }
 
-    showToast?.(`${newCards.length} flashcards adicionados ao baralho!`, 'success');
+      showToast?.(`${savedCount} flashcards salvos com sucesso!`, 'success');
+      setIsAiModalOpen(false);
+      setAiPreviewCards([]);
+      setAiTopicInput('');
+
+      if (currentDeck && currentDeck.id === targetDeckId) {
+        void fetchCardsForDeck(targetDeckId);
+      } else if (currentSubject) {
+        void fetchDecksForSubject(currentSubject.id);
+      }
+      void fetchGlobalData();
+    } catch {
+      showToast?.('Erro ao salvar cartões gerados pela IA.', 'error');
+    }
   };
 
   // =========================================================================
-  // ➕ CRIAR BARALHO MANUAL
+  // 🎮 MODO DE ESTUDO FOCADO ESTILO ANKI (SM-2 SRS)
   // =========================================================================
-  const handleCreateDeck = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newDeckTitle.trim()) return;
 
-    const newDeck: Deck = {
-      id: `deck_${Date.now()}`,
-      title: newDeckTitle.trim(),
-      subject: newDeckSubject.trim() || 'Geral',
-      createdAt: new Date().toISOString(),
+  const handleStartStudySession = async (deck: DeckWithStats) => {
+    try {
+      const res = await apiFetch(`/api/flashcards/study-queue/${deck.id}`);
+      if (!res.ok) {
+        showToast?.('Falha ao carregar fila de estudo.', 'error');
+        return;
+      }
+      const data = await res.json();
+      const queue: Flashcard[] = data.queue || [];
+
+      if (queue.length === 0) {
+        showToast?.('Nenhum flashcard disponível para estudar neste baralho.', 'info');
+        return;
+      }
+
+      setStudyQueue(queue);
+      setCurrentCardIndex(0);
+      setIsAnswerRevealed(false);
+      setStudySessionFinished(false);
+      setStudySessionStats({ again: 0, hard: 0, good: 0, easy: 0, total: queue.length });
+      setCurrentDeck(deck);
+      setViewMode('study');
+    } catch {
+      showToast?.('Erro de conexão ao iniciar estudo.', 'error');
+    }
+  };
+
+  const handleRevealAnswer = useCallback(() => {
+    setIsAnswerRevealed(true);
+  }, []);
+
+  const handleRateCard = useCallback(
+    async (rating: 1 | 2 | 3 | 4) => {
+      if (!studyQueue[currentCardIndex]) return;
+
+      const currentCard = studyQueue[currentCardIndex];
+
+      try {
+        // Envia avaliação para o backend (cálculo de SM-2 e persistência em flashcard_reviews)
+        void apiFetch(`/api/flashcards/cards/${currentCard.id}/review`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rating }),
+        });
+
+        setStudySessionStats((prev) => ({
+          ...prev,
+          again: rating === 1 ? prev.again + 1 : prev.again,
+          hard: rating === 2 ? prev.hard + 1 : prev.hard,
+          good: rating === 3 ? prev.good + 1 : prev.good,
+          easy: rating === 4 ? prev.easy + 1 : prev.easy,
+        }));
+
+        // Se errou (rating 1), adiciona o cartão novamente ao final da fila para repetição na mesma sessão
+        if (rating === 1) {
+          setStudyQueue((prev) => [...prev, currentCard]);
+        }
+
+        if (currentCardIndex + 1 < studyQueue.length) {
+          setCurrentCardIndex((prev) => prev + 1);
+          setIsAnswerRevealed(false);
+        } else {
+          setStudySessionFinished(true);
+        }
+      } catch {
+        showToast?.('Erro ao registrar avaliação de estudo.', 'error');
+      }
+    },
+    [studyQueue, currentCardIndex, showToast]
+  );
+
+  // Atalhos de teclado no modo estudo (Anki padrão)
+  useEffect(() => {
+    if (viewMode !== 'study' || studySessionFinished) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (!isAnswerRevealed) {
+        if (e.code === 'Space' || e.key === 'Enter') {
+          e.preventDefault();
+          handleRevealAnswer();
+        }
+      } else {
+        if (e.key === '1') {
+          e.preventDefault();
+          void handleRateCard(1);
+        } else if (e.key === '2') {
+          e.preventDefault();
+          void handleRateCard(2);
+        } else if (e.key === '3') {
+          e.preventDefault();
+          void handleRateCard(3);
+        } else if (e.key === '4') {
+          e.preventDefault();
+          void handleRateCard(4);
+        }
+      }
+
+      if (e.key === 'Escape') {
+        handleBackToDecks();
+      }
     };
 
-    setDecks((prev) => [newDeck, ...prev]);
-    setNewDeckTitle('');
-    setIsCreateDeckModalOpen(false);
-    showToast?.('Baralho criado com sucesso!', 'success');
-  };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [viewMode, isAnswerRevealed, studySessionFinished, handleRevealAnswer, handleRateCard]);
 
   // =========================================================================
-  // ➕ SALVAR / EDITAR FLASHCARD MANUAL (COM FOTOS E MÚLTIPLAS LINHAS)
+  // 🔍 FILTRAGEM DE ITENS
   // =========================================================================
-  const handleOpenAddCardModal = (deckId: string) => {
-    setActiveDeckForAdd(deckId);
-    setEditingCardId(null);
-    setManualQuestion('');
-    setManualAnswer('');
-    setManualQuestionImage(null);
-    setManualAnswerImage(null);
-    setIsCardModalOpen(true);
-  };
 
-  const handleOpenEditCardModal = (card: Flashcard) => {
-    setActiveDeckForAdd(card.deckId);
-    setEditingCardId(card.id);
-    setManualQuestion(card.question);
-    setManualAnswer(card.answer);
-    setManualQuestionImage(card.questionImage || null);
-    setManualAnswerImage(card.answerImage || null);
-    setIsCardModalOpen(true);
-  };
+  const filteredSubjects = useMemo(() => {
+    if (!searchQuery.trim()) return subjects;
+    const q = searchQuery.toLowerCase();
+    return subjects.filter((s) => s.name.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q));
+  }, [subjects, searchQuery]);
 
-  const handleSaveManualCard = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!manualQuestion.trim() && !manualQuestionImage) {
-      showToast?.('Informe a pergunta ou cole uma foto.', 'error');
-      return;
-    }
-    if (!manualAnswer.trim() && !manualAnswerImage) {
-      showToast?.('Informe a resposta ou cole uma foto.', 'error');
-      return;
-    }
+  const filteredDecks = useMemo(() => {
+    if (!searchQuery.trim()) return decks;
+    const q = searchQuery.toLowerCase();
+    return decks.filter((d) => d.name.toLowerCase().includes(q) || d.description?.toLowerCase().includes(q));
+  }, [decks, searchQuery]);
 
-    if (editingCardId) {
-      // Edição de card existente
-      setCards((prev) =>
-        prev.map((c) =>
-          c.id === editingCardId
-            ? {
-                ...c,
-                question: manualQuestion.trim(),
-                answer: manualAnswer.trim(),
-                questionImage: manualQuestionImage || undefined,
-                answerImage: manualAnswerImage || undefined,
-              }
-            : c
-        )
-      );
-      showToast?.('Flashcard atualizado!', 'success');
-    } else {
-      // Criação de novo card
-      const newCard: Flashcard = {
-        id: `card_${Date.now()}`,
-        deckId: activeDeckForAdd,
-        question: manualQuestion.trim(),
-        answer: manualAnswer.trim(),
-        questionImage: manualQuestionImage || undefined,
-        answerImage: manualAnswerImage || undefined,
-        createdAt: new Date().toISOString(),
-        state: 'new',
-        repetitions: 0,
-        intervalDays: 0,
-        nextReviewDate: new Date().toISOString().split('T')[0],
-      };
-      setCards((prev) => [newCard, ...prev]);
-      showToast?.('Flashcard adicionado ao baralho!', 'success');
-    }
+  const filteredCards = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return cards.filter((c) => {
+      const matchesSearch =
+        !searchQuery.trim() ||
+        c.front.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        c.back.toLowerCase().includes(searchQuery.toLowerCase());
 
-    setIsCardModalOpen(false);
-    setEditingCardId(null);
-    setManualQuestion('');
-    setManualAnswer('');
-    setManualQuestionImage(null);
-    setManualAnswerImage(null);
-  };
+      let matchesFilter = true;
+      if (cardFilter === 'DUE') {
+        matchesFilter = c.nextReviewAt <= today;
+      } else if (cardFilter !== 'ALL') {
+        matchesFilter = c.status === cardFilter;
+      }
+
+      return matchesSearch && matchesFilter;
+    });
+  }, [cards, searchQuery, cardFilter]);
 
   // =========================================================================
-  // 🗑️ EXCLUSÕES
+  // 🎨 RENDERIZAÇÃO DA INTERFACE
   // =========================================================================
-  const handleDeleteDeck = (deckId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (confirm('Deseja excluir este baralho e todos os flashcards contidos nele?')) {
-      setDecks((prev) => prev.filter((d) => d.id !== deckId));
-      setCards((prev) => prev.filter((c) => c.deckId !== deckId));
-      if (inspectingDeckId === deckId) setInspectingDeckId(null);
-      showToast?.('Baralho excluído.', 'info');
-    }
-  };
 
-  const handleDeleteCard = (cardId: string) => {
-    setCards((prev) => prev.filter((c) => c.id !== cardId));
-    showToast?.('Card excluído.', 'info');
-  };
+  return (
+    <div className={`min-h-screen p-4 sm:p-6 lg:p-8 transition-colors duration-200 ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+      <div className="max-w-7xl mx-auto space-y-6">
 
-  const activeStudyingDeck = decks.find((d) => d.id === activeStudyingDeckId);
-  const activeInspectingDeck = decks.find((d) => d.id === inspectingDeckId);
-
-  // =========================================================================
-  // 📺 RENDERIZAÇÃO: MODO DE TREINO (ANKI PLAYER COM FOTOS)
-  // =========================================================================
-  if (activeStudyingDeckId && activeStudyingDeck) {
-    const currentCard = studyQueue[currentCardIndex];
-
-    return (
-      <div className="space-y-6 max-w-3xl mx-auto animate-in zoom-in-95 duration-200 pb-12">
-        {/* Topo do Modo de Estudo */}
-        <div className="flex items-center justify-between border-b pb-4 border-slate-700/60">
-          <button
-            type="button"
-            onClick={() => setActiveStudyingDeckId(null)}
-            className={`flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl border transition-colors cursor-pointer ${
-              isDark
-                ? 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
-                : 'bg-white border-slate-300 text-slate-700 hover:text-black'
-            }`}
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Voltar aos Baralhos (Esc)</span>
-          </button>
-
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-mono font-bold text-slate-400">
-              {currentCardIndex + 1} de {studyQueue.length}
-            </span>
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-red-950/80 text-red-400 border border-red-800/50">
-              {activeStudyingDeck.subject}
-            </span>
-          </div>
-        </div>
-
-        {/* Barra de Progresso Superior */}
-        <div
-          className={`h-2 w-full rounded-full overflow-hidden border ${
-            isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-200 border-slate-300'
-          }`}
-        >
-          <div
-            className="h-full bg-gradient-to-r from-red-600 via-amber-500 to-emerald-500 transition-all duration-300"
-            style={{
-              width: `${Math.round(((currentCardIndex + 1) / studyQueue.length) * 100)}%`,
-            }}
-          />
-        </div>
-
-        {/* Conclusão da Sessão */}
-        {studySessionFinished ? (
-          <div
-            className={`p-10 rounded-2xl border text-center space-y-5 shadow-2xl ${
-              isDark ? 'bg-[#0B1528] border-slate-800' : 'bg-white border-slate-300'
-            }`}
-          >
-            <div className="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto shadow-lg">
-              <CheckCircle2 className="w-8 h-8" />
-            </div>
-
-            <div className="space-y-1">
-              <h2
-                className={`text-xl font-black uppercase tracking-tight ${
-                  isDark ? 'text-white' : 'text-slate-950'
+        {/* ------------------------------------------------------------- */}
+        {/* 🧭 BREADCRUMB & NAVEGAÇÃO SUPERIOR                            */}
+        {/* ------------------------------------------------------------- */}
+        {viewMode !== 'study' && (
+          <div className="flex flex-wrap items-center justify-between gap-4 pb-2 border-b border-slate-800/40">
+            <nav className="flex items-center space-x-2 text-xs uppercase tracking-wider font-mono">
+              <button
+                onClick={handleBackToSubjects}
+                className={`flex items-center gap-1.5 transition-colors ${
+                  viewMode === 'subjects'
+                    ? 'text-red-500 font-bold'
+                    : 'text-slate-400 hover:text-slate-200 cursor-pointer'
                 }`}
               >
-                Missão Cumprida!
-              </h2>
-              <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                Você revisou todos os {studyQueue.length} flashcards deste baralho com foco em memorização ativa.
-              </p>
-            </div>
-
-            <div className="flex items-center justify-center gap-3 pt-3 flex-wrap">
-              <button
-                type="button"
-                onClick={() => handleStartStudySession(activeStudyingDeck.id)}
-                className="px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider bg-red-700 hover:bg-red-600 text-white shadow-lg transition-all cursor-pointer flex items-center gap-2"
-              >
-                <RotateCcw className="w-4 h-4" />
-                <span>Revisar Novamente</span>
+                <Layers3 className="w-4 h-4" />
+                <span>Disciplinas</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setActiveStudyingDeckId(null)}
-                className={`px-5 py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                  isDark
-                    ? 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white'
-                    : 'bg-slate-100 border-slate-300 text-slate-800 hover:text-black'
-                }`}
-              >
-                Voltar aos Baralhos
-              </button>
-            </div>
-          </div>
-        ) : (
-          /* O Card de Treino Ativo */
-          <div className="space-y-5">
-            <div
-              onClick={!isAnswerRevealed ? handleRevealAnswer : undefined}
-              className={`p-6 sm:p-10 rounded-3xl border shadow-2xl transition-all duration-300 min-h-[340px] flex flex-col justify-between relative overflow-hidden select-none cursor-pointer ${
-                isDark
-                  ? 'bg-gradient-to-br from-[#0B1528] via-slate-950 to-black border-slate-800 shadow-black/60'
-                  : 'bg-white border-slate-300 shadow-slate-200/80'
-              }`}
-            >
-              {/* Top Card Info */}
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono font-black uppercase tracking-widest text-red-400">
-                  {activeStudyingDeck.title}
-                </span>
-                <span
-                  className={`px-2 py-0.5 rounded text-[10px] font-mono uppercase font-bold border ${
-                    currentCard.state === 'mastered'
-                      ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/60'
-                      : currentCard.state === 'learning'
-                      ? 'bg-amber-950/80 text-amber-400 border-amber-800/60'
-                      : 'bg-blue-950/80 text-blue-400 border-blue-800/60'
-                  }`}
-                >
-                  {currentCard.state === 'mastered'
-                    ? 'Dominado'
-                    : currentCard.state === 'learning'
-                    ? 'Em Treino'
-                    : 'Novo'}
-                </span>
-              </div>
 
-              {/* Corpo da Pergunta / Resposta */}
-              <div className="space-y-6 my-auto text-center py-4">
-                {/* Pergunta (Texto Multilinha + Foto opcional) */}
-                <div className="space-y-3">
-                  <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                    Pergunta
+              {currentSubject && (
+                <>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
+                  <button
+                    onClick={handleBackToDecks}
+                    className={`transition-colors ${
+                      viewMode === 'decks'
+                        ? 'text-red-500 font-bold'
+                        : 'text-slate-400 hover:text-slate-200 cursor-pointer'
+                    }`}
+                  >
+                    {currentSubject.name}
+                  </button>
+                </>
+              )}
+
+              {currentDeck && (
+                <>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
+                  <span className="text-red-500 font-bold">
+                    {currentDeck.name}
                   </span>
-                  {currentCard.question && (
-                    <h3
-                      className={`text-base sm:text-lg font-black leading-relaxed max-w-xl mx-auto whitespace-pre-line text-left sm:text-center ${
-                        isDark ? 'text-white' : 'text-slate-950'
-                      }`}
+                </>
+              )}
+            </nav>
+
+            {/* Ações Globais Rápidas */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleOpenAiGenerator}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-red-600/20 via-amber-600/20 to-indigo-600/20 border border-red-500/30 text-amber-300 hover:text-white hover:border-red-500/50 transition-all shadow-sm"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                <span>Gerar com IA</span>
+              </button>
+
+              {viewMode === 'subjects' && (
+                <button
+                  onClick={handleOpenCreateSubject}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors shadow-sm"
+                >
+                  <FolderPlus className="w-4 h-4" />
+                  <span>+ Nova Disciplina</span>
+                </button>
+              )}
+
+              {viewMode === 'decks' && (
+                <button
+                  onClick={handleOpenCreateDeck}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors shadow-sm"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>+ Novo Baralho</span>
+                </button>
+              )}
+
+              {viewMode === 'cards' && (
+                <div className="flex items-center gap-2">
+                  {currentDeck && currentDeck.cardCount > 0 && (
+                    <button
+                      onClick={() => handleStartStudySession(currentDeck)}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm"
                     >
-                      {currentCard.question}
-                    </h3>
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Estudar Agora</span>
+                    </button>
                   )}
-
-                  {/* Foto da Pergunta */}
-                  {currentCard.questionImage && (
-                    <div className="pt-2">
-                      <img
-                        src={currentCard.questionImage}
-                        alt="Foto da Pergunta"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setExpandedImage(currentCard.questionImage!);
-                        }}
-                        className="max-h-60 sm:max-h-72 mx-auto rounded-2xl border border-slate-700 object-contain shadow-lg hover:opacity-95 transition-opacity"
-                      />
-                      <span className="text-[10px] text-slate-500 block mt-1">
-                        (Clique na imagem para ampliar)
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Resposta Revelada (Texto Multilinha + Foto opcional) */}
-                {isAnswerRevealed && (
-                  <div className="animate-in fade-in zoom-in-95 duration-200 pt-5 border-t border-slate-700/40 space-y-3">
-                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      Resposta
-                    </span>
-
-                    {currentCard.answer && (
-                      <div
-                        className={`text-sm sm:text-base font-bold max-w-xl mx-auto px-4 py-3 rounded-2xl border leading-relaxed shadow-lg whitespace-pre-line text-left sm:text-center ${
-                          isDark
-                            ? 'bg-slate-900/90 text-emerald-300 border-emerald-500/30'
-                            : 'bg-emerald-50 text-emerald-950 border-emerald-300'
-                        }`}
-                      >
-                        {currentCard.answer}
-                      </div>
-                    )}
-
-                    {/* Foto da Resposta */}
-                    {currentCard.answerImage && (
-                      <div className="pt-2">
-                        <img
-                          src={currentCard.answerImage}
-                          alt="Foto da Resposta"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedImage(currentCard.answerImage!);
-                          }}
-                          className="max-h-60 sm:max-h-72 mx-auto rounded-2xl border border-emerald-600/40 object-contain shadow-lg hover:opacity-95 transition-opacity"
-                        />
-                        <span className="text-[10px] text-slate-500 block mt-1">
-                          (Clique na imagem para ampliar)
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Dica de clique na base do card */}
-              {!isAnswerRevealed && (
-                <div className="text-center pt-4 text-[11px] text-slate-500 flex items-center justify-center gap-1.5">
-                  <Eye className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Clique no card ou aperte [Espaço] para revelar a resposta</span>
+                  <button
+                    onClick={handleOpenAddCardModal}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors shadow-sm"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span>+ Novo Card</span>
+                  </button>
                 </div>
               )}
             </div>
+          </div>
+        )}
 
-            {/* Controles Estilo Anki: 3 Botões de Avaliação */}
-            {isAnswerRevealed ? (
-              <div className="space-y-2 animate-in slide-in-from-bottom-3 duration-200">
-                <div className="grid grid-cols-1 min-[390px]:grid-cols-3 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleRateCard(1)}
-                    className="p-3.5 rounded-2xl bg-red-950/80 hover:bg-red-900/90 text-red-300 border border-red-700 font-black text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95 cursor-pointer flex flex-col items-center gap-1"
+        {/* ------------------------------------------------------------- */}
+        {/* 📊 BARRA DE ESTATÍSTICAS E RESUMO                            */}
+        {/* ------------------------------------------------------------- */}
+        {viewMode !== 'study' && globalStats && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className={`p-3.5 rounded-xl border flex items-center gap-3 ${isDark ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200'}`}>
+              <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-400">
+                <Folder className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-mono">Disciplinas</p>
+                <p className="text-xl font-bold font-mono">{globalStats.totalSubjects}</p>
+              </div>
+            </div>
+
+            <div className={`p-3.5 rounded-xl border flex items-center gap-3 ${isDark ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200'}`}>
+              <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-400">
+                <Layers className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-mono">Baralhos</p>
+                <p className="text-xl font-bold font-mono">{globalStats.totalDecks}</p>
+              </div>
+            </div>
+
+            <div className={`p-3.5 rounded-xl border flex items-center gap-3 ${isDark ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200'}`}>
+              <div className="p-2.5 rounded-lg bg-indigo-500/10 text-indigo-400">
+                <Layers3 className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-mono">Flashcards</p>
+                <p className="text-xl font-bold font-mono">{globalStats.totalCards}</p>
+              </div>
+            </div>
+
+            <div className={`p-3.5 rounded-xl border flex items-center gap-3 ${isDark ? 'bg-red-950/20 border-red-500/30' : 'bg-red-50 border-red-200'}`}>
+              <div className="p-2.5 rounded-lg bg-red-500/20 text-red-500">
+                <Flame className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-red-400 font-mono">Para Revisar Hoje</p>
+                <p className="text-xl font-bold font-mono text-red-500">{globalStats.dueToday}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------- */}
+        {/* 🔍 BARRA DE PESQUISA                                          */}
+        {/* ------------------------------------------------------------- */}
+        {viewMode !== 'study' && (
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+            <input
+              type="text"
+              placeholder={
+                viewMode === 'subjects'
+                  ? 'Buscar por disciplina...'
+                  : viewMode === 'decks'
+                  ? `Buscar baralho em ${currentSubject?.name || 'tudo'}...`
+                  : 'Buscar flashcards por pergunta ou resposta...'
+              }
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={`w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border transition-all ${
+                isDark
+                  ? 'bg-slate-900/60 border-slate-800 text-slate-100 focus:border-red-500 focus:ring-1 focus:ring-red-500'
+                  : 'bg-white border-slate-200 text-slate-900 focus:border-red-500 focus:ring-1 focus:ring-red-500'
+              }`}
+            />
+          </div>
+        )}
+
+        {/* ============================================================= */}
+        {/* 🏛️ NÍVEL 1: LISTAGEM DE DISCIPLINAS                           */}
+        {/* ============================================================= */}
+        {viewMode === 'subjects' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-red-500" />
+                <span>Disciplinas de Estudo</span>
+                <span className="text-xs font-mono font-normal text-slate-500">({filteredSubjects.length})</span>
+              </h2>
+            </div>
+
+            {loading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[1, 2, 3, 4, 5, 6].map((idx) => (
+                  <div key={idx} className={`h-36 rounded-2xl border animate-pulse ${isDark ? 'bg-slate-900/40 border-slate-800/60' : 'bg-slate-100 border-slate-200'}`} />
+                ))}
+              </div>
+            ) : filteredSubjects.length === 0 ? (
+              <div className={`p-12 text-center rounded-2xl border ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center">
+                  <FolderPlus className="w-8 h-8" />
+                </div>
+                <h3 className="text-base font-bold mb-1">Nenhuma disciplina encontrada</h3>
+                <p className="text-xs text-slate-400 mb-6 max-w-md mx-auto">
+                  Crie sua primeira disciplina para organizar seus tópicos e baralhos no estilo Anki para o CFO CBMERJ.
+                </p>
+                <button
+                  onClick={handleOpenCreateSubject}
+                  className="px-4 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors"
+                >
+                  Criar Primeira Disciplina
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredSubjects.map((subject) => (
+                  <div
+                    key={subject.id}
+                    onClick={() => handleOpenSubject(subject)}
+                    className={`group relative p-5 rounded-2xl border transition-all duration-200 cursor-pointer flex flex-col justify-between ${
+                      isDark
+                        ? 'bg-slate-900/50 border-slate-800/80 hover:border-red-500/50 hover:bg-slate-900/80 hover:shadow-lg hover:shadow-red-950/20'
+                        : 'bg-white border-slate-200 hover:border-red-400 hover:shadow-md'
+                    }`}
                   >
-                    <span className="text-sm">❌ Errei / Difícil</span>
-                    <span className="text-[10px] font-mono text-red-400 font-normal">
-                      Rever hoje [Tecla 1]
-                    </span>
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm bg-red-500/10 text-red-400 border border-red-500/20`}>
+                            {subject.name.slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-sm group-hover:text-red-400 transition-colors line-clamp-1">
+                              {subject.name}
+                            </h3>
+                            <p className="text-[11px] text-slate-400 line-clamp-1">
+                              {subject.description || 'Sem descrição cadastrada'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Botões de Ação na Disciplina */}
+                        <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => handleOpenEditSubject(subject, e)}
+                            title="Editar Disciplina"
+                            className="p-1 rounded hover:bg-slate-700/40 text-slate-400 hover:text-slate-200"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={(e) => handlePromptDeleteSubject(subject, e)}
+                            title="Excluir Disciplina"
+                            className="p-1 rounded hover:bg-red-500/20 text-slate-400 hover:text-red-400"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-800/40 flex items-center justify-between text-xs font-mono">
+                      <div className="flex items-center gap-3 text-slate-400">
+                        <span>{subject.deckCount} {subject.deckCount === 1 ? 'baralho' : 'baralhos'}</span>
+                        <span>•</span>
+                        <span>{subject.cardCount} cards</span>
+                      </div>
+
+                      {subject.dueCount > 0 ? (
+                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">
+                          <Flame className="w-3 h-3" />
+                          {subject.dueCount} para revisar
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+                          <Check className="w-3 h-3" /> Em dia
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============================================================= */}
+        {/* 🗃️ NÍVEL 2: BARALHOS / TÓPICOS DA DISCIPLINA                  */}
+        {/* ============================================================= */}
+        {viewMode === 'decks' && currentSubject && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border bg-slate-900/30 border-slate-800/80">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleBackToSubjects}
+                  className="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 transition-colors"
+                  title="Voltar às Disciplinas"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div>
+                  <h2 className="text-lg font-bold">{currentSubject.name}</h2>
+                  <p className="text-xs text-slate-400">
+                    {currentSubject.description || 'Baralhos e tópicos de memorização ativa'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleOpenCreateDeck}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>Novo Baralho</span>
+                </button>
+              </div>
+            </div>
+
+            {filteredDecks.length === 0 ? (
+              <div className={`p-12 text-center rounded-2xl border ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center">
+                  <Layers className="w-7 h-7" />
+                </div>
+                <h3 className="text-sm font-bold mb-1">Nenhum baralho cadastrado em {currentSubject.name}</h3>
+                <p className="text-xs text-slate-400 mb-5 max-w-sm mx-auto">
+                  Crie seu primeiro baralho de tópicos ou gere uma bateria de 20 flashcards com inteligência artificial.
+                </p>
+                <div className="flex flex-wrap justify-center gap-3">
+                  <button
+                    onClick={handleOpenCreateDeck}
+                    className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors"
+                  >
+                    Criar Baralho Manual
                   </button>
-
                   <button
-                    type="button"
-                    onClick={() => handleRateCard(2)}
-                    className="p-3.5 rounded-2xl bg-amber-950/80 hover:bg-amber-900/90 text-amber-300 border border-amber-700 font-black text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95 cursor-pointer flex flex-col items-center gap-1"
+                    onClick={handleOpenAiGenerator}
+                    className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-indigo-600/30 border border-indigo-500/40 hover:bg-indigo-600/50 text-indigo-300 transition-colors flex items-center gap-1.5"
                   >
-                    <span className="text-sm">⚠️ Bom</span>
-                    <span className="text-[10px] font-mono text-amber-400 font-normal">
-                      Rever em 1d [Tecla 2]
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleRateCard(3)}
-                    className="p-3.5 rounded-2xl bg-emerald-950/80 hover:bg-emerald-900/90 text-emerald-300 border border-emerald-700 font-black text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95 cursor-pointer flex flex-col items-center gap-1"
-                  >
-                    <span className="text-sm">✅ Fácil</span>
-                    <span className="text-[10px] font-mono text-emerald-400 font-normal">
-                      Dominado [Tecla 3]
-                    </span>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Gerar 20 Cards com IA
                   </button>
                 </div>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={handleRevealAnswer}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-red-700 via-red-800 to-red-900 hover:from-red-600 hover:to-red-800 text-white font-black tracking-widest text-xs uppercase shadow-xl transition-all active:scale-[0.99] cursor-pointer flex items-center justify-center gap-2"
-              >
-                <Eye className="w-4 h-4" />
-                <span>Mostrar Resposta (Espaço)</span>
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredDecks.map((deck) => (
+                  <div
+                    key={deck.id}
+                    onClick={() => handleOpenDeck(deck)}
+                    className={`group p-5 rounded-2xl border transition-all duration-200 cursor-pointer flex flex-col justify-between ${
+                      isDark
+                        ? 'bg-slate-900/50 border-slate-800/80 hover:border-red-500/40 hover:bg-slate-900/80 hover:shadow-lg'
+                        : 'bg-white border-slate-200 hover:border-red-400 hover:shadow-md'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <h3 className="font-bold text-sm group-hover:text-red-400 transition-colors line-clamp-1">
+                          {deck.name}
+                        </h3>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => handleOpenEditDeck(deck, e)}
+                            title="Editar Baralho"
+                            className="p-1 rounded hover:bg-slate-700/40 text-slate-400 hover:text-slate-200"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={(e) => handlePromptDeleteDeck(deck, e)}
+                            title="Excluir Baralho"
+                            className="p-1 rounded hover:bg-red-500/20 text-slate-400 hover:text-red-400"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-400 line-clamp-2 mb-4">
+                        {deck.description || 'Sem descrição específica para este baralho.'}
+                      </p>
+                    </div>
+
+                    <div className="space-y-3 pt-3 border-t border-slate-800/40">
+                      {/* Progresso de retenção */}
+                      <div className="grid grid-cols-4 gap-1 text-center text-[10px] font-mono">
+                        <div className="p-1 rounded bg-blue-500/10 text-blue-400">
+                          <p className="font-bold">{deck.newCount}</p>
+                          <p className="text-[9px] text-slate-500">Novos</p>
+                        </div>
+                        <div className="p-1 rounded bg-amber-500/10 text-amber-400">
+                          <p className="font-bold">{deck.learningCount}</p>
+                          <p className="text-[9px] text-slate-500">Aprender</p>
+                        </div>
+                        <div className="p-1 rounded bg-purple-500/10 text-purple-400">
+                          <p className="font-bold">{deck.reviewCount}</p>
+                          <p className="text-[9px] text-slate-500">Revisão</p>
+                        </div>
+                        <div className="p-1 rounded bg-emerald-500/10 text-emerald-400">
+                          <p className="font-bold">{deck.masteredCount}</p>
+                          <p className="text-[9px] text-slate-500">Fixado</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-xs font-mono text-slate-400">
+                          {deck.cardCount} cards
+                        </span>
+
+                        {deck.cardCount > 0 ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleStartStudySession(deck);
+                            }}
+                            className="flex items-center gap-1 px-3 py-1 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                          >
+                            <Play className="w-3 h-3 fill-current" />
+                            <span>Estudar {deck.dueCount > 0 ? `(${deck.dueCount})` : ''}</span>
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-500 italic">Vazio</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}
-      </div>
-    );
-  }
 
-  // =========================================================================
-  // 📋 RENDERIZAÇÃO: LISTA DE CARDS DO BARALHO (INSPEÇÃO COM FOTOS)
-  // =========================================================================
-  if (inspectingDeckId && activeInspectingDeck) {
-    const deckCards = cards.filter((c) => c.deckId === inspectingDeckId);
-
-    return (
-      <div className="space-y-6 animate-in fade-in duration-200 pb-12">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-4 border-slate-700/60">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setInspectingDeckId(null)}
-              className={`p-2 rounded-xl border transition-colors cursor-pointer ${
-                isDark
-                  ? 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white'
-                  : 'bg-white border-slate-300 text-slate-700 hover:text-black'
-              }`}
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-            <div>
-              <h2
-                className={`text-lg font-black uppercase tracking-tight ${
-                  isDark ? 'text-white' : 'text-slate-950'
-                }`}
-              >
-                {activeInspectingDeck.title}
-              </h2>
-              <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                {deckCards.length} flashcards cadastrados neste baralho
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={() => handleOpenAddCardModal(activeInspectingDeck.id)}
-              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer flex items-center gap-1.5"
-            >
-              <PlusCircle className="w-3.5 h-3.5" />
-              <span>Adicionar Card (Texto/Foto)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleStartStudySession(activeInspectingDeck.id)}
-              className="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider bg-red-700 hover:bg-red-600 text-white shadow-md transition-all cursor-pointer flex items-center gap-1.5"
-            >
-              <Play className="w-3.5 h-3.5" />
-              <span>Estudar Baralho (Anki)</span>
-            </button>
-          </div>
-        </div>
-
-        {deckCards.length === 0 ? (
-          <div
-            className={`p-10 rounded-2xl border text-center space-y-3 ${
-              isDark ? 'border-slate-800 bg-[#0B1528]' : 'border-slate-200 bg-white'
-            }`}
-          >
-            <HelpCircle className="w-8 h-8 text-slate-500 mx-auto" />
-            <p className="text-sm font-bold text-slate-400">Nenhum card neste baralho ainda.</p>
-            <button
-              type="button"
-              onClick={() => handleOpenAddCardModal(activeInspectingDeck.id)}
-              className="text-xs text-red-400 font-bold hover:underline cursor-pointer"
-            >
-              + Adicionar primeiro card manual com texto ou foto
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {deckCards.map((card, idx) => (
-              <div
-                key={card.id}
-                className={`p-4 rounded-2xl border shadow-sm flex flex-col justify-between space-y-3 relative overflow-hidden ${
-                  isDark
-                    ? 'bg-[#0B1528] border-slate-800'
-                    : 'bg-white border-slate-300 shadow-slate-200/50'
-                }`}
-              >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono text-slate-500">#{idx + 1}</span>
-                    <span
-                      className={`text-[9.5px] font-mono uppercase px-2 py-0.5 rounded font-bold border ${
-                        card.state === 'mastered'
-                          ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/60'
-                          : card.state === 'learning'
-                          ? 'bg-amber-950/80 text-amber-400 border-amber-800/60'
-                          : 'bg-blue-950/80 text-blue-400 border-blue-800/60'
-                      }`}
-                    >
-                      {card.state}
-                    </span>
-                  </div>
-
-                  {/* Pergunta */}
+        {/* ============================================================= */}
+        {/* 🃏 NÍVEL 3: GERENCIAMENTO DE CARDS DO BARALHO                  */}
+        {/* ============================================================= */}
+        {viewMode === 'cards' && currentDeck && (
+          <div className="space-y-4">
+            {/* Cabeçalho do Baralho */}
+            <div className="p-5 rounded-2xl border bg-slate-900/30 border-slate-800/80 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleBackToDecks}
+                    className="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 transition-colors"
+                    title="Voltar aos Baralhos"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                  </button>
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-blue-400 block mb-0.5">
-                      P: Pergunta
-                    </span>
-                    {card.question && (
-                      <p
-                        className={`text-xs font-black whitespace-pre-line ${
-                          isDark ? 'text-white' : 'text-slate-950'
-                        }`}
-                      >
-                        {card.question}
-                      </p>
-                    )}
-                    {card.questionImage && (
-                      <div className="mt-1.5">
-                        <img
-                          src={card.questionImage}
-                          alt="Foto da Pergunta"
-                          onClick={() => setExpandedImage(card.questionImage!)}
-                          className="max-h-32 rounded-lg border border-slate-700 object-contain cursor-pointer hover:opacity-90"
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Resposta */}
-                  <div className="pt-2 border-t border-slate-800/40">
-                    <span className="text-[10px] uppercase font-bold text-emerald-400 block mb-0.5">
-                      R: Resposta
-                    </span>
-                    {card.answer && (
-                      <p
-                        className={`text-xs font-semibold whitespace-pre-line ${
-                          isDark ? 'text-emerald-300' : 'text-emerald-800'
-                        }`}
-                      >
-                        {card.answer}
-                      </p>
-                    )}
-                    {card.answerImage && (
-                      <div className="mt-1.5">
-                        <img
-                          src={card.answerImage}
-                          alt="Foto da Resposta"
-                          onClick={() => setExpandedImage(card.answerImage!)}
-                          className="max-h-32 rounded-lg border border-emerald-700/50 object-contain cursor-pointer hover:opacity-90"
-                        />
-                      </div>
-                    )}
+                    <h2 className="text-lg font-bold flex items-center gap-2">
+                      <span>{currentDeck.name}</span>
+                      <span className="text-xs font-normal text-slate-400 font-mono">({cards.length} cards)</span>
+                    </h2>
+                    <p className="text-xs text-slate-400">
+                      Disciplina: <span className="font-semibold text-slate-300">{currentSubject?.name || currentDeck.subjectName}</span>
+                    </p>
                   </div>
                 </div>
 
-                {/* Rodapé do Card na Lista: Editar e Excluir */}
-                <div className="flex items-center justify-between pt-2 border-t border-slate-800/60">
-                  <span className="text-[10px] font-mono text-slate-500">
-                    Revisões: {card.repetitions}x
-                  </span>
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2">
+                  {cards.length > 0 && (
                     <button
-                      type="button"
-                      onClick={() => handleOpenEditCardModal(card)}
-                      className="text-slate-400 hover:text-blue-400 text-xs flex items-center gap-1 cursor-pointer"
-                      title="Editar card"
+                      onClick={() => handleStartStudySession(currentDeck)}
+                      className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm"
                     >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>Editar</span>
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Estudar Agora</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteCard(card.id)}
-                      className="text-slate-400 hover:text-red-400 text-xs flex items-center gap-1 cursor-pointer"
-                      title="Excluir card"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Excluir</span>
-                    </button>
-                  </div>
+                  )}
+                  <button
+                    onClick={handleOpenAddCardModal}
+                    className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span>Novo Card</span>
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
 
-  // =========================================================================
-  // 📚 RENDERIZAÇÃO: LISTA DE BARALHOS (DECKS GRID)
-  // =========================================================================
-  return (
-    <div className="space-y-7 animate-in fade-in duration-300 pb-12">
-      {/* Cabeçalho do Caderno de Erros & Flashcards */}
-      <div
-        className={`p-4 sm:p-6 rounded-2xl border transition-colors shadow-xl relative overflow-hidden min-w-0 ${
-          isDark
-            ? 'bg-gradient-to-br from-[#0B1528] via-slate-950 to-black border-slate-800'
-            : 'bg-white border-slate-200 shadow-slate-200/60'
-        }`}
-      >
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 relative z-10">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-blue-700 via-indigo-800 to-indigo-950 border border-blue-500/30 flex items-center justify-center text-white shadow-lg shadow-blue-950/60 shrink-0">
-              <Layers className="w-6 h-6 text-blue-300" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h1
-                  className={`text-xl font-black tracking-tight uppercase flex items-center gap-2 ${
-                    isDark ? 'text-white' : 'text-slate-950'
+              {/* Filtro por estado do cartão */}
+              <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-800/40">
+                <button
+                  onClick={() => setCardFilter('ALL')}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    cardFilter === 'ALL'
+                      ? 'bg-slate-700 text-white font-bold'
+                      : 'bg-slate-800/40 text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  Caderno de Erros & Flashcards
-                </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-widest bg-blue-950/80 text-blue-300 border border-blue-800/60">
-                  SRS // ANKI STYLE
-                </span>
-              </div>
-              <p
-                className={`text-xs mt-1 max-w-2xl leading-relaxed ${
-                  isDark ? 'text-slate-400' : 'text-slate-700 font-medium'
-                }`}
-              >
-                Organize seus baralhos por matéria, anexe prints e fotos de questões ou resoluções com Ctrl+V,
-                escreva quantas linhas precisar e gere baterias de 20 flashcards "bate e pronto" com IA.
-              </p>
-            </div>
-          </div>
-
-          {/* Botões de Ação Principal */}
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setIsAiModalOpen(true)}
-              className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-600 text-white shadow-lg shadow-blue-950/50 transition-all active:scale-95 cursor-pointer flex items-center gap-2"
-            >
-              <Sparkles className="w-4 h-4 text-blue-200" />
-              <span>Gerar 20 Cards com IA</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsCreateDeckModalOpen(true)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer flex items-center gap-1.5 ${
-                isDark
-                  ? 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-900 border-slate-300'
-              }`}
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Novo Baralho</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Barra de Filtros e Busca */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-          <input
-            type="text"
-            placeholder="Buscar por baralho ou matéria..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className={`w-full text-xs rounded-xl pl-9 pr-3 py-2.5 border transition-colors ${
-              isDark
-                ? 'bg-slate-900 border-slate-800 text-slate-200 placeholder:text-slate-500 focus:border-blue-500'
-                : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-blue-600'
-            }`}
-          />
-        </div>
-
-        {/* Filtros por Matéria */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {availableSubjects.map((sub) => (
-            <button
-              key={sub}
-              type="button"
-              onClick={() => setSelectedSubjectFilter(sub)}
-              className={`text-xs px-3 py-1.5 rounded-xl border font-bold transition-colors cursor-pointer ${
-                selectedSubjectFilter === sub
-                  ? 'bg-blue-600 text-white border-blue-500 shadow-md'
-                  : isDark
-                  ? 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                  : 'bg-white border-slate-300 text-slate-700 hover:text-black'
-              }`}
-            >
-              {sub}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Grid de Baralhos (Estilo Anki) */}
-      {filteredDecks.length === 0 ? (
-        <div
-          className={`p-10 rounded-2xl border text-center space-y-3 ${
-            isDark ? 'border-slate-800 bg-[#0B1528]' : 'border-slate-200 bg-white'
-          }`}
-        >
-          <Layers className="w-10 h-10 text-slate-600 mx-auto" />
-          <p className="text-sm font-bold text-slate-300">Nenhum baralho encontrado.</p>
-          <p className="text-xs text-slate-500">
-            Crie um baralho manual ou gere uma bateria de 20 flashcards com a IA.
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredDecks.map((deck) => {
-            const stats = deckStats[deck.id] || {
-              total: 0,
-              newCount: 0,
-              learningCount: 0,
-              masteredCount: 0,
-            };
-
-            return (
-              <div
-                key={deck.id}
-                className={`p-5 rounded-2xl border shadow-xl flex flex-col justify-between space-y-4 relative overflow-hidden transition-all duration-200 hover:scale-[1.01] ${
-                  isDark
-                    ? 'bg-[#0B1528] border-slate-800 hover:border-blue-500/50 shadow-black/50'
-                    : 'bg-white border-slate-300 hover:border-blue-500 shadow-slate-200/60'
-                }`}
-              >
-                <div className="space-y-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-blue-950/80 text-blue-400 border border-blue-800/50">
-                      {deck.subject}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={(e) => handleDeleteDeck(deck.id, e)}
-                      className="text-slate-500 hover:text-red-400 p-1 text-xs cursor-pointer"
-                      title="Excluir baralho"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div>
-                    <h3
-                      className={`text-base font-black leading-snug ${
-                        isDark ? 'text-white' : 'text-slate-950'
-                      }`}
-                    >
-                      {deck.title}
-                    </h3>
-                    {deck.description && (
-                      <p className={`text-xs mt-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                        {deck.description}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Placar de Cards Estilo Anki (Novos, Aprendendo, Dominados) */}
-                  <div
-                    className={`p-2.5 rounded-xl border grid grid-cols-1 min-[390px]:grid-cols-3 gap-2 text-center text-xs font-mono ${
-                      isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
-                    }`}
-                  >
-                    <div>
-                      <span className="text-[10px] text-blue-400 block font-bold">Novos</span>
-                      <span className="font-bold text-blue-400">{stats.newCount}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-amber-400 block font-bold">Revisar</span>
-                      <span className="font-bold text-amber-400">{stats.learningCount}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-emerald-400 block font-bold">Dominados</span>
-                      <span className="font-bold text-emerald-400">{stats.masteredCount}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Botões de Ação do Card */}
-                <div className="space-y-2 pt-2 border-t border-slate-800/60">
-                  <button
-                    type="button"
-                    onClick={() => handleStartStudySession(deck.id)}
-                    disabled={stats.total === 0}
-                    className="w-full py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white shadow-md transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    <Play className="w-3.5 h-3.5" />
-                    <span>Estudar Agora ({stats.total})</span>
-                  </button>
-
-                  <div className="flex items-center justify-between text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setInspectingDeckId(deck.id)}
-                      className="text-slate-400 hover:text-white font-semibold cursor-pointer"
-                    >
-                      Ver todos os cards
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenAddCardModal(deck.id)}
-                      className="text-blue-400 hover:text-blue-300 font-semibold cursor-pointer flex items-center gap-1"
-                    >
-                      <PlusCircle className="w-3 h-3" />
-                      <span>+ Card (Texto/Foto)</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* 🔮 MODAL: GERADOR COM IA (PROMPT DO USUÁRIO - APENAS 1 LINHA) */}
-      {/* ========================================================================= */}
-      {isAiModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
-          <div
-            className={`w-full max-w-2xl rounded-3xl border p-6 space-y-5 shadow-2xl animate-in zoom-in-95 duration-200 ${
-              isDark ? 'bg-[#0B1528] border-slate-800' : 'bg-white border-slate-300'
-            }`}
-          >
-            <div className="flex items-center justify-between border-b pb-3 border-slate-700/60">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3
-                    className={`text-base font-black uppercase tracking-tight ${
-                      isDark ? 'text-white' : 'text-slate-950'
-                    }`}
-                  >
-                    Gerador Tático de 20 Flashcards
-                  </h3>
-                  <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                    Prompt oficial de revisão bate e pronto (respostas de no máximo 1 linha tipo post-it)
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsAiModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label
-                  className={`block text-xs font-black uppercase tracking-wider mb-1.5 ${
-                    isDark ? 'text-slate-300' : 'text-slate-800'
+                  Todos ({cards.length})
+                </button>
+                <button
+                  onClick={() => setCardFilter('DUE')}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${
+                    cardFilter === 'DUE'
+                      ? 'bg-red-600 text-white font-bold'
+                      : 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
                   }`}
                 >
-                  Qual Matéria ou Tópico você quer revisar?
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ex: Estequiometria, Cinemática e Torricelli, Crase, Era Vargas..."
-                  value={aiTopicInput}
-                  onChange={(e) => setAiTopicInput(e.target.value)}
-                  className={`w-full text-xs rounded-xl px-3.5 py-3 border transition-colors ${
-                    isDark
-                      ? 'bg-slate-900 border-slate-700 text-white placeholder:text-slate-600 focus:border-blue-500'
-                      : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-blue-600'
+                  <Flame className="w-3 h-3" />
+                  Para Revisar
+                </button>
+                <button
+                  onClick={() => setCardFilter('new')}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    cardFilter === 'new'
+                      ? 'bg-blue-600 text-white font-bold'
+                      : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20'
                   }`}
-                />
+                >
+                  Novos
+                </button>
+                <button
+                  onClick={() => setCardFilter('learning')}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    cardFilter === 'learning'
+                      ? 'bg-amber-600 text-white font-bold'
+                      : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
+                  }`}
+                >
+                  Aprendendo
+                </button>
+                <button
+                  onClick={() => setCardFilter('review')}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    cardFilter === 'review'
+                      ? 'bg-purple-600 text-white font-bold'
+                      : 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
+                  }`}
+                >
+                  Revisão
+                </button>
+                <button
+                  onClick={() => setCardFilter('mastered')}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    cardFilter === 'mastered'
+                      ? 'bg-emerald-600 text-white font-bold'
+                      : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                  }`}
+                >
+                  Dominados
+                </button>
               </div>
+            </div>
 
-              {/* Sugestões Rápidas */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[10px] uppercase font-bold text-slate-500">Sugestões:</span>
-                {[
-                  'Estequiometria',
-                  'Cinemática & Torricelli',
-                  'Termologia & Calorimetria',
-                  'Crase & Regência',
-                  'Funções & Logaritmos',
-                  'Revolução Francesa',
-                ].map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setAiTopicInput(s)}
-                    className="text-[10px] px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 transition-colors cursor-pointer"
-                  >
-                    + {s}
-                  </button>
+            {/* Listagem de Cartões */}
+            {loadingCards ? (
+              <div className="space-y-3">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="h-20 rounded-xl bg-slate-800/40 animate-pulse border border-slate-800/60" />
                 ))}
               </div>
-
-              {/* Onde salvar os cards */}
-              <div>
-                <label
-                  className={`block text-xs font-black uppercase tracking-wider mb-1.5 ${
-                    isDark ? 'text-slate-300' : 'text-slate-800'
-                  }`}
+            ) : filteredCards.length === 0 ? (
+              <div className={`p-12 text-center rounded-2xl border ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <p className="text-sm font-bold mb-1">Nenhum flashcard encontrado neste filtro</p>
+                <p className="text-xs text-slate-400 mb-4">Adicione um novo cartão ou gere uma bateria de 20 com IA.</p>
+                <button
+                  onClick={handleOpenAddCardModal}
+                  className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white"
                 >
-                  Destino dos Flashcards
-                </label>
-                <select
-                  value={aiTargetDeckId}
-                  onChange={(e) => setAiTargetDeckId(e.target.value)}
-                  className={`w-full text-xs rounded-xl px-3.5 py-2.5 border transition-colors cursor-pointer ${
-                    isDark
-                      ? 'bg-slate-900 border-slate-700 text-slate-200'
-                      : 'bg-white border-slate-300 text-slate-900'
-                  }`}
-                >
-                  <option value="new_deck">✨ Criar um Novo Baralho com o nome do tópico</option>
-                  {decks.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      📁 Adicionar ao baralho: {d.title}
-                    </option>
-                  ))}
-                </select>
+                  Criar Novo Card
+                </button>
               </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredCards.map((card, idx) => (
+                  <div
+                    key={card.id}
+                    className={`p-4 rounded-xl border transition-all ${
+                      isDark ? 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700' : 'bg-white border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-2 flex-1">
+                        <div>
+                          <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 block mb-0.5">
+                            Pergunta #{idx + 1}
+                          </span>
+                          <p className="text-sm font-semibold text-slate-200 whitespace-pre-wrap">{card.front}</p>
+                          {card.frontImage && (
+                            <div className="mt-2 inline-block">
+                              <img
+                                src={card.frontImage}
+                                alt="Pergunta"
+                                onClick={() => setExpandedImage(card.frontImage || null)}
+                                className="h-16 w-auto object-cover rounded-lg border border-slate-700 cursor-pointer hover:opacity-80"
+                              />
+                            </div>
+                          )}
+                        </div>
 
-              {/* Botão de Disparo */}
-              <button
-                type="button"
-                onClick={handleGenerateWithAi}
-                disabled={isAiLoading || !aiTopicInput.trim()}
-                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-600 text-white font-black text-xs uppercase tracking-wider shadow-lg transition-all active:scale-[0.99] disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
-              >
-                {isAiLoading ? (
-                  <>
-                    <RotateCcw className="w-4 h-4 animate-spin text-blue-200" />
-                    <span>Aplicando prompt tático e gerando 20 flashcards (1 linha)...</span>
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-4 h-4" />
-                    <span>Gerar 20 Flashcards Agora</span>
-                  </>
-                )}
-              </button>
+                        <div className="pt-2 border-t border-slate-800/40">
+                          <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-500 block mb-0.5">
+                            Resposta
+                          </span>
+                          <p className="text-sm text-slate-300 whitespace-pre-wrap">{card.back}</p>
+                          {card.backImage && (
+                            <div className="mt-2 inline-block">
+                              <img
+                                src={card.backImage}
+                                alt="Resposta"
+                                onClick={() => setExpandedImage(card.backImage || null)}
+                                className="h-16 w-auto object-cover rounded-lg border border-slate-700 cursor-pointer hover:opacity-80"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
 
-              {/* Preview dos Cards Gerados */}
-              {aiPreviewCards.length > 0 && (
-                <div className="space-y-3 pt-3 border-t border-slate-700/60">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black text-emerald-400">
-                      ✅ {aiPreviewCards.length} Cards Prontos (Linha Única)
-                    </span>
+                      {/* Metadados e Ações */}
+                      <div className="flex flex-col items-end gap-2 shrink-0">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider ${
+                            card.status === 'mastered'
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                              : card.status === 'learning'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              : card.status === 'review'
+                              ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                              : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                          }`}
+                        >
+                          {card.status}
+                        </span>
+
+                        <span className="text-[10px] font-mono text-slate-400">
+                          Próx: {card.nextReviewAt}
+                        </span>
+
+                        <div className="flex items-center gap-1 mt-1">
+                          <button
+                            onClick={(e) => handleOpenEditCardModal(card, e)}
+                            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200"
+                            title="Editar Card"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={(e) => handlePromptDeleteCard(card, e)}
+                            className="p-1 rounded hover:bg-red-500/20 text-slate-400 hover:text-red-400"
+                            title="Excluir Card"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============================================================= */}
+        {/* 🎮 NÍVEL 4: PLAYER DE ESTUDO ANKI (REPETIÇÃO ESPAÇADA SM-2)   */}
+        {/* ============================================================= */}
+        {viewMode === 'study' && (
+          <div className="max-w-3xl mx-auto space-y-6 pt-4">
+            {studySessionFinished ? (
+              <div className={`p-8 text-center rounded-3xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'} space-y-6`}>
+                <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <CheckCircle2 className="w-8 h-8" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold mb-1">Sessão de Revisão Concluída!</h2>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    Você revisou todos os cartões desta rodada. As novas datas de repetição espaçada foram calculadas e registradas.
+                  </p>
+                </div>
+
+                {/* Resumo da Sessão */}
+                <div className="grid grid-cols-4 gap-2 max-w-sm mx-auto font-mono text-xs">
+                  <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400">
+                    <p className="font-bold text-base">{studySessionStats.again}</p>
+                    <p className="text-[10px]">Errei</p>
+                  </div>
+                  <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                    <p className="font-bold text-base">{studySessionStats.hard}</p>
+                    <p className="text-[10px]">Difícil</p>
+                  </div>
+                  <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                    <p className="font-bold text-base">{studySessionStats.good}</p>
+                    <p className="text-[10px]">Bom</p>
+                  </div>
+                  <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                    <p className="font-bold text-base">{studySessionStats.easy}</p>
+                    <p className="text-[10px]">Fácil</p>
+                  </div>
+                </div>
+
+                <div className="flex justify-center gap-3 pt-2">
+                  <button
+                    onClick={handleBackToDecks}
+                    className="px-5 py-2 text-xs font-bold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+                  >
+                    Voltar ao Baralho
+                  </button>
+                  {currentDeck && (
                     <button
-                      type="button"
-                      onClick={handleSaveAiCards}
-                      className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer"
+                      onClick={() => handleStartStudySession(currentDeck)}
+                      className="px-5 py-2 text-xs font-bold rounded-xl bg-red-600 hover:bg-red-700 text-white transition-colors"
                     >
-                      Salvar no Baralho
+                      Estudar Novamente
                     </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              studyQueue[currentCardIndex] && (
+                <div className="space-y-4">
+                  {/* Barra de Progresso e Saída */}
+                  <div className="flex items-center justify-between text-xs font-mono text-slate-400">
+                    <button
+                      onClick={handleBackToDecks}
+                      className="flex items-center gap-1 hover:text-slate-200 transition-colors"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Sair (Esc)</span>
+                    </button>
+                    <span>
+                      Cartão {currentCardIndex + 1} de {studyQueue.length}
+                    </span>
                   </div>
 
-                  <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
-                    {aiPreviewCards.map((c, i) => (
-                      <div
-                        key={i}
-                        className={`p-2.5 rounded-xl border text-xs space-y-1 ${
-                          isDark
-                            ? 'bg-slate-900/90 border-slate-800 text-slate-300'
-                            : 'bg-slate-50 border-slate-200 text-slate-800'
-                        }`}
-                      >
-                        <p className="font-black text-blue-400">
-                          {i + 1}. P: {c.question}
-                        </p>
-                        <p className="font-semibold text-emerald-400">R: {c.answer}</p>
+                  {/* Barra de Progresso Visual */}
+                  <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="bg-red-500 h-full transition-all duration-300"
+                      style={{ width: `${((currentCardIndex + 1) / studyQueue.length) * 100}%` }}
+                    />
+                  </div>
+
+                  {/* Cartão Flashcard Anki */}
+                  <div
+                    className={`p-8 rounded-3xl border min-h-[320px] flex flex-col justify-between transition-all duration-300 shadow-xl ${
+                      isDark
+                        ? 'bg-slate-900/90 border-slate-800 shadow-slate-950/40'
+                        : 'bg-white border-slate-200 shadow-slate-200/50'
+                    }`}
+                  >
+                    {/* FRENTE */}
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-widest text-slate-500">
+                        <span>Frente // Pergunta</span>
+                        <span className="text-slate-600">{currentDeck?.name}</span>
                       </div>
+
+                      <div className="text-lg sm:text-xl font-semibold text-slate-100 whitespace-pre-wrap leading-relaxed">
+                        {studyQueue[currentCardIndex].front}
+                      </div>
+
+                      {studyQueue[currentCardIndex].frontImage && (
+                        <div className="mt-3">
+                          <img
+                            src={studyQueue[currentCardIndex].frontImage!}
+                            alt="Imagem da Pergunta"
+                            onClick={() => setExpandedImage(studyQueue[currentCardIndex].frontImage || null)}
+                            className="max-h-52 rounded-xl border border-slate-700 object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* VERSO REVELADO OU BOTÃO DE MOSTRAR */}
+                    <div className="pt-6 border-t border-slate-800/60 mt-6">
+                      {!isAnswerRevealed ? (
+                        <button
+                          onClick={handleRevealAnswer}
+                          className="w-full py-4 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm tracking-wide transition-all shadow-lg shadow-red-950/30 flex items-center justify-center gap-2"
+                        >
+                          <span>Mostrar Resposta</span>
+                          <kbd className="text-[10px] bg-red-800/60 px-1.5 py-0.5 rounded text-red-200 font-mono">
+                            Espaço
+                          </kbd>
+                        </button>
+                      ) : (
+                        <div className="space-y-6">
+                          <div className="space-y-3">
+                            <span className="text-[11px] font-mono uppercase tracking-widest text-emerald-400 block">
+                              Verso // Resposta
+                            </span>
+                            <div className="text-base sm:text-lg text-slate-200 whitespace-pre-wrap leading-relaxed">
+                              {studyQueue[currentCardIndex].back}
+                            </div>
+                            {studyQueue[currentCardIndex].backImage && (
+                              <div className="mt-3">
+                                <img
+                                  src={studyQueue[currentCardIndex].backImage!}
+                                  alt="Imagem da Resposta"
+                                  onClick={() => setExpandedImage(studyQueue[currentCardIndex].backImage || null)}
+                                  className="max-h-52 rounded-xl border border-slate-700 object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                                />
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 4 Botões Anki SM-2 */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-4">
+                            <button
+                              onClick={() => void handleRateCard(1)}
+                              className="p-3 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 flex flex-col items-center gap-1 transition-all"
+                            >
+                              <span className="text-xs font-bold">Errei</span>
+                              <span className="text-[10px] font-mono opacity-80">&lt; 10m</span>
+                              <kbd className="text-[9px] bg-rose-950/60 px-1.5 py-0.5 rounded mt-0.5">1</kbd>
+                            </button>
+
+                            <button
+                              onClick={() => void handleRateCard(2)}
+                              className="p-3 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-300 flex flex-col items-center gap-1 transition-all"
+                            >
+                              <span className="text-xs font-bold">Difícil</span>
+                              <span className="text-[10px] font-mono opacity-80">1 dia</span>
+                              <kbd className="text-[9px] bg-amber-950/60 px-1.5 py-0.5 rounded mt-0.5">2</kbd>
+                            </button>
+
+                            <button
+                              onClick={() => void handleRateCard(3)}
+                              className="p-3 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 flex flex-col items-center gap-1 transition-all"
+                            >
+                              <span className="text-xs font-bold">Bom</span>
+                              <span className="text-[10px] font-mono opacity-80">3 dias</span>
+                              <kbd className="text-[9px] bg-blue-950/60 px-1.5 py-0.5 rounded mt-0.5">3</kbd>
+                            </button>
+
+                            <button
+                              onClick={() => void handleRateCard(4)}
+                              className="p-3 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 flex flex-col items-center gap-1 transition-all"
+                            >
+                              <span className="text-xs font-bold">Fácil</span>
+                              <span className="text-[10px] font-mono opacity-80">6 dias</span>
+                              <kbd className="text-[9px] bg-emerald-950/60 px-1.5 py-0.5 rounded mt-0.5">4</kbd>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+        )}
+
+        {/* ============================================================= */}
+        {/* 🪟 MODAIS DE CRIAÇÃO, EDIÇÃO E EXCLUSÃO                       */}
+        {/* ============================================================= */}
+
+        {/* Modal Disciplina */}
+        {isSubjectModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+            <div className={`w-full max-w-md p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} space-y-4`}>
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-base">
+                  {editingSubject ? 'Editar Disciplina' : 'Nova Disciplina'}
+                </h3>
+                <button onClick={() => setIsSubjectModalOpen(false)} className="text-slate-400 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveSubject} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
+                    Nome da Disciplina *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Matemática, Física, Português..."
+                    value={subjectFormName}
+                    onChange={(e) => setSubjectFormName(e.target.value)}
+                    className={`w-full p-2.5 rounded-xl border text-sm ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
+                    Descrição (Opcional)
+                  </label>
+                  <textarea
+                    placeholder="Ex: Foco no edital do CFO CBMERJ..."
+                    rows={3}
+                    value={subjectFormDesc}
+                    onChange={(e) => setSubjectFormDesc(e.target.value)}
+                    className={`w-full p-2.5 rounded-xl border text-sm resize-none ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                    Identidade Visual // Cor
+                  </label>
+                  <div className="flex gap-2">
+                    {PALETTE_COLORS.map((c) => (
+                      <button
+                        key={c.value}
+                        type="button"
+                        onClick={() => setSubjectFormColor(c.value)}
+                        className={`w-8 h-8 rounded-full border-2 transition-all ${
+                          subjectFormColor === c.value ? 'scale-110 border-white' : 'border-transparent opacity-70 hover:opacity-100'
+                        }`}
+                        style={{
+                          backgroundColor:
+                            c.value === 'red' ? '#ef4444' :
+                            c.value === 'blue' ? '#3b82f6' :
+                            c.value === 'emerald' ? '#10b981' :
+                            c.value === 'amber' ? '#f59e0b' :
+                            c.value === 'indigo' ? '#6366f1' : '#06b6d4'
+                        }}
+                      />
                     ))}
                   </div>
                 </div>
-              )}
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsSubjectModalOpen(false)}
+                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    {editingSubject ? 'Salvar Alterações' : 'Criar Disciplina'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ========================================================================= */}
-      {/* 📁 MODAL: CRIAR BARALHO MANUAL */}
-      {/* ========================================================================= */}
-      {isCreateDeckModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div
-            className={`w-full max-w-md rounded-3xl border p-6 space-y-4 shadow-2xl ${
-              isDark ? 'bg-[#0B1528] border-slate-800' : 'bg-white border-slate-300'
-            }`}
-          >
-            <div className="flex items-center justify-between border-b pb-3 border-slate-700/60">
-              <h3
-                className={`text-sm font-black uppercase tracking-tight ${
-                  isDark ? 'text-white' : 'text-slate-950'
-                }`}
-              >
-                Novo Baralho
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsCreateDeckModalOpen(false)}
-                className="text-slate-400 hover:text-white cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateDeck} className="space-y-3">
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                  Nome do Baralho
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ex: Física // Eletrodinâmica"
-                  value={newDeckTitle}
-                  onChange={(e) => setNewDeckTitle(e.target.value)}
-                  className={`w-full text-xs rounded-xl px-3 py-2.5 border ${
-                    isDark
-                      ? 'bg-slate-900 border-slate-700 text-white'
-                      : 'bg-white border-slate-300 text-slate-900'
-                  }`}
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                  Matéria / Disciplina
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ex: Física, Química, Português..."
-                  value={newDeckSubject}
-                  onChange={(e) => setNewDeckSubject(e.target.value)}
-                  className={`w-full text-xs rounded-xl px-3 py-2.5 border ${
-                    isDark
-                      ? 'bg-slate-900 border-slate-700 text-white'
-                      : 'bg-white border-slate-300 text-slate-900'
-                  }`}
-                />
-              </div>
-
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-wider cursor-pointer"
-                >
-                  Criar Baralho
+        {/* Modal Baralho */}
+        {isDeckModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+            <div className={`w-full max-w-md p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} space-y-4`}>
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-base">
+                  {editingDeck ? 'Editar Baralho' : 'Novo Baralho / Tópico'}
+                </h3>
+                <button onClick={() => setIsDeckModalOpen(false)} className="text-slate-400 hover:text-white">
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
 
-      {/* ========================================================================= */}
-      {/* ➕ MODAL: ADICIONAR / EDITAR CARD MANUAL (COM FOTOS E MÚLTIPLAS LINHAS) */}
-      {/* ========================================================================= */}
-      {isCardModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
-          <div
-            className={`w-full max-w-xl rounded-3xl border p-6 space-y-5 shadow-2xl animate-in zoom-in-95 duration-200 ${
-              isDark ? 'bg-[#0B1528] border-slate-800' : 'bg-white border-slate-300'
-            }`}
-          >
-            <div className="flex items-center justify-between border-b pb-3 border-slate-700/60">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-red-600/20 text-red-400 border border-red-500/30">
-                  <Edit3 className="w-4 h-4" />
-                </div>
-                <h3
-                  className={`text-sm font-black uppercase tracking-tight ${
-                    isDark ? 'text-white' : 'text-slate-950'
-                  }`}
-                >
-                  {editingCardId ? 'Editar Flashcard' : 'Novo Flashcard (Texto & Foto)'}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsCardModalOpen(false)}
-                className="text-slate-400 hover:text-white cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveManualCard} className="space-y-4">
-              {/* BLOCO DA PERGUNTA */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-black uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
-                    <span>1. Pergunta (P:)</span>
-                    <span className="text-[10px] text-slate-500 font-normal">
-                      (várias linhas permitidas)
-                    </span>
+              <form onSubmit={handleSaveDeck} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
+                    Disciplina Pertencente *
                   </label>
+                  <select
+                    value={deckFormSubjectId}
+                    onChange={(e) => setDeckFormSubjectId(e.target.value)}
+                    className={`w-full p-2.5 rounded-xl border text-sm ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
+                  >
+                    {subjects.map((sub) => (
+                      <option key={sub.id} value={sub.id}>
+                        {sub.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="file"
-                      ref={questionFileInputRef}
-                      onChange={(e) => handleFileInputChange(e, 'question')}
-                      accept="image/*"
-                      className="hidden"
-                    />
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
+                    Nome do Baralho // Tópico *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Logaritmos, Citologia, Lei de Lavoisier..."
+                    value={deckFormName}
+                    onChange={(e) => setDeckFormName(e.target.value)}
+                    className={`w-full p-2.5 rounded-xl border text-sm ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
+                    Descrição (Opcional)
+                  </label>
+                  <textarea
+                    placeholder="Ex: Conceitos mais cobrados em prova..."
+                    rows={3}
+                    value={deckFormDesc}
+                    onChange={(e) => setDeckFormDesc(e.target.value)}
+                    className={`w-full p-2.5 rounded-xl border text-sm resize-none ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsDeckModalOpen(false)}
+                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    {editingDeck ? 'Salvar Baralho' : 'Criar Baralho'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Flashcard (Frente / Verso / Fotos) */}
+        {isCardModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+            <div className={`w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} space-y-4`}>
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-base">
+                  {editingCard ? 'Editar Flashcard' : 'Novo Flashcard'}
+                </h3>
+                <button onClick={() => setIsCardModalOpen(false)} className="text-slate-400 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveCard} className="space-y-4">
+                {/* Frente */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-mono uppercase tracking-wider text-slate-400">
+                      Frente (Pergunta)
+                    </label>
                     <button
                       type="button"
                       onClick={() => questionFileInputRef.current?.click()}
-                      className="text-[11px] px-2.5 py-1 rounded-lg bg-blue-950/80 hover:bg-blue-900 border border-blue-700 text-blue-300 font-bold flex items-center gap-1 cursor-pointer"
+                      className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"
                     >
-                      <ImageIcon className="w-3 h-3" />
+                      <ImageIcon className="w-3.5 h-3.5" />
                       <span>Anexar Foto</span>
                     </button>
                   </div>
-                </div>
-
-                <div
-                  onPaste={(e) => handlePasteImage(e, 'question')}
-                  className="relative"
-                >
                   <textarea
                     rows={3}
-                    placeholder="Digite sua pergunta ou cole um print com Ctrl+V aqui dentro..."
-                    value={manualQuestion}
-                    onChange={(e) => setManualQuestion(e.target.value)}
-                    className={`w-full text-xs rounded-xl p-3 border leading-relaxed transition-colors ${
-                      isDark
-                        ? 'bg-slate-900 border-slate-700 text-white placeholder:text-slate-600 focus:border-blue-500'
-                        : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-blue-600'
-                    }`}
+                    placeholder="Escreva a pergunta ou cole uma foto diretamente (Ctrl+V)..."
+                    value={cardFormFront}
+                    onChange={(e) => setCardFormFront(e.target.value)}
+                    onPaste={(e) => handlePasteImage(e, 'front')}
+                    className={`w-full p-2.5 rounded-xl border text-sm resize-none ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
                   />
-                  <span className="absolute right-3 bottom-2 text-[10px] text-slate-500 pointer-events-none">
-                    Suporta Ctrl+V para colar imagem
-                  </span>
+                  <input
+                    ref={questionFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void processImageFile(file, 'front');
+                      e.target.value = '';
+                    }}
+                  />
+                  {cardFormFrontImage && (
+                    <div className="relative inline-block mt-2">
+                      <img
+                        src={cardFormFrontImage}
+                        alt="Preview Frente"
+                        className="h-20 rounded-lg border border-slate-700 object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setCardFormFrontImage(null)}
+                        className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white text-xs"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                {/* Preview da Imagem da Pergunta */}
-                {manualQuestionImage && (
-                  <div className="relative inline-block rounded-xl border border-blue-500/40 p-1 bg-black/40">
-                    <img
-                      src={manualQuestionImage}
-                      alt="Preview Pergunta"
-                      className="max-h-36 rounded-lg object-contain"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setManualQuestionImage(null)}
-                      className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white shadow-md hover:bg-red-500 cursor-pointer"
-                      title="Remover foto"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* BLOCO DA RESPOSTA */}
-              <div className="space-y-2 pt-2 border-t border-slate-700/40">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-                    <span>2. Resposta (R:)</span>
-                    <span className="text-[10px] text-slate-500 font-normal">
-                      (várias linhas permitidas)
-                    </span>
-                  </label>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="file"
-                      ref={answerFileInputRef}
-                      onChange={(e) => handleFileInputChange(e, 'answer')}
-                      accept="image/*"
-                      className="hidden"
-                    />
+                {/* Verso */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-mono uppercase tracking-wider text-slate-400">
+                      Verso (Resposta)
+                    </label>
                     <button
                       type="button"
                       onClick={() => answerFileInputRef.current?.click()}
-                      className="text-[11px] px-2.5 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 font-bold flex items-center gap-1 cursor-pointer"
+                      className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"
                     >
-                      <ImageIcon className="w-3 h-3" />
+                      <ImageIcon className="w-3.5 h-3.5" />
                       <span>Anexar Foto</span>
                     </button>
                   </div>
-                </div>
-
-                <div
-                  onPaste={(e) => handlePasteImage(e, 'answer')}
-                  className="relative"
-                >
                   <textarea
-                    rows={4}
-                    placeholder="Digite a resposta com quantas linhas precisar, bizus, fórmulas ou cole um print da resolução com Ctrl+V..."
-                    value={manualAnswer}
-                    onChange={(e) => setManualAnswer(e.target.value)}
-                    className={`w-full text-xs rounded-xl p-3 border leading-relaxed transition-colors ${
-                      isDark
-                        ? 'bg-slate-900 border-slate-700 text-white placeholder:text-slate-600 focus:border-emerald-500'
-                        : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-emerald-600'
-                    }`}
+                    rows={3}
+                    placeholder="Escreva a resposta ou cole uma foto diretamente (Ctrl+V)..."
+                    value={cardFormBack}
+                    onChange={(e) => setCardFormBack(e.target.value)}
+                    onPaste={(e) => handlePasteImage(e, 'back')}
+                    className={`w-full p-2.5 rounded-xl border text-sm resize-none ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
                   />
-                  <span className="absolute right-3 bottom-2 text-[10px] text-slate-500 pointer-events-none">
-                    Suporta Ctrl+V para colar imagem
-                  </span>
+                  <input
+                    ref={answerFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void processImageFile(file, 'back');
+                      e.target.value = '';
+                    }}
+                  />
+                  {cardFormBackImage && (
+                    <div className="relative inline-block mt-2">
+                      <img
+                        src={cardFormBackImage}
+                        alt="Preview Verso"
+                        className="h-20 rounded-lg border border-slate-700 object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setCardFormBackImage(null)}
+                        className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white text-xs"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                {/* Preview da Imagem da Resposta */}
-                {manualAnswerImage && (
-                  <div className="relative inline-block rounded-xl border border-emerald-500/40 p-1 bg-black/40">
-                    <img
-                      src={manualAnswerImage}
-                      alt="Preview Resposta"
-                      className="max-h-36 rounded-lg object-contain"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setManualAnswerImage(null)}
-                      className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white shadow-md hover:bg-red-500 cursor-pointer"
-                      title="Remover foto"
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsCardModalOpen(false)}
+                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    {editingCard ? 'Salvar Alterações' : 'Adicionar ao Baralho'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de Exclusão com Confirmação e Aviso em Cascata */}
+        {deleteModal && (
+          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+            <div className={`w-full max-w-md p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-red-500/40' : 'bg-white border-red-300'} space-y-4 shadow-2xl`}>
+              <div className="flex items-center gap-3 text-red-500">
+                <AlertCircle className="w-6 h-6 shrink-0" />
+                <h3 className="font-bold text-base text-slate-100">
+                  Excluir &quot;{deleteModal.title}&quot;?
+                </h3>
+              </div>
+
+              <div className="text-xs text-slate-300 space-y-2">
+                {deleteModal.type === 'subject' && (
+                  <p className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 font-mono leading-relaxed">
+                    <strong>{deleteModal.deckCount || 0} baralhos</strong> e <strong>{deleteModal.cardCount || 0} flashcards</strong> serão permanentemente removidos.
+                  </p>
+                )}
+                {deleteModal.type === 'deck' && (
+                  <p className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 font-mono leading-relaxed">
+                    <strong>{deleteModal.cardCount || 0} flashcards</strong> contidos neste baralho serão permanentemente removidos.
+                  </p>
+                )}
+                {deleteModal.type === 'card' && (
+                  <p className="text-slate-400">
+                    Este flashcard e seu histórico de revisões serão removidos do baralho.
+                  </p>
+                )}
+                <p className="text-slate-400 text-[11px]">
+                  Esta ação é irreversível e não poderá ser desfeita.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setDeleteModal(null)}
+                  className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmDelete}
+                  className="px-4 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white"
+                >
+                  Excluir Definitivamente
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Gerador de Flashcards com IA */}
+        {isAiModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+            <div className={`w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} space-y-4`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-amber-400" />
+                  <h3 className="font-bold text-base">Gerador Tático de 20 Flashcards IA</h3>
+                </div>
+                <button onClick={() => setIsAiModalOpen(false)} className="text-slate-400 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
+                    Matéria ou Tópico de Estudo
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Leis Ponderais, Torricelli, Regência Verbal..."
+                    value={aiTopicInput}
+                    onChange={(e) => setAiTopicInput(e.target.value)}
+                    className={`w-full p-2.5 rounded-xl border text-sm ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
+                      Disciplina de Destino
+                    </label>
+                    <select
+                      value={aiTargetSubjectId}
+                      onChange={(e) => {
+                        setAiTargetSubjectId(e.target.value);
+                        void fetchDecksForSubject(e.target.value);
+                      }}
+                      className={`w-full p-2.5 rounded-xl border text-sm ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
                     >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
+                      {subjects.map((sub) => (
+                        <option key={sub.id} value={sub.id}>
+                          {sub.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
+                      Baralho de Destino
+                    </label>
+                    <select
+                      value={aiTargetDeckId}
+                      onChange={(e) => setAiTargetDeckId(e.target.value)}
+                      className={`w-full p-2.5 rounded-xl border text-sm ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
+                    >
+                      <option value="new_deck">+ Criar Novo Baralho com Este Tema</option>
+                      {decks.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {aiTargetDeckId === 'new_deck' && (
+                  <div>
+                    <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
+                      Título do Novo Baralho
+                    </label>
+                    <input
+                      type="text"
+                      placeholder={aiTopicInput.trim() || 'Nome do Baralho'}
+                      value={aiNewDeckTitle}
+                      onChange={(e) => setAiNewDeckTitle(e.target.value)}
+                      className={`w-full p-2.5 rounded-xl border text-sm ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
+                    />
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  disabled={isAiLoading}
+                  onClick={handleGenerateWithAi}
+                  className="w-full py-2.5 text-xs font-bold rounded-xl bg-gradient-to-r from-red-600 via-red-700 to-amber-600 hover:opacity-95 text-white transition-opacity flex items-center justify-center gap-2"
+                >
+                  {isAiLoading ? (
+                    <>
+                      <Sparkles className="w-4 h-4 animate-spin" />
+                      <span>Gerando 20 Flashcards Bate-Pronto...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>Gerar Bateria com IA Agora</span>
+                    </>
+                  )}
+                </button>
+
+                {aiPreviewCards.length > 0 && (
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-mono uppercase tracking-wider text-emerald-400">
+                        {aiPreviewCards.length} cards gerados com sucesso
+                      </span>
+                    </div>
+
+                    <div className="max-h-60 overflow-y-auto space-y-2 p-2 rounded-xl bg-slate-800/40 border border-slate-700/60">
+                      {aiPreviewCards.map((c, i) => (
+                        <div key={i} className="p-2.5 rounded-lg bg-slate-900/80 text-xs space-y-1">
+                          <p className="font-bold text-slate-200">P: {c.question}</p>
+                          <p className="text-emerald-400 font-mono">R: {c.answer}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsAiModalOpen(false)}
+                        className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300"
+                      >
+                        Descartar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveAiCards}
+                        className="px-4 py-2 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
+                      >
+                        Salvar Todos no Baralho
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
-
-              <div className="pt-3">
-                <button
-                  type="submit"
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-red-700 via-red-800 to-red-900 hover:from-red-600 hover:to-red-800 text-white font-black text-xs uppercase tracking-wider shadow-xl transition-all active:scale-[0.99] cursor-pointer flex items-center justify-center gap-2"
-                >
-                  <CheckCircle2 className="w-4 h-4 text-red-200" />
-                  <span>{editingCardId ? 'Atualizar Flashcard' : 'Salvar no Baralho'}</span>
-                </button>
-              </div>
-            </form>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ========================================================================= */}
-      {/* 🔍 LIGHTBOX PARA VISUALIZAR FOTO EM TELA CHEIA */}
-      {/* ========================================================================= */}
-      {expandedImage && (
-        <div
-          onClick={() => setExpandedImage(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 cursor-zoom-out"
-        >
-          <div className="relative max-w-4xl max-h-[90vh] flex flex-col items-center">
-            <button
-              type="button"
-              onClick={() => setExpandedImage(null)}
-              className="absolute -top-10 right-0 text-white hover:text-red-400 p-2 text-sm flex items-center gap-1 font-bold cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-              <span>Fechar</span>
-            </button>
-            <img
-              src={expandedImage}
-              alt="Imagem Expandida"
-              className="max-w-full max-h-[85vh] rounded-2xl border border-slate-700 object-contain shadow-2xl"
-            />
+        {/* Modal de Foto Expandida em Tela Cheia */}
+        {expandedImage && (
+          <div
+            className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 cursor-pointer"
+            onClick={() => setExpandedImage(null)}
+          >
+            <div className="relative max-w-4xl max-h-[90vh]">
+              <img
+                src={expandedImage}
+                alt="Expandida"
+                className="max-h-[85vh] max-w-full object-contain rounded-xl border border-slate-700"
+              />
+              <button
+                onClick={() => setExpandedImage(null)}
+                className="absolute top-2 right-2 p-2 rounded-full bg-black/60 text-white hover:bg-black"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+      </div>
     </div>
   );
 };

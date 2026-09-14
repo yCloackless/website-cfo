@@ -1048,6 +1048,86 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_deception_events_risk_score ON security_deception_events(risk_score);
     `,
   },
+  {
+    id: 29,
+    name: '029_anki_flashcards_system',
+    sql: `
+      -- 1. FLASHCARD_SUBJECTS (Disciplinas de Flashcards por Usuário)
+      CREATE TABLE IF NOT EXISTS flashcard_subjects (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        icon TEXT,
+        color TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_flashcard_subjects_user ON flashcard_subjects(user_id);
+      CREATE INDEX IF NOT EXISTS idx_flashcard_subjects_name ON flashcard_subjects(user_id, name);
+
+      -- 2. FLASHCARD_DECKS (Baralhos / Tópicos por Disciplina)
+      CREATE TABLE IF NOT EXISTS flashcard_decks (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        subject_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (subject_id) REFERENCES flashcard_subjects(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_flashcard_decks_user_subject ON flashcard_decks(user_id, subject_id);
+      CREATE INDEX IF NOT EXISTS idx_flashcard_decks_user ON flashcard_decks(user_id);
+
+      -- 3. FLASHCARDS (Cartões com Repetição Espaçada SM-2)
+      CREATE TABLE IF NOT EXISTS flashcards (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        subject_id TEXT NOT NULL,
+        deck_id TEXT NOT NULL,
+        front TEXT NOT NULL,
+        back TEXT NOT NULL,
+        front_image TEXT,
+        back_image TEXT,
+        last_reviewed_at TEXT,
+        next_review_at TEXT NOT NULL,
+        interval_days INTEGER NOT NULL DEFAULT 0,
+        ease_factor REAL NOT NULL DEFAULT 2.5,
+        review_count INTEGER NOT NULL DEFAULT 0,
+        lapses INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'learning', 'review', 'mastered')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (subject_id) REFERENCES flashcard_subjects(id) ON DELETE CASCADE,
+        FOREIGN KEY (deck_id) REFERENCES flashcard_decks(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_flashcards_user_deck ON flashcards(user_id, deck_id);
+      CREATE INDEX IF NOT EXISTS idx_flashcards_user_subject ON flashcards(user_id, subject_id);
+      CREATE INDEX IF NOT EXISTS idx_flashcards_user_review ON flashcards(user_id, next_review_at);
+      CREATE INDEX IF NOT EXISTS idx_flashcards_user_status ON flashcards(user_id, status);
+
+      -- 4. FLASHCARD_REVIEWS (Histórico Imutável de Revisões)
+      CREATE TABLE IF NOT EXISTS flashcard_reviews (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        flashcard_id TEXT NOT NULL,
+        rating INTEGER NOT NULL CHECK (rating IN (1, 2, 3, 4)),
+        reviewed_at TEXT NOT NULL,
+        previous_interval INTEGER NOT NULL,
+        new_interval INTEGER NOT NULL,
+        previous_ease_factor REAL NOT NULL,
+        new_ease_factor REAL NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (flashcard_id) REFERENCES flashcards(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_flashcard_reviews_user_card ON flashcard_reviews(user_id, flashcard_id);
+      CREATE INDEX IF NOT EXISTS idx_flashcard_reviews_user_date ON flashcard_reviews(user_id, reviewed_at);
+    `,
+  },
 ];
 
 
