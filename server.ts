@@ -4897,12 +4897,13 @@ IDENTIFIQUE E CONFIRME a Matéria principal exata a qual este assunto pertence n
 INSTRUÇÃO CRÍTICA 2 - FÓRMULAS E BIZUS MAIS IMPORTANTES DE PROVAS MILITARES:
 Se o aluno forneceu um tópico genérico ou amplo (ex: 'Circuito Elétrico'), selecione e sintetize APENAS AS FÓRMULAS, LEIS E DICAS MAIS IMPORTANTES E MAIS RECORRENTES NAS PROVAS MILITARES (ex: $V = R \\cdot i$, $P = V \\cdot i$, $P = R \\cdot i^2$, Associação Série/Paralelo $R_{eq}$, Leis de Kirchhoff). Se o aluno pediu algo mais específico, aborde o especificou mais os pontos fundamentais de prova.
 
-IMPORTANTE SOBRE NOTAÇÃO MATEMÁTICA / FÍSICA:
+IMPORTANTE SOBRE NOTAÇÃO MATEMÁTICA / FÍSICA E DESTAQUES:
 SEMPRE utilize notação LaTeX com delimitadores $...$ (em linha) ou $$...$$ (em bloco) para quaisquer fórmulas matemáticas, físicas, químicas ou de escalas (ex: $E = \\frac{d}{D}$, $Q = m \\cdot c \\cdot \\Delta T$, $v^2 = v_0^2 + 2a\\Delta s$, etc.).
+Para palavras em negrito no texto normal, use a sintaxe markdown **destaque** (não use comandos LaTeX como \\textbf fora de delimitadores matemáticos).
 
 INSTRUÇÃO CRÍTICA DE SEPARAÇÃO EM TÓPICOS NO CAMPO "notes":
 O texto do campo "notes" NÃO PODE DE FORMA ALGUMA FICAR AMONTOADO EM UM PARÁGRAFO CORRIDO.
-DEVE FICAR RIGOROSAMENTE SEPARADO EM TÓPICOS COM UMA LINHA EM BRANCO (duplo \\n\\n) ENTRE CADA UM DELES, exatamente neste formato:
+DEVE FICAR RIGOROSAMENTE SEPARADO EM TÓPICOS COM UMA LINHA EM BRANCO (duplo \n\n) ENTRE CADA UM DELES, exatamente neste formato:
 
 Tópico 1 - Conceito Essencial & Fundamentos
 • Definição clara, formal e didática do assunto.
@@ -4923,11 +4924,12 @@ Tópico 5 - Método de Prova & Resolução Rápida
 
 Estruture a resposta JSON contendo:
 1. "detectedSubject": Nome da matéria identificada pela IA (ex: "Física", "Matemática", "Química", "Geografia", "História", "Língua Portuguesa", "Biologia").
-2. "refinedTitle": Título elegante, profissional e direto para o Bizu (ex: "Física: Circuitos Elétricos, Leis de Ohm e Potência").
-3. "category": Categoria ou eixo temático refinado (ex: "Eletrodinâmica & Circuitos", "Geopolítica & Cartografia", "Mecânica Clássica", etc.).
-4. "notes": Texto com os tópicos OBRIGATORIAMENTE separados por linhas em branco conforme o modelo acima.
-5. "keyPoints": Array com 4 a 6 tópicos estratégicos ultra-sintéticos (bullets diretos com fórmulas em $...$).
-6. "tags": Array com 4 a 6 tags/palavras-chave estratégicas para filtragem no Bizuário.`;
+2. "refinedTitle": Título elegante, profissional e direto para o Conteúdo/Bizu (ex: "Pigmentos vegetais e cores das folhas", "Física: Leis de Ohm e Potência").
+3. "statement": Enunciado contextualizado ou contexto de questão clássica do concurso CFO CBMERJ sobre esse tópico (opcional, 1 a 3 frases sintetizando como a banca cobra o assunto em prova).
+4. "category": Categoria ou eixo temático refinado (ex: "Eletrodinâmica & Circuitos", "Geopolítica & Cartografia", "Mecânica Clássica", etc.).
+5. "notes": Texto com os tópicos OBRIGATORIAMENTE separados por linhas em branco conforme o modelo acima.
+6. "keyPoints": Array com 4 a 6 tópicos estratégicos ultra-sintéticos (bullets diretos com fórmulas em $...$).
+7. "tags": Array com 4 a 6 tags/palavras-chave estratégicas para filtragem no Bizuário.`;
 
       const candidateModels = [
         "gemini-2.5-flash",
@@ -4949,6 +4951,7 @@ Estruture a resposta JSON contendo:
                 properties: {
                   detectedSubject: { type: Type.STRING },
                   refinedTitle: { type: Type.STRING },
+                  statement: { type: Type.STRING },
                   category: { type: Type.STRING },
                   notes: { type: Type.STRING },
                   keyPoints: {
@@ -7063,6 +7066,14 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // 🛑 Camada de Decepção Defensiva (Honeypot, Canários e Rotas Decoy)
 app.use(honeypotRouter);
+
+// 🛑 Fallback 404 Seguro para rotas /api inexistentes (evita vazamento de stacktrace ou shell HTML)
+app.all(["/api", "/api/*"], (_req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  return res.status(404).json({ error: "Not Found" });
+});
 
 // Middleware Centralizado de Tratamento de Erros (Evita vazamento de stacktrace)
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

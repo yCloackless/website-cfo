@@ -27,6 +27,8 @@ import {
   ArrowLeft,
   Eye,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { BizuItem, Subject, AppTheme } from '../types';
 import { addBizuItem, updateBizuItem, deleteBizuItem, saveBizuItems } from '../utils/bizuarioStorage';
@@ -124,6 +126,8 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
   const [selectedSubjectFilter, setSelectedSubjectFilter] = useState<string>('all');
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [expandedBizuIds, setExpandedBizuIds] = useState<Set<string>>(() => new Set());
+  // Active photo index for each card gallery (bizuId -> active photo index)
+  const [activeCardImageIndex, setActiveCardImageIndex] = useState<Record<string, number>>({});
 
   const toggleBizuExpansion = (bizuId: string) => {
     setExpandedBizuIds((current) => {
@@ -146,6 +150,8 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
     url: string;
     title: string;
     subject: string;
+    images?: string[];
+    currentIndex?: number;
   } | null>(null);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
 
@@ -156,7 +162,10 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
   const [formTitle, setFormTitle] = useState('');
   const [formSubject, setFormSubject] = useState('');
   const [formCategory, setFormCategory] = useState('');
+  const [formStatement, setFormStatement] = useState('');
   const [formImageUrl, setFormImageUrl] = useState('');
+  const [formImageUrls, setFormImageUrls] = useState<string[]>([]);
+  const [formImageUrlInput, setFormImageUrlInput] = useState('');
   const [formNotes, setFormNotes] = useState('');
   const [formNotesMode, setFormNotesMode] = useState<'plain' | 'ai'>('plain');
   const [formKeyPointInput, setFormKeyPointInput] = useState('');
@@ -299,6 +308,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         title: generatedTitle,
         subjectName: detectedSubj,
         category: generatedCategory,
+        statement: aiData.statement ? String(aiData.statement).trim() : undefined,
         notes: String(aiData.notes).trim(),
         notesMode: 'ai',
         keyPoints: generatedKeyPoints,
@@ -366,6 +376,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
             ? 'Física & Fenômenos'
             : 'Edital CFO CBMERJ')
       );
+      setFormStatement(aiData.statement ? String(aiData.statement).trim() : '');
       setFormNotes(String(aiData.notes).trim());
       setFormNotesMode('ai');
       setFormKeyPoints(Array.isArray(aiData.keyPoints) ? aiData.keyPoints : []);
@@ -390,7 +401,10 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
       setFormTitle(presetTopicToCreate.title);
       setFormSubject(presetTopicToCreate.subject);
       setFormCategory('Edital CFO CBMERJ');
+      setFormStatement('');
       setFormImageUrl('');
+      setFormImageUrls([]);
+      setFormImageUrlInput('');
       setFormNotes('');
       setFormNotesMode('plain');
       setFormKeyPoints([]);
@@ -459,8 +473,11 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
     setDirectTopicContent(initialTopic || '');
     setFormTitle(initialTopic || '');
     setFormSubject(chosenSubject);
-    setFormCategory('Geopolítica');
+    setFormCategory('Edital CFO CBMERJ');
+    setFormStatement('');
     setFormImageUrl('');
+    setFormImageUrls([]);
+    setFormImageUrlInput('');
     setFormNotes('');
     setFormNotesMode('plain');
     setFormKeyPoints([]);
@@ -477,7 +494,15 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
     setFormTitle(bizu.title);
     setFormSubject(bizu.subjectName);
     setFormCategory(bizu.category || '');
-    setFormImageUrl(bizu.imageUrl || '');
+    setFormStatement(bizu.statement || '');
+    const imgs = (bizu.imageUrls && bizu.imageUrls.length > 0)
+      ? bizu.imageUrls
+      : bizu.imageUrl
+      ? [bizu.imageUrl]
+      : [];
+    setFormImageUrls(imgs);
+    setFormImageUrl(imgs[0] || '');
+    setFormImageUrlInput('');
     setFormNotes(bizu.notes || '');
     setFormNotesMode(bizu.notesMode || 'plain');
     setFormKeyPoints(bizu.keyPoints ? [...bizu.keyPoints] : []);
@@ -489,56 +514,97 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
 
   // Handle Image File Selection & Conversion with automatic high-performance compression
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, forQuickBizuId?: string) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const rawFiles: File[] = e.target.files ? Array.from(e.target.files) : [];
+    if (!rawFiles.length) return;
 
-    // Soft notice if file is unusually large
-    if (file.size > 15 * 1024 * 1024) {
-      showToast('A imagem selecionada é muito pesada (máximo 15MB recomendado).', 'error');
+    if (forQuickBizuId) {
+      // Quick add to existing card
+      const targetBizu = bizuItems.find((b) => b.id === forQuickBizuId);
+      if (!targetBizu) return;
+      const existingImgs = (targetBizu.imageUrls && targetBizu.imageUrls.length > 0)
+        ? targetBizu.imageUrls
+        : targetBizu.imageUrl
+        ? [targetBizu.imageUrl]
+        : [];
+      if (existingImgs.length >= 5) {
+        showToast('Limite máximo de 5 fotos por tópico já atingido.', 'info');
+        return;
+      }
+      const slots = 5 - existingImgs.length;
+      const filesToProcess = rawFiles.slice(0, slots);
+      setIsUploadingImage(true);
+      try {
+        const compressedList = await Promise.all(
+          filesToProcess.map((file: File) => compressImageFile(file, 1280, 0.82))
+        );
+        const updatedList = [...existingImgs, ...compressedList].slice(0, 5);
+        updateBizuItem(forQuickBizuId, {
+          imageUrl: updatedList[0],
+          imageUrls: updatedList,
+        });
+        onRefreshBizuItems();
+        showToast(`✨ ${compressedList.length} foto(s) salva(s) no Bizu!`, 'success');
+      } catch (err) {
+        showToast('Erro ao processar imagem selecionada.', 'error');
+      } finally {
+        setIsUploadingImage(false);
+        e.target.value = '';
+        setQuickTargetBizuId(null);
+      }
       return;
     }
 
+    // In modal form
+    if (formImageUrls.length >= 5) {
+      showToast('Limite máximo de 5 fotos por tópico atingido.', 'info');
+      return;
+    }
+    const slots = 5 - formImageUrls.length;
+    const filesToProcess = rawFiles.slice(0, slots);
     setIsUploadingImage(true);
     try {
-      // Compress to optimal study diagram/photo dimensions and format (~80-140KB)
-      const compressedBase64 = await compressImageFile(file, 1280, 0.82);
-
-      if (forQuickBizuId) {
-        // Direct update on card
-        updateBizuItem(forQuickBizuId, { imageUrl: compressedBase64 });
-        onRefreshBizuItems();
-        showToast('Foto do Bizu otimizada e salva com sucesso!', 'success');
-      } else {
-        // In form
-        setFormImageUrl(compressedBase64);
-        showToast('Foto otimizada e pronta para salvar!', 'success');
+      const compressedList = await Promise.all(
+        filesToProcess.map((file: File) => compressImageFile(file, 1280, 0.82))
+      );
+      setFormImageUrls((prev) => [...prev, ...compressedList].slice(0, 5));
+      if (!formImageUrl && compressedList[0]) {
+        setFormImageUrl(compressedList[0]);
       }
+      showToast(`📸 ${compressedList.length} foto(s) adicionada(s)!`, 'success');
     } catch (err) {
-      console.warn('Falha na compressão da imagem:', err);
-      showToast('Erro ao processar imagem selecionada.', 'error');
+      showToast('Erro ao processar imagens selecionadas.', 'error');
     } finally {
       setIsUploadingImage(false);
-      // Reset input value so same file can be selected again if needed
       e.target.value = '';
     }
   };
 
   // Permite colar um print/imagem diretamente no formulário com Ctrl+V.
   const handlePasteImage = async (e: React.ClipboardEvent<HTMLFormElement>) => {
-    const file = Array.from(e.clipboardData.files as FileList) as File[];
-    const imageFile = file.find((candidate) => candidate.type.startsWith('image/'));
-    if (!imageFile) return;
+    const fileList: File[] = e.clipboardData.files ? Array.from(e.clipboardData.files) : [];
+    const imageFiles = fileList.filter((candidate) => candidate.type.startsWith('image/'));
+    if (!imageFiles.length) return;
     e.preventDefault();
-    if (imageFile.size > 15 * 1024 * 1024) {
-      showToast('A imagem colada é muito pesada (máximo 15MB recomendado).', 'error');
+
+    if (formImageUrls.length >= 5) {
+      showToast('Limite máximo de 5 fotos por tópico atingido.', 'info');
       return;
     }
+
+    const slots = 5 - formImageUrls.length;
+    const filesToProcess = imageFiles.slice(0, slots);
     setIsUploadingImage(true);
     try {
-      setFormImageUrl(await compressImageFile(imageFile, 1280, 0.82));
-      showToast('Imagem colada e pronta para salvar!', 'success');
+      const compressedList = await Promise.all(
+        filesToProcess.map((img: File) => compressImageFile(img, 1280, 0.82))
+      );
+      setFormImageUrls((prev) => [...prev, ...compressedList].slice(0, 5));
+      if (!formImageUrl && compressedList[0]) {
+        setFormImageUrl(compressedList[0]);
+      }
+      showToast(`📸 Imagem colada com sucesso!`, 'success');
     } catch {
-      showToast('Erro ao processar a imagem colada.', 'error');
+      showToast('Erro ao processar imagem colada.', 'error');
     } finally {
       setIsUploadingImage(false);
     }
@@ -562,7 +628,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
   const handleSaveBizu = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim()) {
-      showToast('Por favor, informe o título do Bizu.', 'error');
+      showToast('Por favor, informe o conteúdo / título do Bizu.', 'error');
       return;
     }
     if (!formSubject.trim()) {
@@ -570,23 +636,33 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
       return;
     }
 
-    let processedImageUrl = formImageUrl.trim() || undefined;
-    if (processedImageUrl && processedImageUrl.startsWith('data:image/') && processedImageUrl.length > 150000) {
-      try {
-        processedImageUrl = await compressBase64Image(processedImageUrl);
-      } catch {
-        // mantém original em caso de exceção isolada
+    // Process images up to 5
+    const processedImages: string[] = [];
+    for (const img of formImageUrls.slice(0, 5)) {
+      if (img.startsWith('data:image/') && img.length > 150000) {
+        try {
+          processedImages.push(await compressBase64Image(img));
+        } catch {
+          processedImages.push(img);
+        }
+      } else {
+        processedImages.push(img);
       }
     }
 
     const cleanNotes = formNotes.trim() || undefined;
+    const cleanStatement = formStatement.trim() || undefined;
+    const primaryImg = processedImages[0] || formImageUrl.trim() || undefined;
+    const finalImageUrls = processedImages.length > 0 ? processedImages : primaryImg ? [primaryImg] : undefined;
 
     if (editingBizu) {
       updateBizuItem(editingBizu.id, {
         title: formTitle.trim(),
         subjectName: formSubject.trim(),
         category: formCategory.trim() || undefined,
-        imageUrl: processedImageUrl,
+        statement: cleanStatement,
+        imageUrl: primaryImg,
+        imageUrls: finalImageUrls,
         notes: cleanNotes,
         notesMode: formNotesMode,
         keyPoints: formKeyPoints,
@@ -599,7 +675,9 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         title: formTitle.trim(),
         subjectName: formSubject.trim(),
         category: formCategory.trim() || undefined,
-        imageUrl: processedImageUrl,
+        statement: cleanStatement,
+        imageUrl: primaryImg,
+        imageUrls: finalImageUrls,
         imageAlt: formTitle.trim(),
         notes: cleanNotes,
         notesMode: formNotesMode,
@@ -958,6 +1036,13 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           {filteredBizus.map((bizu) => {
             const isBizuExpanded = expandedBizuIds.has(bizu.id);
+            const bizuImages = (bizu.imageUrls && bizu.imageUrls.length > 0)
+              ? bizu.imageUrls
+              : bizu.imageUrl
+              ? [bizu.imageUrl]
+              : [];
+            const currentImgIdx = activeCardImageIndex[bizu.id] ?? 0;
+            const currentActiveImg = bizuImages[currentImgIdx] || bizuImages[0];
 
             return (
             <div
@@ -970,28 +1055,35 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
             >
               {/* Card Header: Subject Pill & Actions */}
               <div className="p-4 pb-3 flex items-start justify-between gap-3 border-b border-slate-800/40">
-                <div className="space-y-1">
-                  {isBizuExpanded && <div className="flex items-center gap-2 flex-wrap">
+                <div className="space-y-1.5 flex-1 min-w-0">
+                  {/* Matéria SEMPRE VISÍVEL (mesmo com o tópico encolhido) */}
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-blue-600/20 text-blue-400 border border-blue-500/30">
                       {bizu.subjectName}
                     </span>
                     {bizu.category && (
-                      <span className="text-[11px] text-slate-400 font-medium">
+                      <span className="text-[11px] text-slate-400 font-medium truncate max-w-[200px]">
                         • {bizu.category}
                       </span>
                     )}
-                  </div>}
+                    {bizuImages.length > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        <ImageIcon className="w-3 h-3" />
+                        {bizuImages.length === 1 ? '1 foto' : `${bizuImages.length} fotos`}
+                      </span>
+                    )}
+                  </div>
                   <button
                     type="button"
                     onClick={() => toggleBizuExpansion(bizu.id)}
                     aria-expanded={isBizuExpanded}
-                    className="group flex w-full items-start gap-1 text-left text-base font-bold text-slate-100 tracking-tight leading-snug cursor-pointer"
+                    className="group flex w-full items-start gap-1.5 text-left text-base font-bold text-slate-100 tracking-tight leading-snug cursor-pointer"
                     title={isBizuExpanded ? 'Recolher anotações' : 'Abrir anotações'}
                   >
-                    <span>{bizu.title}</span>
+                    <span className="break-words">{bizu.title}</span>
                     <ChevronDown
                       className={`mt-0.5 h-4 w-4 shrink-0 text-slate-500 transition-transform group-hover:text-blue-400 ${
-                        isBizuExpanded ? 'rotate-180' : ''
+                        isBizuExpanded ? 'rotate-180 text-blue-400' : ''
                       }`}
                     />
                   </button>
@@ -1004,7 +1096,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                       handleGenerateAINotes(bizu.title, bizu.subjectName);
                     }}
                     title="Enriquecer anotações com Gemini AI"
-                    className="p-1.5 rounded-lg text-amber-400 hover:text-amber-300 border border-transparent hover:bg-amber-500/10 transition-all"
+                    className="p-1.5 rounded-lg text-amber-400 hover:text-amber-300 border border-transparent hover:bg-amber-500/10 transition-all cursor-pointer"
                   >
                     <Sparkles className="w-4 h-4" />
                   </button>
@@ -1012,7 +1104,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                   <button
                     onClick={() => handleToggleFavorite(bizu)}
                     title={bizu.isFavorite ? 'Remover favorito' : 'Marcar favorito'}
-                    className={`p-1.5 rounded-lg border transition-all ${
+                    className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
                       bizu.isFavorite
                         ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
                         : 'text-slate-400 hover:text-slate-200 border-transparent hover:bg-slate-800'
@@ -1024,7 +1116,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                   <button
                     onClick={() => handleOpenEditModal(bizu)}
                     title="Editar Bizu"
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 border border-transparent hover:bg-slate-800 transition-all"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 border border-transparent hover:bg-slate-800 transition-all cursor-pointer"
                   >
                     <Edit3 className="w-4 h-4" />
                   </button>
@@ -1032,64 +1124,156 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                   <button
                     onClick={() => handleDeleteBizu(bizu)}
                     title="Excluir Bizu"
-                    className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 border border-transparent hover:bg-red-500/10 transition-all"
+                    className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 border border-transparent hover:bg-red-500/10 transition-all cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               </div>
 
-              {/* Image Section */}
-              {isBizuExpanded && bizu.imageUrl ? (
-                <div className="relative group bg-slate-950 overflow-hidden border-b border-slate-800/60 aspect-16/9 flex items-center justify-center">
-                  <img
-                    src={bizu.imageUrl}
-                    alt={bizu.imageAlt || bizu.title}
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102 cursor-pointer"
-                    onClick={() =>
-                      setViewingImage({
-                        url: bizu.imageUrl!,
-                        title: bizu.title,
-                        subject: bizu.subjectName,
-                      })
-                    }
-                  />
-
-                  {/* Overlay Controls */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-between p-3">
-                    <button
+              {/* Image Gallery Section (Até 5 fotos) */}
+              {isBizuExpanded && bizuImages.length > 0 ? (
+                <div className="border-b border-slate-800/60 bg-slate-950 overflow-hidden">
+                  <div className="relative group aspect-16/9 flex items-center justify-center bg-slate-950">
+                    <img
+                      src={currentActiveImg}
+                      alt={bizu.imageAlt || bizu.title}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-102 cursor-pointer"
                       onClick={() =>
                         setViewingImage({
-                          url: bizu.imageUrl!,
+                          url: currentActiveImg,
                           title: bizu.title,
                           subject: bizu.subjectName,
+                          images: bizuImages,
+                          currentIndex: currentImgIdx,
                         })
                       }
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900/90 text-white border border-slate-700 shadow-md hover:bg-slate-800 transition-colors"
-                    >
-                      <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
-                      <span>Ver em Tela Cheia / Zoom</span>
-                    </button>
+                    />
 
-                    <button
-                      onClick={() => {
-                        setQuickTargetBizuId(bizu.id);
-                        quickFileInputRef.current?.click();
-                      }}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600/90 hover:bg-blue-600 text-white shadow-md transition-colors"
-                      title="Substituir foto por arquivo local"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>Trocar Foto</span>
-                    </button>
+                    {/* Overlay Controls */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-between p-3">
+                      <button
+                        onClick={() =>
+                          setViewingImage({
+                            url: currentActiveImg,
+                            title: bizu.title,
+                            subject: bizu.subjectName,
+                            images: bizuImages,
+                            currentIndex: currentImgIdx,
+                          })
+                        }
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900/90 text-white border border-slate-700 shadow-md hover:bg-slate-800 transition-colors cursor-pointer"
+                      >
+                        <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Ver em Tela Cheia / Zoom</span>
+                      </button>
+
+                      <div className="flex items-center gap-1.5">
+                        {bizuImages.length < 5 && (
+                          <button
+                            onClick={() => {
+                              setQuickTargetBizuId(bizu.id);
+                              quickFileInputRef.current?.click();
+                            }}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600/90 hover:bg-blue-600 text-white shadow-md transition-colors cursor-pointer"
+                            title={`Adicionar mais fotos (${bizuImages.length}/5)`}
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>+ Foto ({bizuImages.length}/5)</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Prev/Next arrows if multiple images */}
+                    {bizuImages.length > 1 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const prev = (currentImgIdx - 1 + bizuImages.length) % bizuImages.length;
+                            setActiveCardImageIndex((prevMap) => ({ ...prevMap, [bizu.id]: prev }));
+                          }}
+                          className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/70 hover:bg-black/90 text-white border border-white/20 transition-all opacity-80 hover:opacity-100 cursor-pointer"
+                          title="Foto anterior"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const next = (currentImgIdx + 1) % bizuImages.length;
+                            setActiveCardImageIndex((prevMap) => ({ ...prevMap, [bizu.id]: next }));
+                          }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/70 hover:bg-black/90 text-white border border-white/20 transition-all opacity-80 hover:opacity-100 cursor-pointer"
+                          title="Próxima foto"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+
+                        <div className="absolute top-2 right-2 px-2 py-0.5 rounded-md text-[10px] font-bold bg-black/70 text-slate-200 border border-white/10 backdrop-blur-xs">
+                          {currentImgIdx + 1} / {bizuImages.length}
+                        </div>
+                      </>
+                    )}
                   </div>
+
+                  {/* Thumbnail Row if multiple images */}
+                  {bizuImages.length > 1 && (
+                    <div className="p-2 flex items-center gap-2 overflow-x-auto bg-slate-950/90 border-t border-slate-800/60 scrollbar-thin">
+                      {bizuImages.map((imgUrl, imgIdx) => (
+                        <button
+                          key={imgIdx}
+                          type="button"
+                          onClick={() => setActiveCardImageIndex((prevMap) => ({ ...prevMap, [bizu.id]: imgIdx }))}
+                          className={`relative rounded-lg overflow-hidden w-14 h-10 shrink-0 border transition-all cursor-pointer ${
+                            currentImgIdx === imgIdx
+                              ? 'border-blue-500 ring-2 ring-blue-500/50 scale-105'
+                              : 'border-slate-800 opacity-60 hover:opacity-100'
+                          }`}
+                        >
+                          <img src={imgUrl} alt={`Miniatura ${imgIdx + 1}`} className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+                      {bizuImages.length < 5 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQuickTargetBizuId(bizu.id);
+                            quickFileInputRef.current?.click();
+                          }}
+                          className="w-14 h-10 rounded-lg border border-dashed border-slate-700 hover:border-blue-500 text-slate-400 hover:text-blue-400 flex flex-col items-center justify-center text-[9px] font-bold shrink-0 transition-all cursor-pointer"
+                          title="Adicionar outra foto"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>+ Foto</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : null}
 
               {isBizuExpanded && (
               <div className="p-4 space-y-3">
                 <div className="space-y-3">
+                  {/* Título Expandido / Enunciado da Questão */}
+                  {bizu.statement && (
+                    <div className={`p-3.5 rounded-xl border space-y-1.5 ${
+                      isDark ? 'bg-slate-950/70 border-blue-500/25 text-slate-200' : 'bg-blue-50/80 border-blue-200 text-slate-800'
+                    }`}>
+                      <p className="text-[11px] uppercase tracking-wider font-extrabold text-blue-400 flex items-center gap-1.5">
+                        <BookOpen className="w-3.5 h-3.5 text-blue-500" />
+                        Enunciado da Questão / Contexto:
+                      </p>
+                      <div className="text-xs leading-relaxed overflow-wrap-anywhere">
+                        <Latex content={bizu.statement} />
+                      </div>
+                    </div>
+                  )}
                   {/* Key Points (Bullets) */}
                   {bizu.keyPoints && bizu.keyPoints.length > 0 && (
                     <div className="space-y-1.5">
@@ -1455,12 +1639,12 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-300 mb-1">
-                    Título do Bizu / Assunto *
+                    Título do Conteúdo / Assunto *
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="Ex: Mares, Canais e Estreitos da Europa"
+                    placeholder="Ex: Pigmentos vegetais e cores das folhas"
                     value={formTitle}
                     onChange={(e) => setFormTitle(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl text-xs font-medium bg-slate-950 border border-slate-800 text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
@@ -1475,7 +1659,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                     type="text"
                     required
                     list="subjects-datalist"
-                    placeholder="Ex: Geografia, História, Física..."
+                    placeholder="Ex: Biologia, Geografia, Física, Matemática..."
                     value={formSubject}
                     onChange={(e) => setFormSubject(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl text-xs font-medium bg-slate-950 border border-slate-800 text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
@@ -1488,7 +1672,26 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                 </div>
               </div>
 
-              {/* Row 2: Category & Favorite */}
+              {/* Row 2: Título Expandido / Enunciado da Questão */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-300">
+                    Título Expandido / Enunciado da Questão (opcional)
+                  </label>
+                  <span className="text-[10px] font-semibold text-blue-400">
+                    Exibido ao expandir o tópico (suporta LaTeX e fórmulas)
+                  </span>
+                </div>
+                <textarea
+                  rows={2}
+                  placeholder="Ex: (UERJ) As folhas das plantas apresentam coloração verde devido aos pigmentos de clorofila. Considere que..."
+                  value={formStatement}
+                  onChange={(e) => setFormStatement(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl text-xs font-medium bg-slate-950 border border-slate-800 text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none resize-y"
+                />
+              </div>
+
+              {/* Row 3: Category & Favorite */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-300 mb-1">
@@ -1496,7 +1699,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                   </label>
                   <input
                     type="text"
-                    placeholder="Ex: Geopolítica, Cartografia, Termodinâmica"
+                    placeholder="Ex: Citologia & Fotossíntese, Geopolítica, Termodinâmica"
                     value={formCategory}
                     onChange={(e) => setFormCategory(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl text-xs font-medium bg-slate-950 border border-slate-800 text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
@@ -1509,7 +1712,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                       type="checkbox"
                       checked={formIsFavorite}
                       onChange={(e) => setFormIsFavorite(e.target.checked)}
-                      className="w-4 h-4 rounded text-amber-500 bg-slate-950 border-slate-700 focus:ring-0"
+                      className="w-4 h-4 rounded text-amber-500 bg-slate-950 border-slate-700 focus:ring-0 cursor-pointer"
                     />
                     <span className="flex items-center gap-1 text-amber-400">
                       <Star className={`w-3.5 h-3.5 ${formIsFavorite ? 'fill-amber-400' : ''}`} />
@@ -1519,75 +1722,112 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                 </div>
               </div>
 
-              {/* Image Upload Area */}
+              {/* Row 4: Image Upload Area (Up to 5 photos) */}
               <div className="space-y-2">
-                <label className="block text-xs font-bold text-slate-300">
-                  Foto / Imagem do Bizu (Mapa, Esquema, Questão, Tabela)
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                    <ImageIcon className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Fotos / Imagens do Tópico ({formImageUrls.length}/5)</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400">
+                    Mapas, esquemas, enunciados e tabelas (máx. 5 fotos)
+                  </span>
+                </div>
 
-                {formImageUrl ? (
-                  <div className="relative rounded-xl border border-slate-800 bg-slate-950 overflow-hidden aspect-16/9 flex items-center justify-center group">
-                    <img
-                      src={formImageUrl}
-                      alt="Preview"
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-contain"
-                    />
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+                {/* Grid de fotos anexadas */}
+                {formImageUrls.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+                    {formImageUrls.map((imgUrl, imgIdx) => (
+                      <div
+                        key={imgIdx}
+                        className="relative group rounded-xl border border-slate-800 bg-slate-950 overflow-hidden aspect-video flex items-center justify-center"
                       >
-                        Trocar Imagem
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFormImageUrl('')}
-                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-600 hover:bg-red-500 text-white transition-colors"
-                      >
-                        Remover
-                      </button>
-                    </div>
+                        <img
+                          src={imgUrl}
+                          alt={`Foto ${imgIdx + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <button
+                            type="button"
+                            onClick={() => setFormImageUrls((prev) => prev.filter((_, i) => i !== imgIdx))}
+                            className="p-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white shadow-md cursor-pointer transition-transform hover:scale-110"
+                            title="Remover esta foto"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/70 text-slate-300 border border-white/10">
+                          Foto {imgIdx + 1}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                ) : (
+                )}
+
+                {/* Dropzone para upload se menos de 5 fotos */}
+                {formImageUrls.length < 5 && (
                   <div
                     onClick={() => fileInputRef.current?.click()}
-                    className="border-2 border-dashed border-slate-700 hover:border-blue-500 rounded-xl p-6 text-center cursor-pointer bg-slate-950/50 hover:bg-slate-950 transition-all group"
+                    className="border-2 border-dashed border-slate-700 hover:border-blue-500 rounded-xl p-5 text-center cursor-pointer bg-slate-950/50 hover:bg-slate-950 transition-all group"
                   >
                     <input
                       type="file"
                       ref={fileInputRef}
                       accept="image/*"
+                      multiple
                       className="hidden"
                       onChange={(e) => handleFileChange(e)}
                     />
-                    <div className="w-12 h-12 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform">
-                      <Upload className="w-6 h-6" />
+                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center justify-center mx-auto mb-1.5 group-hover:scale-110 transition-transform">
+                      <Upload className="w-5 h-5" />
                     </div>
                     <p className="text-xs font-bold text-slate-200">
-                      Clique, arraste ou cole uma imagem com Ctrl+V
+                      Adicionar foto ({formImageUrls.length}/5) - Clique ou cole com Ctrl+V
                     </p>
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      PNG, JPG, WEBP, GIF (a imagem fica salva no seu Bizuário)
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      PNG, JPG, WEBP (selecione 1 ou vários arquivos de uma vez)
                     </p>
                   </div>
                 )}
 
-                {/* Alternative: URL input */}
-                <div className="flex items-center gap-2 pt-1">
-                  <span className="text-[11px] text-slate-500 shrink-0 flex items-center gap-1">
-                    <LinkIcon className="w-3 h-3" />
-                    Ou insira URL web:
-                  </span>
-                  <input
-                    type="url"
-                    placeholder="https://exemplo.com/imagem-mapa.png"
-                    value={formImageUrl.startsWith('data:') ? '' : formImageUrl}
-                    onChange={(e) => setFormImageUrl(e.target.value)}
-                    className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-slate-950 border border-slate-800 text-slate-300 placeholder-slate-600 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
+                {/* Alternative: URL input if less than 5 photos */}
+                {formImageUrls.length < 5 && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-[11px] text-slate-500 shrink-0 flex items-center gap-1">
+                      <LinkIcon className="w-3 h-3" />
+                      Ou adicione URL web:
+                    </span>
+                    <input
+                      type="url"
+                      placeholder="https://exemplo.com/imagem-estudo.png"
+                      value={formImageUrlInput}
+                      onChange={(e) => setFormImageUrlInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (formImageUrlInput.trim()) {
+                            setFormImageUrls((prev) => [...prev, formImageUrlInput.trim()].slice(0, 5));
+                            setFormImageUrlInput('');
+                          }
+                        }
+                      }}
+                      className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-slate-950 border border-slate-800 text-slate-300 placeholder-slate-600 focus:border-blue-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (formImageUrlInput.trim()) {
+                          setFormImageUrls((prev) => [...prev, formImageUrlInput.trim()].slice(0, 5));
+                          setFormImageUrlInput('');
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+                )}
               </div>
 
                   {/* Optional quick complements */}
@@ -1766,9 +2006,16 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
           {/* Lightbox Header */}
           <div className="px-6 py-4 flex items-center justify-between border-b border-slate-800 bg-black/40">
             <div className="space-y-0.5">
-              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-blue-600/30 text-blue-400 border border-blue-500/30">
-                {viewingImage.subject}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-blue-600/30 text-blue-400 border border-blue-500/30">
+                  {viewingImage.subject}
+                </span>
+                {viewingImage.images && viewingImage.images.length > 1 && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                    Foto {(viewingImage.currentIndex ?? 0) + 1} de {viewingImage.images.length}
+                  </span>
+                )}
+              </div>
               <h4 className="text-base font-bold text-white">{viewingImage.title}</h4>
             </div>
 
@@ -1778,7 +2025,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                 <button
                   onClick={() => setZoomLevel((z) => Math.max(0.5, z - 0.25))}
                   title="Diminuir Zoom"
-                  className="p-1.5 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white"
+                  className="p-1.5 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white cursor-pointer"
                 >
                   <ZoomOut className="w-4 h-4" />
                 </button>
@@ -1788,14 +2035,14 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                 <button
                   onClick={() => setZoomLevel((z) => Math.min(3, z + 0.25))}
                   title="Aumentar Zoom"
-                  className="p-1.5 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white"
+                  className="p-1.5 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white cursor-pointer"
                 >
                   <ZoomIn className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => setZoomLevel(1)}
                   title="Resetar Zoom"
-                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white"
+                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white cursor-pointer"
                 >
                   <RotateCcw className="w-4 h-4" />
                 </button>
@@ -1807,7 +2054,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                   setViewingImage(null);
                   setZoomLevel(1);
                 }}
-                className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:bg-red-600 hover:text-white transition-colors"
+                className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:bg-red-600 hover:text-white transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1815,7 +2062,48 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
           </div>
 
           {/* Lightbox Content Area */}
-          <div className="flex-1 overflow-auto flex items-center justify-center p-4 select-none">
+          <div className="relative flex-1 overflow-auto flex items-center justify-center p-4 select-none">
+            {viewingImage.images && viewingImage.images.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!viewingImage.images) return;
+                    const curr = viewingImage.currentIndex ?? 0;
+                    const prevIdx = (curr - 1 + viewingImage.images.length) % viewingImage.images.length;
+                    setViewingImage({
+                      ...viewingImage,
+                      url: viewingImage.images[prevIdx],
+                      currentIndex: prevIdx,
+                    });
+                    setZoomLevel(1);
+                  }}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white border border-slate-700 shadow-xl transition-all cursor-pointer"
+                  title="Foto anterior"
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!viewingImage.images) return;
+                    const curr = viewingImage.currentIndex ?? 0;
+                    const nextIdx = (curr + 1) % viewingImage.images.length;
+                    setViewingImage({
+                      ...viewingImage,
+                      url: viewingImage.images[nextIdx],
+                      currentIndex: nextIdx,
+                    });
+                    setZoomLevel(1);
+                  }}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white border border-slate-700 shadow-xl transition-all cursor-pointer"
+                  title="Próxima foto"
+                >
+                  <ChevronRight className="w-6 h-6" />
+                </button>
+              </>
+            )}
+
             <img
               src={viewingImage.url}
               alt={viewingImage.title}
@@ -1824,6 +2112,33 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
               className="max-h-[85vh] max-w-[90vw] object-contain rounded-lg shadow-2xl"
             />
           </div>
+
+          {/* Lightbox Thumbnail Footer if multiple images */}
+          {viewingImage.images && viewingImage.images.length > 1 && (
+            <div className="px-6 py-3 border-t border-slate-800 bg-black/60 flex items-center justify-center gap-2 overflow-x-auto scrollbar-thin">
+              {viewingImage.images.map((img, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setViewingImage({
+                      ...viewingImage,
+                      url: img,
+                      currentIndex: idx,
+                    });
+                    setZoomLevel(1);
+                  }}
+                  className={`relative rounded-lg overflow-hidden w-16 h-11 shrink-0 border transition-all cursor-pointer ${
+                    (viewingImage.currentIndex ?? 0) === idx
+                      ? 'border-blue-500 ring-2 ring-blue-500/60 scale-105'
+                      : 'border-slate-800 opacity-50 hover:opacity-100'
+                  }`}
+                >
+                  <img src={img} alt={`Miniatura ${idx + 1}`} className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

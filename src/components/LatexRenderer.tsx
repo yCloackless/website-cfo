@@ -137,6 +137,156 @@ function escapeHtml(str: string): string {
 }
 
 /**
+ * Scans balanced curly braces starting at a given index.
+ */
+function extractBracedContent(str: string, startIndex: number): { content: string; endIndex: number } | null {
+  if (str[startIndex] !== '{') return null;
+  let depth = 1;
+  for (let i = startIndex + 1; i < str.length; i++) {
+    if (str[i] === '\\') {
+      i++; // skip escaped character
+      continue;
+    }
+    if (str[i] === '{') depth++;
+    else if (str[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        return { content: str.slice(startIndex + 1, i), endIndex: i };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Parses and formats text segments with support for:
+ * - LaTeX text styling: \textbf{...}, \textit{...}, \underline{...}, \texttt{...}, \emph{...}, \text{...}
+ * - Markdown text styling: **...**, *...*, `...`
+ * - LaTeX escaped symbols: \%, \$, \&, \_, \#
+ */
+function renderFormattedText(rawText: string, baseKey = 'fmt'): React.ReactNode[] {
+  if (!rawText) return [];
+
+  const nodes: React.ReactNode[] = [];
+  let currentIndex = 0;
+  let keyCounter = 0;
+
+  while (currentIndex < rawText.length) {
+    // 1. Check for LaTeX commands starting with backslash
+    if (rawText[currentIndex] === '\\') {
+      const rest = rawText.slice(currentIndex);
+
+      // LaTeX Escaped symbols: \%, \$, \&, \_, \#
+      const escapeMatch = /^\\([%$&_#])/.exec(rest);
+      if (escapeMatch) {
+        nodes.push(escapeMatch[1]);
+        currentIndex += escapeMatch[0].length;
+        continue;
+      }
+
+      // LaTeX formatting commands
+      const cmdMatch = /^\\(textbf|textit|underline|texttt|emph|text)\b\s*\{/.exec(rest);
+      if (cmdMatch) {
+        const cmd = cmdMatch[1];
+        const braceStartIndex = currentIndex + cmdMatch[0].length - 1;
+        const braced = extractBracedContent(rawText, braceStartIndex);
+        if (braced) {
+          const innerNodes = renderFormattedText(braced.content, `${baseKey}-${keyCounter}`);
+          const elementKey = `${baseKey}-${keyCounter++}`;
+
+          if (cmd === 'textbf') {
+            nodes.push(
+              <strong key={elementKey} className="font-bold text-slate-100">
+                {innerNodes}
+              </strong>
+            );
+          } else if (cmd === 'textit' || cmd === 'emph') {
+            nodes.push(
+              <em key={elementKey} className="italic text-slate-200">
+                {innerNodes}
+              </em>
+            );
+          } else if (cmd === 'underline') {
+            nodes.push(
+              <span key={elementKey} className="underline decoration-slate-400">
+                {innerNodes}
+              </span>
+            );
+          } else if (cmd === 'texttt') {
+            nodes.push(
+              <code key={elementKey} className="font-mono text-[11px] px-1 py-0.5 rounded bg-slate-800/80 text-blue-300">
+                {innerNodes}
+              </code>
+            );
+          } else {
+            // \text{...}
+            nodes.push(<React.Fragment key={elementKey}>{innerNodes}</React.Fragment>);
+          }
+
+          currentIndex = braced.endIndex + 1;
+          continue;
+        }
+      }
+    }
+
+    // 2. Check for Markdown Bold: **...**
+    if (rawText.startsWith('**', currentIndex)) {
+      const closingIdx = rawText.indexOf('**', currentIndex + 2);
+      if (closingIdx !== -1) {
+        const innerContent = rawText.slice(currentIndex + 2, closingIdx);
+        nodes.push(
+          <strong key={`${baseKey}-${keyCounter++}`} className="font-bold text-slate-100">
+            {renderFormattedText(innerContent, `${baseKey}-${keyCounter}`)}
+          </strong>
+        );
+        currentIndex = closingIdx + 2;
+        continue;
+      }
+    }
+
+    // 3. Check for Markdown Italic: *...* (avoiding lone asterisk)
+    if (rawText[currentIndex] === '*' && rawText[currentIndex + 1] !== ' ' && rawText[currentIndex + 1] !== '*') {
+      const closingIdx = rawText.indexOf('*', currentIndex + 1);
+      if (closingIdx !== -1 && closingIdx > currentIndex + 1 && rawText[closingIdx - 1] !== ' ') {
+        const innerContent = rawText.slice(currentIndex + 1, closingIdx);
+        nodes.push(
+          <em key={`${baseKey}-${keyCounter++}`} className="italic text-slate-200">
+            {renderFormattedText(innerContent, `${baseKey}-${keyCounter}`)}
+          </em>
+        );
+        currentIndex = closingIdx + 1;
+        continue;
+      }
+    }
+
+    // 4. Check for Markdown Code: `...`
+    if (rawText[currentIndex] === '`') {
+      const closingIdx = rawText.indexOf('`', currentIndex + 1);
+      if (closingIdx !== -1) {
+        const innerContent = rawText.slice(currentIndex + 1, closingIdx);
+        nodes.push(
+          <code key={`${baseKey}-${keyCounter++}`} className="font-mono text-[11px] px-1 py-0.5 rounded bg-slate-800/80 text-blue-300">
+            {innerContent}
+          </code>
+        );
+        currentIndex = closingIdx + 1;
+        continue;
+      }
+    }
+
+    // 5. Consume next chunk of plain text up to next special char (\, *, `)
+    const nextSpecialRegex = /[\\*`]/g;
+    nextSpecialRegex.lastIndex = currentIndex + 1;
+    const nextMatch = nextSpecialRegex.exec(rawText);
+    const nextIndex = nextMatch ? nextMatch.index : rawText.length;
+    nodes.push(rawText.slice(currentIndex, nextIndex));
+    currentIndex = nextIndex;
+  }
+
+  return nodes;
+}
+
+/**
  * Latex Component:
  * Formats mathematical, physical, and chemical formulas with LaTeX typesetting via KaTeX.
  */
@@ -165,7 +315,7 @@ export const Latex: React.FC<LatexRendererProps> = ({
     if (seg.type === 'text') {
       return (
         <span key={idx} className="whitespace-pre-wrap">
-          {seg.content}
+          {renderFormattedText(seg.content, `seg-${idx}`)}
         </span>
       );
     }

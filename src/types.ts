@@ -98,7 +98,10 @@ export interface BizuItem {
   subjectName: string;
   category?: string;
   imageUrl?: string;
+  imageUrls?: string[];
   imageAlt?: string;
+  /** Título expandido / Enunciado da questão exibido ao abrir o tópico */
+  statement?: string;
   notes?: string;
   /** Text written by the student stays plain; AI notes may keep structure. */
   notesMode?: 'plain' | 'ai';

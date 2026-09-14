@@ -289,13 +289,17 @@ function trySaveToLocalStorage(items: BizuItem[]): void {
     try {
       // Tentativa 2: Sanitiza imagens base64 volumosas no localStorage
       const sanitized = items.map((item) => {
+        let cleanItem = item;
         if (item.imageUrl && item.imageUrl.startsWith('data:image/') && item.imageUrl.length > 5000) {
-          return {
-            ...item,
-            imageUrl: '', // Preservado integralmente no IndexedDB
+          cleanItem = { ...cleanItem, imageUrl: '' };
+        }
+        if (Array.isArray(item.imageUrls) && item.imageUrls.some((u) => u.startsWith('data:image/') && u.length > 5000)) {
+          cleanItem = {
+            ...cleanItem,
+            imageUrls: item.imageUrls.map((u) => (u.startsWith('data:image/') && u.length > 5000 ? '' : u)).filter(Boolean),
           };
         }
-        return item;
+        return cleanItem;
       });
       localStorage.setItem(getStorageKey(), JSON.stringify(sanitized));
       console.info('[Bizuário Storage] Imagens pesadas salvas no IndexedDB de alta capacidade.');
@@ -305,6 +309,9 @@ function trySaveToLocalStorage(items: BizuItem[]): void {
         const minimal = items.slice(0, 15).map((item) => ({
           ...item,
           imageUrl: item.imageUrl && item.imageUrl.length > 5000 ? '' : item.imageUrl,
+          imageUrls: Array.isArray(item.imageUrls)
+            ? item.imageUrls.map((u) => (u.length > 5000 ? '' : u)).filter(Boolean)
+            : [],
         }));
         localStorage.setItem(getStorageKey(), JSON.stringify(minimal));
       } catch {
@@ -319,9 +326,16 @@ function normalizeBizuItems(items: BizuItem[]): BizuItem[] {
   // Textos novos continuam intactos; anotações geradas pela IA são marcadas
   // como `ai` e preservam a estrutura que a IA escolheu.
   return items.map((item) => {
-    if (!item.notes || item.notesMode === 'ai') return item;
-    const notes = item.notes.replace(/^\s*T[oó]pico\s*\d+\s*[-–—:]\s*[^\n]*\n?/gim, '').trim();
-    return notes === item.notes ? item : { ...item, notes, notesMode: 'plain' };
+    // Normaliza imageUrls caso apenas imageUrl exista
+    let normalized = item;
+    if (!normalized.imageUrls || normalized.imageUrls.length === 0) {
+      if (normalized.imageUrl) {
+        normalized = { ...normalized, imageUrls: [normalized.imageUrl] };
+      }
+    }
+    if (!normalized.notes || normalized.notesMode === 'ai') return normalized;
+    const notes = normalized.notes.replace(/^\s*T[oó]pico\s*\d+\s*[-–—:]\s*[^\n]*\n?/gim, '').trim();
+    return notes === normalized.notes ? normalized : { ...normalized, notes, notesMode: 'plain' };
   });
 }
 
@@ -331,12 +345,22 @@ function mergeBizuStorageCopies(localItems: BizuItem[], indexedDbItems: BizuItem
   indexedDbItems.forEach((item) => merged.set(item.id, item));
   localItems.forEach((localItem) => {
     const indexedDbItem = merged.get(localItem.id);
+    const resolvedImageUrls =
+      indexedDbItem?.imageUrls && indexedDbItem.imageUrls.length > 0
+        ? indexedDbItem.imageUrls
+        : localItem.imageUrls && localItem.imageUrls.length > 0
+        ? localItem.imageUrls
+        : (localItem.imageUrl || indexedDbItem?.imageUrl)
+        ? [localItem.imageUrl || indexedDbItem?.imageUrl || '']
+        : [];
+
     merged.set(localItem.id, {
       ...indexedDbItem,
       ...localItem,
       // The localStorage fallback intentionally removes large images. Keep
       // the complete IndexedDB copy when that happens.
-      imageUrl: localItem.imageUrl || indexedDbItem?.imageUrl || '',
+      imageUrl: localItem.imageUrl || indexedDbItem?.imageUrl || resolvedImageUrls[0] || '',
+      imageUrls: resolvedImageUrls,
     });
   });
 
