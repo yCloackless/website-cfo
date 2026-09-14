@@ -111,4 +111,46 @@ test('Study Session Range & Weekly Synchronization Suite', async (t) => {
     assert.strictEqual(day8.totalSeconds, 9000);
     assert.strictEqual(day8.totalHours, 2.5);
   });
+
+  await t.test('3. Consulta resumo mensal e totais para a Agenda de Horas (Heatmap Azul)', () => {
+    const monthlySummary = sessionRepo.getDailySummaryByMonth(testUser.id, '2026-09');
+    const monthlyTotals = sessionRepo.getMonthlyTotal(testUser.id, '2026-09');
+
+    // Dias no mês: 08/09 (2.5h), 10/09 (1.5h), 15/09 (3h) -> Total = 7h
+    assert.ok(monthlySummary['2026-09-08'], 'Dia 08 deve constar no heatmap mensal');
+    assert.ok(monthlySummary['2026-09-10'], 'Dia 10 deve constar no heatmap mensal');
+    assert.ok(monthlySummary['2026-09-15'], 'Dia 15 deve constar no heatmap mensal');
+
+    assert.strictEqual(monthlySummary['2026-09-08'].totalHours, 2.5);
+    assert.strictEqual(monthlySummary['2026-09-10'].totalHours, 1.5);
+    assert.strictEqual(monthlySummary['2026-09-15'].totalHours, 3);
+
+    // Totais do mês
+    assert.strictEqual(monthlyTotals.totalHours, 7);
+    assert.strictEqual(monthlyTotals.totalSeconds, 25200);
+    assert.strictEqual(monthlyTotals.totalSessions, 4);
+  });
+
+  await t.test('4. Atualização imediata em caso de exclusão ou remoção de horas manuais', () => {
+    // Insere sessão temporária
+    const tempSessionId = `session_temp_${Date.now()}`;
+    sessionRepo.upsertManual(tempSessionId, {
+      userId: testUser.id,
+      subjectId: 'historia',
+      subjectName: 'História',
+      dateStr: '2026-09-20',
+      durationSeconds: 3600,
+      endedAt: '2026-09-20T12:00:00.000Z',
+    });
+
+    let summaryBefore = sessionRepo.getDailySummaryByMonth(testUser.id, '2026-09');
+    assert.ok(summaryBefore['2026-09-20'], 'Dia 20 deve constar antes da remoção');
+    assert.strictEqual(summaryBefore['2026-09-20'].totalHours, 1);
+
+    // Remove sessão (simulando duration 0 minutos)
+    sessionRepo.deleteByIdForUser(tempSessionId, testUser.id);
+
+    let summaryAfter = sessionRepo.getDailySummaryByMonth(testUser.id, '2026-09');
+    assert.strictEqual(summaryAfter['2026-09-20'], undefined, 'Dia 20 não deve mais constar após exclusão');
+  });
 });

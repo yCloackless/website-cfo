@@ -1540,10 +1540,21 @@ interface TimerState {
   updatedAt: string;
 }
 
-app.use('/api/timer', requireUserAuth);
+app.use('/api/timer', requireUserAuth, (_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 // As sessões de estudo pertencem ao usuário autenticado. Este middleware
 // precisa ser aplicado antes das rotas de gravação e consulta do banco de horas.
-app.use('/api/study-sessions', requireUserAuth);
+app.use('/api/study-sessions', requireUserAuth, (_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
 function timerStateFile(userId: string): string {
   const hash = crypto.createHash('sha256').update(String(userId || '')).digest('hex');
   const baseDir = path.resolve(process.cwd(), 'data');

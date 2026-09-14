@@ -4,7 +4,7 @@
  * Estratégias: Cache First (Assets/Fontes), Network First (Navegação/Bizuário), Network Only (Auth/Admin/Financeiro)
  */
 
-const CACHE_VERSION = 'cfo-tactical-cache-v1';
+const CACHE_VERSION = 'cfo-tactical-cache-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -48,15 +48,9 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // 1. NETWORK ONLY ESTRITO (Segurança Crítica): Autenticação, 2FA, Pagamentos, Admin e Uploads
+  // 1. NETWORK ONLY ESTRITO (Segurança & Reatividade): Todas as rotas de API (/api/*) e métodos não-GET
   if (
-    url.pathname.startsWith('/api/auth') ||
-    url.pathname.startsWith('/api/admin') ||
-    url.pathname.startsWith('/api/orders') ||
-    url.pathname.startsWith('/api/uploads') ||
-    url.pathname.startsWith('/api/exams') ||
-    url.pathname.startsWith('/api/telemetry') ||
-    url.pathname.startsWith('/api/session') ||
+    url.pathname.startsWith('/api/') ||
     request.method !== 'GET'
   ) {
     return; // Passa direto para a rede sem tocar em cache

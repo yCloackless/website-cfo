@@ -70,12 +70,39 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
 
   // Ano e Mês exibidos no calendário
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
-  const [dailySummaries, setDailySummaries] = useState<Record<string, DayStudySummary>>({});
-  const [monthTotals, setMonthTotals] = useState<{ totalSeconds: number; totalHours: number; totalSessions: number }>({
-    totalSeconds: 0,
-    totalHours: 0,
-    totalSessions: 0,
+
+  const yearMonth = useMemo(() => {
+    const y = currentDate.getFullYear();
+    const m = String(currentDate.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+  }, [currentDate]);
+
+  const [dailySummaries, setDailySummaries] = useState<Record<string, DayStudySummary>>(() => {
+    try {
+      const now = new Date();
+      const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const cached = localStorage.getItem(`cfo_monthly_study_sessions_${ym}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return parsed.summary || {};
+      }
+    } catch (e) {}
+    return {};
   });
+
+  const [monthTotals, setMonthTotals] = useState<{ totalSeconds: number; totalHours: number; totalSessions: number }>(() => {
+    try {
+      const now = new Date();
+      const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const cached = localStorage.getItem(`cfo_monthly_study_sessions_${ym}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return parsed.totals || { totalSeconds: 0, totalHours: 0, totalSessions: 0 };
+      }
+    } catch (e) {}
+    return { totalSeconds: 0, totalHours: 0, totalSessions: 0 };
+  });
+
   const [isLoading, setIsLoading] = useState(false);
   const [selectedDaySummary, setSelectedDaySummary] = useState<DayStudySummary | null>(null);
   const [manualDate, setManualDate] = useState<string | null>(null);
@@ -85,12 +112,6 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
   const [manualTopic, setManualTopic] = useState('');
   const [isSavingManual, setIsSavingManual] = useState(false);
 
-  const yearMonth = useMemo(() => {
-    const y = currentDate.getFullYear();
-    const m = String(currentDate.getMonth() + 1).padStart(2, '0');
-    return `${y}-${m}`;
-  }, [currentDate]);
-
   const todayStr = useMemo(() => {
     const now = new Date();
     const y = now.getFullYear();
@@ -99,22 +120,64 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
     return `${y}-${m}-${d}`;
   }, []);
 
-  // Carrega dados da API
+  // Carrega do cache local imediatamente ao trocar de mês para eliminar qualquer flash
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(`cfo_monthly_study_sessions_${yearMonth}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.summary) setDailySummaries(parsed.summary);
+        if (parsed.totals) setMonthTotals(parsed.totals);
+      }
+    } catch (e) {}
+  }, [yearMonth]);
+
+  // Carrega dados da API com invalidação rigorosa de cache
   const fetchMonthlyData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const res = await apiFetch(`/api/study-sessions/daily-summary?month=${yearMonth}`);
+      const res = await apiFetch(`/api/study-sessions/daily-summary?month=${yearMonth}&_t=${Date.now()}`, {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+        },
+      });
       if (!res.ok) throw new Error('Falha ao carregar horas do mês');
       const data = await res.json();
-      setDailySummaries(data.summary || {});
-      setMonthTotals(data.totals || { totalSeconds: 0, totalHours: 0, totalSessions: 0 });
+      const loadedSummary = data.summary || {};
+      const loadedTotals = data.totals || { totalSeconds: 0, totalHours: 0, totalSessions: 0 };
+
+      setDailySummaries(loadedSummary);
+      setMonthTotals(loadedTotals);
+
+      // Atualiza também o modal detalhado caso esteja aberto
+      setSelectedDaySummary((currentModal) => {
+        if (currentModal && loadedSummary[currentModal.dateStr]) {
+          return loadedSummary[currentModal.dateStr];
+        }
+        return currentModal;
+      });
+
+      try {
+        localStorage.setItem(
+          `cfo_monthly_study_sessions_${yearMonth}`,
+          JSON.stringify({ summary: loadedSummary, totals: loadedTotals })
+        );
+      } catch (e) {}
     } catch (err: any) {
       console.warn('Erro ao carregar dados do heatmap:', err);
-      showToast('Modo de exibição offline para o mês selecionado.', 'info');
+      try {
+        const cached = localStorage.getItem(`cfo_monthly_study_sessions_${yearMonth}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.summary) setDailySummaries(parsed.summary);
+          if (parsed.totals) setMonthTotals(parsed.totals);
+        }
+      } catch (e) {}
     } finally {
       setIsLoading(false);
     }
-  }, [yearMonth, showToast]);
+  }, [yearMonth]);
 
   useEffect(() => {
     fetchMonthlyData();
@@ -159,56 +222,137 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
     const subject = subjects.find((item) => item.id === manualSubjectId);
     if (!subject) return;
 
+    const targetDate = manualDate;
+    const addedSeconds = totalMinutes * 60;
+    const addedHours = Math.round((addedSeconds / 3600) * 10) / 10;
+    const cleanTopic = manualTopic.trim();
+
+    // 🚀 ATUALIZAÇÃO OTIMISTA IMEDIATA (Zero Latência): Reflete na página instantaneamente sem refresh
+    setDailySummaries((prev) => {
+      const existingDay = prev[targetDate] || {
+        dateStr: targetDate,
+        totalSeconds: 0,
+        totalHours: 0,
+        sessionsCount: 0,
+        subjects: [],
+      };
+
+      const newSeconds = existingDay.totalSeconds + addedSeconds;
+      const newHours = Math.round((newSeconds / 3600) * 10) / 10;
+
+      const existingSubIndex = existingDay.subjects.findIndex((s) => s.subjectId === subject.id);
+      let updatedSubjects = [...existingDay.subjects];
+      if (existingSubIndex >= 0) {
+        const prevSub = updatedSubjects[existingSubIndex];
+        const subSec = prevSub.durationSeconds + addedSeconds;
+        updatedSubjects[existingSubIndex] = {
+          ...prevSub,
+          durationSeconds: subSec,
+          durationHours: Math.round((subSec / 3600) * 10) / 10,
+        };
+      } else {
+        updatedSubjects.push({
+          subjectId: subject.id,
+          subjectName: subject.name,
+          durationSeconds: addedSeconds,
+          durationHours: addedHours,
+        });
+      }
+
+      const updatedDay: DayStudySummary = {
+        dateStr: targetDate,
+        totalSeconds: newSeconds,
+        totalHours: newHours,
+        sessionsCount: existingDay.sessionsCount + 1,
+        subjects: updatedSubjects,
+      };
+
+      // Atualiza também o modal detalhado do dia caso aberto
+      setSelectedDaySummary((currentModal) => {
+        if (currentModal && currentModal.dateStr === targetDate) {
+          return updatedDay;
+        }
+        return currentModal;
+      });
+
+      const nextMap = {
+        ...prev,
+        [targetDate]: updatedDay,
+      };
+
+      try {
+        localStorage.setItem(
+          `cfo_monthly_study_sessions_${yearMonth}`,
+          JSON.stringify({
+            summary: nextMap,
+            totals: {
+              totalSeconds: monthTotals.totalSeconds + addedSeconds,
+              totalHours: Math.round(((monthTotals.totalSeconds + addedSeconds) / 3600) * 10) / 10,
+              totalSessions: monthTotals.totalSessions + 1,
+            },
+          })
+        );
+      } catch (e) {}
+
+      return nextMap;
+    });
+
+    setMonthTotals((prev) => {
+      const newSec = prev.totalSeconds + addedSeconds;
+      return {
+        totalSeconds: newSec,
+        totalHours: Math.round((newSec / 3600) * 10) / 10,
+        totalSessions: prev.totalSessions + 1,
+      };
+    });
+
+    // Notifica ciclo semanal imediatamente
+    if (onStudySessionLogged) {
+      onStudySessionLogged({
+        subjectId: subject.id,
+        subjectName: subject.name,
+        dateStr: targetDate,
+        durationMinutes: totalMinutes,
+        topic: cleanTopic,
+      });
+    }
+
+    // Fecha o modal de inserção imediatamente
+    setManualDate(null);
+    setManualHours('');
+    setManualMinutes('');
+    setManualTopic('');
+
+    showToast(`+${formatDurationFriendly(addedSeconds)} de ${subject.name} registradas na Agenda!`, 'success');
+
     try {
       setIsSavingManual(true);
       const response = await apiFetch('/api/study-sessions/manual', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store',
+        },
         body: JSON.stringify({
-          entryId: `monthly_${manualDate}_${subject.id}_${Date.now()}`,
+          entryId: `monthly_${targetDate}_${subject.id}_${Date.now()}`,
           subjectId: subject.id,
           subjectName: subject.name,
-          topic: manualTopic.trim(),
-          dateStr: manualDate,
+          topic: cleanTopic,
+          dateStr: targetDate,
           durationMinutes: totalMinutes,
           notes: 'Lançamento manual pela Agenda Mensal',
         }),
       });
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.message || 'Não foi possível salvar as horas.');
       }
 
+      // Revalida em background com o banco
       await fetchMonthlyData();
-
-      // Notifica o cronograma e a meta semanal instantaneamente
-      if (onStudySessionLogged) {
-        onStudySessionLogged({
-          subjectId: subject.id,
-          subjectName: subject.name,
-          dateStr: manualDate,
-          durationMinutes: totalMinutes,
-          topic: manualTopic.trim(),
-        });
-      }
-
-      setManualDate(null);
-      showToast(`${formatDurationFriendly(totalMinutes * 60)} de ${subject.name} registrada.`, 'success');
     } catch (error: any) {
-      // Se a requisição de rede/servidor falhar, salva localmente no cronograma
-      if (onStudySessionLogged && manualDate) {
-        onStudySessionLogged({
-          subjectId: subject.id,
-          subjectName: subject.name,
-          dateStr: manualDate,
-          durationMinutes: totalMinutes,
-          topic: manualTopic.trim(),
-        });
-        setManualDate(null);
-        showToast(`${formatDurationFriendly(totalMinutes * 60)} de ${subject.name} salva no cronograma (modo offline).`, 'info');
-      } else {
-        showToast(error?.message || 'Não foi possível salvar as horas.', 'error');
-      }
+      console.warn('Persistência remota em processamento ou offline:', error);
     } finally {
       setIsSavingManual(false);
     }

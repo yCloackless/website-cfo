@@ -1149,27 +1149,27 @@ export default function App() {
       revisionScheduled: false,
     };
 
-    // A Agenda Mensal consulta o banco; espelha registros manuais sem duplicar sessões do timer.
-    if (!existingEntry?.id?.startsWith('study_')) {
-      try {
-        const response = await apiFetch('/api/study-sessions/manual', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            entryId: newEntry.id,
-            subjectId: selectedCell.subject.id,
-            subjectName: selectedCell.subject.name,
-            topic: newEntry.topic,
-            dateStr: newEntry.dateStr,
-            durationMinutes: newEntry.durationMinutes || 0,
-            notes: newEntry.notes,
-          }),
-        });
-        if (!response.ok) throw new Error('Falha ao sincronizar o tempo com a Agenda Mensal.');
-      } catch (err) {
-        console.warn('Falha ao sincronizar estudo manual com a Agenda Mensal:', err);
-        showToast('Estudo salvo no cronograma, mas não foi possível atualizar a Agenda Mensal.', 'error');
-      }
+    // Sincroniza o registro manual com a Agenda Mensal / Banco de Horas
+    try {
+      const response = await apiFetch('/api/study-sessions/manual', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store',
+        },
+        body: JSON.stringify({
+          entryId: newEntry.id,
+          subjectId: selectedCell.subject.id,
+          subjectName: selectedCell.subject.name,
+          topic: newEntry.topic,
+          dateStr: newEntry.dateStr,
+          durationMinutes: newEntry.durationMinutes || 0,
+          notes: newEntry.notes,
+        }),
+      });
+      if (!response.ok) throw new Error('Falha ao sincronizar o tempo com o banco de horas.');
+    } catch (err) {
+      console.warn('Falha ao sincronizar estudo manual com o banco de horas:', err);
     }
 
     let calendarResult: any = null;
@@ -1402,7 +1402,12 @@ export default function App() {
       const endDate = currentCycle.endDate;
       if (!startDate || !endDate) return;
 
-      const res = await apiFetch(`/api/study-sessions/range?startDate=${startDate}&endDate=${endDate}`);
+      const res = await apiFetch(`/api/study-sessions/range?startDate=${startDate}&endDate=${endDate}&_t=${Date.now()}`, {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+        },
+      });
       if (!res.ok) return;
 
       const data = await res.json();
