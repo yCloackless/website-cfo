@@ -1,61 +1,105 @@
 import React, { useEffect, useState } from 'react';
-import { RefreshCw, Sparkles } from 'lucide-react';
-import FibonacciSphere from './FibonacciSphere';
+import { RefreshCw, Sparkles, X, ArrowUpRight } from 'lucide-react';
+import { appUpdateService, VersionInfo } from '../services/appUpdateService';
 
-// Versão temporária de teste: a opção Saturno foi removida deste aviso.
-export const SITE_RELEASE_VERSION = '2026-09-10-blackhole-only';
-const ACK_KEY = `cfo_update_ack_${SITE_RELEASE_VERSION}`;
+const DISMISSED_SESSION_KEY = 'cfo_update_toast_dismissed';
 
 export const UpdateNoticeModal: React.FC = () => {
-  const [needsRefresh, setNeedsRefresh] = useState(false);
+  const [hasUpdate, setHasUpdate] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | undefined>(undefined);
 
   useEffect(() => {
-    if (localStorage.getItem(ACK_KEY) !== 'true') setNeedsRefresh(true);
-
-    const checkForNewRelease = async () => {
-      try {
-        const response = await fetch(`/release.json?check=${Date.now()}`, { cache: 'no-store' });
-        if (!response.ok) return;
-        const data = await response.json();
-        if (data?.version && data.version !== SITE_RELEASE_VERSION) setNeedsRefresh(true);
-      } catch {
-        // O aviso inicial continua funcionando mesmo sem conexão momentânea.
+    // Inscreve-se nas notificações de atualização em tempo real do Service Worker e /api/version
+    const unsubscribe = appUpdateService.subscribe((updateAvailable, info) => {
+      const isDismissed = sessionStorage.getItem(DISMISSED_SESSION_KEY) === 'true';
+      if (updateAvailable && !isDismissed) {
+        setHasUpdate(true);
+        if (info) setVersionInfo(info);
       }
-    };
+    });
 
-    void checkForNewRelease();
-    const interval = window.setInterval(checkForNewRelease, 60_000);
-    return () => window.clearInterval(interval);
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
-  if (!needsRefresh) return null;
+  if (!hasUpdate) return null;
 
-  const handleRefresh = () => {
-    localStorage.setItem(ACK_KEY, 'true');
-    window.location.reload();
+  const handleApplyUpdate = () => {
+    setIsUpdating(true);
+    appUpdateService.applyAppUpdate();
+  };
+
+  const handleDismiss = () => {
+    sessionStorage.setItem(DISMISSED_SESSION_KEY, 'true');
+    setHasUpdate(false);
   };
 
   return (
-    <div className="fixed inset-0 z-[200] overflow-hidden bg-black text-white">
-      <FibonacciSphere className="absolute inset-0" pointColor="#ffffff" />
-      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-between bg-black/10 px-5 py-8 sm:py-12">
-        <div className="max-w-xl text-center drop-shadow-[0_2px_12px_rgba(0,0,0,0.95)]">
-          <div className="flex items-center justify-center gap-2 text-blue-200">
-            <Sparkles className="h-5 w-5" />
-            <span className="text-xs font-black uppercase tracking-[0.2em]">Site atualizado</span>
+    <div
+      role="alert"
+      aria-live="polite"
+      className="fixed bottom-5 right-5 z-[9999] w-[calc(100vw-2.5rem)] sm:w-96 rounded-2xl border border-amber-500/40 bg-slate-900/95 p-4 text-white shadow-2xl shadow-black/80 backdrop-blur-md transition-all duration-300 animate-in fade-in slide-in-from-bottom-5"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 text-slate-950 shadow-md shadow-amber-500/30">
+            <Sparkles className="h-4 w-4 fill-current" />
           </div>
-          <h2 className="mt-3 text-2xl font-black sm:text-3xl">Dê F5 para continuar</h2>
-          <p className="mt-2 text-sm text-slate-200 sm:text-base">
-            Uma nova versão foi publicada. Atualize a página para carregar as melhorias.
-          </p>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-black uppercase tracking-wider text-amber-400">
+                Sistema Atualizado
+              </span>
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            </div>
+            <h4 className="text-sm font-bold text-white leading-tight">
+              Nova versão disponível
+            </h4>
+          </div>
         </div>
+
         <button
           type="button"
-          onClick={handleRefresh}
-          className="pointer-events-auto flex min-h-12 w-full max-w-sm items-center justify-center gap-2 rounded-xl border border-blue-300/40 bg-blue-600/95 px-5 py-3 text-sm font-bold text-white shadow-xl shadow-blue-950/70 transition hover:bg-blue-500"
+          onClick={handleDismiss}
+          aria-label="Lembrar mais tarde"
+          className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white"
         >
-          <RefreshCw className="h-4 w-4" />
-          Atualizar agora (F5)
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <p className="mt-2.5 text-xs text-slate-300 leading-relaxed">
+        Uma nova versão do CFO CBMERJ foi implantada no servidor. Seus dados e cronômetro continuam salvos com segurança.
+      </p>
+
+      {versionInfo?.version && (
+        <div className="mt-2 flex items-center gap-1 text-[11px] font-mono text-slate-400">
+          <span>Build:</span>
+          <span className="rounded bg-slate-800 px-1.5 py-0.5 text-amber-300">
+            {versionInfo.version.slice(0, 10)}
+          </span>
+        </div>
+      )}
+
+      <div className="mt-3.5 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={handleDismiss}
+          className="rounded-xl px-3 py-2 text-xs font-semibold text-slate-400 transition hover:bg-slate-800/80 hover:text-slate-200"
+        >
+          Mais tarde
+        </button>
+
+        <button
+          type="button"
+          disabled={isUpdating}
+          onClick={handleApplyUpdate}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-2 text-xs font-bold text-slate-950 shadow-lg shadow-amber-500/25 transition hover:brightness-110 active:scale-95 disabled:opacity-60 cursor-pointer"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${isUpdating ? 'animate-spin' : ''}`} />
+          {isUpdating ? 'Atualizando...' : 'Atualizar agora'}
         </button>
       </div>
     </div>

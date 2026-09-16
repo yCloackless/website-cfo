@@ -211,6 +211,22 @@ app.get("/api/ready", (_req: Request, res: Response) => {
   }
 });
 
+// 3. Rota de versão e telemetria de deploy em tempo real (Zero-downtime client sync)
+const SERVER_BOOT_TIME = Date.now();
+const SERVER_BUILD_VERSION = process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || process.env.npm_package_version || "1.0.0";
+
+app.get("/api/version", (_req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  return res.status(200).json({
+    version: SERVER_BUILD_VERSION,
+    startedAt: SERVER_BOOT_TIME,
+    timestamp: Date.now(),
+  });
+});
+
 app.get('/oauth-callback.js', (_req: Request, res: Response) => {
   res.type('application/javascript').setHeader('Cache-Control', 'no-store');
   return res.send(`(function(){try{var el=document.getElementById('oauth-payload');if(!el)return;var data=JSON.parse(el.textContent||'{}');localStorage.setItem('cfo_calendar_status',JSON.stringify(data));localStorage.setItem('cfo_calendar_auth_success',JSON.stringify(data));if(window.opener&&data.targetOrigin)window.opener.postMessage(data,data.targetOrigin);if(typeof BroadcastChannel!=='undefined'){var channel=new BroadcastChannel('cfo_google_calendar_auth');channel.postMessage(data);channel.close();}}catch(_e){}setTimeout(function(){window.close();},250);}());`);

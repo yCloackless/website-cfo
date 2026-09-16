@@ -70,6 +70,10 @@
 - **PWA & Offline (`public/sw.js`, `manifest.webmanifest`)**:
   - Service worker configurado com cache de recursos estáticos.
   - Suporte à instalação como aplicativo nativo (Desktop e Mobile).
+- **Mecanismo de Deploy Sem F5 (Padrão Amazon / Zero-Downtime)**:
+  - Rota de telemetria `GET /api/version` e Service Worker com ativação sob demanda (`SKIP_WAITING`).
+  - Toast tático não intrusivo (`UpdateNoticeModal.tsx`) para atualização em 1 clique sem interromper o cadete.
+  - Auto-recuperação defensiva via `vite:preloadError` contra erros 404 em chunks dinâmicos pós-deploy.
 
 ---
 

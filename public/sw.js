@@ -28,6 +28,13 @@ self.addEventListener('install', (event) => {
   );
 });
 
+// Listener para comando de atualização imediata enviado pelo frontend
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 // Ativação e limpeza de caches obsoletos
 self.addEventListener('activate', (event) => {
   event.waitUntil(
