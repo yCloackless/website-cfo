@@ -11,3 +11,12 @@ test('a recuperação de chunks do Vite é limitada a uma tentativa por sessão'
   assert.match(main, /event\.preventDefault\(\)/);
   assert.doesNotMatch(main, /sessionStorage\.removeItem\('cfo_vite_chunk_reload'\)/);
 });
+
+test('atualizações do service worker aguardam o comando explícito do usuário', async () => {
+  const serviceWorker = await readFile(new URL('public/sw.js', root), 'utf8');
+  const installHandler = serviceWorker.match(/self\.addEventListener\('install',[\s\S]*?\n\}\);/);
+
+  assert.ok(installHandler, 'O handler de instalação do service worker deve existir.');
+  assert.doesNotMatch(installHandler[0], /skipWaiting\(\)/);
+  assert.match(serviceWorker, /event\.data\.type === 'SKIP_WAITING'[\s\S]*?self\.skipWaiting\(\)/);
+});
