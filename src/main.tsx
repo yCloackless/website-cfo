@@ -28,14 +28,14 @@ if (typeof document !== 'undefined') {
   appUpdateService.init();
 
   // Auto-recuperação inteligente de chunks do Vite caso um novo deploy substitua os bundles
-  window.addEventListener('vite:preloadError', () => {
+  window.addEventListener('vite:preloadError', (event) => {
     const reloadKey = 'cfo_vite_chunk_reload';
     if (!sessionStorage.getItem(reloadKey)) {
       sessionStorage.setItem(reloadKey, 'true');
+      event.preventDefault();
       window.location.reload();
     }
   });
-  sessionStorage.removeItem('cfo_vite_chunk_reload');
 
   // Inicializa a telemetria passiva RUM (Core Web Vitals)
   initRumCollector();
