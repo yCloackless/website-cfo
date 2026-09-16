@@ -1130,17 +1130,17 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
         {/* 🧭 BREADCRUMB & NAVEGAÇÃO SUPERIOR                            */}
         {/* ------------------------------------------------------------- */}
         {viewMode !== 'study' && (
-          <div className="flex flex-wrap items-center justify-between gap-4 pb-2 border-b border-slate-800/40">
+          <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-slate-800/60">
             <nav className="flex items-center space-x-2 text-xs uppercase tracking-wider font-mono">
               <button
                 onClick={handleBackToSubjects}
-                className={`flex items-center gap-1.5 transition-colors ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all ${
                   viewMode === 'subjects'
-                    ? 'text-red-500 font-bold'
-                    : 'text-slate-400 hover:text-slate-200 cursor-pointer'
+                    ? 'bg-red-500/15 text-red-400 font-bold border border-red-500/30 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 cursor-pointer'
                 }`}
               >
-                <Layers3 className="w-4 h-4" />
+                <Layers3 className="w-4 h-4 text-red-500" />
                 <span>Disciplinas</span>
               </button>
 
@@ -1149,13 +1149,13 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                   <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
                   <button
                     onClick={handleBackToDecks}
-                    className={`transition-colors ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all ${
                       viewMode === 'decks'
-                        ? 'text-red-500 font-bold'
-                        : 'text-slate-400 hover:text-slate-200 cursor-pointer'
+                        ? 'bg-red-500/15 text-red-400 font-bold border border-red-500/30 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 cursor-pointer'
                     }`}
                   >
-                    {currentSubject.name}
+                    <span>{currentSubject.name}</span>
                   </button>
                 </>
               )}
@@ -1163,7 +1163,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
               {currentDeck && (
                 <>
                   <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
-                  <span className="text-red-500 font-bold">
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-500/15 text-red-400 font-bold border border-red-500/30 shadow-sm">
                     {currentDeck.name}
                   </span>
                 </>
@@ -1171,19 +1171,19 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
             </nav>
 
             {/* Ações Globais Rápidas */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <button
                 onClick={handleOpenAiGenerator}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-red-600/20 via-amber-600/20 to-indigo-600/20 border border-red-500/30 text-amber-300 hover:text-white hover:border-red-500/50 transition-all shadow-sm"
+                className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-red-600/20 via-amber-600/20 to-indigo-600/20 border border-red-500/40 text-amber-300 hover:text-white hover:border-red-500/60 transition-all shadow-md backdrop-blur-md cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
               >
-                <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
                 <span>Gerar com IA</span>
               </button>
 
               {viewMode === 'subjects' && (
                 <button
                   onClick={handleOpenCreateSubject}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors shadow-sm"
+                  className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white transition-all shadow-lg shadow-red-950/40 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                 >
                   <FolderPlus className="w-4 h-4" />
                   <span>+ Nova Disciplina</span>
@@ -1195,7 +1195,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                   {currentSubject && currentSubject.cardCount > 0 && (
                     <button
                       onClick={() => handleStartSubjectStudySession(currentSubject)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm"
+                      className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-md shadow-emerald-950/30 cursor-pointer"
                       title="Estudar todos os cartões desta matéria agendados para hoje"
                     >
                       <Play className="w-3.5 h-3.5 fill-current" />
@@ -1204,7 +1204,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                   )}
                   <button
                     onClick={handleOpenCreateDeck}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors shadow-sm"
+                    className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white transition-all shadow-lg shadow-red-950/40 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                   >
                     <PlusCircle className="w-4 h-4" />
                     <span>+ Novo Baralho</span>
@@ -1218,7 +1218,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                     <>
                       <button
                         onClick={() => handleStartStudySession(currentDeck, false)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm"
+                        className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-md shadow-emerald-950/30 cursor-pointer"
                         title="Revisar cartões de hoje com repetição espaçada SM-2"
                       >
                         <Play className="w-3.5 h-3.5 fill-current" />
@@ -1226,7 +1226,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                       </button>
                       <button
                         onClick={() => handleStartStudySession(currentDeck, true)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-600/90 hover:bg-amber-600 text-white transition-colors shadow-sm"
+                        className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl bg-amber-600/90 hover:bg-amber-500 text-white transition-all shadow-md cursor-pointer"
                         title="Modo Maratona: treine todos os cards do baralho sem alterar seus prazos de revisão"
                       >
                         <Zap className="w-3.5 h-3.5 fill-current" />
@@ -1234,7 +1234,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                       </button>
                       <button
                         onClick={() => handleExportCsv(currentDeck)}
-                        className="p-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors"
+                        className="p-2 rounded-xl border border-slate-700/80 bg-slate-800/60 hover:bg-slate-700 text-slate-300 hover:text-white transition-all"
                         title="Exportar baralho para planilha CSV"
                       >
                         <Download className="w-4 h-4" />
@@ -1243,7 +1243,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                   )}
                   <button
                     onClick={() => setIsBatchModalOpen(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors shadow-sm"
+                    className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all shadow-sm cursor-pointer"
                     title="Importar múltiplos cartões colando texto"
                   >
                     <UploadCloud className="w-4 h-4" />
@@ -1251,7 +1251,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                   </button>
                   <button
                     onClick={handleOpenAddCardModal}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors shadow-sm"
+                    className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white transition-all shadow-lg shadow-red-950/40 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                   >
                     <PlusCircle className="w-4 h-4" />
                     <span>+ Novo Card</span>
@@ -1266,44 +1266,44 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
         {/* 📊 BARRA DE ESTATÍSTICAS E RESUMO                            */}
         {/* ------------------------------------------------------------- */}
         {viewMode !== 'study' && globalStats && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className={`p-3.5 rounded-xl border flex items-center gap-3 ${isDark ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200'}`}>
-              <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-400">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+            <div className={`p-4 rounded-2xl border flex items-center gap-3.5 transition-all duration-200 ${isDark ? 'bg-slate-900/60 border-slate-800/80 backdrop-blur-md hover:border-blue-500/30 hover:bg-slate-900/80 shadow-md' : 'bg-white border-slate-200 shadow-sm'}`}>
+              <div className="p-3 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20 shadow-sm">
                 <Folder className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-mono">Disciplinas</p>
-                <p className="text-xl font-bold font-mono">{globalStats.totalSubjects}</p>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-mono font-medium">Disciplinas</p>
+                <p className="text-2xl font-black font-mono tracking-tight text-slate-100">{globalStats.totalSubjects}</p>
               </div>
             </div>
 
-            <div className={`p-3.5 rounded-xl border flex items-center gap-3 ${isDark ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200'}`}>
-              <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-400">
+            <div className={`p-4 rounded-2xl border flex items-center gap-3.5 transition-all duration-200 ${isDark ? 'bg-slate-900/60 border-slate-800/80 backdrop-blur-md hover:border-purple-500/30 hover:bg-slate-900/80 shadow-md' : 'bg-white border-slate-200 shadow-sm'}`}>
+              <div className="p-3 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20 shadow-sm">
                 <Layers className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-mono">Baralhos</p>
-                <p className="text-xl font-bold font-mono">{globalStats.totalDecks}</p>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-mono font-medium">Baralhos</p>
+                <p className="text-2xl font-black font-mono tracking-tight text-slate-100">{globalStats.totalDecks}</p>
               </div>
             </div>
 
-            <div className={`p-3.5 rounded-xl border flex items-center gap-3 ${isDark ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200'}`}>
-              <div className="p-2.5 rounded-lg bg-indigo-500/10 text-indigo-400">
+            <div className={`p-4 rounded-2xl border flex items-center gap-3.5 transition-all duration-200 ${isDark ? 'bg-slate-900/60 border-slate-800/80 backdrop-blur-md hover:border-indigo-500/30 hover:bg-slate-900/80 shadow-md' : 'bg-white border-slate-200 shadow-sm'}`}>
+              <div className="p-3 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-sm">
                 <Layers3 className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-mono">Flashcards</p>
-                <p className="text-xl font-bold font-mono">{globalStats.totalCards}</p>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-mono font-medium">Flashcards</p>
+                <p className="text-2xl font-black font-mono tracking-tight text-slate-100">{globalStats.totalCards}</p>
               </div>
             </div>
 
-            <div className={`p-3.5 rounded-xl border flex items-center gap-3 ${isDark ? 'bg-red-950/20 border-red-500/30' : 'bg-red-50 border-red-200'}`}>
-              <div className="p-2.5 rounded-lg bg-red-500/20 text-red-500">
-                <Flame className="w-5 h-5" />
+            <div className={`p-4 rounded-2xl border flex items-center gap-3.5 transition-all duration-200 ${isDark ? 'bg-gradient-to-br from-red-950/30 via-slate-900/60 to-slate-900/80 border-red-500/35 backdrop-blur-md shadow-lg shadow-red-950/20 hover:border-red-500/50' : 'bg-red-50 border-red-200 shadow-sm'}`}>
+              <div className="p-3 rounded-xl bg-red-500/20 text-red-400 border border-red-500/30 shadow-sm">
+                <Flame className="w-5 h-5 animate-pulse text-red-500" />
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-red-400 font-mono">Para Revisar Hoje</p>
-                <p className="text-xl font-bold font-mono text-red-500">{globalStats.dueToday}</p>
+                <p className="text-[10px] uppercase tracking-wider text-red-400 font-mono font-medium">Para Revisar Hoje</p>
+                <p className="text-2xl font-black font-mono tracking-tight text-red-500">{globalStats.dueToday}</p>
               </div>
             </div>
           </div>
@@ -1442,20 +1442,41 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                 ))}
               </div>
             ) : filteredSubjects.length === 0 ? (
-              <div className={`p-12 text-center rounded-2xl border ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center">
-                  <FolderPlus className="w-8 h-8" />
+              <div className={`p-10 sm:p-14 text-center rounded-3xl border relative overflow-hidden transition-all duration-300 ${isDark ? 'bg-gradient-to-b from-slate-900/80 via-slate-900/60 to-slate-950/90 border-slate-800/80 shadow-2xl backdrop-blur-md' : 'bg-white border-slate-200 shadow-xl'}`}>
+                {/* Ambient background glow */}
+                <div className="absolute -top-24 -left-24 w-64 h-64 bg-red-600/10 rounded-full blur-3xl pointer-events-none" />
+                <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+
+                <div className="relative z-10 max-w-lg mx-auto flex flex-col items-center">
+                  <div className="w-20 h-20 mb-5 rounded-2xl bg-gradient-to-br from-red-500/20 via-red-600/10 to-slate-900/80 border border-red-500/30 flex items-center justify-center text-red-400 shadow-xl shadow-red-950/40">
+                    <FolderPlus className="w-10 h-10" />
+                  </div>
+
+                  <h3 className="text-xl font-extrabold tracking-tight mb-2 text-slate-100">
+                    Seu Caderno de Erros & Flashcards está limpo
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-400 mb-8 leading-relaxed">
+                    Nenhuma disciplina cadastrada ainda. Crie suas matérias personalizadas do edital CFO CBMERJ para organizar baralhos e praticar repetição espaçada (SM-2).
+                  </p>
+
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    <button
+                      onClick={handleOpenCreateSubject}
+                      className="px-5 py-3 text-xs sm:text-sm font-bold rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white shadow-lg shadow-red-950/50 transition-all transform hover:-translate-y-0.5 active:translate-y-0 flex items-center gap-2 cursor-pointer"
+                    >
+                      <FolderPlus className="w-4 h-4" />
+                      <span>+ Criar Primeira Disciplina</span>
+                    </button>
+
+                    <button
+                      onClick={handleOpenAiGenerator}
+                      className="px-4 py-3 text-xs sm:text-sm font-semibold rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-200 border border-slate-700/80 hover:border-slate-600 transition-all flex items-center gap-2 cursor-pointer"
+                    >
+                      <Sparkles className="w-4 h-4 text-amber-400" />
+                      <span>Gerar com IA</span>
+                    </button>
+                  </div>
                 </div>
-                <h3 className="text-base font-bold mb-1">Nenhuma disciplina encontrada</h3>
-                <p className="text-xs text-slate-400 mb-6 max-w-md mx-auto">
-                  Crie sua primeira disciplina para organizar seus tópicos e baralhos no estilo Anki para o CFO CBMERJ.
-                </p>
-                <button
-                  onClick={handleOpenCreateSubject}
-                  className="px-4 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors"
-                >
-                  Criar Primeira Disciplina
-                </button>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
