@@ -32,8 +32,17 @@ import {
   BrainCircuit,
   Info,
   SlidersHorizontal,
+  Download,
+  UploadCloud,
+  CalendarDays,
+  AlertTriangle,
+  RefreshCw,
+  FileSpreadsheet,
+  Shuffle,
+  BarChart3,
 } from 'lucide-react';
 import { AppTheme } from '../types';
+import { ClozeLatexCard } from './flashcards/ClozeLatexCard';
 
 export interface SubjectWithStats {
   id: string;
@@ -147,6 +156,15 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   const [decks, setDecks] = useState<DeckWithStats[]>([]);
   const [cards, setCards] = useState<Flashcard[]>([]);
   const [globalStats, setGlobalStats] = useState<any>(null);
+  const [forecastStats, setForecastStats] = useState<{
+    dueToday: number;
+    dueTomorrow: number;
+    dueNext7Days: number;
+    dueNext30Days: number;
+    leechCount: number;
+    totalMastered: number;
+  } | null>(null);
+  const [heatmapStats, setHeatmapStats] = useState<Array<{ date: string; count: number }>>([]);
 
   // Estados de Carregamento
   const [loading, setLoading] = useState(true);
@@ -154,7 +172,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 
   // Busca e Filtros
   const [searchQuery, setSearchQuery] = useState('');
-  const [cardFilter, setCardFilter] = useState<'ALL' | 'DUE' | 'new' | 'learning' | 'review' | 'mastered'>('ALL');
+  const [cardFilter, setCardFilter] = useState<'ALL' | 'DUE' | 'LEECH' | 'new' | 'learning' | 'review' | 'mastered'>('ALL');
 
   // Modais de Criação e Edição
   const [isSubjectModalOpen, setIsSubjectModalOpen] = useState(false);
@@ -194,6 +212,11 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiPreviewCards, setAiPreviewCards] = useState<Array<{ question: string; answer: string }>>([]);
 
+  // Modal Importação em Lote
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+  const [batchInputText, setBatchInputText] = useState('');
+  const [batchImporting, setBatchImporting] = useState(false);
+
   // Modal Visualização de Foto em Tela Cheia
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
 
@@ -205,6 +228,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   const [isAnswerRevealed, setIsAnswerRevealed] = useState(false);
   const [studySessionFinished, setStudySessionFinished] = useState(false);
   const [studySessionStats, setStudySessionStats] = useState({ again: 0, hard: 0, good: 0, easy: 0, total: 0 });
+  const [cramMode, setCramMode] = useState(false); // Modo Maratona (Treino livre sem alterar SM-2)
 
   // Refs para inputs de imagem
   const questionFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -217,9 +241,11 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   const fetchGlobalData = useCallback(async () => {
     try {
       setLoading(true);
-      const [subjectsRes, statsRes] = await Promise.all([
+      const [subjectsRes, statsRes, forecastRes, heatmapRes] = await Promise.all([
         apiFetch('/api/flashcards/subjects'),
         apiFetch('/api/flashcards/stats'),
+        apiFetch('/api/flashcards/stats/forecast'),
+        apiFetch('/api/flashcards/stats/heatmap?days=30'),
       ]);
 
       if (subjectsRes.ok) {
@@ -229,6 +255,14 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
       if (statsRes.ok) {
         const data = await statsRes.json();
         setGlobalStats(data.stats || null);
+      }
+      if (forecastRes.ok) {
+        const fData = await forecastRes.json();
+        setForecastStats(fData.forecast || null);
+      }
+      if (heatmapRes.ok) {
+        const hData = await heatmapRes.json();
+        setHeatmapStats(hData.heatmap || []);
       }
     } catch (err) {
       showToast?.('Falha ao sincronizar flashcards com o servidor.', 'error');
@@ -785,18 +819,27 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   // 🎮 MODO DE ESTUDO FOCADO ESTILO ANKI (SM-2 SRS)
   // =========================================================================
 
-  const handleStartStudySession = async (deck: DeckWithStats) => {
+  const handleStartStudySession = async (deck: DeckWithStats, isCram = false) => {
     try {
-      const res = await apiFetch(`/api/flashcards/study-queue/${deck.id}`);
+      setCramMode(isCram);
+      const res = isCram
+        ? await apiFetch(`/api/flashcards/decks/${deck.id}/cards`)
+        : await apiFetch(`/api/flashcards/study-queue/${deck.id}`);
+
       if (!res.ok) {
         showToast?.('Falha ao carregar fila de estudo.', 'error');
         return;
       }
       const data = await res.json();
-      const queue: Flashcard[] = data.queue || [];
+      const queue: Flashcard[] = isCram ? data.cards || [] : data.queue || [];
 
       if (queue.length === 0) {
-        showToast?.('Nenhum flashcard disponível para estudar neste baralho.', 'info');
+        showToast?.(
+          isCram
+            ? 'Nenhum flashcard cadastrado neste baralho para praticar.'
+            : 'Nenhum flashcard pendente para hoje neste baralho.',
+          'info'
+        );
         return;
       }
 
@@ -812,6 +855,149 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     }
   };
 
+  // Iniciar sessão de estudo de todos os baralhos de uma disciplina
+  const handleStartSubjectStudySession = async (subject: SubjectWithStats) => {
+    try {
+      setCramMode(false);
+      const res = await apiFetch(`/api/flashcards/study-queue/subject/${subject.id}`);
+      if (!res.ok) {
+        showToast?.('Falha ao carregar fila de estudo da disciplina.', 'error');
+        return;
+      }
+      const data = await res.json();
+      const queue: Flashcard[] = data.queue || [];
+
+      if (queue.length === 0) {
+        showToast?.('Nenhum cartão pendente para hoje nesta disciplina.', 'info');
+        return;
+      }
+
+      setStudyQueue(queue);
+      setCurrentCardIndex(0);
+      setIsAnswerRevealed(false);
+      setStudySessionFinished(false);
+      setStudySessionStats({ again: 0, hard: 0, good: 0, easy: 0, total: queue.length });
+      setCurrentSubject(subject);
+      setCurrentDeck(null);
+      setViewMode('study');
+    } catch {
+      showToast?.('Erro ao carregar estudo da disciplina.', 'error');
+    }
+  };
+
+  // Importação em Lote
+  const handleImportBatch = async () => {
+    if (!currentDeck || !batchInputText.trim()) return;
+
+    try {
+      setBatchImporting(true);
+      const lines = batchInputText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      const parsedCards: Array<{ front: string; back: string }> = [];
+
+      for (const line of lines) {
+        let sep = ';';
+        if (line.includes('\t')) sep = '\t';
+        else if (line.includes('---')) sep = '---';
+        else if (line.includes(';')) sep = ';';
+        else if (line.includes('|')) sep = '|';
+
+        const parts = line.split(sep);
+        if (parts.length >= 2) {
+          const front = parts[0].trim();
+          const back = parts.slice(1).join(sep).trim();
+          if (front && back) {
+            parsedCards.push({ front, back });
+          }
+        }
+      }
+
+      if (parsedCards.length === 0) {
+        showToast?.('Nenhum cartão válido encontrado. Separe a pergunta e a resposta com ";" ou Tabulação.', 'error');
+        return;
+      }
+
+      const res = await apiFetch(`/api/flashcards/decks/${currentDeck.id}/cards/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cards: parsedCards }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        showToast?.(errData.message || 'Falha ao importar cartões em lote.', 'error');
+        return;
+      }
+
+      const data = await res.json();
+      showToast?.(`${data.count || parsedCards.length} flashcards importados com sucesso!`, 'success');
+      setIsBatchModalOpen(false);
+      setBatchInputText('');
+      void fetchCardsForDeck(currentDeck.id);
+      void fetchGlobalData();
+    } catch {
+      showToast?.('Erro de conexão ao importar cartões.', 'error');
+    } finally {
+      setBatchImporting(false);
+    }
+  };
+
+  // Exportação para CSV
+  const handleExportCsv = (deck: DeckWithStats) => {
+    if (cards.length === 0) {
+      showToast?.('Nenhum cartão para exportar.', 'info');
+      return;
+    }
+
+    const csvRows = ['Pergunta;Resposta;Status;IntervaloDias;Lapsos'];
+    for (const c of cards) {
+      const frontEsc = `"${(c.front || '').replace(/"/g, '""')}"`;
+      const backEsc = `"${(c.back || '').replace(/"/g, '""')}"`;
+      csvRows.push(`${frontEsc};${backEsc};${c.status};${c.intervalDays};${c.lapses}`);
+    }
+
+    const blob = new Blob(['\uFEFF' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `flashcards_${deck.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast?.('Arquivo CSV exportado com sucesso!', 'success');
+  };
+
+  // Exportação para JSON
+  const handleExportJson = (deck: DeckWithStats) => {
+    if (cards.length === 0) {
+      showToast?.('Nenhum cartão para exportar.', 'info');
+      return;
+    }
+
+    const exportData = {
+      deckName: deck.name,
+      exportedAt: new Date().toISOString(),
+      totalCards: cards.length,
+      cards: cards.map((c) => ({
+        front: c.front,
+        back: c.back,
+        frontImage: c.frontImage,
+        backImage: c.backImage,
+        status: c.status,
+        intervalDays: c.intervalDays,
+        easeFactor: c.easeFactor,
+        lapses: c.lapses,
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `flashcards_${deck.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast?.('Backup JSON gerado!', 'success');
+  };
+
   const handleRevealAnswer = useCallback(() => {
     setIsAnswerRevealed(true);
   }, []);
@@ -823,12 +1009,14 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
       const currentCard = studyQueue[currentCardIndex];
 
       try {
-        // Envia avaliação para o backend (cálculo de SM-2 e persistência em flashcard_reviews)
-        void apiFetch(`/api/flashcards/cards/${currentCard.id}/review`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rating }),
-        });
+        // Se NÃO estiver no modo maratona, persiste a revisão SM-2 no backend
+        if (!cramMode) {
+          void apiFetch(`/api/flashcards/cards/${currentCard.id}/review`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rating }),
+          });
+        }
 
         setStudySessionStats((prev) => ({
           ...prev,
@@ -853,7 +1041,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
         showToast?.('Erro ao registrar avaliação de estudo.', 'error');
       }
     },
-    [studyQueue, currentCardIndex, showToast]
+    [studyQueue, currentCardIndex, cramMode, showToast]
   );
 
   // Atalhos de teclado no modo estudo (Anki padrão)
@@ -920,6 +1108,8 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
       let matchesFilter = true;
       if (cardFilter === 'DUE') {
         matchesFilter = c.nextReviewAt <= today;
+      } else if (cardFilter === 'LEECH') {
+        matchesFilter = c.lapses >= 4;
       } else if (cardFilter !== 'ALL') {
         matchesFilter = c.status === cardFilter;
       }
@@ -1001,26 +1191,64 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
               )}
 
               {viewMode === 'decks' && (
-                <button
-                  onClick={handleOpenCreateDeck}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors shadow-sm"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>+ Novo Baralho</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  {currentSubject && currentSubject.cardCount > 0 && (
+                    <button
+                      onClick={() => handleStartSubjectStudySession(currentSubject)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm"
+                      title="Estudar todos os cartões desta matéria agendados para hoje"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Estudar Toda a Matéria</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={handleOpenCreateDeck}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors shadow-sm"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span>+ Novo Baralho</span>
+                  </button>
+                </div>
               )}
 
               {viewMode === 'cards' && (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {currentDeck && currentDeck.cardCount > 0 && (
-                    <button
-                      onClick={() => handleStartStudySession(currentDeck)}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      <span>Estudar Agora</span>
-                    </button>
+                    <>
+                      <button
+                        onClick={() => handleStartStudySession(currentDeck, false)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm"
+                        title="Revisar cartões de hoje com repetição espaçada SM-2"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span>Estudar Hoje</span>
+                      </button>
+                      <button
+                        onClick={() => handleStartStudySession(currentDeck, true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-600/90 hover:bg-amber-600 text-white transition-colors shadow-sm"
+                        title="Modo Maratona: treine todos os cards do baralho sem alterar seus prazos de revisão"
+                      >
+                        <Zap className="w-3.5 h-3.5 fill-current" />
+                        <span>Treino Livre</span>
+                      </button>
+                      <button
+                        onClick={() => handleExportCsv(currentDeck)}
+                        className="p-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors"
+                        title="Exportar baralho para planilha CSV"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                    </>
                   )}
+                  <button
+                    onClick={() => setIsBatchModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors shadow-sm"
+                    title="Importar múltiplos cartões colando texto"
+                  >
+                    <UploadCloud className="w-4 h-4" />
+                    <span>Importar Lote</span>
+                  </button>
                   <button
                     onClick={handleOpenAddCardModal}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors shadow-sm"
@@ -1076,6 +1304,93 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-red-400 font-mono">Para Revisar Hoje</p>
                 <p className="text-xl font-bold font-mono text-red-500">{globalStats.dueToday}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------- */}
+        {/* 📈 PREVISÃO DE REVISÕES & HEATMAP DE CONSTÂNCIA               */}
+        {/* ------------------------------------------------------------- */}
+        {viewMode !== 'study' && (forecastStats || heatmapStats.length > 0) && (
+          <div className={`p-4 rounded-2xl border space-y-4 ${isDark ? 'bg-slate-900/40 border-slate-800/80' : 'bg-white border-slate-200'}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-red-500" />
+                <span className="text-xs font-bold tracking-wide font-mono uppercase">Previsão de Carga & Constância</span>
+              </div>
+              {forecastStats?.leechCount ? (
+                <button
+                  onClick={() => setCardFilter('LEECH')}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 transition-colors cursor-pointer"
+                  title="Clique para filtrar apenas cartões com alto índice de erro"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{forecastStats.leechCount} {forecastStats.leechCount === 1 ? 'cartão sanguessuga (erros frequentes)' : 'cartões sanguessugas (erros frequentes)'}</span>
+                </button>
+              ) : null}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+              {/* Previsão de Dias */}
+              {forecastStats && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Vencimento de Revisões</p>
+                  <div className="grid grid-cols-4 gap-2 text-center font-mono">
+                    <div className="p-2 rounded-xl bg-red-500/10 border border-red-500/20">
+                      <p className="text-base font-bold text-red-400">{forecastStats.dueToday}</p>
+                      <p className="text-[10px] text-slate-400">Hoje</p>
+                    </div>
+                    <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                      <p className="text-base font-bold text-amber-400">{forecastStats.dueTomorrow}</p>
+                      <p className="text-[10px] text-slate-400">Amanhã</p>
+                    </div>
+                    <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                      <p className="text-base font-bold text-blue-400">{forecastStats.dueNext7Days}</p>
+                      <p className="text-[10px] text-slate-400">7 Dias</p>
+                    </div>
+                    <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                      <p className="text-base font-bold text-purple-400">{forecastStats.dueNext30Days}</p>
+                      <p className="text-[10px] text-slate-400">30 Dias</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Heatmap de Constância dos Últimos 30 Dias */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                  <span>Histórico de Revisões (Últimos 30 Dias)</span>
+                  <span className="text-slate-500 font-normal">
+                    {heatmapStats.reduce((acc, curr) => acc + curr.count, 0)} concluídas
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-slate-950/40 border border-slate-800/60 items-center justify-start min-h-[44px]">
+                  {Array.from({ length: 30 }).map((_, i) => {
+                    const d = new Date();
+                    d.setDate(d.getDate() - (29 - i));
+                    const dateStr = d.toISOString().split('T')[0];
+                    const found = heatmapStats.find((h) => h.date === dateStr);
+                    const count = found?.count || 0;
+                    return (
+                      <div
+                        key={dateStr}
+                        title={`${dateStr}: ${count} ${count === 1 ? 'revisão' : 'revisões'}`}
+                        className={`w-3.5 h-3.5 rounded-sm transition-all cursor-pointer ${
+                          count === 0
+                            ? isDark
+                              ? 'bg-slate-800/60 hover:bg-slate-700'
+                              : 'bg-slate-200 hover:bg-slate-300'
+                            : count < 5
+                            ? 'bg-emerald-600/50 hover:bg-emerald-500/60'
+                            : count < 15
+                            ? 'bg-emerald-500 hover:bg-emerald-400'
+                            : 'bg-emerald-400 shadow-sm shadow-emerald-500/50'
+                        }`}
+                      />
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
@@ -1471,6 +1786,18 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                 >
                   Dominados
                 </button>
+                <button
+                  onClick={() => setCardFilter('LEECH')}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${
+                    cardFilter === 'LEECH'
+                      ? 'bg-rose-600 text-white font-bold'
+                      : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20'
+                  }`}
+                  title="Cartões com 4 ou mais erros"
+                >
+                  <AlertTriangle className="w-3 h-3" />
+                  <span>Sanguessugas</span>
+                </button>
               </div>
             </div>
 
@@ -1484,7 +1811,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
             ) : filteredCards.length === 0 ? (
               <div className={`p-12 text-center rounded-2xl border ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
                 <p className="text-sm font-bold mb-1">Nenhum flashcard encontrado neste filtro</p>
-                <p className="text-xs text-slate-400 mb-4">Adicione um novo cartão ou gere uma bateria de 20 com IA.</p>
+                <p className="text-xs text-slate-400 mb-4">Adicione um novo cartão ou gere uma bateria com IA.</p>
                 <button
                   onClick={handleOpenAddCardModal}
                   className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white"
@@ -1507,7 +1834,9 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                           <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 block mb-0.5">
                             Pergunta #{idx + 1}
                           </span>
-                          <p className="text-sm font-semibold text-slate-200 whitespace-pre-wrap">{card.front}</p>
+                          <div className="text-sm font-semibold text-slate-200">
+                            <ClozeLatexCard text={card.front} isAnswer={false} />
+                          </div>
                           {card.frontImage && (
                             <div className="mt-2 inline-block">
                               <img
@@ -1524,7 +1853,9 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                           <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-500 block mb-0.5">
                             Resposta
                           </span>
-                          <p className="text-sm text-slate-300 whitespace-pre-wrap">{card.back}</p>
+                          <div className="text-sm text-slate-300">
+                            <ClozeLatexCard text={card.back} isAnswer={true} />
+                          </div>
                           {card.backImage && (
                             <div className="mt-2 inline-block">
                               <img
@@ -1540,6 +1871,12 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 
                       {/* Metadados e Ações */}
                       <div className="flex flex-col items-end gap-2 shrink-0">
+                        {card.lapses >= 4 && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" /> {card.lapses} erros
+                          </span>
+                        )}
+
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider ${
                             card.status === 'mastered'
@@ -1640,15 +1977,47 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
             ) : (
               studyQueue[currentCardIndex] && (
                 <div className="space-y-4">
-                  {/* Barra de Progresso e Saída */}
-                  <div className="flex items-center justify-between text-xs font-mono text-slate-400">
+                  {/* Barra Superior de Controles e Status do Estudo */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-slate-400">
                     <button
                       onClick={handleBackToDecks}
-                      className="flex items-center gap-1 hover:text-slate-200 transition-colors"
+                      className="flex items-center gap-1 hover:text-slate-200 transition-colors cursor-pointer"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />
                       <span>Sair (Esc)</span>
                     </button>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCramMode(!cramMode)}
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors flex items-center gap-1 cursor-pointer ${
+                          cramMode
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        }`}
+                        title="Clique para alternar entre repetição espaçada e treino livre"
+                      >
+                        {cramMode ? (
+                          <>
+                            <Zap className="w-3 h-3 text-amber-400 fill-current" />
+                            <span>Modo Maratona (Treino Livre)</span>
+                          </>
+                        ) : (
+                          <>
+                            <BrainCircuit className="w-3 h-3 text-emerald-400" />
+                            <span>Repetição Espaçada SM-2</span>
+                          </>
+                        )}
+                      </button>
+
+                      {studyQueue[currentCardIndex]?.lapses >= 4 && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1 animate-pulse">
+                          <AlertTriangle className="w-3 h-3" /> Sanguessuga ({studyQueue[currentCardIndex].lapses} erros)
+                        </span>
+                      )}
+                    </div>
+
                     <span>
                       Cartão {currentCardIndex + 1} de {studyQueue.length}
                     </span>
@@ -1662,110 +2031,143 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                     />
                   </div>
 
-                  {/* Cartão Flashcard Anki */}
-                  <div
-                    className={`p-8 rounded-3xl border min-h-[320px] flex flex-col justify-between transition-all duration-300 shadow-xl ${
-                      isDark
-                        ? 'bg-slate-900/90 border-slate-800 shadow-slate-950/40'
-                        : 'bg-white border-slate-200 shadow-slate-200/50'
-                    }`}
-                  >
-                    {/* FRENTE */}
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-widest text-slate-500">
-                        <span>Frente // Pergunta</span>
-                        <span className="text-slate-600">{currentDeck?.name}</span>
-                      </div>
-
-                      <div className="text-lg sm:text-xl font-semibold text-slate-100 whitespace-pre-wrap leading-relaxed">
-                        {studyQueue[currentCardIndex].front}
-                      </div>
-
-                      {studyQueue[currentCardIndex].frontImage && (
-                        <div className="mt-3">
-                          <img
-                            src={studyQueue[currentCardIndex].frontImage!}
-                            alt="Imagem da Pergunta"
-                            onClick={() => setExpandedImage(studyQueue[currentCardIndex].frontImage || null)}
-                            className="max-h-52 rounded-xl border border-slate-700 object-contain cursor-pointer hover:opacity-90 transition-opacity"
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* VERSO REVELADO OU BOTÃO DE MOSTRAR */}
-                    <div className="pt-6 border-t border-slate-800/60 mt-6">
-                      {!isAnswerRevealed ? (
-                        <button
-                          onClick={handleRevealAnswer}
-                          className="w-full py-4 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm tracking-wide transition-all shadow-lg shadow-red-950/30 flex items-center justify-center gap-2"
-                        >
-                          <span>Mostrar Resposta</span>
-                          <kbd className="text-[10px] bg-red-800/60 px-1.5 py-0.5 rounded text-red-200 font-mono">
-                            Espaço
-                          </kbd>
-                        </button>
-                      ) : (
-                        <div className="space-y-6">
-                          <div className="space-y-3">
-                            <span className="text-[11px] font-mono uppercase tracking-widest text-emerald-400 block">
-                              Verso // Resposta
-                            </span>
-                            <div className="text-base sm:text-lg text-slate-200 whitespace-pre-wrap leading-relaxed">
-                              {studyQueue[currentCardIndex].back}
-                            </div>
-                            {studyQueue[currentCardIndex].backImage && (
-                              <div className="mt-3">
-                                <img
-                                  src={studyQueue[currentCardIndex].backImage!}
-                                  alt="Imagem da Resposta"
-                                  onClick={() => setExpandedImage(studyQueue[currentCardIndex].backImage || null)}
-                                  className="max-h-52 rounded-xl border border-slate-700 object-contain cursor-pointer hover:opacity-90 transition-opacity"
-                                />
-                              </div>
-                            )}
+                  {/* Cartão Flashcard Anki com Efeito 3D Flip */}
+                  <div className="w-full min-h-[380px]" style={{ perspective: '1200px' }}>
+                    <div
+                      className="relative w-full min-h-[380px] rounded-3xl transition-transform duration-500"
+                      style={{
+                        transformStyle: 'preserve-3d',
+                        transform: isAnswerRevealed ? 'rotateY(180deg)' : 'rotateY(0deg)',
+                      }}
+                    >
+                      {/* LADO FRENTE (PERGUNTA) */}
+                      <div
+                        className={`p-8 rounded-3xl border min-h-[380px] flex flex-col justify-between shadow-xl transition-all ${
+                          isDark
+                            ? 'bg-slate-900/90 border-slate-800 shadow-slate-950/40'
+                            : 'bg-white border-slate-200 shadow-slate-200/50'
+                        } ${isAnswerRevealed ? 'pointer-events-none' : ''}`}
+                        style={{ backfaceVisibility: 'hidden' }}
+                      >
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-widest text-slate-500">
+                            <span>Frente // Pergunta</span>
+                            <span className="text-slate-400 font-bold">{currentDeck?.name || currentSubject?.name || 'Geral'}</span>
                           </div>
 
-                          {/* 4 Botões Anki SM-2 */}
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-4">
+                          <div className="text-lg sm:text-xl font-semibold text-slate-100 leading-relaxed">
+                            <ClozeLatexCard text={studyQueue[currentCardIndex].front} isAnswer={false} />
+                          </div>
+
+                          {studyQueue[currentCardIndex].frontImage && (
+                            <div className="mt-3">
+                              <img
+                                src={studyQueue[currentCardIndex].frontImage!}
+                                alt="Imagem da Pergunta"
+                                onClick={() => setExpandedImage(studyQueue[currentCardIndex].frontImage || null)}
+                                className="max-h-52 rounded-xl border border-slate-700 object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="pt-6 border-t border-slate-800/60 mt-6">
+                          <button
+                            type="button"
+                            onClick={handleRevealAnswer}
+                            className="w-full py-4 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm tracking-wide transition-all shadow-lg shadow-red-950/30 flex items-center justify-center gap-2 cursor-pointer"
+                          >
+                            <span>Mostrar Resposta</span>
+                            <kbd className="text-[10px] bg-red-800/60 px-1.5 py-0.5 rounded text-red-200 font-mono">
+                              Espaço
+                            </kbd>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* LADO VERSO (RESPOSTA - GIRADO 180 DEG) */}
+                      <div
+                        className={`p-8 rounded-3xl border min-h-[380px] flex flex-col justify-between shadow-xl transition-all absolute inset-0 ${
+                          isDark
+                            ? 'bg-slate-900/95 border-emerald-900/40 shadow-slate-950/50'
+                            : 'bg-white border-emerald-200 shadow-slate-200/60'
+                        } ${!isAnswerRevealed ? 'pointer-events-none' : ''}`}
+                        style={{
+                          backfaceVisibility: 'hidden',
+                          transform: 'rotateY(180deg)',
+                        }}
+                      >
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-widest text-emerald-400">
+                            <span>Verso // Resposta</span>
+                            <span className="text-slate-400 font-mono text-[10px]">
+                              {cramMode
+                                ? '⚡ Treino Livre (Sem alterar SM-2)'
+                                : `Intervalo atual: ${studyQueue[currentCardIndex].intervalDays}d`}
+                            </span>
+                          </div>
+
+                          <div className="text-base sm:text-lg text-slate-200 leading-relaxed">
+                            <ClozeLatexCard text={studyQueue[currentCardIndex].back} isAnswer={true} />
+                          </div>
+
+                          {studyQueue[currentCardIndex].backImage && (
+                            <div className="mt-3">
+                              <img
+                                src={studyQueue[currentCardIndex].backImage!}
+                                alt="Imagem da Resposta"
+                                onClick={() => setExpandedImage(studyQueue[currentCardIndex].backImage || null)}
+                                className="max-h-52 rounded-xl border border-slate-700 object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 4 Botões Anki SM-2 */}
+                        <div className="pt-6 border-t border-slate-800/60 mt-6">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                             <button
+                              type="button"
                               onClick={() => void handleRateCard(1)}
-                              className="p-3 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 flex flex-col items-center gap-1 transition-all"
+                              className="p-3 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 flex flex-col items-center gap-1 transition-all cursor-pointer"
                             >
                               <span className="text-xs font-bold">Errei</span>
-                              <span className="text-[10px] font-mono opacity-80">&lt; 10m</span>
+                              <span className="text-[10px] font-mono opacity-80">{cramMode ? 'Rever' : '< 10m'}</span>
                               <kbd className="text-[9px] bg-rose-950/60 px-1.5 py-0.5 rounded mt-0.5">1</kbd>
                             </button>
 
                             <button
+                              type="button"
                               onClick={() => void handleRateCard(2)}
-                              className="p-3 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-300 flex flex-col items-center gap-1 transition-all"
+                              className="p-3 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-300 flex flex-col items-center gap-1 transition-all cursor-pointer"
                             >
                               <span className="text-xs font-bold">Difícil</span>
-                              <span className="text-[10px] font-mono opacity-80">1 dia</span>
+                              <span className="text-[10px] font-mono opacity-80">{cramMode ? 'Praticar' : '1 dia'}</span>
                               <kbd className="text-[9px] bg-amber-950/60 px-1.5 py-0.5 rounded mt-0.5">2</kbd>
                             </button>
 
                             <button
+                              type="button"
                               onClick={() => void handleRateCard(3)}
-                              className="p-3 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 flex flex-col items-center gap-1 transition-all"
+                              className="p-3 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 flex flex-col items-center gap-1 transition-all cursor-pointer"
                             >
                               <span className="text-xs font-bold">Bom</span>
-                              <span className="text-[10px] font-mono opacity-80">3 dias</span>
+                              <span className="text-[10px] font-mono opacity-80">{cramMode ? 'Acertei' : '3 dias'}</span>
                               <kbd className="text-[9px] bg-blue-950/60 px-1.5 py-0.5 rounded mt-0.5">3</kbd>
                             </button>
 
                             <button
+                              type="button"
                               onClick={() => void handleRateCard(4)}
-                              className="p-3 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 flex flex-col items-center gap-1 transition-all"
+                              className="p-3 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 flex flex-col items-center gap-1 transition-all cursor-pointer"
                             >
                               <span className="text-xs font-bold">Fácil</span>
-                              <span className="text-[10px] font-mono opacity-80">6 dias</span>
+                              <span className="text-[10px] font-mono opacity-80">{cramMode ? 'Dominado' : '6 dias'}</span>
                               <kbd className="text-[9px] bg-emerald-950/60 px-1.5 py-0.5 rounded mt-0.5">4</kbd>
                             </button>
                           </div>
                         </div>
-                      )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2077,6 +2479,73 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Importação em Lote */}
+        {isBatchModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+            <div className={`w-full max-w-xl p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} space-y-4 shadow-2xl`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <UploadCloud className="w-5 h-5 text-red-500" />
+                  <h3 className="font-bold text-base">Importação em Lote para {currentDeck?.name}</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsBatchModalOpen(false)}
+                  className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-400">
+                Cole suas perguntas e respostas linha por linha. O sistema aceita como separador <strong>ponto-e-vírgula (;)</strong>, <strong>tabulação</strong> ou <strong>três traços (---)</strong>.
+              </p>
+
+              <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 font-mono text-[11px] text-slate-400 leading-relaxed">
+                <span className="text-slate-500 font-bold block mb-1">// Exemplo de formato:</span>
+                Ano de criação do CBMERJ? ; 1856<br />
+                Equação de Torricelli? ; v² = v0² + 2aΔs<br />
+                Capital do Estado do RJ? ; Rio de Janeiro
+              </div>
+
+              <textarea
+                rows={8}
+                placeholder="Cole suas linhas aqui..."
+                value={batchInputText}
+                onChange={(e) => setBatchInputText(e.target.value)}
+                className={`w-full p-3 rounded-xl border text-xs font-mono transition-all ${
+                  isDark
+                    ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-red-500 focus:ring-1 focus:ring-red-500'
+                    : 'bg-white border-slate-200 text-slate-900 focus:border-red-500 focus:ring-1 focus:ring-red-500'
+                }`}
+              />
+
+              <div className="flex items-center justify-between pt-2">
+                <span className="text-xs font-mono text-slate-400">
+                  {batchInputText.split(/\r?\n/).filter((l) => l.trim().includes(';') || l.trim().includes('\t') || l.trim().includes('---')).length} cartões identificados
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsBatchModalOpen(false)}
+                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={batchImporting || !batchInputText.trim()}
+                    onClick={handleImportBatch}
+                    className="px-4 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white transition-colors cursor-pointer"
+                  >
+                    {batchImporting ? 'Importando...' : 'Importar Cartões'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}

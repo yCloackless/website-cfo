@@ -6658,6 +6658,29 @@ app.get('/api/flashcards/stats', requireUserAuth, (req: Request, res: Response) 
   }
 });
 
+// Previsão de carga de revisões (Forecast)
+app.get('/api/flashcards/stats/forecast', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const forecast = flashcardRepoInstance.getForecastStats(user.userId);
+    return res.json({ success: true, forecast });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'GET_FORECAST_STATS_FAILED', message: 'Falha ao calcular previsão de revisões.' });
+  }
+});
+
+// Histórico de revisões para Heatmap de constância
+app.get('/api/flashcards/stats/heatmap', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const days = req.query.days ? Math.min(365, Math.max(7, Number(req.query.days))) : 30;
+    const heatmap = flashcardRepoInstance.getHeatmapStats(user.userId, days);
+    return res.json({ success: true, heatmap, days });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'GET_HEATMAP_STATS_FAILED', message: 'Falha ao obter mapa de constância de revisões.' });
+  }
+});
+
 // --- DISCIPLINAS (SUBJECTS) ---
 
 app.get('/api/flashcards/subjects', requireUserAuth, (req: Request, res: Response) => {
@@ -7048,6 +7071,73 @@ app.get('/api/flashcards/study-queue/:deckId', requireUserAuth, (req: Request, r
     return res.json({ success: true, deck, queue, total: queue.length });
   } catch (err: any) {
     return res.status(500).json({ error: 'STUDY_QUEUE_FAILED', message: 'Falha ao carregar fila de estudo.' });
+  }
+});
+
+// Fila de Estudo Consolidada da Disciplina
+app.get('/api/flashcards/study-queue/subject/:subjectId', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const subject = flashcardRepoInstance.getSubject(user.userId, req.params.subjectId);
+    if (!subject) {
+      return res.status(404).json({ error: 'SUBJECT_NOT_FOUND', message: 'Disciplina não encontrada.' });
+    }
+    const limit = req.query.limit ? Math.min(150, Math.max(1, Number(req.query.limit))) : 100;
+    const queue = flashcardRepoInstance.getSubjectStudyQueue(user.userId, subject.id, limit);
+    return res.json({ success: true, subject, queue, cards: queue, total: queue.length });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'SUBJECT_STUDY_QUEUE_FAILED', message: 'Falha ao carregar fila de estudo da disciplina.' });
+  }
+});
+
+// Importação / Criação em Lote de Flashcards
+app.post('/api/flashcards/decks/:deckId/cards/batch', requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { cards } = req.body || {};
+
+    if (!Array.isArray(cards) || cards.length === 0) {
+      return res.status(400).json({ error: 'INVALID_CARDS_LIST', message: 'Envie uma lista com ao menos 1 cartão.' });
+    }
+
+    if (cards.length > 100) {
+      return res.status(400).json({ error: 'BATCH_TOO_LARGE', message: 'O limite máximo por importação é de 100 cartões.' });
+    }
+
+    // Valida e sanitiza cada item
+    const validItems: Array<{ front: string; back: string; frontImage?: string | null; backImage?: string | null }> = [];
+    for (const item of cards) {
+      const front = typeof item.front === 'string' ? item.front.trim() : '';
+      const back = typeof item.back === 'string' ? item.back.trim() : '';
+      const frontImage = typeof item.frontImage === 'string' ? item.frontImage : null;
+      const backImage = typeof item.backImage === 'string' ? item.backImage : null;
+
+      if (!front && !frontImage) continue;
+      if (!back && !backImage) continue;
+
+      validItems.push({
+        front: front || '(Imagem)',
+        back: back || '(Imagem)',
+        frontImage,
+        backImage,
+      });
+    }
+
+    if (validItems.length === 0) {
+      return res.status(400).json({ error: 'NO_VALID_CARDS', message: 'Nenhum cartão válido foi encontrado com pergunta e resposta preenchidas.' });
+    }
+
+    try {
+      const createdCards = flashcardRepoInstance.createCardsBatch(user.userId, req.params.deckId, validItems);
+      return res.status(201).json({ success: true, count: createdCards.length, cards: createdCards });
+    } catch (batchErr: any) {
+      if (batchErr.message === 'DECK_NOT_FOUND') {
+        return res.status(404).json({ error: 'DECK_NOT_FOUND', message: 'Baralho não encontrado ou não pertence a você.' });
+      }
+      throw batchErr;
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: 'BATCH_IMPORT_FAILED', message: 'Falha ao importar cartões em lote.' });
   }
 });
 

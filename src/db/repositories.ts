@@ -4437,6 +4437,7 @@ export class FlashcardRepository {
     learningCards: number;
     reviewCards: number;
     masteredCards: number;
+    leechCards: number;
   } {
     const today = new Date().toISOString().split('T')[0];
 
@@ -4449,7 +4450,8 @@ export class FlashcardRepository {
         COUNT(CASE WHEN status = 'new' THEN 1 END) as new_cards,
         COUNT(CASE WHEN status = 'learning' THEN 1 END) as learning_cards,
         COUNT(CASE WHEN status = 'review' THEN 1 END) as review_cards,
-        COUNT(CASE WHEN status = 'mastered' THEN 1 END) as mastered_cards
+        COUNT(CASE WHEN status = 'mastered' THEN 1 END) as mastered_cards,
+        COUNT(CASE WHEN lapses >= 4 THEN 1 END) as leech_cards
       FROM flashcards
       WHERE user_id = ?
     `).get(today, userId) as any;
@@ -4463,7 +4465,180 @@ export class FlashcardRepository {
       learningCards: Number(cardsRow?.learning_cards || 0),
       reviewCards: Number(cardsRow?.review_cards || 0),
       masteredCards: Number(cardsRow?.mastered_cards || 0),
+      leechCards: Number(cardsRow?.leech_cards || 0),
     };
+  }
+
+  /**
+   * Previsão de carga de revisões (hoje, amanhã, 7 dias, 30 dias) e sanguessugas
+   */
+  public getForecastStats(userId: string): {
+    dueToday: number;
+    dueTomorrow: number;
+    dueNext7Days: number;
+    dueNext30Days: number;
+    leechCount: number;
+    totalMastered: number;
+  } {
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+
+    const row = this.db.prepare(`
+      SELECT
+        COUNT(CASE WHEN next_review_at <= date(?1) THEN 1 END) as due_today,
+        COUNT(CASE WHEN next_review_at = date(?1, '+1 day') THEN 1 END) as due_tomorrow,
+        COUNT(CASE WHEN next_review_at BETWEEN date(?1, '+2 day') AND date(?1, '+7 day') THEN 1 END) as due_7days,
+        COUNT(CASE WHEN next_review_at BETWEEN date(?1, '+8 day') AND date(?1, '+30 day') THEN 1 END) as due_30days,
+        COUNT(CASE WHEN lapses >= 4 THEN 1 END) as leech_count,
+        COUNT(CASE WHEN status = 'mastered' THEN 1 END) as total_mastered
+      FROM flashcards
+      WHERE user_id = ?2
+    `).get(todayStr, userId) as any;
+
+    return {
+      dueToday: Number(row?.due_today || 0),
+      dueTomorrow: Number(row?.due_tomorrow || 0),
+      dueNext7Days: Number(row?.due_7days || 0),
+      dueNext30Days: Number(row?.due_30days || 0),
+      leechCount: Number(row?.leech_count || 0),
+      totalMastered: Number(row?.total_mastered || 0),
+    };
+  }
+
+  /**
+   * Histórico de revisões para Heatmap de constância (últimos N dias)
+   */
+  public getHeatmapStats(userId: string, days = 30): Array<{ date: string; count: number }> {
+    const rows = this.db.prepare(`
+      SELECT 
+        date(reviewed_at) as review_date,
+        COUNT(*) as review_count
+      FROM flashcard_reviews
+      WHERE user_id = ? AND reviewed_at >= datetime('now', '-' || ? || ' days')
+      GROUP BY date(reviewed_at)
+      ORDER BY review_date ASC
+    `).all(userId, Math.max(1, Math.min(days, 365))) as any[];
+
+    return rows.map((r) => ({
+      date: r.review_date,
+      count: Number(r.review_count || 0),
+    }));
+  }
+
+  /**
+   * Criação atômica de cartões em lote para importação (CSV/Texto)
+   */
+  public createCardsBatch(
+    userId: string,
+    deckId: string,
+    items: Array<{ front: string; back: string; frontImage?: string | null; backImage?: string | null }>
+  ): DbFlashcard[] {
+    const deck = this.db.prepare(`
+      SELECT id, subject_id FROM flashcard_decks WHERE user_id = ? AND id = ?
+    `).get(userId, deckId) as any;
+
+    if (!deck) {
+      throw new Error('DECK_NOT_FOUND');
+    }
+
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+    const createdCards: DbFlashcard[] = [];
+
+    const insertStmt = this.db.prepare(`
+      INSERT INTO flashcards (
+        id, user_id, subject_id, deck_id, front, back, front_image, back_image,
+        last_reviewed_at, next_review_at, interval_days, ease_factor, review_count, lapses, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+    try {
+      for (const item of items) {
+        const id = crypto.randomUUID();
+        const front = String(item.front || '').trim();
+        const back = String(item.back || '').trim();
+        if (!front && !item.frontImage) continue;
+
+        insertStmt.run(
+          id,
+          userId,
+          deck.subject_id,
+          deck.id,
+          front || '(Imagem)',
+          back || '(Imagem)',
+          item.frontImage || null,
+          item.backImage || null,
+          null,
+          today,
+          0,
+          2.5,
+          0,
+          0,
+          'new',
+          now,
+          now
+        );
+
+        createdCards.push({
+          id,
+          userId,
+          subjectId: deck.subject_id,
+          deckId: deck.id,
+          front: front || '(Imagem)',
+          back: back || '(Imagem)',
+          frontImage: item.frontImage || null,
+          backImage: item.backImage || null,
+          lastReviewedAt: null,
+          nextReviewAt: today,
+          intervalDays: 0,
+          easeFactor: 2.5,
+          reviewCount: 0,
+          lapses: 0,
+          status: 'new',
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      this.db.exec('COMMIT;');
+      return createdCards;
+    } catch (err) {
+      try {
+        this.db.exec('ROLLBACK;');
+      } catch {}
+      throw err;
+    }
+  }
+
+  /**
+   * Fila de estudo consolidada de todos os baralhos de uma disciplina
+   */
+  public getSubjectStudyQueue(userId: string, subjectId: string, limit = 50): DbFlashcard[] {
+    const subject = this.db.prepare(`
+      SELECT id FROM flashcard_subjects WHERE user_id = ? AND id = ?
+    `).get(userId, subjectId) as any;
+
+    if (!subject) {
+      throw new Error('SUBJECT_NOT_FOUND');
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const rows = this.db.prepare(`
+      SELECT c.* FROM flashcards c
+      JOIN flashcard_decks d ON d.id = c.deck_id AND d.user_id = c.user_id
+      WHERE c.user_id = ? AND d.subject_id = ?
+      ORDER BY 
+        CASE 
+          WHEN c.next_review_at <= ? THEN 0
+          WHEN c.status = 'new' THEN 1
+          ELSE 2 
+        END,
+        c.next_review_at ASC,
+        c.created_at ASC
+      LIMIT ?
+    `).all(userId, subjectId, today, limit) as any[];
+
+    return rows.map((r) => this.mapCard(r));
   }
 
   /**

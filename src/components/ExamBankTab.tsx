@@ -130,6 +130,16 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
   const [isCropModalOpen, setIsCropModalOpen] = useState(false);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
 
+  // Modal Flashcard a partir da Questão
+  const [isFlashcardModalOpen, setIsFlashcardModalOpen] = useState(false);
+  const [flashcardFront, setFlashcardFront] = useState('');
+  const [flashcardBack, setFlashcardBack] = useState('');
+  const [flashcardSubjectId, setFlashcardSubjectId] = useState('');
+  const [flashcardDeckId, setFlashcardDeckId] = useState('');
+  const [flashcardSubjects, setFlashcardSubjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [flashcardDecks, setFlashcardDecks] = useState<Array<{ id: string; name: string; subjectId: string }>>([]);
+  const [isSavingFlashcard, setIsSavingFlashcard] = useState(false);
+
   // Form State para Novo Upload
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploadInstitution, setUploadInstitution] = useState('VUNESP');
@@ -556,6 +566,120 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
       await fetchPapersAndStats();
     } catch (error: any) {
       showToast?.(error?.message || 'Nao foi possivel publicar a prova.', 'error');
+    }
+  };
+
+  const handleOpenFlashcardFromQuestion = async (q: ExamQuestion) => {
+    let options: ExamOption[] = [];
+    try {
+      options = JSON.parse(q.optionsJson);
+    } catch {}
+    const correctOpt = q.correctOption || '';
+    const correctText = options.find((o) => o.letter === correctOpt)?.text || '';
+    let aiSolution: AISolutionPayload | null = null;
+    if (q.aiSolutionJson) {
+      try {
+        aiSolution = JSON.parse(q.aiSolutionJson);
+      } catch {}
+    }
+
+    let backContent = `Gabarito Oficial: Alternativa ${correctOpt}`;
+    if (correctText) {
+      backContent += `\n\n${correctText}`;
+    }
+    if (aiSolution?.explanationSummary) {
+      backContent += `\n\nResumo da Solução:\n${aiSolution.explanationSummary}`;
+    }
+
+    setFlashcardFront(`[${q.discipline || 'Geral'}] ${q.statement}`);
+    setFlashcardBack(backContent);
+    setIsFlashcardModalOpen(true);
+
+    try {
+      const token = getAuthToken();
+      const resSubs = await fetch('/api/flashcards/subjects', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (resSubs.ok) {
+        const dataSubs = await resSubs.json();
+        const subs = dataSubs.subjects || [];
+        setFlashcardSubjects(subs);
+        if (subs.length > 0) {
+          setFlashcardSubjectId(subs[0].id);
+          const resDecks = await fetch(`/api/flashcards/decks?subjectId=${encodeURIComponent(subs[0].id)}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          if (resDecks.ok) {
+            const dataDecks = await resDecks.json();
+            const dList = dataDecks.decks || [];
+            setFlashcardDecks(dList);
+            if (dList.length > 0) {
+              setFlashcardDeckId(dList[0].id);
+            }
+          }
+        }
+      }
+    } catch {}
+  };
+
+  const handleSubjectChangeInFlashcardModal = async (subjectId: string) => {
+    setFlashcardSubjectId(subjectId);
+    try {
+      const token = getAuthToken();
+      const resDecks = await fetch(`/api/flashcards/decks?subjectId=${encodeURIComponent(subjectId)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (resDecks.ok) {
+        const dataDecks = await resDecks.json();
+        const dList = dataDecks.decks || [];
+        setFlashcardDecks(dList);
+        if (dList.length > 0) {
+          setFlashcardDeckId(dList[0].id);
+        } else {
+          setFlashcardDeckId('');
+        }
+      }
+    } catch {}
+  };
+
+  const handleSaveFlashcardFromQuestion = async () => {
+    if (!flashcardDeckId) {
+      showToast?.('Selecione ou crie um baralho de destino na aba de Flashcards.', 'error');
+      return;
+    }
+    if (!flashcardFront.trim() || !flashcardBack.trim()) {
+      showToast?.('A frente e o verso não podem ficar vazios.', 'error');
+      return;
+    }
+
+    try {
+      setIsSavingFlashcard(true);
+      const token = getAuthToken();
+      const res = await fetch('/api/flashcards/cards', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          deckId: flashcardDeckId,
+          front: flashcardFront.trim(),
+          back: flashcardBack.trim(),
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast?.(err.message || 'Falha ao salvar flashcard.', 'error');
+        return;
+      }
+
+      showToast?.('Flashcard criado com sucesso a partir da questão!', 'success');
+      setIsFlashcardModalOpen(false);
+    } catch {
+      showToast?.('Erro de conexão ao salvar flashcard.', 'error');
+    } finally {
+      setIsSavingFlashcard(false);
     }
   };
 
@@ -1341,6 +1465,20 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
                 </div>
               )}
 
+              {/* Botão Salvar como Flashcard */}
+              <button
+                type="button"
+                onClick={() => handleOpenFlashcardFromQuestion(selectedQuestion)}
+                className={`w-full py-2.5 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                  isDark
+                    ? 'bg-purple-950/30 hover:bg-purple-900/40 text-purple-300 border-purple-500/40'
+                    : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                <span>Salvar Questão como Flashcard</span>
+              </button>
+
               {/* Abas Inferiores de Correção */}
               <div className="border-t border-slate-800/60 pt-3 space-y-3">
                 <div className="flex items-center gap-1 border-b border-slate-800/60 pb-1">
@@ -1659,6 +1797,115 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
           }}
           showToast={showToast}
         />
+      )}
+
+      {/* Modal Salvar Questão como Flashcard */}
+      {isFlashcardModalOpen && (
+        <div className="fixed inset-0 z-[80] bg-black/70 flex items-center justify-center p-4">
+          <div
+            className={`w-full max-w-lg p-6 rounded-2xl border space-y-4 shadow-2xl ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-purple-400" />
+                <h3 className="font-bold text-base">Salvar no Anki / Flashcards</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFlashcardModalOpen(false)}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-mono uppercase text-slate-400 mb-1">Disciplina</label>
+                <select
+                  value={flashcardSubjectId}
+                  onChange={(e) => void handleSubjectChangeInFlashcardModal(e.target.value)}
+                  className={`w-full p-2.5 rounded-xl border text-xs outline-none cursor-pointer ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                  }`}
+                >
+                  {flashcardSubjects.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono uppercase text-slate-400 mb-1">Baralho de Destino</label>
+                <select
+                  value={flashcardDeckId}
+                  onChange={(e) => setFlashcardDeckId(e.target.value)}
+                  className={`w-full p-2.5 rounded-xl border text-xs outline-none cursor-pointer ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                  }`}
+                >
+                  {flashcardDecks.length === 0 ? (
+                    <option value="">Nenhum baralho criado</option>
+                  ) : (
+                    flashcardDecks.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-mono uppercase text-slate-400 mb-1">Frente (Pergunta)</label>
+                <textarea
+                  rows={3}
+                  value={flashcardFront}
+                  onChange={(e) => setFlashcardFront(e.target.value)}
+                  className={`w-full p-2.5 rounded-xl border text-xs leading-relaxed ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono uppercase text-slate-400 mb-1">Verso (Gabarito e Explicação)</label>
+                <textarea
+                  rows={4}
+                  value={flashcardBack}
+                  onChange={(e) => setFlashcardBack(e.target.value)}
+                  className={`w-full p-2.5 rounded-xl border text-xs leading-relaxed ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-900'
+                  }`}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/60">
+              <button
+                type="button"
+                onClick={() => setIsFlashcardModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isSavingFlashcard || !flashcardDeckId}
+                onClick={handleSaveFlashcardFromQuestion}
+                className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold text-xs shadow-md transition-colors cursor-pointer"
+              >
+                {isSavingFlashcard ? 'Salvando...' : 'Salvar Flashcard'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

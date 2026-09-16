@@ -432,3 +432,185 @@ test('Flashcards Anki: Integração HTTP REST com isolamento e resposta 404 para
   }
 });
 
+test('Flashcards Anki: Lote atômico, fila consolidada por disciplina, previsão e heatmap', () => {
+  const { userRepo, flashcardRepo, cleanup } = createTempDb();
+
+  try {
+    const userA = userRepo.create({ username: 'cadete_batch_a', email: 'batch_a@cfo.test', passwordHash: 'hashA' });
+    const userB = userRepo.create({ username: 'cadete_batch_b', email: 'batch_b@cfo.test', passwordHash: 'hashB' });
+
+    const subA = flashcardRepo.createSubject(userA.id, { name: 'Física', description: 'Termodinâmica' });
+    const deckA1 = flashcardRepo.createDeck(userA.id, { subjectId: subA.id, name: 'Calorimetria' });
+    const deckA2 = flashcardRepo.createDeck(userA.id, { subjectId: subA.id, name: 'Gases' });
+
+    // Inserção em lote para User A
+    const batchCards = flashcardRepo.createCardsBatch(userA.id, deckA1.id, [
+      { front: 'Defina calor latente', back: 'Calor necessário para mudança de fase' },
+      { front: 'Fórmula da capacidade térmica', back: 'C = m * c' },
+    ]);
+    assert.equal(batchCards.length, 2);
+    assert.equal(batchCards[0].deckId, deckA1.id);
+    assert.equal(batchCards[0].subjectId, subA.id);
+
+    // User B tenta inserir no deck de User A -> DEVE LANÇAR ERRO DECK_NOT_FOUND
+    assert.throws(() => {
+      flashcardRepo.createCardsBatch(userB.id, deckA1.id, [
+        { front: 'Invasor', back: 'Bloqueado' }
+      ]);
+    }, /DECK_NOT_FOUND/);
+
+    // Insere cartão no deck A2
+    flashcardRepo.createCard(userA.id, { deckId: deckA2.id, front: 'Equação de Clapeyron', back: 'PV = nRT' });
+
+    // Fila consolidada da disciplina Física (deve agregar deckA1 e deckA2)
+    const queueA = flashcardRepo.getSubjectStudyQueue(userA.id, subA.id);
+    assert.equal(queueA.length, 3);
+
+    // User B tenta buscar fila da matéria de User A -> DEVE LANÇAR SUBJECT_NOT_FOUND
+    assert.throws(() => {
+      flashcardRepo.getSubjectStudyQueue(userB.id, subA.id);
+    }, /SUBJECT_NOT_FOUND/);
+
+    // Simula 4 falhas (lapses) no primeiro cartão para virar leech
+    for (let i = 0; i < 4; i++) {
+      flashcardRepo.reviewCard(userA.id, batchCards[0].id, 1);
+    }
+    const updatedCard = flashcardRepo.getCard(userA.id, batchCards[0].id);
+    assert.equal(updatedCard?.lapses, 4);
+
+    // Estatísticas de previsão (Forecast)
+    const forecast = flashcardRepo.getForecastStats(userA.id);
+    assert.equal(forecast.leechCount, 1);
+    assert.ok(forecast.dueToday >= 1);
+
+    // Heatmap
+    const heatmap = flashcardRepo.getHeatmapStats(userA.id, 30);
+    assert.ok(Array.isArray(heatmap));
+    assert.ok(heatmap.length >= 1);
+    assert.ok(heatmap[0].count >= 4);
+
+    // User B não vê os dados de User A
+    const forecastB = flashcardRepo.getForecastStats(userB.id);
+    assert.equal(forecastB.leechCount, 0);
+    assert.equal(forecastB.dueToday, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test('Flashcards Anki: Endpoints HTTP de Lote, Fila por Matéria, Heatmap e Previsão', async () => {
+  const http = await import('node:http');
+  const { app } = await import('../server');
+  const { AuthService } = await import('../src/db/authService');
+  const { getDb } = await import('../src/db/database');
+  const bcrypt = await import('bcryptjs');
+  const { UserRepository } = await import('../src/db/repositories');
+
+  const authService = new AuthService(getDb());
+  await authService.ensureDefaultAccounts();
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const baseUrl = `http://127.0.0.1:${(server.address() as any).port}`;
+
+  try {
+    const userRepo = new UserRepository(getDb().getRawDb());
+    const passHash = await bcrypt.hash('SenhaBatch123!', 10);
+    const suffix = Date.now();
+    const userA = userRepo.create({
+      username: `batch_u1_${suffix}`,
+      email: `batch_u1_${suffix}@cfo.test`,
+      passwordHash: passHash,
+      role: 'cadet',
+      status: 'active',
+    });
+    const userB = userRepo.create({
+      username: `batch_u2_${suffix}`,
+      email: `batch_u2_${suffix}@cfo.test`,
+      passwordHash: passHash,
+      role: 'cadet',
+      status: 'active',
+    });
+
+    const loginA = await authService.login(userA.username, 'SenhaBatch123!');
+    const tokenA = loginA.token;
+    const loginB = await authService.login(userB.username, 'SenhaBatch123!');
+    const tokenB = loginB.token;
+
+    // 1. Cria disciplina e baralho para User A
+    const subRes = await fetch(`${baseUrl}/api/flashcards/subjects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` },
+      body: JSON.stringify({ name: 'Química Geral', description: 'Estudo de Reações' }),
+    });
+    const subData = await subRes.json();
+    const subjectId = subData.subject.id;
+
+    const deckRes = await fetch(`${baseUrl}/api/flashcards/decks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` },
+      body: JSON.stringify({ subjectId, name: 'Cinética Química' }),
+    });
+    const deckData = await deckRes.json();
+    const deckId = deckData.deck.id;
+
+    // 2. User B tenta inserir batch no deck de User A -> 404
+    const badBatch = await fetch(`${baseUrl}/api/flashcards/decks/${deckId}/cards/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenB}` },
+      body: JSON.stringify({ cards: [{ front: 'Invasão', back: 'Bloqueado' }] }),
+    });
+    assert.equal(badBatch.status, 404);
+
+    // 3. User A insere batch -> 201
+    const goodBatch = await fetch(`${baseUrl}/api/flashcards/decks/${deckId}/cards/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` },
+      body: JSON.stringify({
+        cards: [
+          { front: 'O que é catalisador?', back: 'Diminui a energia de ativação' },
+          { front: 'O que é ordem de reação?', back: 'Expoente na equação de velocidade' },
+        ],
+      }),
+    });
+    assert.equal(goodBatch.status, 201);
+    const goodBatchData = await goodBatch.json();
+    assert.equal(goodBatchData.success, true);
+    assert.equal(goodBatchData.count, 2);
+
+    // 4. User B tenta pegar fila por matéria de User A -> 404
+    const badQueue = await fetch(`${baseUrl}/api/flashcards/study-queue/subject/${subjectId}`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    assert.equal(badQueue.status, 404);
+
+    // 5. User A pega fila por matéria -> 200
+    const goodQueue = await fetch(`${baseUrl}/api/flashcards/study-queue/subject/${subjectId}`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    assert.equal(goodQueue.status, 200);
+    const goodQueueData = await goodQueue.json();
+    assert.equal(goodQueueData.cards.length, 2);
+
+    // 6. Forecast stats
+    const forecastRes = await fetch(`${baseUrl}/api/flashcards/stats/forecast`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    assert.equal(forecastRes.status, 200);
+    const forecastData = await forecastRes.json();
+    assert.ok(forecastData.forecast);
+    assert.equal(forecastData.forecast.dueToday, 2);
+
+    // 7. Heatmap stats
+    const heatmapRes = await fetch(`${baseUrl}/api/flashcards/stats/heatmap`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    assert.equal(heatmapRes.status, 200);
+    const heatmapData = await heatmapRes.json();
+    assert.ok(Array.isArray(heatmapData.heatmap));
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+
