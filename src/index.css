@@ -176,28 +176,32 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
 @media (max-width: 980px) { .landing-container { width:min(100% - 40px, 720px); }.main-nav { display:none; }.hero-inner { display:block; padding-top:70px; }.hero { min-height:auto; }.hero-copy { margin:auto; text-align:center; }.hero-copy p { margin-inline:auto; }.hero-actions,.hero-links,.motto { justify-content:center; }.hero-art { min-height:560px; margin-top:20px; }.blue-panel { right:38%; }.orange-panel { right:0; }.dashboard { left:2%; width:96%; }.stats-inner { grid-template-columns:1fr 1fr; }.stats h2 { grid-column:1/-1; }.benefit-grid { grid-template-columns:1fr; max-width:520px; margin-inline:auto; } }
 @media (max-width: 560px) { .landing-container { width:calc(100% - 32px); }.landing-header { height:70px; }.logo-mark strong { font-size:16px; }.logo-mark small { font-size:5px; }.logo-symbol { transform:scale(.8); transform-origin:left center; width:29px; }.login-btn { display:none; }.primary-btn.small { font-size:11px; padding:0 13px; }.hero-copy h1 { font-size:48px; }.hero-copy p { font-size:17px; }.hero-actions { flex-direction:column; }.hero-actions>* { width:100%; }.hero-links { gap:8px; font-size:11px; }.hero-art { min-height:440px; }.blue-panel { right:39%; width:38%; height:255px; }.orange-panel { width:43%; height:300px; top:35px; }.blue-panel small,.orange-panel small { font-size:8px; top:24px; }.dashboard { bottom:0; width:130%; left:-15%; }.dash-content { padding:8px; }.dash-body aside { display:none; }.dash-body { display:block; }.dash-bottom { grid-template-columns:1.4fr .8fr; }.stats-inner { grid-template-columns:1fr; padding:25px 0; gap:22px; }.stats h2 { font-size:24px; }.stat { border-left:0; padding-left:0; }.platform { padding:75px 0; }.section-heading h2,.cta-card h2 { font-size:38px; }.cta-card { padding:60px 18px; }.cta-card p { font-size:15px; line-height:1.5; } }
 
-/* Login shares the same light, calm visual language as the public landing. */
-.login-screen { position:relative; background:#fff !important; background-image:none !important; }
-.login-screen:before,.login-screen:after { display:none; }
-.login-card { border:1px solid #edf0f4; border-radius:18px !important; box-shadow:0 10px 35px rgba(15,23,42,.06) !important; }
-.login-card > div:first-child { height:1px !important; background:#fff !important; }
-.login-card-body { padding-top:38px !important; padding-bottom:38px !important; }
-.login-card [data-purpose="brand-logo"] { display:none !important; }
-.login-card h1 { letter-spacing:-.04em !important; font-size:27px !important; }
-.login-card form { margin-top:28px !important; }
-.login-card input:not([type="checkbox"]) { min-height:48px; }
-.login-card [data-purpose="submit-login-button"] { min-height:50px; background:#0967f2 !important; border-radius:12px !important; box-shadow:0 12px 28px rgba(9,103,242,.2); }
-.login-card [data-purpose="submit-login-button"]:hover { background:#0759d1 !important; transform:translateY(-1px); }
+/* Authentication: a focused, light workspace that keeps every auth flow consistent. */
+.login-screen { isolation:isolate; background:linear-gradient(135deg,#f8fbff 0%,#eef5ff 48%,#f8fafc 100%) !important; color:#172238 !important; }
+.login-screen:before { content:''; position:absolute; inset:0; z-index:-2; opacity:.42; background-image:linear-gradient(rgba(34,104,202,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(34,104,202,.055) 1px,transparent 1px); background-size:42px 42px; mask-image:linear-gradient(to bottom,black,transparent 72%); }
+.login-screen:after { content:''; position:absolute; z-index:-1; width:min(54vw,680px); aspect-ratio:1; right:-16%; top:-20%; border-radius:50%; background:radial-gradient(circle,rgba(37,99,235,.16),transparent 68%); filter:blur(10px); }
+.login-card { border:1px solid rgba(207,221,240,.88) !important; border-radius:24px !important; background:rgba(255,255,255,.94) !important; box-shadow:0 26px 70px rgba(35,76,133,.13),0 2px 5px rgba(15,23,42,.04) !important; backdrop-filter:blur(16px); }
+.login-card > div:first-child { height:4px !important; background:linear-gradient(90deg,#1267e9,#35a8ff 58%,#ff9a4d) !important; }
+.login-card-body { padding-top:34px !important; padding-bottom:34px !important; }
+.login-card h1 { letter-spacing:-.045em !important; font-size:28px !important; }
+.login-card form { margin-top:26px !important; }
+.login-card input:not([type="checkbox"]) { min-height:50px; background:#f8fbff !important; border-color:#dce7f5 !important; box-shadow:inset 0 1px 1px rgba(15,23,42,.015); }
+.login-card input:not([type="checkbox"]):focus { background:#fff !important; border-color:#2681f7 !important; }
+.login-card [data-purpose="submit-login-button"],.login-card form > button[type="submit"] { min-height:52px; border-radius:14px !important; color:#fff !important; background:linear-gradient(135deg,#0b70ee,#1260d7) !important; box-shadow:0 14px 26px rgba(10,102,230,.22); }
+.login-card [data-purpose="submit-login-button"]:hover,.login-card form > button[type="submit"]:hover { background:#0759d1 !important; transform:translateY(-1px); }
+.login-brand-mark { display:flex; align-items:center; gap:10px; min-height:38px; color:#0e3f91; }
+.login-brand-mark > span { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; color:#fff; font-size:17px; font-weight:800; background:linear-gradient(145deg,#0f73ef,#1952b7); box-shadow:0 8px 18px rgba(17,94,205,.24); }
+.login-brand-mark strong,.login-brand-mark small { display:block; text-align:left; }
+.login-brand-mark strong { font-size:13px; letter-spacing:.015em; }
+.login-brand-mark small { margin-top:1px; color:#71829c; font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
 
 /* Three.js point cloud used as the Hero's transparent visual layer. */
 .hero-sphere-stage { position:absolute; inset:0; z-index:1; background:transparent; }
 .hero-sphere { position:absolute; inset:0; }
-.register-key-card { background:rgba(0,0,0,.72); border:1px solid rgba(148,163,184,.22); box-shadow:0 24px 80px rgba(0,0,0,.55) !important; color:#fff; }
-.register-key-card > div:first-child { background:linear-gradient(90deg,#fff,#94a3b8,#fff) !important; }
 .register-key-card .login-card-body { min-height:330px; justify-content:center; }
-.register-key-form input::placeholder { color:#64748b; }
+.register-key-form input::placeholder { color:#94a3b8 !important; }
 .register-key-confirm { display:none !important; }
-.register-key-card > .login-card-body > button { color:#cbd5e1; }
+.login-screen footer button:hover { color:#1267e9 !important; }
 
 /* Black piano theme for the public landing and authentication surfaces. */
 .landing,
@@ -248,22 +252,7 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
 .cta-card p { color:#aaa !important; }
 .cta-btn { background:#fff !important; color:#000 !important; }
 
-.login-screen { background:#000 !important; background-image:none !important; color:#fff !important; }
-.login-screen:before,
-.login-screen:after { display:none !important; }
-.login-screen .login-card { background:#000 !important; border-color:#292929 !important; box-shadow:0 24px 80px rgba(0,0,0,.75) !important; }
-.login-screen .login-card-body,
-.login-screen .login-card h1,
-.login-screen .login-card .text-slate-800,
-.login-screen .login-card .text-slate-900 { color:#fff !important; }
-.login-screen .login-card .text-slate-500,
-.login-screen .login-card .text-slate-400,
-.login-screen .login-card .text-\[\#64748b\] { color:#a3a3a3 !important; }
-.login-screen .login-card input,
-.login-screen .login-card textarea,
-.login-screen .login-card select { background:#050505 !important; color:#fff !important; border-color:#292929 !important; }
-.login-screen .login-card input::placeholder { color:#737373 !important; }
-.login-screen .login-card [data-purpose="submit-login-button"] { background:#fff !important; color:#000 !important; }
+@media (max-width:560px) { .login-card { border-radius:20px !important; }.login-card-body { padding-top:30px !important; padding-bottom:30px !important; }.login-screen:before { background-size:32px 32px; } }
 @media (max-width: 980px) { .hero-sphere-stage { inset:0 -8%; } }
 
 @theme inline {

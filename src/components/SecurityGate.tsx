@@ -18,8 +18,7 @@ declare global {
   }
 }
 
-import React, { useState, useRef, useEffect, lazy, Suspense } from 'react';
-const FibonacciSphere = lazy(() => import('./FibonacciSphere'));
+import React, { useState, useRef, useEffect } from 'react';
 import { PrivacyPolicyModal } from './PrivacyPolicyModal';
 import { TermsOfUseModal } from './TermsOfUseModal';
 import { CookiePolicyModal } from './CookiePolicyModal';
@@ -496,30 +495,13 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
   return (
     <div
       className="login-screen relative min-h-screen min-h-[100dvh] w-full max-w-full flex flex-col items-center justify-between p-3 min-[380px]:p-4 sm:p-6 py-4 sm:py-8 text-slate-800 select-none font-sans overflow-y-auto overflow-x-hidden"
-      style={{
-        backgroundColor: '#f1f4f9',
-        backgroundImage: `
-          radial-gradient(circle at 10% 20%, rgba(219, 234, 254, 0.45) 0%, transparent 45%),
-          radial-gradient(circle at 95% 45%, rgba(254, 215, 170, 0.28) 0%, transparent 40%),
-          radial-gradient(circle at 50% 100%, rgba(226, 232, 240, 0.4) 0%, transparent 60%)
-        `,
-      }}
     >
-      {(step === 'register-key' || step === 'register') && (
-        <div className="absolute inset-0 z-0 overflow-hidden bg-black" aria-hidden="true">
-          <Suspense fallback={null}>
-            <FibonacciSphere className="absolute inset-0" pointColor="#ffffff" />
-          </Suspense>
-          <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/55 to-slate-950/20 pointer-events-none" />
-        </div>
-      )}
-
       <div className="relative z-10 w-full flex-1 flex items-center justify-center my-auto">
         {/* BEGIN: MainLoginWrapper */}
         <main className="w-full flex items-center justify-center min-w-0" data-purpose="login-viewport-container">
           {/* BEGIN: LoginCard */}
           <div
-            className={`login-card w-full max-w-[448px] rounded-[22px] overflow-hidden flex flex-col relative transition-all duration-300 ${step === 'register-key' ? 'register-key-card' : step === 'register' ? 'bg-white/95 backdrop-blur-sm' : 'bg-white'}`}
+            className={`login-card w-full max-w-[448px] rounded-[22px] overflow-hidden flex flex-col relative transition-all duration-300 ${step === 'register-key' ? 'register-key-card' : 'bg-white'}`}
             data-purpose="login-main-card"
             style={{
               boxShadow: `
@@ -613,13 +595,13 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                 <>
                   {/* BEGIN: BrandHeader */}
                   <header className="flex flex-col items-center text-center w-full" data-purpose="brand-presentation">
-                    {/* Minimal brand wordmark */}
-                    <span className="text-[13px] font-bold tracking-[0.14em] text-[#164491] uppercase leading-tight font-display">
-                      RUMO
-                    </span>
-                    <span className="text-[10.5px] font-semibold tracking-wider text-slate-400 mt-[-1px]">
-                      ao CFO
-                    </span>
+                    <div className="login-brand-mark" aria-label="Rumo ao CFO">
+                      <span aria-hidden="true">C</span>
+                      <div>
+                        <strong>Rumo ao CFO</strong>
+                        <small>CBMERJ • Preparação estratégica</small>
+                      </div>
+                    </div>
 
                     {/* Main Welcome Title & Subtitle */}
                     {step === 'credentials' && (
