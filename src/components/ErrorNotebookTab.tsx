@@ -632,39 +632,61 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   const handleConfirmDelete = async () => {
     if (!deleteModal) return;
 
+    const targetId = deleteModal.id;
+    const targetType = deleteModal.type;
+
     try {
-      if (deleteModal.type === 'subject') {
-        const res = await apiFetch(`/api/flashcards/subjects/${deleteModal.id}`, { method: 'DELETE' });
+      if (targetType === 'subject') {
+        const res = await apiFetch(`/api/flashcards/subjects/${targetId}`, { method: 'DELETE' });
         if (res.ok) {
           showToast?.('Disciplina e dependências excluídas.', 'success');
           setDeleteModal(null);
-          if (currentSubject?.id === deleteModal.id) {
+          setSubjects((prev) => prev.filter((s) => s.id !== targetId));
+          if (currentSubject?.id === targetId) {
             handleBackToSubjects();
           } else {
             void fetchGlobalData();
           }
+        } else {
+          const data = await res.json().catch(() => ({}));
+          showToast?.(data.message || 'Falha ao excluir disciplina.', 'error');
+          setDeleteModal(null);
         }
-      } else if (deleteModal.type === 'deck') {
-        const res = await apiFetch(`/api/flashcards/decks/${deleteModal.id}`, { method: 'DELETE' });
+      } else if (targetType === 'deck') {
+        const res = await apiFetch(`/api/flashcards/decks/${targetId}`, { method: 'DELETE' });
         if (res.ok) {
           showToast?.('Baralho excluído com sucesso.', 'success');
           setDeleteModal(null);
-          if (currentDeck?.id === deleteModal.id) {
+          setDecks((prev) => prev.filter((d) => d.id !== targetId));
+          if (currentDeck?.id === targetId) {
             handleBackToDecks();
           } else if (currentSubject) {
             void fetchDecksForSubject(currentSubject.id);
           }
+          void fetchGlobalData();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          showToast?.(data.message || 'Falha ao excluir baralho.', 'error');
+          setDeleteModal(null);
         }
-      } else if (deleteModal.type === 'card') {
-        const res = await apiFetch(`/api/flashcards/cards/${deleteModal.id}`, { method: 'DELETE' });
+      } else if (targetType === 'card') {
+        const res = await apiFetch(`/api/flashcards/cards/${targetId}`, { method: 'DELETE' });
         if (res.ok) {
           showToast?.('Flashcard excluído.', 'success');
           setDeleteModal(null);
+          setCards((prev) => prev.filter((c) => c.id !== targetId));
           if (currentDeck) void fetchCardsForDeck(currentDeck.id);
+          if (currentSubject) void fetchDecksForSubject(currentSubject.id);
+          void fetchGlobalData();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          showToast?.(data.message || 'Falha ao excluir flashcard.', 'error');
+          setDeleteModal(null);
         }
       }
     } catch {
-      showToast?.('Erro ao processar exclusão.', 'error');
+      showToast?.('Erro de conexão ao processar exclusão.', 'error');
+      setDeleteModal(null);
     }
   };
 
