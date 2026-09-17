@@ -1620,21 +1620,8 @@ export default function App() {
   const isDark = theme === 'dark';
 
   // 🛡️ Tela de Bloqueio Obrigatória (Security Gate 2FA)
-  if (isCheckingSession) {
-    return (
-      <div className="min-h-screen w-full bg-black flex flex-col items-center justify-center font-mono select-none">
-        <div className="relative flex items-center justify-center">
-          <div className="w-16 h-16 rounded-full border-2 border-red-500/20 border-t-red-500 animate-spin" />
-          <div className="absolute inset-0 flex items-center justify-center text-red-500 font-bold text-xs">
-            CFO
-          </div>
-        </div>
-        <p className="mt-4 text-xs tracking-widest text-red-500/80 uppercase">
-          Verificando Terminal de Acesso...
-        </p>
-      </div>
-    );
-  }
+  // A validação continua antes de expor conteúdo protegido, sem uma splash intrusiva no recarregamento.
+  if (isCheckingSession) return null;
 
   const VALID_APP_ROUTES = [
     '/',
