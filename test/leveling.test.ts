@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { clampLevelingCount, MAX_LEVELING_QUESTIONS } from '../src/utils/leveling';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const readSource = (relativePath: string) => readFileSync(path.join(root, relativePath), 'utf8');
@@ -17,4 +18,13 @@ test('F-01: rota de nivelamento está registrada em toda a navegação protegida
   assert.match(sidebar, /leveling:\s*['"]\/nivelamento['"]/);
   assert.match(sidebar, /['"]\/nivelamento['"]:\s*['"]leveling['"]/);
   assert.match(maintenance, /key:\s*['"]leveling['"]/);
+});
+
+test('F-02: quantidades são truncadas e limitadas para proteger a interface', () => {
+  assert.equal(clampLevelingCount('30'), 30);
+  assert.equal(clampLevelingCount('30.9'), 30);
+  assert.equal(clampLevelingCount('-10'), 0);
+  assert.equal(clampLevelingCount('999999999'), MAX_LEVELING_QUESTIONS);
+  assert.equal(clampLevelingCount(Number.POSITIVE_INFINITY), 0);
+  assert.equal(clampLevelingCount('40', 25), 25);
 });

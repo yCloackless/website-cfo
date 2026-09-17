@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { AppTheme } from '../types';
 import { getUserStorageKey } from '../utils/userStorage';
+import { clampLevelingCount, MAX_LEVELING_QUESTIONS } from '../utils/leveling';
 
 type Mode = 'live' | 'manual';
 type Answer = 'correct' | 'wrong';
@@ -72,20 +73,23 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
       const raw = localStorage.getItem(getUserStorageKey(STORAGE_KEY));
       if (!raw) return;
       const saved = JSON.parse(raw) as Partial<SavedLevelingState>;
+      const savedTotal = clampLevelingCount(saved.total);
+      const savedCorrect = clampLevelingCount(saved.manualCorrect);
+      const savedWrong = clampLevelingCount(saved.manualWrong, MAX_LEVELING_QUESTIONS - savedCorrect);
       if (saved.mode === 'live' || saved.mode === 'manual') setMode(saved.mode);
-      if (Number.isInteger(saved.total) && saved.total! > 0) setTotalInput(String(saved.total));
+      if (savedTotal > 0) setTotalInput(String(savedTotal));
       if (Array.isArray(saved.answers) && saved.answers.every((item) => item === 'correct' || item === 'wrong')) {
-        setAnswers(saved.answers);
+        setAnswers(saved.answers.slice(0, savedTotal));
       }
-      if (typeof saved.manualCorrect === 'number') setManualCorrect(String(saved.manualCorrect || ''));
-      if (typeof saved.manualWrong === 'number') setManualWrong(String(saved.manualWrong || ''));
-      setStarted(Boolean(saved.started));
+      if (savedCorrect > 0) setManualCorrect(String(savedCorrect));
+      if (savedWrong > 0) setManualWrong(String(savedWrong));
+      setStarted(Boolean(saved.started && savedTotal > 0));
     } catch {
       // A malformed local snapshot must never prevent the leveling page from opening.
     }
   }, []);
 
-  const total = Math.max(0, Number.parseInt(totalInput, 10) || 0);
+  const total = clampLevelingCount(totalInput);
   const correct = answers.filter((answer) => answer === 'correct').length;
   const wrong = answers.length - correct;
   const answered = answers.length;
@@ -93,9 +97,14 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
   const isComplete = started && total > 0 && answered === total;
   const isPassing = accuracy >= GOAL && correct > wrong;
   const remaining = Math.max(total - answered, 0);
-  const manualCorrectNumber = Math.max(0, Number.parseInt(manualCorrect, 10) || 0);
-  const manualWrongNumber = Math.max(0, Number.parseInt(manualWrong, 10) || 0);
+  const manualCorrectNumber = clampLevelingCount(manualCorrect);
+  const manualWrongNumber = clampLevelingCount(manualWrong, MAX_LEVELING_QUESTIONS - manualCorrectNumber);
   const manualTotal = manualCorrectNumber + manualWrongNumber;
+
+  const normalizeCountInput = (value: string, maximum = MAX_LEVELING_QUESTIONS) => {
+    if (value === '') return '';
+    return String(clampLevelingCount(value, maximum));
+  };
 
   useEffect(() => {
     const snapshot: SavedLevelingState = {
@@ -227,7 +236,7 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
             </div>
             <div className="flex w-full items-center gap-3 sm:w-auto">
               <label className="sr-only" htmlFor="nivelamento-total">Quantidade de questões</label>
-              <input id="nivelamento-total" type="number" min="1" inputMode="numeric" value={totalInput} disabled={started} onChange={(event) => setTotalInput(event.target.value)} className={`h-12 w-full rounded-xl border px-4 text-lg font-black outline-none transition focus:ring-4 focus:ring-blue-500/20 sm:w-32 ${isDark ? 'border-white/10 bg-white/5 text-white placeholder:text-slate-600' : 'border-slate-200 bg-slate-50 text-slate-950'}`} />
+              <input id="nivelamento-total" type="number" min="1" max={MAX_LEVELING_QUESTIONS} inputMode="numeric" value={totalInput} disabled={started} onChange={(event) => setTotalInput(normalizeCountInput(event.target.value))} className={`h-12 w-full rounded-xl border px-4 text-lg font-black outline-none transition focus:ring-4 focus:ring-blue-500/20 sm:w-32 ${isDark ? 'border-white/10 bg-white/5 text-white placeholder:text-slate-600' : 'border-slate-200 bg-slate-50 text-slate-950'}`} />
               {!started ? <button type="button" onClick={startSession} className="flex h-12 shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-4 text-sm font-bold text-white shadow-lg shadow-blue-500/25 transition hover:scale-[1.02] active:scale-[.98]"><Play size={16} fill="currentColor" /> Iniciar</button> : <button type="button" onClick={resetSession} className={`flex h-12 shrink-0 items-center gap-2 rounded-xl border px-4 text-sm font-bold transition ${isDark ? 'border-white/10 text-slate-300 hover:bg-white/10' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}><RotateCcw size={16} /> Reiniciar</button>}
             </div>
           </div>
@@ -268,8 +277,8 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
         <section className={`mt-5 overflow-hidden rounded-[2rem] border p-5 sm:p-8 ${isDark ? 'border-white/10 bg-[#0b1020]' : 'border-slate-200 bg-white shadow-xl shadow-slate-200/50'}`}>
           <div className="max-w-xl"><h2 className={`text-xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-950'}`}>Lançamento rápido</h2><p className={`mt-2 text-sm leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Já terminou a bateria? Informe somente seus acertos e erros. O total e o desempenho são calculados automaticamente.</p></div>
           <div className="mt-7 grid max-w-2xl gap-4 sm:grid-cols-2">
-            <NumberField id="nivelamento-acertos" label="Quantas você acertou?" value={manualCorrect} onChange={setManualCorrect} icon={<CheckCircle2 size={20} />} color="emerald" isDark={isDark} />
-            <NumberField id="nivelamento-erros" label="Quantas você errou?" value={manualWrong} onChange={setManualWrong} icon={<XCircle size={20} />} color="rose" isDark={isDark} />
+            <NumberField id="nivelamento-acertos" label="Quantas você acertou?" value={manualCorrect} onChange={(value) => setManualCorrect(normalizeCountInput(value, MAX_LEVELING_QUESTIONS - manualWrongNumber))} icon={<CheckCircle2 size={20} />} color="emerald" isDark={isDark} />
+            <NumberField id="nivelamento-erros" label="Quantas você errou?" value={manualWrong} onChange={(value) => setManualWrong(normalizeCountInput(value, MAX_LEVELING_QUESTIONS - manualCorrectNumber))} icon={<XCircle size={20} />} color="rose" isDark={isDark} />
           </div>
           <div className={`mt-5 flex flex-wrap items-center gap-3 rounded-2xl border p-4 ${isDark ? 'border-white/10 bg-white/[.03]' : 'border-slate-100 bg-slate-50'}`}><Flag size={19} className="text-blue-400" /><span className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>Total calculado: <strong className={isDark ? 'text-white' : 'text-slate-950'}>{manualTotal} questões</strong></span>{manualTotal > 0 && <span className={`rounded-full px-2.5 py-1 text-xs font-black ${manualCorrectNumber / manualTotal >= .8 ? 'bg-emerald-500/15 text-emerald-400' : isDark ? 'bg-white/10 text-slate-400' : 'bg-slate-200 text-slate-600'}`}>{Math.round((manualCorrectNumber / manualTotal) * 100)}%</span>}</div>
           <button type="button" onClick={confirmManualResult} disabled={!manualTotal} className="mt-6 flex min-h-14 w-full max-w-md items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-400 px-5 text-base font-black text-white shadow-xl shadow-blue-600/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40"><Award size={21} /> Ver resultado do nivelamento</button>
@@ -297,6 +306,6 @@ const Metric = ({ title, value, icon, color, isDark }: { title: string; value: s
   return <div className={`flex items-center gap-3 rounded-2xl border p-4 ${isDark ? 'border-white/10 bg-white/[.025]' : 'border-slate-100 bg-slate-50/70'}`}><div className={`flex h-10 w-10 items-center justify-center rounded-xl ${colors[color]}`}>{icon}</div><div><p className={`text-xs font-semibold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{title}</p><p className={`text-xl font-black ${isDark ? 'text-white' : 'text-slate-950'}`}>{value}</p></div></div>;
 };
 
-const NumberField = ({ id, label, value, onChange, icon, color, isDark }: { id: string; label: string; value: string; onChange: (value: string) => void; icon: React.ReactNode; color: 'emerald' | 'rose'; isDark: boolean }) => <label htmlFor={id} className={`block rounded-2xl border p-4 transition focus-within:ring-4 ${color === 'emerald' ? 'focus-within:ring-emerald-500/15' : 'focus-within:ring-rose-500/15'} ${isDark ? 'border-white/10 bg-white/[.025]' : 'border-slate-100 bg-slate-50/70'}`}><span className={`flex items-center gap-2 text-sm font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}><span className={color === 'emerald' ? 'text-emerald-400' : 'text-rose-400'}>{icon}</span>{label}</span><input id={id} type="number" min="0" inputMode="numeric" value={value} onChange={(event) => onChange(event.target.value)} placeholder="0" className={`mt-4 w-full bg-transparent text-3xl font-black tracking-tight outline-none ${isDark ? 'text-white placeholder:text-slate-700' : 'text-slate-950 placeholder:text-slate-300'}`} /></label>;
+const NumberField = ({ id, label, value, onChange, icon, color, isDark }: { id: string; label: string; value: string; onChange: (value: string) => void; icon: React.ReactNode; color: 'emerald' | 'rose'; isDark: boolean }) => <label htmlFor={id} className={`block rounded-2xl border p-4 transition focus-within:ring-4 ${color === 'emerald' ? 'focus-within:ring-emerald-500/15' : 'focus-within:ring-rose-500/15'} ${isDark ? 'border-white/10 bg-white/[.025]' : 'border-slate-100 bg-slate-50/70'}`}><span className={`flex items-center gap-2 text-sm font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}><span className={color === 'emerald' ? 'text-emerald-400' : 'text-rose-400'}>{icon}</span>{label}</span><input id={id} type="number" min="0" max={MAX_LEVELING_QUESTIONS} inputMode="numeric" value={value} onChange={(event) => onChange(event.target.value)} placeholder="0" className={`mt-4 w-full bg-transparent text-3xl font-black tracking-tight outline-none ${isDark ? 'text-white placeholder:text-slate-700' : 'text-slate-950 placeholder:text-slate-300'}`} /></label>;
 
 const CompletionMetric = ({ label, value, tone }: { label: string; value: string | number; tone: string }) => <div className="px-2"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</p><p className={`mt-1 text-xl font-black ${tone}`}>{value}</p></div>;
