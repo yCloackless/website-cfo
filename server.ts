@@ -5886,6 +5886,32 @@ app.post("/api/leveling/session", requireUserAuth, (req: Request, res: Response)
   }
 });
 
+// Endpoint para emissão segura de token de vinculação para a extensão do navegador
+app.get("/api/user/extension-token", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const userId = String(user?.userId || '');
+    if (!userId) {
+      return res.status(401).json({ error: "UNAUTHORIZED", message: "Usuário não autenticado." });
+    }
+
+    const created = sessionRepoInstance.createSession({
+      userId,
+      role: user.role || 'cadet',
+      expiresInDays: 90,
+    });
+
+    return res.json({
+      success: true,
+      token: created.rawToken,
+      expiresAt: Date.parse(created.session.expiresAt),
+    });
+  } catch (err) {
+    console.error("[Extension Token Error]:", err);
+    return res.status(500).json({ error: "FAILED_TO_GENERATE_TOKEN" });
+  }
+});
+
 // Endpoint seguro para download direto do pacote ZIP da extensão para desktop
 app.get("/api/download/extension", (_req: Request, res: Response) => {
   const zipPath = path.resolve(process.cwd(), "public", "cfo-extensao-cbmerj.zip");

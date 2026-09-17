@@ -79,6 +79,20 @@ test('EXT-07: banner de download no Nivelamento e modal são exclusivos para des
   assert.match(levelingCode, /ExtensionModal/);
 
   const modalCode = readSource('src/components/ExtensionModal.tsx');
-  assert.match(modalCode, /cfo-extensao-cbmerj\.zip/);
+  assert.match(modalCode, /\/api\/download\/extension/);
   assert.match(modalCode, /Exclusivo para Computador/);
 });
+
+test('EXT-08: endpoint seguro /api/user/extension-token emite token para a extensão', () => {
+  const serverCode = readSource('server.ts');
+  assert.match(serverCode, /app\.get\(["']\/api\/user\/extension-token["'],\s*requireUserAuth/);
+  assert.match(serverCode, /sessionRepoInstance\.createSession/);
+});
+
+test('EXT-09: ExtensionModal não utiliza alert() ou prompt() nativos do navegador', () => {
+  const modalCode = readSource('src/components/ExtensionModal.tsx');
+  assert.doesNotMatch(modalCode, /\balert\(/, 'Não deve utilizar window.alert nativo');
+  assert.doesNotMatch(modalCode, /\bwindow\.prompt\(/, 'Não deve utilizar window.prompt nativo');
+  assert.match(modalCode, /\/api\/user\/extension-token/);
+});
+
