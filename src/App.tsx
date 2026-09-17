@@ -1649,6 +1649,7 @@ export default function App() {
     '/desempenho',
     '/equilibrio-ia',
     '/simulados',
+    '/nivelamento',
     '/caderno-de-erros',
     '/agenda-notion',
     '/perfil',

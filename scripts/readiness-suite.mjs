@@ -17,6 +17,7 @@ const files = ['models', 'auth', 'profile', 'audit_security', 'admin_panel',
 files.push('student_release45');
 files.push('emergency_lockdown');
 files.push('flashcards_anki');
+files.push('leveling');
 files.splice(files.indexOf('exam_bank'), 0, 'board_intelligence');
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|HOME|USERPROFILE|COMSPEC|PATHEXT)$/i.test(key)));

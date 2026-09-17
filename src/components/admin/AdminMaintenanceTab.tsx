@@ -20,6 +20,7 @@ import {
   AlertOctagon,
   UserX,
   ShieldCheck,
+  Trophy,
   X,
 } from 'lucide-react';
 import { AppTheme } from '../../types';
@@ -47,6 +48,7 @@ const PAGE_DEFINITIONS = [
   { key: 'highyield', name: 'Temas Quentes (High Yield)', icon: Flame, description: 'Módulos prioritários de alta probabilidade' },
   { key: 'examBank', name: 'Banco de Provas & Questões', icon: FileCheck, description: 'Acervo de provas anteriores e resoluções' },
   { key: 'simulations', name: 'Simulados Táticos', icon: BrainCircuit, description: 'Execução de simulados oficiais e gabaritos' },
+  { key: 'leveling', name: 'Nivelamento', icon: Trophy, description: 'Bateria de questões com meta mínima de 80% de acertos' },
   { key: 'flashcards', name: 'Flashcards & Repetição Espaçada', icon: Layers, description: 'Decks de memorização ativa do aluno' },
   { key: 'learning', name: 'Radar & Desempenho do Aluno', icon: Sparkles, description: 'Métricas de maestria, consistência e taxa de acerto' },
   { key: 'ai', name: 'Equilíbrio IA', icon: Bot, description: 'Diagnóstico inteligente e sugestões automatizadas' },
