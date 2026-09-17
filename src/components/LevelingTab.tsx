@@ -288,8 +288,8 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
         isDark ? 'border-blue-500/25 bg-blue-950/20 text-white' : 'border-blue-200 bg-blue-50/70 text-slate-900'
       }`}>
         <div className="flex items-center gap-3.5 min-w-0">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-md shadow-blue-500/30">
-            <Puzzle size={22} />
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl overflow-hidden border border-amber-500/40 shadow-md shadow-orange-500/20 bg-black/40">
+            <img src="/rumo-ao-cfo-emblem.png" alt="Rumo ao CFO" className="h-full w-full object-cover" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">

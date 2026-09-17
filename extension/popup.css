@@ -68,17 +68,19 @@ body {
   gap: 10px;
 }
 
-.brand-icon {
-  font-size: 20px;
+.brand-icon-wrapper {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(245, 158, 11, 0.25));
-  border: 1px solid rgba(245, 158, 11, 0.45);
+}
+
+.brand-icon-img {
+  width: 38px;
+  height: 38px;
   border-radius: 11px;
-  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.2);
+  border: 1.5px solid rgba(245, 158, 11, 0.5);
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.25);
+  object-fit: cover;
 }
 
 .brand-title {

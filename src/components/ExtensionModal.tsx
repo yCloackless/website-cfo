@@ -119,9 +119,13 @@ export const ExtensionModal: React.FC<ExtensionModalProps> = ({
 
         {/* Hero Header */}
         <div className="flex items-start gap-4 mb-6">
-          <div className="relative">
-            <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr from-red-600 via-orange-500 to-amber-400 flex items-center justify-center text-white shadow-xl shadow-orange-500/30 shrink-0">
-              <Flame size={28} className="animate-pulse" />
+          <div className="relative shrink-0">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden border-2 border-amber-500/50 shadow-xl shadow-orange-500/30 shrink-0 bg-black/50">
+              <img
+                src="/rumo-ao-cfo-emblem.png"
+                alt="Rumo ao CFO"
+                className="w-full h-full object-cover"
+              />
             </div>
             <span className="absolute -bottom-1 -right-1 flex h-4 w-4">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>

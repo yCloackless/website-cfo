@@ -921,14 +921,18 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                 <div className="space-y-5 animate-in fade-in duration-200">
                   <div className="p-4 rounded-xl border border-blue-500/30 bg-blue-950/20 space-y-4">
                     <div className="flex items-center gap-3.5">
-                      <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 flex items-center justify-center text-white shadow-md shadow-blue-500/30 shrink-0">
-                        <Puzzle size={20} />
+                      <div className="w-12 h-12 rounded-xl overflow-hidden border border-amber-500/50 shadow-md shadow-orange-500/25 shrink-0 bg-black/40">
+                        <img
+                          src="/rumo-ao-cfo-emblem.png"
+                          alt="Rumo ao CFO"
+                          className="w-full h-full object-cover"
+                        />
                       </div>
                       <div>
                         <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/15 text-blue-400 border border-blue-500/30 mb-0.5">
                           <Monitor size={11} /> Vinculação Oficial para Computador
                         </div>
-                        <h3 className="text-sm font-black text-white">Extensão CFO CBMERJ de Estudos</h3>
+                        <h3 className="text-sm font-black text-white">Extensão CFO CBMERJ — Rumo ao CFO</h3>
                         <p className="text-[11px] text-slate-400">
                           Utilize no QConcursos, TEC ou qualquer site de questões com cronômetro e registro rápido em tempo real.
                         </p>
