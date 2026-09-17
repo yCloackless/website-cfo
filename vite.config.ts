@@ -15,26 +15,18 @@ export default defineConfig(() => {
       rollupOptions: {
         output: {
           manualChunks(id: string) {
-            if (id.includes('node_modules')) {
-              if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/react-router-dom/')) {
-                return 'vendor-react';
-              }
-              if (id.includes('/three/')) {
+            const norm = id.replace(/\\/g, '/');
+            if (norm.includes('node_modules')) {
+              if (norm.includes('/three/')) {
                 return 'three';
               }
-              if (id.includes('/recharts/') || id.includes('/d3-')) {
-                return 'recharts';
-              }
-              if (id.includes('/katex/')) {
+              if (norm.includes('/katex/')) {
                 return 'katex';
               }
-              if (id.includes('/firebase/')) {
+              if (norm.includes('/firebase/')) {
                 return 'firebase';
               }
-              if (id.includes('/motion/')) {
-                return 'motion';
-              }
-              if (id.includes('/lucide-react/')) {
+              if (norm.includes('/lucide-react/')) {
                 return 'vendor-icons';
               }
             }
