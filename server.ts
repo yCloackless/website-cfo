@@ -464,7 +464,7 @@ async function getIpGeoLocation(
 async function verifyTurnstileToken(token?: string, remoteip?: string): Promise<boolean> {
   const secretKey =
     process.env.TURNSTILE_SECRET_KEY || "";
-  if (!secretKey) return false;
+  if (!secretKey) return true;
   if (!token) return false;
 
   // Chave de teste oficial da Cloudflare que sempre passa em desenvolvimento
@@ -2007,12 +2007,13 @@ app.delete("/api/study-sessions/day/:dateStr", (req: Request, res: Response) => 
 app.get("/api/auth/security-status", (req: Request, res: Response) => {
   const clientIp = getClientIp(req);
   const isAdm = isAdminIp(clientIp);
+  const hasSecret = Boolean(process.env.TURNSTILE_SECRET_KEY);
   const siteKey =
     process.env.TURNSTILE_SITE_KEY || "0x4AAAAAAEq86txU4BLgFVmp";
 
   return res.json({
     // Não expor clientIp nem isAdminIp — revelaria lógica interna de bypass
-    turnstileRequired: !isAdm,
+    turnstileRequired: hasSecret && !isAdm,
     siteKey,
   });
 });
@@ -2134,8 +2135,9 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
       });
     }
 
-    // 1. Verificação Cloudflare Turnstile (Bypass automático para o IP do Admin)
-    if (!isAdmIp) {
+    // 1. Verificação Cloudflare Turnstile (Bypass automático se não configurado ou para IP do Admin)
+    const hasSecret = Boolean(process.env.TURNSTILE_SECRET_KEY);
+    if (hasSecret && !isAdmIp) {
       const token = turnstileToken || (req.headers["cf-turnstile-response"] as string);
       const isTurnstileValid = await verifyTurnstileToken(token, clientIp);
       if (!isTurnstileValid) {
