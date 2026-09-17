@@ -25,6 +25,7 @@ import {
   Trophy,
   Pin,
   LogOut,
+  Puzzle,
 } from 'lucide-react';
 import { AppTheme } from '../types';
 
@@ -97,6 +98,7 @@ interface TacticalSidebarProps {
   onOpenSettings?: () => void;
   onOpenNotifications?: () => void;
   onOpenAdminSecurity?: () => void;
+  onOpenExtension?: () => void;
   onSignOut?: () => void;
 }
 
@@ -137,6 +139,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
   onOpenSettings,
   onOpenNotifications,
   onOpenAdminSecurity,
+  onOpenExtension,
   onSignOut,
 }) => {
   const isDark = theme === 'dark';
@@ -436,6 +439,21 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                 badgeClass: {
                   dark: 'bg-amber-500 text-black border-amber-400 font-bold',
                   light: 'bg-amber-500 text-black border-amber-400 font-bold',
+                },
+              },
+            ]
+          : []),
+        ...(onOpenExtension
+          ? [
+              {
+                id: 'browserExtension',
+                label: 'Extensão Web (PC)',
+                icon: Puzzle,
+                action: onOpenExtension,
+                badge: 'NOVO',
+                badgeClass: {
+                  dark: 'bg-blue-600/30 text-sky-300 border-blue-500/40',
+                  light: 'bg-blue-100 text-blue-800 border-blue-300',
                 },
               },
             ]
@@ -861,7 +879,11 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
               isDark ? 'border-slate-800/80' : 'border-slate-200/80'
             }`}
           >
-            <div className="flex items-center h-12 rounded-xl transition-all duration-200 overflow-hidden">
+            <div
+              onClick={onOpenSettings}
+              className="flex items-center h-12 rounded-xl transition-all duration-200 overflow-hidden cursor-pointer hover:bg-white/5"
+              title="Abrir Minha Conta / Configurações"
+            >
               {/* Avatar Icon Container: Fixed width 56px */}
               <div className="w-[56px] h-12 flex items-center justify-center shrink-0">
                 {userProfile?.avatarUrl ? (

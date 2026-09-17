@@ -20,7 +20,12 @@ import {
   Download,
   FileText,
   Cookie,
+  Puzzle,
+  Copy,
+  Check,
+  Monitor,
 } from 'lucide-react';
+import { apiFetch } from '../services/apiFetch';
 import { AppTheme } from '../types';
 import {
   loadAutoSpacedRevisionsEnabled,
@@ -51,7 +56,7 @@ interface MyAccountModalProps {
   onProfileUpdated?: (updatedProfile: UserProfileData) => void;
   autoSpacedRevisions?: boolean;
   onToggleAutoSpacedRevisions?: (enabled: boolean) => void;
-  initialTab?: 'profile' | 'settings' | 'email' | 'password' | 'privacy';
+  initialTab?: 'profile' | 'settings' | 'email' | 'password' | 'privacy' | 'extension';
 }
 
 export const MyAccountModal: React.FC<MyAccountModalProps> = ({
@@ -67,10 +72,18 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
   const isDark = theme === 'dark';
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [activeSubTab, setActiveSubTab] = useState<'profile' | 'settings' | 'email' | 'password' | 'privacy'>(initialTab);
+  const [activeSubTab, setActiveSubTab] = useState<'profile' | 'settings' | 'email' | 'password' | 'privacy' | 'extension'>(initialTab);
   const [loading, setLoading] = useState(false);
   const [fetchingProfile, setFetchingProfile] = useState(false);
   const [profile, setProfile] = useState<UserProfileData | null>(null);
+
+  // Estados da Extensão de Navegador (Desktop)
+  const [extToken, setExtToken] = useState('');
+  const [isLoadingExtToken, setIsLoadingExtToken] = useState(false);
+  const [extTokenError, setExtTokenError] = useState<string | null>(null);
+  const [copiedExtToken, setCopiedExtToken] = useState(false);
+  const [copiedExtUrl, setCopiedExtUrl] = useState(false);
+  const PLATFORM_URL = 'https://cfo-oficial-agorasim.onrender.com';
   const [isAutoSpacedRevisions, setIsAutoSpacedRevisions] = useState<boolean>(() => {
     return autoSpacedRevisions !== undefined ? autoSpacedRevisions : loadAutoSpacedRevisionsEnabled();
   });
@@ -97,7 +110,59 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
   // Feedback Messages
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Estados da Central de Privacidade (LGPD)
+  // Busca do Token da Extensão quando o usuário acessa a aba da Extensão
+  useEffect(() => {
+    if (activeSubTab !== 'extension' || extToken) return;
+    let isMounted = true;
+    setIsLoadingExtToken(true);
+    setExtTokenError(null);
+
+    (async () => {
+      try {
+        const res = await apiFetch('/api/user/extension-token');
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.token && isMounted) {
+            setExtToken(data.token);
+            return;
+          }
+        }
+      } catch {
+        // Fallback local
+      }
+
+      if (isMounted) {
+        const local = localStorage.getItem('cfo_terminal_session');
+        if (local && local !== 'cookie') {
+          setExtToken(local);
+        } else {
+          setExtTokenError('Não foi possível gerar a chave automaticamente. Recarregue a página.');
+        }
+      }
+    })().finally(() => {
+      if (isMounted) setIsLoadingExtToken(false);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeSubTab, extToken]);
+
+  const handleCopyExtUrl = () => {
+    navigator.clipboard.writeText(PLATFORM_URL).then(() => {
+      setCopiedExtUrl(true);
+      setTimeout(() => setCopiedExtUrl(false), 2500);
+    });
+  };
+
+  const handleCopyExtToken = () => {
+    if (!extToken) return;
+    navigator.clipboard.writeText(extToken).then(() => {
+      setCopiedExtToken(true);
+      setTimeout(() => setCopiedExtToken(false), 2500);
+    });
+  };
+
   const [privacyRequests, setPrivacyRequests] = useState<any[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [requestType, setRequestType] = useState<string>('access');
@@ -544,6 +609,20 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
             <Shield className="w-4 h-4" />
             Privacidade & LGPD
           </button>
+          <button
+            onClick={() => {
+              setActiveSubTab('extension');
+              setStatusMessage(null);
+            }}
+            className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+              activeSubTab === 'extension'
+                ? 'border-blue-500 text-blue-500 font-bold'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Puzzle className="w-4 h-4" />
+            Extensão (PC)
+          </button>
         </div>
 
         {/* Modal Body with Scroll */}
@@ -799,6 +878,188 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                           <span className="font-bold text-emerald-300 block">Revisando</span>
                           <span className="text-[10px] text-slate-400">Marcado em Verde no Google Agenda</span>
                         </div>
+                      </div>
+                    </div>
+
+                    {/* Atalho Proeminente para a Extensão de Navegador */}
+                    <div className="pt-3 border-t border-blue-900/30">
+                      <div className="p-3.5 rounded-xl border border-blue-500/30 bg-blue-950/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30 shrink-0">
+                            <Puzzle size={20} />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-xs font-bold text-slate-100">Extensão CFO CBMERJ para Navegador</h4>
+                              <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold text-[9px] uppercase border border-blue-500/30">
+                                PC
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              Sincronize cronômetro e marcador de questões (certa/errada) em tempo real com seu site.
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveSubTab('extension');
+                            setStatusMessage(null);
+                          }}
+                          className="px-3.5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shrink-0 shadow-md shadow-blue-600/20 transition-all"
+                        >
+                          Ver Chave & Download
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ABA EXCLUSIVA: EXTENSÃO DE NAVEGADOR PARA COMPUTADOR */}
+              {activeSubTab === 'extension' && (
+                <div className="space-y-5 animate-in fade-in duration-200">
+                  <div className="p-4 rounded-xl border border-blue-500/30 bg-blue-950/20 space-y-4">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 flex items-center justify-center text-white shadow-md shadow-blue-500/30 shrink-0">
+                        <Puzzle size={20} />
+                      </div>
+                      <div>
+                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/15 text-blue-400 border border-blue-500/30 mb-0.5">
+                          <Monitor size={11} /> Vinculação Oficial para Computador
+                        </div>
+                        <h3 className="text-sm font-black text-white">Extensão CFO CBMERJ de Estudos</h3>
+                        <p className="text-[11px] text-slate-400">
+                          Utilize no QConcursos, TEC ou qualquer site de questões com cronômetro e registro rápido em tempo real.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Bloco 1: Download Direto do ZIP */}
+                    <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-black/40 border-white/10' : 'bg-white border-slate-200'}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                          Pacote da Extensão (.ZIP)
+                        </span>
+                        <span className="text-[11px] font-mono font-bold text-emerald-400">
+                          19 KB • Pronto para uso
+                        </span>
+                      </div>
+                      <a
+                        href="/api/download/extension"
+                        download="cfo-cbmerj-extensao.zip"
+                        className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl font-black text-xs text-white bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 shadow-md shadow-blue-600/30 hover:scale-[1.01] active:scale-[0.99] transition-all"
+                      >
+                        <Download size={16} /> Baixar Pacote (.ZIP)
+                      </a>
+                      <p className="text-[10px] text-center text-slate-400 mt-1.5">
+                        Download direto do servidor oficial. Já vem pré-configurada para este site.
+                      </p>
+                    </div>
+
+                    {/* Bloco 2: URL Oficial da Plataforma */}
+                    <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-black/40 border-white/10' : 'bg-white border-slate-200'}`}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                          URL da Plataforma (Já Pré-Configurada no ZIP)
+                        </label>
+                        {copiedExtUrl && (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400">
+                            <Check size={12} /> URL Copiada!
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          readOnly
+                          value={PLATFORM_URL}
+                          onClick={(e) => (e.target as HTMLInputElement).select()}
+                          className={`flex-1 px-3 py-2 rounded-xl text-xs font-mono border outline-none select-all ${
+                            isDark ? 'bg-black/60 border-white/10 text-cyan-300' : 'bg-slate-50 border-slate-300 text-cyan-800'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleCopyExtUrl}
+                          className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/15 text-slate-200 border border-white/10 shrink-0 transition-all"
+                        >
+                          {copiedExtUrl ? <Check size={14} /> : <Copy size={14} />}
+                          {copiedExtUrl ? 'Copiada!' : 'Copiar'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Bloco 3: Chave Pessoal de Vinculação */}
+                    <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-black/40 border-white/10' : 'bg-white border-slate-200'}`}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                          Sua Chave de Acesso Pessoal (API Key)
+                        </label>
+                        {copiedExtToken && (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400">
+                            <Check size={12} /> Chave Copiada!
+                          </span>
+                        )}
+                      </div>
+
+                      {isLoadingExtToken ? (
+                        <div className="flex items-center justify-center gap-2 py-3 text-xs text-slate-400">
+                          <Loader2 size={16} className="animate-spin text-blue-400" />
+                          <span>Gerando chave de acesso para sua conta...</span>
+                        </div>
+                      ) : extTokenError ? (
+                        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
+                          <AlertCircle size={15} className="shrink-0 text-amber-400" />
+                          <span>{extTokenError}</span>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            readOnly
+                            value={extToken}
+                            onClick={(e) => (e.target as HTMLInputElement).select()}
+                            className={`flex-1 px-3 py-2 rounded-xl text-xs font-mono border outline-none select-all ${
+                              isDark ? 'bg-black/60 border-white/10 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                            }`}
+                          />
+                          <button
+                            type="button"
+                            onClick={handleCopyExtToken}
+                            disabled={!extToken}
+                            className={`flex items-center gap-1 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                              copiedExtToken
+                                ? 'bg-emerald-500 text-white'
+                                : 'bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20'
+                            }`}
+                          >
+                            {copiedExtToken ? <Check size={14} /> : <Copy size={14} />}
+                            {copiedExtToken ? 'Copiada!' : 'Copiar Chave'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Bloco 4: Instruções de Instalação */}
+                    <div className="space-y-2 text-xs text-slate-300 pt-1">
+                      <div className="flex items-start gap-2">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-blue-400 font-bold text-[10px] border border-blue-500/30">
+                          1
+                        </span>
+                        <p>Baixe o arquivo <strong>.zip</strong> acima e extraia a pasta no seu computador.</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-blue-400 font-bold text-[10px] border border-blue-500/30">
+                          2
+                        </span>
+                        <p>No navegador, acesse <code className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[11px]">chrome://extensions/</code> e ative o <strong>Modo do desenvolvedor</strong>.</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-blue-400 font-bold text-[10px] border border-blue-500/30">
+                          3
+                        </span>
+                        <p>Clique em <strong>Carregar sem compactação</strong>, selecione a pasta e cole sua chave na aba <strong>Conexão (⚙️)</strong>.</p>
                       </div>
                     </div>
                   </div>

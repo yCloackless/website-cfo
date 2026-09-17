@@ -28,7 +28,7 @@ chrome.runtime.onInstalled.addListener(() => {
     if (!result[STORAGE_KEYS.SETTINGS]) {
       chrome.storage.local.set({
         [STORAGE_KEYS.SETTINGS]: {
-          serverUrl: 'http://localhost:3000',
+          serverUrl: 'https://cfo-oficial-agorasim.onrender.com',
           token: '',
         },
       });

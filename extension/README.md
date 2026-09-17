@@ -25,7 +25,7 @@ Permite estudar em qualquer site ou PDF na web mantendo seu **Cronômetro de Est
 1. No site da plataforma **CFO CBMERJ**, observe o cabeçalho superior (Topbar).
 2. Clique no ícone de peça de quebra-cabeça (**🧩**): seu token de sessão pessoal será copiado automaticamente.
 3. Abra a extensão no navegador e clique na aba **"Conexão" (⚙️)**.
-4. Verifique a URL da plataforma (ex: `http://localhost:3000` em desenvolvimento ou o seu domínio de produção).
+4. A URL da plataforma já vem pré-configurada como `https://cfo-oficial-agorasim.onrender.com`.
 5. Cole a sua chave no campo **Token de Acesso** e clique em **"🔗 Salvar e Conectar"**.
 6. O badge no topo mudará para `● Conectado` (verde).
 

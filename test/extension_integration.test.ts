@@ -96,3 +96,33 @@ test('EXT-09: ExtensionModal não utiliza alert() ou prompt() nativos do navegad
   assert.match(modalCode, /\/api\/user\/extension-token/);
 });
 
+test('EXT-10: extensão vem pré-configurada por padrão com a URL oficial de produção', () => {
+  const popupJs = readSource('extension/popup.js');
+  assert.match(popupJs, /https:\/\/cfo-oficial-agorasim\.onrender\.com/);
+
+  const bgJs = readSource('extension/background.js');
+  assert.match(bgJs, /https:\/\/cfo-oficial-agorasim\.onrender\.com/);
+
+  const popupHtml = readSource('extension/popup.html');
+  assert.match(popupHtml, /https:\/\/cfo-oficial-agorasim\.onrender\.com/);
+});
+
+test('EXT-11: barra lateral possui atalho explícito para a extensão Web (PC)', () => {
+  const sidebarCode = readSource('src/components/TacticalSidebar.tsx');
+  assert.match(sidebarCode, /id:\s*['"]browserExtension['"]/);
+  assert.match(sidebarCode, /label:\s*['"]Extensão Web \(PC\)['"]/);
+  assert.match(sidebarCode, /onOpenExtension/);
+});
+
+test('EXT-12: Minha Conta possui aba dedicada de Extensão e App.tsx suporta rota /extensao', () => {
+  const accountCode = readSource('src/components/MyAccountModal.tsx');
+  assert.match(accountCode, /activeSubTab === ['"]extension['"]/);
+  assert.match(accountCode, /https:\/\/cfo-oficial-agorasim\.onrender\.com/);
+  assert.match(accountCode, /\/api\/user\/extension-token/);
+
+  const appCode = readSource('src/App.tsx');
+  assert.match(appCode, /['"]\/extensao['"]/);
+  assert.match(appCode, /onOpenExtension/);
+});
+
+

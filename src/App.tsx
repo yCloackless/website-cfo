@@ -83,6 +83,7 @@ const ErrorNotebookTab = lazy(() => import('./components/ErrorNotebookTab').then
 const ExamBankTab = lazy(() => import('./components/ExamBankTab').then(({ ExamBankTab }) => ({ default: ExamBankTab })));
 const LevelingTab = lazy(() => import('./components/LevelingTab').then(({ LevelingTab }) => ({ default: LevelingTab })));
 const MyAccountModal = lazy(() => import('./components/MyAccountModal').then(({ MyAccountModal }) => ({ default: MyAccountModal })));
+const ExtensionModal = lazy(() => import('./components/ExtensionModal').then(({ ExtensionModal }) => ({ default: ExtensionModal })));
 const AdminSecurityPanelModal = lazy(() => import('./components/AdminSecurityPanelModal').then(({ AdminSecurityPanelModal }) => ({ default: AdminSecurityPanelModal })));
 const UpdateNoticeModal = lazy(() => import('./components/UpdateNoticeModal').then(({ UpdateNoticeModal }) => ({ default: UpdateNoticeModal })));
 const NotificationCenterDrawer = lazy(() => import('./components/NotificationCenterDrawer').then(({ NotificationCenterDrawer }) => ({ default: NotificationCenterDrawer })));
@@ -117,7 +118,8 @@ export default function App() {
 
   // 👤 Minha Conta & Perfil do Aluno & Configurações
   const [isMyAccountOpen, setIsMyAccountOpen] = useState(false);
-  const [accountInitialTab, setAccountInitialTab] = useState<'profile' | 'settings' | 'email' | 'password'>('profile');
+  const [isExtensionModalOpen, setIsExtensionModalOpen] = useState(false);
+  const [accountInitialTab, setAccountInitialTab] = useState<'profile' | 'settings' | 'email' | 'password' | 'extension'>('profile');
   const [autoSpacedRevisions, setAutoSpacedRevisions] = useState<boolean>(() => loadAutoSpacedRevisionsEnabled());
   const [userProfile, setUserProfile] = useState<{
     id?: string;
@@ -1641,6 +1643,7 @@ export default function App() {
     '/agenda-notion',
     '/perfil',
     '/configuracoes',
+    '/extensao',
     '/admin',
   ];
 
@@ -1845,6 +1848,7 @@ export default function App() {
           onOpenAddSubject={() => setIsAddSubjectModalOpen(true)}
           onOpenHistory={() => setIsHistoryModalOpen(true)}
           onOpenSettings={() => navigate('/configuracoes')}
+          onOpenExtension={() => setIsExtensionModalOpen(true)}
           onOpenNotifications={() => setIsNotificationDrawerOpen(true)}
           onOpenAdminSecurity={() => navigate('/admin')}
           onSignOut={handleLockTerminal}
@@ -2526,6 +2530,18 @@ export default function App() {
         onClose={() => setIsAdminSecurityOpen(false)}
         theme={theme}
         sessionToken={localStorage.getItem('cfo_terminal_session')}
+      />
+
+      {/* Modal Central da Extensão de Navegador */}
+      <ExtensionModal
+        isOpen={isExtensionModalOpen || normalizedPath === '/extensao'}
+        onClose={() => {
+          setIsExtensionModalOpen(false);
+          if (normalizedPath === '/extensao') {
+            navigate('/cronograma');
+          }
+        }}
+        theme={theme}
       />
 
 

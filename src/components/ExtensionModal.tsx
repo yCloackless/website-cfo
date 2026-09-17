@@ -19,6 +19,8 @@ export const ExtensionModal: React.FC<ExtensionModalProps> = ({
   const [isLoadingToken, setIsLoadingToken] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
+  const PLATFORM_URL = 'https://cfo-oficial-agorasim.onrender.com';
 
   useEffect(() => {
     if (!isOpen) return;
@@ -64,6 +66,13 @@ export const ExtensionModal: React.FC<ExtensionModalProps> = ({
   }, [isOpen, token]);
 
   if (!isOpen) return null;
+
+  const handleCopyUrl = () => {
+    navigator.clipboard.writeText(PLATFORM_URL).then(() => {
+      setCopiedUrl(true);
+      setTimeout(() => setCopiedUrl(false), 2500);
+    });
+  };
 
   const handleCopyToken = () => {
     if (!token) return;
@@ -150,7 +159,51 @@ export const ExtensionModal: React.FC<ExtensionModalProps> = ({
           </p>
         </div>
 
-        {/* Bloco 2: Chave de Acesso para Conectar */}
+        {/* Bloco 2: URL Oficial da Plataforma */}
+        <div className={`p-4 rounded-2xl border mb-3 ${isDark ? 'bg-white/[0.03] border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+          <div className="flex items-center justify-between mb-1.5">
+            <label htmlFor="modal-url-input" className="block text-xs font-bold uppercase tracking-wider text-slate-400">
+              URL Oficial da Plataforma
+            </label>
+            {copiedUrl ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 animate-in fade-in">
+                <Check size={12} /> URL Copiada!
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wide">
+                Pré-configurada no ZIP
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <input
+              id="modal-url-input"
+              type="text"
+              readOnly
+              value={PLATFORM_URL}
+              onClick={(e) => (e.target as HTMLInputElement).select()}
+              className={`flex-1 px-3 py-2 rounded-xl text-xs font-mono border outline-none select-all ${
+                isDark ? 'bg-black/50 border-white/10 text-cyan-300' : 'bg-white border-slate-300 text-cyan-800'
+              }`}
+            />
+            <button
+              type="button"
+              onClick={handleCopyUrl}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                copiedUrl
+                  ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30'
+                  : isDark
+                  ? 'bg-white/10 hover:bg-white/20 text-white border border-white/10'
+                  : 'bg-slate-200 hover:bg-slate-300 text-slate-800'
+              }`}
+            >
+              {copiedUrl ? <Check size={14} /> : <Copy size={14} />}
+              {copiedUrl ? 'Copiada!' : 'Copiar URL'}
+            </button>
+          </div>
+        </div>
+
+        {/* Bloco 3: Chave de Acesso para Conectar */}
         <div className={`p-4 rounded-2xl border mb-5 ${isDark ? 'bg-white/[0.03] border-white/10' : 'bg-slate-50 border-slate-200'}`}>
           <div className="flex items-center justify-between mb-2">
             <label htmlFor="modal-token-input" className="block text-xs font-bold uppercase tracking-wider text-slate-400">

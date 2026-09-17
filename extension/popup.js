@@ -7,7 +7,7 @@
 const state = {
   activeTab: 'timer',
   settings: {
-    serverUrl: 'http://localhost:3000',
+    serverUrl: 'https://cfo-oficial-agorasim.onrender.com',
     token: '',
   },
   timer: {
@@ -465,7 +465,7 @@ async function initPopup() {
 
   if (storage.cfo_ext_settings) {
     state.settings = storage.cfo_ext_settings;
-    els.serverUrl.value = state.settings.serverUrl || 'http://localhost:3000';
+    els.serverUrl.value = state.settings.serverUrl || 'https://cfo-oficial-agorasim.onrender.com';
     els.authToken.value = state.settings.token || '';
   }
 
