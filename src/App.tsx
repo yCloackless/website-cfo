@@ -81,6 +81,7 @@ const StudentAnalyticsPanel = lazy(() => import('./components/StudentAnalyticsPa
 const Release3StudyPanel = lazy(() => import('./components/Release3StudyPanel').then(({ Release3StudyPanel }) => ({ default: Release3StudyPanel })));
 const ErrorNotebookTab = lazy(() => import('./components/ErrorNotebookTab').then(({ ErrorNotebookTab }) => ({ default: ErrorNotebookTab })));
 const ExamBankTab = lazy(() => import('./components/ExamBankTab').then(({ ExamBankTab }) => ({ default: ExamBankTab })));
+const LevelingTab = lazy(() => import('./components/LevelingTab').then(({ LevelingTab }) => ({ default: LevelingTab })));
 const MyAccountModal = lazy(() => import('./components/MyAccountModal').then(({ MyAccountModal }) => ({ default: MyAccountModal })));
 const AdminSecurityPanelModal = lazy(() => import('./components/AdminSecurityPanelModal').then(({ AdminSecurityPanelModal }) => ({ default: AdminSecurityPanelModal })));
 const UpdateNoticeModal = lazy(() => import('./components/UpdateNoticeModal').then(({ UpdateNoticeModal }) => ({ default: UpdateNoticeModal })));
@@ -2364,6 +2365,10 @@ export default function App() {
             <Release3StudyPanel theme={theme} showToast={showToast} />
             <TacticalSimulations theme={theme} showToast={showToast} />
           </>
+        )}
+
+        {activeTab === 'leveling' && (
+          <LevelingTab theme={theme} showToast={showToast} />
         )}
 
         {/* Render Tab: Caderno de Erros & Flashcards (Anki Style) */}

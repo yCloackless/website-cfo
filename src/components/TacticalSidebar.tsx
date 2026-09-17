@@ -22,6 +22,7 @@ import {
   CircleUserRound,
   ArrowLeftRight,
   Flame,
+  Trophy,
   Pin,
   LogOut,
 } from 'lucide-react';
@@ -38,7 +39,8 @@ export type TabType =
   | 'ai'
   | 'calendar'
   | 'simulations'
-  | 'flashcards';
+  | 'flashcards'
+  | 'leveling';
 
 export const TAB_ROUTE_MAP: Record<TabType, string> = {
   table: '/cronograma',
@@ -51,6 +53,7 @@ export const TAB_ROUTE_MAP: Record<TabType, string> = {
   ai: '/equilibrio-ia',
   simulations: '/simulados',
   flashcards: '/caderno-de-erros',
+  leveling: '/nivelamento',
   calendar: '/agenda-notion',
 };
 
@@ -66,6 +69,7 @@ export const ROUTE_TAB_MAP: Record<string, TabType> = {
   '/equilibrio-ia': 'ai',
   '/simulados': 'simulations',
   '/caderno-de-erros': 'flashcards',
+  '/nivelamento': 'leveling',
   '/agenda-notion': 'calendar',
 };
 
@@ -333,6 +337,18 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
           icon: ClipboardCheck,
           tabId: 'simulations',
           route: '/simulados',
+        },
+        {
+          id: 'leveling',
+          label: 'Nivelamento',
+          icon: Trophy,
+          tabId: 'leveling',
+          route: '/nivelamento',
+          badge: '80%',
+          badgeClass: {
+            dark: 'bg-amber-400/15 text-amber-300 border-amber-400/30',
+            light: 'bg-amber-100 text-amber-800 border-amber-200',
+          },
         },
         {
           id: 'flashcards',
