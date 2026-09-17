@@ -47,11 +47,11 @@ test('EXT-03: rotas de sincronização de nivelamento estão protegidas por aute
   assert.match(serverCode, /cfo_leveling_session/);
 });
 
-test('EXT-04: botão de cópia de token para a extensão está presente no cabeçalho', () => {
+test('EXT-04: botão de extensão no cabeçalho é exclusivo para computadores (oculto no mobile)', () => {
   const headerCode = readSource('src/components/Header.tsx');
   assert.match(headerCode, /id="btn-extension-token"/);
-  assert.match(headerCode, /handleCopyExtensionToken/);
-  assert.match(headerCode, /cfo_terminal_session/);
+  assert.match(headerCode, /hidden md:inline-flex/, 'Deve ser oculto no mobile e visível apenas em telas md+');
+  assert.match(headerCode, /setIsExtensionModalOpen\(true\)/);
 });
 
 test('EXT-05: popup.js possui suporte a cronômetro e atalhos táteis de certa e errada', () => {
@@ -61,4 +61,24 @@ test('EXT-05: popup.js possui suporte a cronômetro e atalhos táteis de certa e
   assert.match(popupJs, /formatTime/);
   assert.match(popupJs, /\/api\/leveling\/session/);
   assert.match(popupJs, /\/api\/timer\/save-session/);
+});
+
+test('EXT-06: pacote ZIP da extensão existe em public e endpoint de download está registrado', () => {
+  const zipPath = path.join(root, 'public/cfo-extensao-cbmerj.zip');
+  assert.equal(fs.existsSync(zipPath), true, 'cfo-extensao-cbmerj.zip deve existir em public/');
+  assert.ok(fs.statSync(zipPath).size > 1000, 'Arquivo ZIP deve conter conteúdo empacotado');
+
+  const serverCode = readSource('server.ts');
+  assert.match(serverCode, /app\.get\(["']\/api\/download\/extension["']/);
+  assert.match(serverCode, /cfo-extensao-cbmerj\.zip/);
+});
+
+test('EXT-07: banner de download no Nivelamento e modal são exclusivos para desktop', () => {
+  const levelingCode = readSource('src/components/LevelingTab.tsx');
+  assert.match(levelingCode, /hidden md:flex/, 'Banner do nivelamento deve ser oculto no mobile');
+  assert.match(levelingCode, /ExtensionModal/);
+
+  const modalCode = readSource('src/components/ExtensionModal.tsx');
+  assert.match(modalCode, /cfo-extensao-cbmerj\.zip/);
+  assert.match(modalCode, /Exclusivo para Computador/);
 });

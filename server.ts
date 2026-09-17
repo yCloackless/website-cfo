@@ -5886,6 +5886,20 @@ app.post("/api/leveling/session", requireUserAuth, (req: Request, res: Response)
   }
 });
 
+// Endpoint seguro para download direto do pacote ZIP da extensão para desktop
+app.get("/api/download/extension", (_req: Request, res: Response) => {
+  const zipPath = path.resolve(process.cwd(), "public", "cfo-extensao-cbmerj.zip");
+  if (!fs.existsSync(zipPath)) {
+    return res.status(404).json({
+      error: "FILE_NOT_FOUND",
+      message: "Pacote da extensão não encontrado para download.",
+    });
+  }
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", 'attachment; filename="cfo-cbmerj-extensao.zip"');
+  return res.sendFile(zipPath);
+});
+
 app.post("/api/user/sync-backup", requireUserAuth, (req: Request, res: Response) => {
   try {
     const user = (req as any).user;

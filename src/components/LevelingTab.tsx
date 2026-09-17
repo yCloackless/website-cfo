@@ -14,7 +14,11 @@ import {
   Trophy,
   X,
   XCircle,
+  Download,
+  Monitor,
+  Puzzle,
 } from 'lucide-react';
+import { ExtensionModal } from './ExtensionModal';
 import { AppTheme } from '../types';
 import { getUserStorageKey } from '../utils/userStorage';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/dialog';
@@ -79,6 +83,7 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
   const [manualWrong, setManualWrong] = useState('');
   const [completion, setCompletion] = useState<CompletionState | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [isExtensionModalOpen, setIsExtensionModalOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -278,6 +283,36 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
         </div>
       </section>
 
+      {/* Banner Exclusivo para Computador (oculto no mobile): Download e Conexão da Extensão */}
+      <div className={`mt-5 hidden md:flex items-center justify-between gap-4 rounded-2xl border p-4 sm:p-5 transition-all ${
+        isDark ? 'border-blue-500/25 bg-blue-950/20 text-white' : 'border-blue-200 bg-blue-50/70 text-slate-900'
+      }`}>
+        <div className="flex items-center gap-3.5 min-w-0">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-md shadow-blue-500/30">
+            <Puzzle size={22} />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-black tracking-tight">Estude em sites de questões com a Extensão Oficial</h3>
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/20 border border-blue-500/30 px-2 py-0.5 text-[10px] font-bold text-blue-400 uppercase">
+                <Monitor size={10} /> Computador
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Resolva no QConcursos ou TEC com botões de Certa/Errada sincronizados em tempo real com este Nivelamento.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setIsExtensionModalOpen(true)}
+          className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-4 py-2.5 text-xs font-black text-white shadow-lg shadow-blue-600/20 transition hover:scale-[1.02] shrink-0"
+        >
+          <Download size={15} /> Baixar Extensão (.ZIP)
+        </button>
+      </div>
+
       <div className={`mt-6 grid w-full grid-cols-2 rounded-2xl border p-1.5 sm:inline-grid sm:w-auto ${isDark ? 'border-white/10 bg-slate-950/80' : 'border-slate-200 bg-slate-100'}`} role="tablist" aria-label="Modo de lançamento">
         {([
           ['live', 'Responder agora', Play],
@@ -363,6 +398,12 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
           </DialogContent>
         )}
       </Dialog>
+
+      <ExtensionModal
+        isOpen={isExtensionModalOpen}
+        onClose={() => setIsExtensionModalOpen(false)}
+        theme={theme}
+      />
     </div>
   );
 };
