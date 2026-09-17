@@ -67,6 +67,7 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
   const [manualCorrect, setManualCorrect] = useState('');
   const [manualWrong, setManualWrong] = useState('');
   const [completion, setCompletion] = useState<CompletionState | null>(null);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
     try {
@@ -86,6 +87,8 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
       setStarted(Boolean(saved.started && savedTotal > 0));
     } catch {
       // A malformed local snapshot must never prevent the leveling page from opening.
+    } finally {
+      setIsHydrated(true);
     }
   }, []);
 
@@ -107,6 +110,7 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
   };
 
   useEffect(() => {
+    if (!isHydrated) return;
     const snapshot: SavedLevelingState = {
       mode,
       total,
@@ -120,7 +124,7 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
     } catch {
       // Local persistence is a convenience; the active session remains usable without it.
     }
-  }, [answers, manualCorrectNumber, manualWrongNumber, mode, started, total]);
+  }, [answers, isHydrated, manualCorrectNumber, manualWrongNumber, mode, started, total]);
 
   const goalStatus = useMemo(() => {
     if (!answered) return `Meta de ${GOAL}%`;

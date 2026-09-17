@@ -28,3 +28,11 @@ test('F-02: quantidades são truncadas e limitadas para proteger a interface', (
   assert.equal(clampLevelingCount(Number.POSITIVE_INFINITY), 0);
   assert.equal(clampLevelingCount('40', 25), 25);
 });
+
+test('F-03: persistência espera a hidratação antes de gravar o estado', () => {
+  const component = readSource('src/components/LevelingTab.tsx');
+
+  assert.match(component, /const \[isHydrated, setIsHydrated\] = useState\(false\)/);
+  assert.match(component, /finally\s*{\s*setIsHydrated\(true\)/);
+  assert.match(component, /if \(!isHydrated\) return;\s*const snapshot/);
+});
