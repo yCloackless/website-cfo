@@ -6,7 +6,15 @@ const workerSource = `
 const { parentPort } = require('node:worker_threads');
 const { Pool } = require('pg');
 
-const databaseUrl = process.env.DATABASE_URL || '';
+let databaseUrl = process.env.DATABASE_URL || '';
+if (databaseUrl && !process.env.RENDER) {
+  databaseUrl = databaseUrl.replace(/@(dpg-[a-z0-9]+)(:[0-9]+|[\\/?]|$)/i, (match, host, rest) => {
+    if (!host.includes('.')) {
+      return '@' + host + '.oregon-postgres.render.com' + rest;
+    }
+    return match;
+  });
+}
 const needsSsl = databaseUrl.includes('sslmode=require') ||
   process.env.NODE_ENV === 'production' ||
   databaseUrl.includes('neon.tech') ||
@@ -26,6 +34,7 @@ const pool = new Pool({
 
 const pending = [];
 let ready = false;
+let fatalError = null;
 let ioPort;
 
 const normalize = (sql) => sql
@@ -52,14 +61,28 @@ const normalize = (sql) => sql
     } catch (err) {
       attempts++;
       if (attempts >= 3) {
-        if (ioPort) ioPort.postMessage({ fatal: true, error: String(err.message || err) });
+        fatalError = String(err.message || err);
+        if (ioPort) {
+          while (pending.length) {
+            const msg = pending.shift();
+            done(msg, { error: fatalError });
+          }
+          ioPort.postMessage({ fatal: true, error: fatalError });
+        }
         return;
       }
       await new Promise((res) => setTimeout(res, attempts * 500));
     }
   }
 })().catch((err) => {
-  if (ioPort) ioPort.postMessage({ fatal: true, error: String(err.message || err) });
+  fatalError = String(err.message || err);
+  if (ioPort) {
+    while (pending.length) {
+      const msg = pending.shift();
+      done(msg, { error: fatalError });
+    }
+    ioPort.postMessage({ fatal: true, error: fatalError });
+  }
 });
 
 async function executeWithRetry(sql, values, retries = 2) {
@@ -100,8 +123,13 @@ parentPort.on('message', (message) => {
   if (message.port) {
     ioPort = message.port;
     ioPort.on('message', (request) => {
-      if (ready) void handle(request);
-      else pending.push(request);
+      if (fatalError) {
+        done(request, { error: fatalError });
+      } else if (ready) {
+        void handle(request);
+      } else {
+        pending.push(request);
+      }
     });
   }
 });
