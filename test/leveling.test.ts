@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { clampLevelingCount, MAX_LEVELING_QUESTIONS } from '../src/utils/leveling';
+import {
+  calculateLevelingAccuracy,
+  clampLevelingCount,
+  hasPassedLeveling,
+  MAX_LEVELING_QUESTIONS,
+  requiredLevelingCorrect,
+} from '../src/utils/leveling';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const readSource = (relativePath: string) => readFileSync(path.join(root, relativePath), 'utf8');
@@ -35,4 +41,15 @@ test('F-03: persistência espera a hidratação antes de gravar o estado', () =>
   assert.match(component, /const \[isHydrated, setIsHydrated\] = useState\(false\)/);
   assert.match(component, /finally\s*{\s*setIsHydrated\(true\)/);
   assert.match(component, /if \(!isHydrated\) return;\s*const snapshot/);
+});
+
+test('F-04: meta de 80% usa o total planejado, sem aprovação prematura', () => {
+  assert.equal(requiredLevelingCorrect(30), 24);
+  assert.equal(calculateLevelingAccuracy(1, 1), 100);
+  assert.equal(1 >= requiredLevelingCorrect(30), false);
+  assert.equal(hasPassedLeveling(23, 30), false);
+  assert.equal(hasPassedLeveling(24, 30), true);
+  assert.equal(hasPassedLeveling(3, 4), false);
+  assert.equal(hasPassedLeveling(4, 5), true);
+  assert.equal(hasPassedLeveling(0, 0), false);
 });

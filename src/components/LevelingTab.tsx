@@ -16,7 +16,13 @@ import {
 } from 'lucide-react';
 import { AppTheme } from '../types';
 import { getUserStorageKey } from '../utils/userStorage';
-import { clampLevelingCount, MAX_LEVELING_QUESTIONS } from '../utils/leveling';
+import {
+  calculateLevelingAccuracy,
+  clampLevelingCount,
+  hasPassedLeveling,
+  MAX_LEVELING_QUESTIONS,
+  requiredLevelingCorrect,
+} from '../utils/leveling';
 
 type Mode = 'live' | 'manual';
 type Answer = 'correct' | 'wrong';
@@ -96,9 +102,10 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
   const correct = answers.filter((answer) => answer === 'correct').length;
   const wrong = answers.length - correct;
   const answered = answers.length;
-  const accuracy = answered ? Math.round((correct / answered) * 100) : 0;
+  const accuracy = calculateLevelingAccuracy(correct, answered);
   const isComplete = started && total > 0 && answered === total;
-  const isPassing = accuracy >= GOAL && correct > wrong;
+  const requiredCorrect = requiredLevelingCorrect(total, GOAL);
+  const isGoalSecured = total > 0 && correct >= requiredCorrect;
   const remaining = Math.max(total - answered, 0);
   const manualCorrectNumber = clampLevelingCount(manualCorrect);
   const manualWrongNumber = clampLevelingCount(manualWrong, MAX_LEVELING_QUESTIONS - manualCorrectNumber);
@@ -128,10 +135,10 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
 
   const goalStatus = useMemo(() => {
     if (!answered) return `Meta de ${GOAL}%`;
-    if (isPassing) return 'Meta assegurada';
-    const needed = Math.max(Math.ceil(total * (GOAL / 100)) - correct, 0);
+    if (isGoalSecured) return 'Meta assegurada';
+    const needed = Math.max(requiredCorrect - correct, 0);
     return needed ? `Faltam ${needed} acerto${needed > 1 ? 's' : ''} para a meta` : `Meta de ${GOAL}%`;
-  }, [answered, correct, isPassing, total]);
+  }, [answered, correct, isGoalSecured, requiredCorrect]);
 
   const startSession = () => {
     if (total < 1) {
@@ -182,8 +189,8 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
     setCompletion({ correct: manualCorrectNumber, total: manualTotal });
   };
 
-  const completionAccuracy = completion ? Math.round((completion.correct / completion.total) * 100) : 0;
-  const completionPassed = completionAccuracy >= GOAL && completion!.correct > completion!.total - completion!.correct;
+  const completionAccuracy = completion ? calculateLevelingAccuracy(completion.correct, completion.total) : 0;
+  const completionPassed = completion ? hasPassedLeveling(completion.correct, completion.total, GOAL) : false;
 
   return (
     <div className="nivelamento-page animate-in fade-in duration-300 pb-12">
@@ -251,7 +258,7 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
                 <div className="mb-2 flex items-center justify-between gap-4"><p className={`text-sm font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Progresso da missão</p><span className={`text-sm font-black ${isDark ? 'text-white' : 'text-slate-950'}`}>{answered} / {total}</span></div>
                 <div className={`h-3 overflow-hidden rounded-full ${isDark ? 'bg-white/10' : 'bg-slate-100'}`}><div className="h-full rounded-full bg-gradient-to-r from-blue-600 via-cyan-400 to-emerald-400 transition-all duration-500" style={{ width: `${total ? (answered / total) * 100 : 0}%` }} /></div>
               </div>
-              <div className={`rounded-xl px-3 py-2 text-center text-xs font-bold ${isPassing ? 'bg-emerald-500/15 text-emerald-400' : isDark ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>{goalStatus}</div>
+              <div className={`rounded-xl px-3 py-2 text-center text-xs font-bold ${isGoalSecured ? 'bg-emerald-500/15 text-emerald-400' : isDark ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>{goalStatus}</div>
             </div>
 
             <div className="mt-7 grid gap-3 sm:grid-cols-3">
@@ -284,7 +291,7 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
             <NumberField id="nivelamento-acertos" label="Quantas você acertou?" value={manualCorrect} onChange={(value) => setManualCorrect(normalizeCountInput(value, MAX_LEVELING_QUESTIONS - manualWrongNumber))} icon={<CheckCircle2 size={20} />} color="emerald" isDark={isDark} />
             <NumberField id="nivelamento-erros" label="Quantas você errou?" value={manualWrong} onChange={(value) => setManualWrong(normalizeCountInput(value, MAX_LEVELING_QUESTIONS - manualCorrectNumber))} icon={<XCircle size={20} />} color="rose" isDark={isDark} />
           </div>
-          <div className={`mt-5 flex flex-wrap items-center gap-3 rounded-2xl border p-4 ${isDark ? 'border-white/10 bg-white/[.03]' : 'border-slate-100 bg-slate-50'}`}><Flag size={19} className="text-blue-400" /><span className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>Total calculado: <strong className={isDark ? 'text-white' : 'text-slate-950'}>{manualTotal} questões</strong></span>{manualTotal > 0 && <span className={`rounded-full px-2.5 py-1 text-xs font-black ${manualCorrectNumber / manualTotal >= .8 ? 'bg-emerald-500/15 text-emerald-400' : isDark ? 'bg-white/10 text-slate-400' : 'bg-slate-200 text-slate-600'}`}>{Math.round((manualCorrectNumber / manualTotal) * 100)}%</span>}</div>
+          <div className={`mt-5 flex flex-wrap items-center gap-3 rounded-2xl border p-4 ${isDark ? 'border-white/10 bg-white/[.03]' : 'border-slate-100 bg-slate-50'}`}><Flag size={19} className="text-blue-400" /><span className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>Total calculado: <strong className={isDark ? 'text-white' : 'text-slate-950'}>{manualTotal} questões</strong></span>{manualTotal > 0 && <span className={`rounded-full px-2.5 py-1 text-xs font-black ${hasPassedLeveling(manualCorrectNumber, manualTotal, GOAL) ? 'bg-emerald-500/15 text-emerald-400' : isDark ? 'bg-white/10 text-slate-400' : 'bg-slate-200 text-slate-600'}`}>{calculateLevelingAccuracy(manualCorrectNumber, manualTotal)}%</span>}</div>
           <button type="button" onClick={confirmManualResult} disabled={!manualTotal} className="mt-6 flex min-h-14 w-full max-w-md items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-400 px-5 text-base font-black text-white shadow-xl shadow-blue-600/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40"><Award size={21} /> Ver resultado do nivelamento</button>
         </section>
       )}
@@ -296,7 +303,7 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
           <div className={`relative mx-auto flex h-20 w-20 items-center justify-center rounded-[1.4rem] shadow-xl ${completionPassed ? 'bg-gradient-to-br from-amber-300 via-yellow-400 to-orange-500 text-amber-950 shadow-amber-500/30' : 'bg-gradient-to-br from-blue-500 to-indigo-700 text-white shadow-blue-500/30'}`}><Trophy size={42} strokeWidth={2.2} /></div>
           <p className={`relative mt-7 text-xs font-black uppercase tracking-[.22em] ${completionPassed ? 'text-amber-400' : 'text-blue-400'}`}>{completionPassed ? 'Meta conquistada' : 'Bateria finalizada'}</p>
           <h2 id="nivelamento-completion-title" className={`relative mt-2 text-3xl font-black tracking-[-.05em] sm:text-4xl ${isDark ? 'text-white' : 'text-slate-950'}`}>Nivelamento concluído</h2>
-          <p className={`relative mx-auto mt-3 max-w-sm text-base leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{completionPassed ? 'Você atingiu o padrão de precisão. Continue assim.' : `Você fechou com ${completionAccuracy}%. Para sua meta, faltaram ${Math.max(Math.ceil(completion.total * .8) - completion.correct, 0)} acerto${Math.max(Math.ceil(completion.total * .8) - completion.correct, 0) === 1 ? '' : 's'}.`}</p>
+          <p className={`relative mx-auto mt-3 max-w-sm text-base leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{completionPassed ? 'Você atingiu o padrão de precisão. Continue assim.' : `Você fechou com ${completionAccuracy}%. Para sua meta, faltaram ${Math.max(requiredLevelingCorrect(completion.total, GOAL) - completion.correct, 0)} acerto${Math.max(requiredLevelingCorrect(completion.total, GOAL) - completion.correct, 0) === 1 ? '' : 's'}.`}</p>
           <div className={`relative mt-7 grid grid-cols-3 divide-x rounded-2xl border py-3 ${isDark ? 'divide-white/10 border-white/10 bg-white/[.03]' : 'divide-slate-100 border-slate-100 bg-slate-50'}`}><CompletionMetric label="Acertos" value={completion.correct} tone="text-emerald-400" /><CompletionMetric label="Erros" value={completion.total - completion.correct} tone="text-rose-400" /><CompletionMetric label="Resultado" value={`${completionAccuracy}%`} tone={completionPassed ? 'text-amber-400' : 'text-blue-400'} /></div>
           <button type="button" onClick={() => setCompletion(null)} className={`relative mt-7 w-full rounded-xl py-3.5 text-sm font-black transition ${completionPassed ? 'bg-white text-slate-950 hover:bg-amber-50' : isDark ? 'bg-white text-slate-950 hover:bg-slate-100' : 'bg-slate-950 text-white hover:bg-slate-800'}`}>Ver meu cartão-resposta</button>
         </div>
