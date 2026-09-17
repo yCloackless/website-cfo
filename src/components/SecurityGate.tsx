@@ -68,6 +68,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
   // Turnstile e Segurança Geográfica
   const [securityStatus, setSecurityStatus] = useState<SecurityStatusData | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileLoadError, setTurnstileLoadError] = useState(false);
   const [isBanned, setIsBanned] = useState(false);
   const [banDetails, setBanDetails] = useState<{ message?: string; clientIp?: string; location?: string } | null>(null);
 
@@ -96,15 +97,9 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
         const data: SecurityStatusData = await res.json();
         if (isMounted) {
           setSecurityStatus(data);
-
-          // Se for IP de Admin (você), Turnstile NÃO roda!
           if (!data.turnstileRequired) {
             console.log('[SECURITY GATE] IP de Administrador reconhecido. Turnstile ignorado com sucesso.');
-            return;
           }
-
-          // Se for IP externo comum, carrega o Turnstile
-          loadTurnstileScript(data.siteKey);
         }
       } catch (err) {
         console.warn('[SECURITY GATE] Não foi possível obter security-status:', err);
@@ -115,69 +110,158 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
 
     return () => {
       isMounted = false;
+    };
+  }, []);
+
+  // 2. Ciclo de Vida Resiliente do Cloudflare Turnstile
+  // Garante que o container existe no DOM e que o script está pronto antes de renderizar
+  useEffect(() => {
+    const isNeeded = step === 'credentials' && !requiresTotp && Boolean(securityStatus?.turnstileRequired) && Boolean(securityStatus?.siteKey);
+
+    if (!isNeeded) {
       if (turnstileWidgetIdRef.current && window.turnstile) {
         try {
           window.turnstile.remove(turnstileWidgetIdRef.current);
         } catch {}
+        turnstileWidgetIdRef.current = null;
       }
-    };
-  }, []);
-
-  // Carrega e renderiza o widget da Cloudflare se for necessário
-  const loadTurnstileScript = (siteKey: string) => {
-    if (window.turnstile) {
-      renderTurnstile(siteKey);
       return;
     }
 
+    const siteKey = securityStatus!.siteKey;
+    let isEffectActive = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+    const maxAttempts = 60; // 6 segundos com passos de 100ms para aguardar montagem do DOM e script
+
+    const tryRender = () => {
+      if (!isEffectActive) return;
+
+      const container = turnstileContainerRef.current;
+      const turnstile = window.turnstile;
+
+      // Se container ainda não montou ou script ainda não inicializou, agenda próxima tentativa
+      if (!container || !turnstile) {
+        attempts++;
+        if (attempts < maxAttempts) {
+          retryTimer = setTimeout(tryRender, 100);
+        } else {
+          console.warn('[SECURITY GATE] Timeout ao aguardar montagem do container do Turnstile.');
+          setTurnstileLoadError(true);
+        }
+        return;
+      }
+
+      // Se já temos um widget ativo no mesmo container, limpa antes de renderizar novo
+      if (turnstileWidgetIdRef.current) {
+        try {
+          turnstile.remove(turnstileWidgetIdRef.current);
+        } catch {}
+        turnstileWidgetIdRef.current = null;
+      }
+
+      container.innerHTML = '';
+
+      try {
+        const widgetId = turnstile.render(container, {
+          sitekey: siteKey,
+          theme: 'light',
+          callback: (token: string) => {
+            if (!isEffectActive) return;
+            setTurnstileToken(token);
+            setErrorMsg(null);
+            setTurnstileLoadError(false);
+          },
+          'expired-callback': () => {
+            if (!isEffectActive) return;
+            setTurnstileToken(null);
+          },
+          'error-callback': (errorCode?: string) => {
+            if (!isEffectActive) return;
+            console.error('[Turnstile] Erro reportado pelo Cloudflare:', errorCode);
+            setErrorMsg('Falha na validação anti-robô. Clique em "Recarregar" para tentar novamente.');
+            setTurnstileToken(null);
+          },
+        });
+        turnstileWidgetIdRef.current = widgetId;
+      } catch (err) {
+        console.error('[SECURITY GATE] Erro ao renderizar Turnstile:', err);
+      }
+    };
+
+    // Garante que o script do Cloudflare está no documento
     const scriptId = 'cf-turnstile-script';
-    if (!document.getElementById(scriptId)) {
+    let script = document.getElementById(scriptId) as HTMLScriptElement | null;
+
+    if (!script) {
       window.onloadTurnstileCallback = () => {
-        renderTurnstile(siteKey);
+        tryRender();
       };
 
-      const script = document.createElement('script');
+      script = document.createElement('script');
       script.id = scriptId;
       script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstileCallback&render=explicit';
       script.async = true;
       script.defer = true;
+      script.onerror = () => {
+        if (!isEffectActive) return;
+        setTurnstileLoadError(true);
+        setErrorMsg('Não foi possível carregar a proteção Cloudflare. Desative bloqueadores de anúncio ou Brave Shields.');
+      };
       document.head.appendChild(script);
     } else {
-      const interval = setInterval(() => {
-        if (window.turnstile) {
-          clearInterval(interval);
-          renderTurnstile(siteKey);
-        }
-      }, 200);
+      // Script já presente, tenta renderizar com retry automático
+      tryRender();
     }
-  };
 
-  const renderTurnstile = (siteKey: string) => {
-    if (!turnstileContainerRef.current || !window.turnstile) return;
-    if (turnstileWidgetIdRef.current) {
+    return () => {
+      isEffectActive = false;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (turnstileWidgetIdRef.current && window.turnstile) {
+        try {
+          window.turnstile.remove(turnstileWidgetIdRef.current);
+        } catch {}
+        turnstileWidgetIdRef.current = null;
+      }
+    };
+  }, [step, securityStatus?.turnstileRequired, securityStatus?.siteKey, requiresTotp]);
+
+  const resetTurnstile = () => {
+    setTurnstileToken(null);
+    setErrorMsg(null);
+    setTurnstileLoadError(false);
+
+    if (turnstileWidgetIdRef.current && window.turnstile) {
       try {
-        window.turnstile.remove(turnstileWidgetIdRef.current);
+        window.turnstile.reset(turnstileWidgetIdRef.current);
+        return;
       } catch {}
     }
 
-    try {
-      const widgetId = window.turnstile.render(turnstileContainerRef.current, {
-        sitekey: siteKey,
-        theme: 'light',
-        callback: (token: string) => {
-          setTurnstileToken(token);
-          setErrorMsg(null);
-        },
-        'expired-callback': () => {
-          setTurnstileToken(null);
-        },
-        'error-callback': () => {
-          setErrorMsg('Falha na validação do Cloudflare Turnstile. Recarregue a página.');
-        },
-      });
-      turnstileWidgetIdRef.current = widgetId;
-    } catch (e) {
-      console.error('Erro ao renderizar Turnstile:', e);
+    // Se o reset falhou ou widget foi removido, força re-render direto
+    const container = turnstileContainerRef.current;
+    if (container && window.turnstile && securityStatus?.siteKey) {
+      try {
+        container.innerHTML = '';
+        const widgetId = window.turnstile.render(container, {
+          sitekey: securityStatus.siteKey,
+          theme: 'light',
+          callback: (token: string) => {
+            setTurnstileToken(token);
+            setErrorMsg(null);
+          },
+          'expired-callback': () => {
+            setTurnstileToken(null);
+          },
+          'error-callback': () => {
+            setErrorMsg('Falha na validação anti-robô. Clique em "Recarregar" para tentar novamente.');
+            setTurnstileToken(null);
+          },
+        });
+        turnstileWidgetIdRef.current = widgetId;
+      } catch (e) {
+        console.error('[Turnstile] Erro ao recarregar widget:', e);
+      }
     }
   };
 
@@ -249,10 +333,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
 
       if (!res.ok || !data.success || !data.token) {
         setErrorMsg(data.message || 'Usuário/e-mail ou senha incorretos.');
-        if (turnstileWidgetIdRef.current && window.turnstile) {
-          window.turnstile.reset(turnstileWidgetIdRef.current);
-          setTurnstileToken(null);
-        }
+        resetTurnstile();
         setLoading(false);
         return;
       }
@@ -814,12 +895,37 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
                           className="flex justify-center min-h-[65px] w-full"
                         />
                       </div>
-                      <span className="text-[10.5px] text-slate-400 mt-1 flex items-center gap-1.5 font-medium">
-                        <svg className="w-3.5 h-3.5 text-[#f38020]" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M18.8 11.2c-.4-3.1-3.1-5.5-6.3-5.5-2.7 0-5.1 1.7-6 4.2C3.7 10.4 1.5 12.7 1.5 15.5c0 3.3 2.7 6 6 6h11.2c2.6 0 4.8-2.1 4.8-4.8 0-2.5-1.9-4.6-4.4-4.8l-.3-.7z" />
-                        </svg>
-                        Protegido por Cloudflare Turnstile
-                      </span>
+                      {turnstileLoadError ? (
+                        <div className="mt-1.5 flex flex-col items-center text-center px-2">
+                          <span className="text-[11px] text-amber-600 font-medium">
+                            Não foi possível carregar o desafio de segurança.
+                          </span>
+                          <button
+                            type="button"
+                            onClick={resetTurnstile}
+                            className="mt-1 text-[11.5px] text-blue-600 font-semibold underline hover:text-blue-800 cursor-pointer"
+                          >
+                            Recarregar verificação Cloudflare
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10.5px] text-slate-400 flex items-center gap-1.5 font-medium">
+                            <svg className="w-3.5 h-3.5 text-[#f38020]" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M18.8 11.2c-.4-3.1-3.1-5.5-6.3-5.5-2.7 0-5.1 1.7-6 4.2C3.7 10.4 1.5 12.7 1.5 15.5c0 3.3 2.7 6 6 6h11.2c2.6 0 4.8-2.1 4.8-4.8 0-2.5-1.9-4.6-4.4-4.8l-.3-.7z" />
+                            </svg>
+                            Protegido por Cloudflare Turnstile
+                          </span>
+                          <button
+                            type="button"
+                            onClick={resetTurnstile}
+                            title="Recarregar verificação"
+                            className="text-[10px] text-slate-400 hover:text-blue-600 underline cursor-pointer"
+                          >
+                            Recarregar
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 

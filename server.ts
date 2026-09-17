@@ -485,6 +485,9 @@ async function verifyTurnstileToken(token?: string, remoteip?: string): Promise<
 
     if (res.ok) {
       const result = (await res.json()) as any;
+      if (!result.success && result["error-codes"]) {
+        console.warn("[Turnstile] Validação falhou:", result["error-codes"]);
+      }
       return Boolean(result.success);
     }
   } catch (err) {
