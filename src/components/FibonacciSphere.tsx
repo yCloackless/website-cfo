@@ -44,7 +44,13 @@ export default function FibonacciSphere({
     const scene = new Scene();
     const camera = new PerspectiveCamera(42, 1, 0.1, 100);
     camera.position.z = 4.1;
-    const renderer = new WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
+    let renderer: WebGLRenderer;
+    try {
+      renderer = new WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
+    } catch {
+      // Caso WebGL não esteja disponível no ambiente ou dispositivo, desativa o canvas 3D suavemente
+      return;
+    }
     renderer.setClearColor(0x000000, 0);
     renderer.setPixelRatio(pixelRatio);
     renderer.domElement.setAttribute('aria-hidden', 'true');
