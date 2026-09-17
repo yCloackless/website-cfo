@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { AppTheme } from '../types';
 import { getUserStorageKey } from '../utils/userStorage';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/dialog';
 import {
   calculateLevelingAccuracy,
   clampLevelingCount,
@@ -48,6 +49,7 @@ interface LevelingTabProps {
 
 const GOAL = 80;
 const STORAGE_KEY = 'cfo_leveling_session';
+const CONFETTI_COLORS = ['#fbbf24', '#38bdf8', '#34d399', '#fb7185', '#a78bfa', '#f97316'];
 
 const Confetti = () => (
   <div className="nivelamento-confetti" aria-hidden="true">
@@ -58,6 +60,8 @@ const Confetti = () => (
           '--confetti-left': `${(index * 37) % 101}%`,
           '--confetti-delay': `${(index % 11) * -0.18}s`,
           '--confetti-rotate': `${(index * 43) % 360}deg`,
+          '--confetti-color': CONFETTI_COLORS[index % CONFETTI_COLORS.length],
+          '--confetti-width': `${7 + (index % 4) * 2}px`,
         } as React.CSSProperties}
       />
     ))}
@@ -189,6 +193,11 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
     setCompletion({ correct: manualCorrectNumber, total: manualTotal });
   };
 
+  const showAnswerCard = () => {
+    setMode('live');
+    setCompletion(null);
+  };
+
   const completionAccuracy = completion ? calculateLevelingAccuracy(completion.correct, completion.total) : 0;
   const completionPassed = completion ? hasPassedLeveling(completion.correct, completion.total, GOAL) : false;
 
@@ -203,9 +212,13 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
         @keyframes nivelamento-trophy { 0% { transform: scale(.35) rotate(-16deg); opacity: 0; } 65% { transform: scale(1.13) rotate(5deg); } 100% { transform: scale(1) rotate(0); opacity: 1; } }
         @keyframes nivelamento-glow { 0%,100% { opacity: .38; transform: scale(.9); } 50% { opacity: .78; transform: scale(1.12); } }
         .nivelamento-confetti { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 80; }
-        .nivelamento-confetti i { position: absolute; top: 0; left: var(--confetti-left); width: 10px; height: 16px; border-radius: 2px; background: hsl(calc((var(--confetti-left) * 3) + 165), 90%, 62%); animation: nivelamento-fall 3.7s cubic-bezier(.13,.76,.38,1) var(--confetti-delay) both; }
+        .nivelamento-confetti i { position: absolute; top: 0; left: var(--confetti-left); width: var(--confetti-width); height: 16px; border-radius: 2px; background: var(--confetti-color); animation: nivelamento-fall 3.7s cubic-bezier(.13,.76,.38,1) var(--confetti-delay) both; }
         .nivelamento-trophy { animation: nivelamento-trophy .65s cubic-bezier(.22,1,.36,1) both; }
         .nivelamento-glow { animation: nivelamento-glow 2.6s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .nivelamento-confetti { display: none; }
+          .nivelamento-trophy, .nivelamento-glow { animation: none; }
+        }
       `}</style>
 
       <section className={`relative overflow-hidden rounded-[2rem] border px-5 py-7 sm:px-8 sm:py-9 ${
@@ -229,17 +242,17 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
         </div>
       </section>
 
-      <div className={`mt-6 inline-flex rounded-2xl border p-1.5 ${isDark ? 'border-white/10 bg-slate-950/80' : 'border-slate-200 bg-slate-100'}`} role="tablist" aria-label="Modo de lançamento">
+      <div className={`mt-6 grid w-full grid-cols-2 rounded-2xl border p-1.5 sm:inline-grid sm:w-auto ${isDark ? 'border-white/10 bg-slate-950/80' : 'border-slate-200 bg-slate-100'}`} role="tablist" aria-label="Modo de lançamento">
         {([
           ['live', 'Responder agora', Play],
           ['manual', 'Lançar resultado', Award],
         ] as const).map(([value, label, Icon]) => (
-          <button key={value} type="button" role="tab" aria-selected={mode === value} onClick={() => { setMode(value); setCompletion(null); }} className={`flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-bold transition-all sm:px-5 ${mode === value ? (isDark ? 'bg-white text-slate-950 shadow-lg' : 'bg-white text-slate-950 shadow-md') : (isDark ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-950')}`}><Icon size={16} />{label}</button>
+          <button key={value} id={`nivelamento-tab-${value}`} type="button" role="tab" aria-controls={`nivelamento-panel-${value}`} aria-selected={mode === value} onClick={() => { setMode(value); setCompletion(null); }} className={`flex min-w-0 items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-sm font-bold transition-all sm:px-5 ${mode === value ? (isDark ? 'bg-white text-slate-950 shadow-lg' : 'bg-white text-slate-950 shadow-md') : (isDark ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-950')}`}><Icon size={16} className="shrink-0" /><span className="truncate">{label}</span></button>
         ))}
       </div>
 
       {mode === 'live' ? (
-        <section className={`mt-5 overflow-hidden rounded-[2rem] border ${isDark ? 'border-white/10 bg-[#0b1020]' : 'border-slate-200 bg-white shadow-xl shadow-slate-200/50'}`}>
+        <section id="nivelamento-panel-live" role="tabpanel" aria-labelledby="nivelamento-tab-live" className={`mt-5 overflow-hidden rounded-[2rem] border ${isDark ? 'border-white/10 bg-[#0b1020]' : 'border-slate-200 bg-white shadow-xl shadow-slate-200/50'}`}>
           <div className={`flex flex-col gap-5 border-b p-5 sm:p-7 lg:flex-row lg:items-end lg:justify-between ${isDark ? 'border-white/10' : 'border-slate-100'}`}>
             <div>
               <p className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-950'}`}>Quantas questões você vai fazer?</p>
@@ -256,12 +269,12 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
             <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
               <div>
                 <div className="mb-2 flex items-center justify-between gap-4"><p className={`text-sm font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Progresso da missão</p><span className={`text-sm font-black ${isDark ? 'text-white' : 'text-slate-950'}`}>{answered} / {total}</span></div>
-                <div className={`h-3 overflow-hidden rounded-full ${isDark ? 'bg-white/10' : 'bg-slate-100'}`}><div className="h-full rounded-full bg-gradient-to-r from-blue-600 via-cyan-400 to-emerald-400 transition-all duration-500" style={{ width: `${total ? (answered / total) * 100 : 0}%` }} /></div>
+                <div role="progressbar" aria-label="Progresso do nivelamento" aria-valuemin={0} aria-valuemax={total} aria-valuenow={answered} className={`h-3 overflow-hidden rounded-full ${isDark ? 'bg-white/10' : 'bg-slate-100'}`}><div className="h-full rounded-full bg-gradient-to-r from-blue-600 via-cyan-400 to-emerald-400 transition-all duration-500" style={{ width: `${total ? (answered / total) * 100 : 0}%` }} /></div>
               </div>
               <div className={`rounded-xl px-3 py-2 text-center text-xs font-bold ${isGoalSecured ? 'bg-emerald-500/15 text-emerald-400' : isDark ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>{goalStatus}</div>
             </div>
 
-            <div className="mt-7 grid gap-3 sm:grid-cols-3">
+            <div className="mt-7 grid gap-3 sm:grid-cols-3" aria-live="polite">
               <Metric title="Acertos" value={correct} icon={<CheckCircle2 size={18} />} color="emerald" isDark={isDark} />
               <Metric title="Erros" value={wrong} icon={<XCircle size={18} />} color="rose" isDark={isDark} />
               <Metric title="Aproveitamento" value={`${accuracy}%`} icon={<Target size={18} />} color="blue" isDark={isDark} />
@@ -269,10 +282,11 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
 
             <div className="mt-7">
               <div className="mb-3 flex items-center justify-between"><p className={`text-sm font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Seu cartão-resposta</p><span className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{remaining ? `${remaining} pendente${remaining > 1 ? 's' : ''}` : 'Bateria finalizada'}</span></div>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(2.25rem,1fr))] gap-2">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(2.25rem,1fr))] gap-2" role="list" aria-label="Cartão-resposta do nivelamento">
                 {Array.from({ length: total }, (_, index) => {
                   const answer = answers[index];
-                  return <div key={index} title={answer === 'correct' ? `Questão ${index + 1}: acertou` : answer === 'wrong' ? `Questão ${index + 1}: errou` : `Questão ${index + 1}: pendente`} className={`flex aspect-square items-center justify-center rounded-lg border text-xs font-black transition-all ${answer === 'correct' ? 'border-emerald-400/40 bg-emerald-500/20 text-emerald-400 shadow-sm shadow-emerald-500/10' : answer === 'wrong' ? 'border-rose-400/40 bg-rose-500/20 text-rose-400 shadow-sm shadow-rose-500/10' : isDark ? 'border-white/10 bg-white/[.03] text-slate-600' : 'border-slate-200 bg-slate-50 text-slate-400'}`}>{answer === 'correct' ? <Check size={16} strokeWidth={3} /> : answer === 'wrong' ? <X size={16} strokeWidth={3} /> : index + 1}</div>;
+                  const answerLabel = answer === 'correct' ? `Questão ${index + 1}: acertou` : answer === 'wrong' ? `Questão ${index + 1}: errou` : `Questão ${index + 1}: pendente`;
+                  return <div key={index} role="listitem" aria-label={answerLabel} title={answerLabel} className={`flex aspect-square items-center justify-center rounded-lg border text-xs font-black transition-all ${answer === 'correct' ? 'border-emerald-400/40 bg-emerald-500/20 text-emerald-400 shadow-sm shadow-emerald-500/10' : answer === 'wrong' ? 'border-rose-400/40 bg-rose-500/20 text-rose-400 shadow-sm shadow-rose-500/10' : isDark ? 'border-white/10 bg-white/[.03] text-slate-600' : 'border-slate-200 bg-slate-50 text-slate-400'}`}>{answer === 'correct' ? <Check size={16} strokeWidth={3} aria-hidden="true" /> : answer === 'wrong' ? <X size={16} strokeWidth={3} aria-hidden="true" /> : index + 1}</div>;
                 })}
               </div>
             </div>
@@ -285,7 +299,7 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
           </div> : <div className={`flex min-h-72 flex-col items-center justify-center px-5 text-center ${isDark ? 'text-slate-500' : 'text-slate-400'}`}><CircleDashed size={36} strokeWidth={1.4} /><p className={`mt-4 text-base font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Pronto para medir seu nível?</p><p className="mt-1 text-sm">Defina a quantidade e toque em “Iniciar”.</p></div>}
         </section>
       ) : (
-        <section className={`mt-5 overflow-hidden rounded-[2rem] border p-5 sm:p-8 ${isDark ? 'border-white/10 bg-[#0b1020]' : 'border-slate-200 bg-white shadow-xl shadow-slate-200/50'}`}>
+        <section id="nivelamento-panel-manual" role="tabpanel" aria-labelledby="nivelamento-tab-manual" className={`mt-5 overflow-hidden rounded-[2rem] border p-5 sm:p-8 ${isDark ? 'border-white/10 bg-[#0b1020]' : 'border-slate-200 bg-white shadow-xl shadow-slate-200/50'}`}>
           <div className="max-w-xl"><h2 className={`text-xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-950'}`}>Lançamento rápido</h2><p className={`mt-2 text-sm leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Já terminou a bateria? Informe somente seus acertos e erros. O total e o desempenho são calculados automaticamente.</p></div>
           <div className="mt-7 grid max-w-2xl gap-4 sm:grid-cols-2">
             <NumberField id="nivelamento-acertos" label="Quantas você acertou?" value={manualCorrect} onChange={(value) => setManualCorrect(normalizeCountInput(value, MAX_LEVELING_QUESTIONS - manualWrongNumber))} icon={<CheckCircle2 size={20} />} color="emerald" isDark={isDark} />
@@ -296,18 +310,23 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
         </section>
       )}
 
-      {completion && <div className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-slate-950/70 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-labelledby="nivelamento-completion-title">
-        <Confetti />
-        <div className={`nivelamento-trophy relative w-full max-w-lg overflow-hidden rounded-[2rem] border p-7 text-center shadow-2xl sm:p-10 ${isDark ? 'border-white/15 bg-[#10182b]' : 'border-white bg-white'}`}>
-          <div className={`nivelamento-glow absolute left-1/2 top-8 h-40 w-40 -translate-x-1/2 rounded-full blur-3xl ${completionPassed ? 'bg-amber-400/40' : 'bg-blue-500/25'}`} />
-          <div className={`relative mx-auto flex h-20 w-20 items-center justify-center rounded-[1.4rem] shadow-xl ${completionPassed ? 'bg-gradient-to-br from-amber-300 via-yellow-400 to-orange-500 text-amber-950 shadow-amber-500/30' : 'bg-gradient-to-br from-blue-500 to-indigo-700 text-white shadow-blue-500/30'}`}><Trophy size={42} strokeWidth={2.2} /></div>
-          <p className={`relative mt-7 text-xs font-black uppercase tracking-[.22em] ${completionPassed ? 'text-amber-400' : 'text-blue-400'}`}>{completionPassed ? 'Meta conquistada' : 'Bateria finalizada'}</p>
-          <h2 id="nivelamento-completion-title" className={`relative mt-2 text-3xl font-black tracking-[-.05em] sm:text-4xl ${isDark ? 'text-white' : 'text-slate-950'}`}>Nivelamento concluído</h2>
-          <p className={`relative mx-auto mt-3 max-w-sm text-base leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{completionPassed ? 'Você atingiu o padrão de precisão. Continue assim.' : `Você fechou com ${completionAccuracy}%. Para sua meta, faltaram ${Math.max(requiredLevelingCorrect(completion.total, GOAL) - completion.correct, 0)} acerto${Math.max(requiredLevelingCorrect(completion.total, GOAL) - completion.correct, 0) === 1 ? '' : 's'}.`}</p>
-          <div className={`relative mt-7 grid grid-cols-3 divide-x rounded-2xl border py-3 ${isDark ? 'divide-white/10 border-white/10 bg-white/[.03]' : 'divide-slate-100 border-slate-100 bg-slate-50'}`}><CompletionMetric label="Acertos" value={completion.correct} tone="text-emerald-400" /><CompletionMetric label="Erros" value={completion.total - completion.correct} tone="text-rose-400" /><CompletionMetric label="Resultado" value={`${completionAccuracy}%`} tone={completionPassed ? 'text-amber-400' : 'text-blue-400'} /></div>
-          <button type="button" onClick={() => setCompletion(null)} className={`relative mt-7 w-full rounded-xl py-3.5 text-sm font-black transition ${completionPassed ? 'bg-white text-slate-950 hover:bg-amber-50' : isDark ? 'bg-white text-slate-950 hover:bg-slate-100' : 'bg-slate-950 text-white hover:bg-slate-800'}`}>Ver meu cartão-resposta</button>
-        </div>
-      </div>}
+      {completion && <Confetti />}
+      <Dialog open={Boolean(completion)} onOpenChange={(open) => { if (!open) setCompletion(null); }}>
+        {completion && (
+          <DialogContent showCloseButton={false} className={`nivelamento-result-dialog z-[70] max-h-[calc(100dvh-2rem)] max-w-lg overflow-y-auto rounded-[2rem] border p-0 text-center shadow-2xl ring-0 ${isDark ? 'border-white/15 bg-[#10182b] text-white' : 'border-white bg-white text-slate-950'}`}>
+            <button type="button" onClick={() => setCompletion(null)} aria-label="Fechar resultado" className={`absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-4 ${isDark ? 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 focus-visible:ring-white/20' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 focus-visible:ring-slate-300/50'}`}><X size={18} aria-hidden="true" /></button>
+            <div className="nivelamento-trophy relative overflow-hidden p-7 sm:p-10">
+              <div className={`nivelamento-glow absolute left-1/2 top-8 h-40 w-40 -translate-x-1/2 rounded-full blur-3xl ${completionPassed ? 'bg-amber-400/40' : 'bg-blue-500/25'}`} />
+              <div className={`relative mx-auto flex h-20 w-20 items-center justify-center rounded-[1.4rem] shadow-xl ${completionPassed ? 'bg-gradient-to-br from-amber-300 via-yellow-400 to-orange-500 text-amber-950 shadow-amber-500/30' : 'bg-gradient-to-br from-blue-500 to-indigo-700 text-white shadow-blue-500/30'}`}><Trophy size={42} strokeWidth={2.2} aria-hidden="true" /></div>
+              <p className={`relative mt-7 text-xs font-black uppercase tracking-[.22em] ${completionPassed ? 'text-amber-400' : 'text-blue-400'}`}>{completionPassed ? 'Meta conquistada' : 'Bateria finalizada'}</p>
+              <DialogTitle id="nivelamento-completion-title" className={`relative mt-2 text-3xl font-black tracking-[-.05em] sm:text-4xl ${isDark ? 'text-white' : 'text-slate-950'}`}>Nivelamento concluído</DialogTitle>
+              <DialogDescription className={`relative mx-auto mt-3 max-w-sm text-base leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{completionPassed ? 'Você atingiu o padrão de precisão. Continue assim.' : `Você fechou com ${completionAccuracy}%. Para sua meta, faltaram ${Math.max(requiredLevelingCorrect(completion.total, GOAL) - completion.correct, 0)} acerto${Math.max(requiredLevelingCorrect(completion.total, GOAL) - completion.correct, 0) === 1 ? '' : 's'}.`}</DialogDescription>
+              <div className={`relative mt-7 grid grid-cols-3 divide-x rounded-2xl border py-3 ${isDark ? 'divide-white/10 border-white/10 bg-white/[.03]' : 'divide-slate-100 border-slate-100 bg-slate-50'}`}><CompletionMetric label="Acertos" value={completion.correct} tone="text-emerald-400" /><CompletionMetric label="Erros" value={completion.total - completion.correct} tone="text-rose-400" /><CompletionMetric label="Resultado" value={`${completionAccuracy}%`} tone={completionPassed ? 'text-amber-400' : 'text-blue-400'} /></div>
+              <button type="button" onClick={showAnswerCard} className={`relative mt-7 w-full rounded-xl py-3.5 text-sm font-black transition focus-visible:outline-none focus-visible:ring-4 ${completionPassed ? 'bg-white text-slate-950 hover:bg-amber-50 focus-visible:ring-amber-300/40' : isDark ? 'bg-white text-slate-950 hover:bg-slate-100 focus-visible:ring-blue-300/40' : 'bg-slate-950 text-white hover:bg-slate-800 focus-visible:ring-slate-400/40'}`}>Ver meu cartão-resposta</button>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
     </div>
   );
 };

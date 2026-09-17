@@ -53,3 +53,15 @@ test('F-04: meta de 80% usa o total planejado, sem aprovação prematura', () =>
   assert.equal(hasPassedLeveling(4, 5), true);
   assert.equal(hasPassedLeveling(0, 0), false);
 });
+
+test('F-05: resultado é acessível, responsivo e retorna ao cartão-resposta', () => {
+  const component = readSource('src/components/LevelingTab.tsx');
+
+  assert.match(component, /<Dialog open={Boolean\(completion\)}/);
+  assert.match(component, /prefers-reduced-motion: reduce/);
+  assert.match(component, /role="progressbar"/);
+  assert.match(component, /aria-controls={`nivelamento-panel-/);
+  assert.match(component, /const showAnswerCard = \(\) =>/);
+  assert.match(component, /setMode\('live'\)/);
+  assert.match(component, /--confetti-color/);
+});
