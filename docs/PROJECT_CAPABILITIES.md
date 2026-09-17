@@ -50,6 +50,11 @@
   - Contagem de horas líquidas de estudo focadas.
   - Registro de ciclos de estudo/pausa com sincronização no servidor.
   - Prevenção contra perda de dados de cronometragem local.
+- **Extensão de Navegador Manifest V3 (`extension/`)**:
+  - Cronômetro ininterrupto em segundo plano sincronizado com `/api/timer/*`.
+  - Registro ágil de questões com botões táteis `[ ✅ Certa ]` e `[ ❌ Errada ]`.
+  - Painel de Nivelamento com cálculo instantâneo da meta de 80% e mini cartão-resposta.
+  - Sincronização em nuvem via `GET/POST /api/leveling/session` e cópia de token em 1 clique no cabeçalho do site (`#btn-extension-token`).
 
 ### 1.5 Painel Administrativo & Modo Manutenção
 - **Tela de Manutenção Global (`MaintenanceScreen.tsx`)**:

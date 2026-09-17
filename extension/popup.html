@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CFO CBMERJ — Extensão Tática</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Cabeçalho Tático -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">🚒</div>
+        <div>
+          <h1 class="brand-title">CFO CBMERJ</h1>
+          <p class="brand-sub">Comando Operacional</p>
+        </div>
+      </div>
+      <div id="connection-badge" class="badge badge-offline" title="Status da sincronização com o site">
+        <span class="dot"></span>
+        <span id="connection-text">Desconectado</span>
+      </div>
+    </header>
+
+    <!-- Navegação de Abas -->
+    <nav class="nav-tabs" role="tablist">
+      <button id="tab-btn-timer" class="tab-btn active" type="button" data-tab="timer">
+        <span>⏱️</span> Cronômetro
+      </button>
+      <button id="tab-btn-leveling" class="tab-btn" type="button" data-tab="leveling">
+        <span>🎯</span> Nivelamento
+      </button>
+      <button id="tab-btn-settings" class="tab-btn" type="button" data-tab="settings">
+        <span>⚙️</span> Conexão
+      </button>
+    </nav>
+
+    <!-- ABA 1: CRONÔMETRO -->
+    <main id="tab-content-timer" class="tab-content active">
+      <div class="timer-card">
+        <div class="subject-select-wrapper">
+          <label for="timer-subject">Disciplina:</label>
+          <select id="timer-subject">
+            <option value="fisica">Física</option>
+            <option value="quimica">Química</option>
+            <option value="matematica">Matemática</option>
+            <option value="biologia">Biologia</option>
+            <option value="portugues">Português / Literatura</option>
+            <option value="historia">História</option>
+            <option value="geografia">Geografia</option>
+            <option value="ingles">Língua Estrangeira</option>
+            <option value="redacao">Redação</option>
+            <option value="geral" selected>Estudo Geral / Questões</option>
+          </select>
+        </div>
+
+        <div class="timer-display-container">
+          <div id="timer-display" class="timer-display font-mono">00:00:00</div>
+          <div id="timer-status-sub" class="timer-sub">PARADO</div>
+        </div>
+
+        <div class="timer-actions">
+          <button id="btn-timer-toggle" class="btn btn-primary btn-large" type="button">
+            <span id="timer-toggle-icon">▶</span>
+            <span id="timer-toggle-label">Iniciar Foco</span>
+          </button>
+        </div>
+
+        <div class="timer-secondary-actions">
+          <button id="btn-timer-save" class="btn btn-secondary" type="button" title="Salvar tempo no histórico do site">
+            💾 Salvar no Site
+          </button>
+          <button id="btn-timer-reset" class="btn btn-ghost" type="button" title="Zerar tempo decorrido">
+            🔄 Resetar
+          </button>
+        </div>
+      </div>
+    </main>
+
+    <!-- ABA 2: NIVELAMENTO (QUESTÕES CERTA / ERRADA) -->
+    <main id="tab-content-leveling" class="tab-content">
+      <div class="leveling-card">
+        <!-- Barra Superior da Bateria -->
+        <div class="leveling-header">
+          <div class="leveling-goal-info">
+            <span class="goal-tag">META: 80%</span>
+            <span id="leveling-status-label" class="goal-status">Defina a bateria</span>
+          </div>
+          <div class="total-select-wrapper">
+            <label for="leveling-total">Qtd:</label>
+            <select id="leveling-total">
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="30" selected>30</option>
+              <option value="50">50</option>
+              <option value="60">60</option>
+              <option value="100">100</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Estatísticas da Bateria -->
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span class="stat-label">Progresso</span>
+            <span id="stat-progress" class="stat-value font-mono">0/30</span>
+          </div>
+          <div class="stat-box stat-correct">
+            <span class="stat-label">Acertos</span>
+            <span id="stat-correct" class="stat-value font-mono">0</span>
+          </div>
+          <div class="stat-box stat-wrong">
+            <span class="stat-label">Erros</span>
+            <span id="stat-wrong" class="stat-value font-mono">0</span>
+          </div>
+          <div class="stat-box stat-accuracy">
+            <span class="stat-label">Aproveitamento</span>
+            <span id="stat-accuracy" class="stat-value font-mono">0%</span>
+          </div>
+        </div>
+
+        <!-- Barra de Progresso Visual -->
+        <div class="progress-track" role="progressbar" aria-label="Progresso da Bateria">
+          <div id="progress-fill" class="progress-fill" style="width: 0%;"></div>
+        </div>
+
+        <!-- BOTÕES TÁTEIS PRINCIPAIS -->
+        <div class="question-buttons-grid">
+          <button id="btn-question-correct" class="btn btn-correct btn-giant" type="button">
+            <span class="btn-icon">✅</span>
+            <span class="btn-text">CERTA</span>
+          </button>
+          <button id="btn-question-wrong" class="btn btn-wrong btn-giant" type="button">
+            <span class="btn-icon">❌</span>
+            <span class="btn-text">ERRADA</span>
+          </button>
+        </div>
+
+        <!-- Ações de Suporte do Nivelamento -->
+        <div class="leveling-actions-footer">
+          <button id="btn-leveling-undo" class="btn btn-ghost btn-sm" type="button">
+            ↩ Desfazer última
+          </button>
+          <button id="btn-leveling-reset" class="btn btn-ghost btn-sm" type="button">
+            🔄 Nova Bateria
+          </button>
+        </div>
+
+        <!-- Mini Cartão-Resposta Visual -->
+        <div class="answer-sheet-container">
+          <div class="answer-sheet-title">Cartão-Resposta da Sessão</div>
+          <div id="answer-sheet-grid" class="answer-sheet-grid">
+            <!-- Bolinhas geradas via JavaScript -->
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ABA 3: CONFIGURAÇÕES E VÍNCULO -->
+    <main id="tab-content-settings" class="tab-content">
+      <div class="settings-card">
+        <h2 class="settings-title">Vincular com o CFO CBMERJ</h2>
+        <p class="settings-desc">
+          Conecte a extensão à sua conta na plataforma para sincronizar o cronômetro de estudo e as baterias de nivelamento em tempo real.
+        </p>
+
+        <form id="form-settings" class="settings-form">
+          <div class="form-group">
+            <label for="server-url">URL da Plataforma:</label>
+            <input id="server-url" type="url" placeholder="http://localhost:3000" required>
+            <span class="form-hint">Ex: http://localhost:3000 ou https://sua-plataforma.com</span>
+          </div>
+
+          <div class="form-group">
+            <label for="auth-token">Token de Acesso (Bearer):</label>
+            <input id="auth-token" type="password" placeholder="Cole sua chave aqui..." required>
+            <span class="form-hint">No site, abra seu <strong>Perfil</strong> e clique em <strong>"Copiar Token da Extensão"</strong>.</span>
+          </div>
+
+          <button id="btn-save-settings" class="btn btn-primary w-full" type="submit">
+            🔗 Salvar e Conectar
+          </button>
+        </form>
+
+        <div id="settings-feedback" class="feedback-msg"></div>
+      </div>
+    </main>
+
+    <!-- Notificação Toast Flutuante -->
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

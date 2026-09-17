@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { apiFetch } from '../services/apiFetch';
 import {
   Award,
   Check,
@@ -102,6 +103,33 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
     }
   }, []);
 
+  // Sincronização em nuvem com a extensão de navegador CFO CBMERJ
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        const res = await apiFetch('/api/leveling/session');
+        if (!res.ok || !isMounted) return;
+        const data = await res.json();
+        if (data?.session && Array.isArray(data.session.answers) && data.session.answers.length > 0) {
+          const s = data.session;
+          const sTotal = clampLevelingCount(s.total);
+          if (sTotal > 0) {
+            setTotalInput(String(sTotal));
+            setAnswers(s.answers.slice(0, sTotal));
+            setStarted(Boolean(s.started && sTotal > 0));
+            if (s.mode === 'live' || s.mode === 'manual') setMode(s.mode);
+            if (s.manualCorrect) setManualCorrect(String(clampLevelingCount(s.manualCorrect)));
+            if (s.manualWrong) setManualWrong(String(clampLevelingCount(s.manualWrong)));
+          }
+        }
+      } catch {
+        // Fallback transparente para o armazenamento local
+      }
+    })();
+    return () => { isMounted = false; };
+  }, []);
+
   const total = clampLevelingCount(totalInput);
   const correct = answers.filter((answer) => answer === 'correct').length;
   const wrong = answers.length - correct;
@@ -135,6 +163,14 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
     } catch {
       // Local persistence is a convenience; the active session remains usable without it.
     }
+    const syncTimer = setTimeout(() => {
+      apiFetch('/api/leveling/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(snapshot),
+      }).catch(() => {});
+    }, 1200);
+    return () => clearTimeout(syncTimer);
   }, [answers, isHydrated, manualCorrectNumber, manualWrongNumber, mode, started, total]);
 
   const goalStatus = useMemo(() => {

@@ -656,6 +656,11 @@ app.use(
         return callback(null, true);
       }
 
+      // Permite comunicação segura com extensões de navegador (Chrome, Edge, Brave, Firefox)
+      if (origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://')) {
+        return callback(null, true);
+      }
+
       // Em desenvolvimento/testes, permitir localhost e 127.0.0.1
       if (process.env.NODE_ENV !== 'production') {
         try {
@@ -5819,6 +5824,65 @@ app.put("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
   } catch (err) {
     console.error('[User State] Falha ao salvar estado:', err);
     return res.status(500).json({ error: 'STATE_WRITE_ERROR' });
+  }
+});
+
+// ============================================================================
+// 🎯 SINCRONIZAÇÃO DE BATERIA DE NIVELAMENTO (EXTENSÃO & PLATAFORMA)
+// ============================================================================
+app.get("/api/leveling/session", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const userId = String((req as any).user.userId || '');
+    if (!userId) return res.status(401).json({ error: 'UNAUTHORIZED' });
+    const saved = userStateRepoInstance.get(userId);
+    const levelingRaw = saved?.payload?.['cfo_leveling_session'];
+    let session = null;
+    if (levelingRaw) {
+      try {
+        session = JSON.parse(levelingRaw);
+      } catch {
+        session = null;
+      }
+    }
+    return res.json({ success: true, session });
+  } catch (err) {
+    console.error('[Leveling Sync] Falha ao ler sessão de nivelamento:', err);
+    return res.status(500).json({ error: 'LEVELING_READ_ERROR' });
+  }
+});
+
+app.post("/api/leveling/session", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const userId = String((req as any).user.userId || '');
+    if (!userId) return res.status(401).json({ error: 'UNAUTHORIZED' });
+
+    const { mode, total, answers, manualCorrect, manualWrong, started } = req.body || {};
+    const validAnswers = Array.isArray(answers)
+      ? answers.filter((a: any) => a === 'correct' || a === 'wrong').slice(0, 300)
+      : [];
+    const validTotal = Math.min(Math.max(1, Math.trunc(Number(total) || 30)), 300);
+
+    const snapshot = {
+      mode: mode === 'manual' ? 'manual' : 'live',
+      total: validTotal,
+      answers: validAnswers,
+      manualCorrect: Math.max(0, Math.trunc(Number(manualCorrect) || 0)),
+      manualWrong: Math.max(0, Math.trunc(Number(manualWrong) || 0)),
+      started: Boolean(started),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const currentSaved = userStateRepoInstance.get(userId);
+    const updatedPayload = {
+      ...(currentSaved?.payload || {}),
+      cfo_leveling_session: JSON.stringify(snapshot),
+    };
+
+    userStateRepoInstance.upsert(userId, updatedPayload);
+    return res.json({ success: true, session: snapshot });
+  } catch (err) {
+    console.error('[Leveling Sync] Falha ao salvar sessão de nivelamento:', err);
+    return res.status(500).json({ error: 'LEVELING_WRITE_ERROR' });
   }
 });
 

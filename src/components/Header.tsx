@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Calendar, Flame, Moon, PanelLeft, ShieldCheck, Sun } from 'lucide-react';
+import { Calendar, Check, Flame, Moon, PanelLeft, Puzzle, ShieldCheck, Sun } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
 import { TabType } from './TacticalSidebar';
@@ -60,6 +60,22 @@ export const Header: React.FC<HeaderProps> = ({
   const iconButton = `inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${surface}`;
   const disconnectCalendar = onDisconnectCalendar || onSignOut;
 
+  const [copiedToken, setCopiedToken] = React.useState(false);
+
+  const handleCopyExtensionToken = () => {
+    const token = localStorage.getItem('cfo_terminal_session') || '';
+    if (!token || token === 'cookie') {
+      alert('Faça login na plataforma antes de obter seu token da extensão.');
+      return;
+    }
+    navigator.clipboard.writeText(token).then(() => {
+      setCopiedToken(true);
+      setTimeout(() => setCopiedToken(false), 2500);
+    }).catch(() => {
+      window.prompt('Copie seu token de acesso da extensão:', token);
+    });
+  };
+
   return (
     <header className={`sticky top-0 z-30 border-b pt-[env(safe-area-inset-top)] backdrop-blur-md transition-colors md:pl-[84px] ${isDark ? 'border-slate-800/80 bg-[#070D18]/95 text-slate-100' : 'border-slate-200 bg-white/95 text-slate-900'}`}>
       <div className="mx-auto flex min-h-[64px] w-full max-w-[1600px] items-center justify-between gap-3 px-3 py-2.5 sm:px-6 lg:px-8">
@@ -92,6 +108,16 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <button
+            type="button"
+            id="btn-extension-token"
+            onClick={handleCopyExtensionToken}
+            className={`${iconButton} ${copiedToken ? 'border-emerald-500/60 text-emerald-400 bg-emerald-500/10' : ''}`}
+            title={copiedToken ? 'Chave da extensão copiada com sucesso!' : 'Copiar Token para a Extensão de Navegador (Cronômetro & Nivelamento)'}
+            aria-label="Copiar Token da Extensão de Navegador"
+          >
+            {copiedToken ? <Check className="topbar-icon h-5 w-5 text-emerald-400" /> : <Puzzle className="topbar-icon h-5 w-5" />}
+          </button>
           <button type="button" id="btn-alternar-tema" onClick={onToggleTheme} className={iconButton} title={isDark ? 'Alternar para modo claro' : 'Alternar para modo escuro'} aria-label="Alterar tema">
             {isDark ? <Sun className="topbar-icon h-5 w-5" /> : <Moon className="topbar-icon h-5 w-5" />}
           </button>
