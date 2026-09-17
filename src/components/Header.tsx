@@ -61,9 +61,9 @@ export const Header: React.FC<HeaderProps> = ({
   const disconnectCalendar = onDisconnectCalendar || onSignOut;
 
   return (
-    <header className={`sticky top-0 z-30 border-b pt-[env(safe-area-inset-top)] backdrop-blur-md transition-colors ${isDark ? 'border-slate-800/80 bg-[#070D18]/95 text-slate-100' : 'border-slate-200 bg-white/95 text-slate-900'}`}>
+    <header className={`sticky top-0 z-30 border-b pt-[env(safe-area-inset-top)] backdrop-blur-md transition-colors md:pl-[84px] ${isDark ? 'border-slate-800/80 bg-[#070D18]/95 text-slate-100' : 'border-slate-200 bg-white/95 text-slate-900'}`}>
       <div className="mx-auto flex min-h-[64px] w-full max-w-[1600px] items-center justify-between gap-3 px-3 py-2.5 sm:px-6 lg:px-8">
-        <div className="flex min-w-0 items-center gap-2.5">
+        <div className="flex min-w-0 items-center gap-3 md:gap-4">
           {onToggleSidebar && (
             <button
               type="button"
@@ -76,13 +76,17 @@ export const Header: React.FC<HeaderProps> = ({
               <PanelLeft className="topbar-icon h-5 w-5" />
             </button>
           )}
-          <Link to="/cronograma" className="flex min-w-0 items-center gap-2.5 hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-xl" title="Ir para o cronograma">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-500/20">
+          <Link to="/cronograma" className="flex min-w-0 items-center gap-3 hover:opacity-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-xl group" title="Ir para o cronograma">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 via-sky-500 to-cyan-400 text-white shadow-lg shadow-blue-500/25 group-hover:scale-105 transition-transform">
               <Flame className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <h1 className="truncate bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-sm font-extrabold leading-none tracking-tight text-transparent">CFO CBMERJ</h1>
-              <span className="hidden text-[10px] font-mono tracking-widest text-slate-400 sm:block">ESTUDOS TÁTICOS</span>
+            <div className="min-w-0 flex flex-col">
+              <h1 className="truncate bg-gradient-to-r from-blue-400 via-sky-300 to-cyan-300 bg-clip-text text-sm sm:text-base font-black leading-none tracking-tight text-transparent">
+                CFO CBMERJ
+              </h1>
+              <span className="text-[11px] font-black tracking-[0.16em] uppercase bg-gradient-to-r from-amber-400 via-orange-400 to-yellow-300 bg-clip-text text-transparent drop-shadow-[0_1px_8px_rgba(245,158,11,0.45)] mt-0.5">
+                Rumo ao CFO
+              </span>
             </div>
           </Link>
         </div>
