@@ -2368,137 +2368,70 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 
         {/* Modal Flashcard (Frente / Verso / Fotos) */}
         {isCardModalOpen && (
-          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-            <div className={`w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} space-y-4`}>
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-base">
-                  {editingCard ? 'Editar Flashcard' : 'Novo Flashcard'}
-                </h3>
-                <button onClick={() => setIsCardModalOpen(false)} className="text-slate-400 hover:text-white">
+          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
+            <div className={`w-full max-w-6xl max-h-[94vh] overflow-y-auto rounded-2xl border shadow-2xl ${isDark ? 'bg-[#171717] border-slate-700' : 'bg-white border-slate-200'}`}>
+              <div className="sticky top-0 z-10 flex items-center justify-between gap-4 px-5 py-4 border-b bg-inherit border-slate-800/80">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-mono uppercase tracking-[0.18em] text-red-400">Editor de cartões</p>
+                  <h3 className="font-semibold text-lg text-slate-100">
+                    {editingCard ? 'Editar flashcard' : 'Adicionar flashcard'}
+                    {currentDeck && <span className="font-normal text-sm text-slate-400"> · {currentDeck.name}</span>}
+                  </h3>
+                </div>
+                <button type="button" onClick={() => setIsCardModalOpen(false)} className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors" aria-label="Fechar editor">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleSaveCard} className="space-y-4">
-                {/* Frente */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-mono uppercase tracking-wider text-slate-400">
-                      Frente (Pergunta)
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => questionFileInputRef.current?.click()}
-                      className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"
-                    >
-                      <ImageIcon className="w-3.5 h-3.5" />
-                      <span>Anexar Foto</span>
-                    </button>
+              <form onSubmit={handleSaveCard} className="grid lg:grid-cols-[1.05fr_.95fr]">
+                <section className="p-5 sm:p-6 space-y-5 border-b lg:border-b-0 lg:border-r border-slate-800/80">
+                  <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                    <Layers className="w-4 h-4 mt-0.5 text-red-400 shrink-0" />
+                    <p className="text-xs leading-5 text-slate-400">Use <code className="text-slate-200">{'{{c1::termo}}'}</code> para lacunas e <code className="text-slate-200">$fórmula$</code> para KaTeX.</p>
                   </div>
-                  <textarea
-                    rows={3}
-                    placeholder="Escreva a pergunta ou cole uma foto diretamente (Ctrl+V)..."
-                    value={cardFormFront}
-                    onChange={(e) => setCardFormFront(e.target.value)}
-                    onPaste={(e) => handlePasteImage(e, 'front')}
-                    className={`w-full p-2.5 rounded-xl border text-sm resize-none ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
-                  />
-                  <input
-                    ref={questionFileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) void processImageFile(file, 'front');
-                      e.target.value = '';
-                    }}
-                  />
-                  {cardFormFrontImage && (
-                    <div className="relative inline-block mt-2">
-                      <img
-                        src={cardFormFrontImage}
-                        alt="Preview Frente"
-                        className="h-20 rounded-lg border border-slate-700 object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setCardFormFrontImage(null)}
-                        className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white text-xs"
-                      >
-                        <X className="w-3 h-3" />
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <label htmlFor="flashcard-front" className="text-sm font-semibold text-slate-200">Frente <span className="font-normal text-slate-500">· pergunta</span></label>
+                      <button type="button" onClick={() => questionFileInputRef.current?.click()} className="text-xs font-medium text-red-400 hover:text-red-300 flex items-center gap-1.5">
+                        <ImageIcon className="w-3.5 h-3.5" /> Anexar imagem
                       </button>
                     </div>
-                  )}
-                </div>
-
-                {/* Verso */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-mono uppercase tracking-wider text-slate-400">
-                      Verso (Resposta)
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => answerFileInputRef.current?.click()}
-                      className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"
-                    >
-                      <ImageIcon className="w-3.5 h-3.5" />
-                      <span>Anexar Foto</span>
-                    </button>
+                    <textarea id="flashcard-front" rows={6} placeholder="Ex.: Qual é a unidade de força no SI?" value={cardFormFront} onChange={(e) => setCardFormFront(e.target.value)} onPaste={(e) => handlePasteImage(e, 'front')} className={`w-full p-3.5 rounded-xl border text-sm leading-6 resize-y outline-none transition-colors ${isDark ? 'bg-slate-950 border-slate-700 text-white placeholder:text-slate-600 focus:border-red-500/80 focus:ring-2 focus:ring-red-500/15' : 'bg-slate-50 border-slate-300 focus:border-red-500'}`} />
+                    <input ref={questionFileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void processImageFile(file, 'front'); e.target.value = ''; }} />
+                    {cardFormFrontImage && <div className="relative inline-block"><img src={cardFormFrontImage} alt="Imagem da frente" className="h-20 rounded-lg border border-slate-700 object-cover" /><button type="button" onClick={() => setCardFormFrontImage(null)} className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white"><X className="w-3 h-3" /></button></div>}
                   </div>
-                  <textarea
-                    rows={3}
-                    placeholder="Escreva a resposta ou cole uma foto diretamente (Ctrl+V)..."
-                    value={cardFormBack}
-                    onChange={(e) => setCardFormBack(e.target.value)}
-                    onPaste={(e) => handlePasteImage(e, 'back')}
-                    className={`w-full p-2.5 rounded-xl border text-sm resize-none ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
-                  />
-                  <input
-                    ref={answerFileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) void processImageFile(file, 'back');
-                      e.target.value = '';
-                    }}
-                  />
-                  {cardFormBackImage && (
-                    <div className="relative inline-block mt-2">
-                      <img
-                        src={cardFormBackImage}
-                        alt="Preview Verso"
-                        className="h-20 rounded-lg border border-slate-700 object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setCardFormBackImage(null)}
-                        className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white text-xs"
-                      >
-                        <X className="w-3 h-3" />
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <label htmlFor="flashcard-back" className="text-sm font-semibold text-slate-200">Verso <span className="font-normal text-slate-500">· resposta</span></label>
+                      <button type="button" onClick={() => answerFileInputRef.current?.click()} className="text-xs font-medium text-red-400 hover:text-red-300 flex items-center gap-1.5">
+                        <ImageIcon className="w-3.5 h-3.5" /> Anexar imagem
                       </button>
                     </div>
-                  )}
-                </div>
+                    <textarea id="flashcard-back" rows={6} placeholder="Ex.: Newton (N) = kg·m/s²" value={cardFormBack} onChange={(e) => setCardFormBack(e.target.value)} onPaste={(e) => handlePasteImage(e, 'back')} className={`w-full p-3.5 rounded-xl border text-sm leading-6 resize-y outline-none transition-colors ${isDark ? 'bg-slate-950 border-slate-700 text-white placeholder:text-slate-600 focus:border-red-500/80 focus:ring-2 focus:ring-red-500/15' : 'bg-slate-50 border-slate-300 focus:border-red-500'}`} />
+                    <input ref={answerFileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void processImageFile(file, 'back'); e.target.value = ''; }} />
+                    {cardFormBackImage && <div className="relative inline-block"><img src={cardFormBackImage} alt="Imagem do verso" className="h-20 rounded-lg border border-slate-700 object-cover" /><button type="button" onClick={() => setCardFormBackImage(null)} className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white"><X className="w-3 h-3" /></button></div>}
+                  </div>
 
-                <div className="flex justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsCardModalOpen(false)}
-                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white"
-                  >
-                    {editingCard ? 'Salvar Alterações' : 'Adicionar ao Baralho'}
-                  </button>
-                </div>
+                  <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
+                    <button type="button" onClick={() => setIsCardModalOpen(false)} className="px-4 py-2.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700">Cancelar</button>
+                    <button type="submit" className="px-4 py-2.5 text-sm font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-950/40">{editingCard ? 'Salvar alterações' : 'Adicionar ao baralho'}</button>
+                  </div>
+                </section>
+
+                <aside className="p-5 sm:p-6 bg-slate-950/45 space-y-4">
+                  <div className="flex items-center justify-between"><div><p className="text-sm font-semibold text-slate-200">Pré-visualização</p><p className="text-xs text-slate-500">Assim o cartão aparecerá na revisão.</p></div><span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded border border-slate-700 text-slate-400">Anki</span></div>
+                  <div className="min-h-[310px] rounded-xl border border-slate-700 bg-[#1f1f1f] shadow-[0_18px_45px_rgba(0,0,0,.3)] overflow-hidden flex flex-col">
+                    <div className="flex justify-between px-4 py-3 border-b border-slate-700/80 text-[10px] font-mono uppercase tracking-wider text-slate-500"><span>{currentDeck?.name || 'Novo baralho'}</span><span>Frente</span></div>
+                    <div className="flex-1 flex flex-col justify-center p-7 text-center">
+                      {cardFormFrontImage && <img src={cardFormFrontImage} alt="Prévia da frente" className="max-h-32 max-w-full mx-auto mb-5 rounded-lg object-contain" />}
+                      <div className="text-lg leading-8 text-slate-100 break-words"><ClozeLatexCard text={cardFormFront || 'Sua pergunta aparecerá aqui'} isAnswer={false} /></div>
+                    </div>
+                    <div className="px-4 py-3 border-t border-slate-700/80 text-center text-xs text-slate-500">Toque para revelar a resposta</div>
+                  </div>
+                  <div className="rounded-xl border border-dashed border-slate-700 p-4 text-xs leading-5 text-slate-400"><strong className="text-slate-200">Atalho de estudo:</strong> prefira uma pergunta direta por cartão. Respostas curtas tornam a revisão mais rápida e precisa.</div>
+                </aside>
               </form>
             </div>
           </div>
