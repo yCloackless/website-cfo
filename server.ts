@@ -1576,13 +1576,24 @@ app.get("/api/auth/2fa-setup", async (req: Request, res: Response) => {
 // ⏱️ CLOUD TIMER (Sincronizado entre PC e Celular via Servidor)
 // ============================================================================
 
+interface TimerInterval {
+  type: "study" | "rest";
+  durationMs: number;
+  startTime: number;
+  endTime: number;
+  subjectId?: string;
+}
+
 interface TimerState {
   status: "STOPPED" | "RUNNING" | "PAUSED";
-  accumulatedTime: number; // milissegundos acumulados
-  startTime: number | null; // timestamp de início da última contagem
+  accumulatedTime: number; // milissegundos acumulados de estudo
+  startTime: number | null; // timestamp de início da última contagem de estudo
   activeSubjectId?: string;
   activeSubjectName?: string;
   updatedAt: string;
+  restAccumulatedMs?: number; // milissegundos acumulados em descanso
+  restStartTime?: number | null; // timestamp de início do descanso atual (se PAUSED)
+  intervals?: TimerInterval[]; // lista de blocos de estudo e descanso
 }
 
 app.use('/api/timer', requireUserAuth, (_req: Request, res: Response, next: NextFunction) => {
@@ -1615,7 +1626,13 @@ function readTimerState(userId: string): TimerState {
   try {
     if (fs.existsSync(TIMER_STATE_FILE)) {
       const raw = fs.readFileSync(TIMER_STATE_FILE, "utf-8");
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      return {
+        ...parsed,
+        restAccumulatedMs: typeof parsed.restAccumulatedMs === "number" ? parsed.restAccumulatedMs : 0,
+        restStartTime: parsed.restStartTime || null,
+        intervals: Array.isArray(parsed.intervals) ? parsed.intervals : [],
+      };
     }
   } catch (e) {
     console.warn("Falha ao ler timer-state.json:", e);
@@ -1624,6 +1641,9 @@ function readTimerState(userId: string): TimerState {
     status: "STOPPED",
     accumulatedTime: 0,
     startTime: null,
+    restAccumulatedMs: 0,
+    restStartTime: null,
+    intervals: [],
     updatedAt: new Date().toISOString(),
   };
 }
@@ -1644,23 +1664,41 @@ app.get("/api/timer/status", (req: Request, res: Response) => {
   const state = readTimerState((req as any).user.userId);
   const now = Date.now();
   let totalElapsedMs = state.accumulatedTime;
+  let totalRestMs = state.restAccumulatedMs || 0;
 
   if (state.status === "RUNNING" && state.startTime) {
     totalElapsedMs += Math.max(0, now - state.startTime);
+  } else if (state.status === "PAUSED" && state.restStartTime) {
+    totalRestMs += Math.max(0, now - state.restStartTime);
   }
 
   return res.json({
     ...state,
     totalElapsedMs,
+    totalRestMs,
     serverTime: now,
   });
 });
 
-// 2. Iniciar Cronômetro
+// 2. Iniciar / Retomar Cronômetro
 app.post("/api/timer/start", (req: Request, res: Response) => {
   const { subjectId, subjectName } = req.body || {};
   const state = readTimerState((req as any).user.userId);
   const now = Date.now();
+
+  // Se estava em pausa/descanso, encerra o ciclo de descanso e acumula
+  if (state.status === "PAUSED" && state.restStartTime) {
+    const restDelta = Math.max(0, now - state.restStartTime);
+    state.restAccumulatedMs = (state.restAccumulatedMs || 0) + restDelta;
+    if (!state.intervals) state.intervals = [];
+    state.intervals.push({
+      type: "rest",
+      durationMs: restDelta,
+      startTime: state.restStartTime,
+      endTime: now,
+    });
+    state.restStartTime = null;
+  }
 
   if (state.status !== "RUNNING") {
     state.status = "RUNNING";
@@ -1677,11 +1715,12 @@ app.post("/api/timer/start", (req: Request, res: Response) => {
     success: true,
     ...state,
     totalElapsedMs,
+    totalRestMs: state.restAccumulatedMs || 0,
     serverTime: now,
   });
 });
 
-// 3. Pausar Cronômetro
+// 3. Pausar Cronômetro (Inicia o descanso em andamento)
 app.post("/api/timer/pause", (req: Request, res: Response) => {
   const state = readTimerState((req as any).user.userId);
   const now = Date.now();
@@ -1689,16 +1728,27 @@ app.post("/api/timer/pause", (req: Request, res: Response) => {
   if (state.status === "RUNNING" && state.startTime) {
     const delta = Math.max(0, now - state.startTime);
     state.accumulatedTime += delta;
+    if (!state.intervals) state.intervals = [];
+    state.intervals.push({
+      type: "study",
+      durationMs: delta,
+      startTime: state.startTime,
+      endTime: now,
+      subjectId: state.activeSubjectId,
+    });
     state.startTime = null;
     state.status = "PAUSED";
+    state.restStartTime = now;
     state.updatedAt = new Date().toISOString();
     saveTimerState((req as any).user.userId, state);
   }
 
+  const currentRestMs = state.restAccumulatedMs || 0;
   return res.json({
     success: true,
     ...state,
     totalElapsedMs: state.accumulatedTime,
+    totalRestMs: currentRestMs,
     serverTime: now,
   });
 });
@@ -1709,6 +1759,9 @@ app.post("/api/timer/reset", (req: Request, res: Response) => {
     status: "STOPPED",
     accumulatedTime: 0,
     startTime: null,
+    restAccumulatedMs: 0,
+    restStartTime: null,
+    intervals: [],
     updatedAt: new Date().toISOString(),
   };
   saveTimerState((req as any).user.userId, state);
@@ -1716,6 +1769,7 @@ app.post("/api/timer/reset", (req: Request, res: Response) => {
     success: true,
     ...state,
     totalElapsedMs: 0,
+    totalRestMs: 0,
     serverTime: Date.now(),
   });
 });
@@ -1763,11 +1817,14 @@ app.post("/api/timer/save-session", (req: Request, res: Response) => {
       notes: cleanNotes,
     });
 
-    // Ao salvar a sessão com sucesso, reseta o cronômetro ativo
+    // Ao salvar a sessão com sucesso, reseta o cronômetro ativo e descanso
     const state: TimerState = {
       status: "STOPPED",
       accumulatedTime: 0,
       startTime: null,
+      restAccumulatedMs: 0,
+      restStartTime: null,
+      intervals: [],
       updatedAt: now.toISOString(),
     };
     saveTimerState(userId, state);

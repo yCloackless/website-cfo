@@ -9,6 +9,8 @@ interface TimerState {
   activeSubjectId?: string;
   activeSubjectName?: string;
   serverTime?: number;
+  restAccumulatedMs?: number;
+  restStartTime?: number | null;
 }
 
 interface CloudTimerProps {
@@ -24,6 +26,7 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
   });
 
   const [displayMs, setDisplayMs] = useState(0);
+  const [restDisplayMs, setRestDisplayMs] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
 
@@ -53,6 +56,14 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
         setDisplayMs(data.totalElapsedMs);
       } else {
         setDisplayMs(data.accumulatedTime || 0);
+      }
+
+      if (data.status === 'PAUSED' && data.restStartTime) {
+        const estimatedServerNow = Date.now() + serverOffsetRef.current;
+        const currentRest = (data.restAccumulatedMs || 0) + Math.max(0, estimatedServerNow - data.restStartTime);
+        setRestDisplayMs(currentRest);
+      } else {
+        setRestDisplayMs(data.restAccumulatedMs || 0);
       }
     } catch (err) {
       setIsOnline(false);
@@ -103,6 +114,21 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
     return () => clearInterval(interval);
   }, [timerState.status, timerState.startTime, timerState.accumulatedTime]);
 
+  // Tick contínuo do cronômetro de descanso quando PAUSED
+  useEffect(() => {
+    if (timerState.status !== 'PAUSED' || !timerState.restStartTime) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const estimatedServerNow = Date.now() + serverOffsetRef.current;
+      const currentRest = (timerState.restAccumulatedMs || 0) + Math.max(0, estimatedServerNow - (timerState.restStartTime || estimatedServerNow));
+      setRestDisplayMs(currentRest);
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, [timerState.status, timerState.restStartTime, timerState.restAccumulatedMs]);
+
   // Iniciar contagem no servidor
   const handleStart = async () => {
     try {
@@ -143,6 +169,7 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
       }
       setTimerState(data);
       setDisplayMs(typeof data.totalElapsedMs === 'number' ? data.totalElapsedMs : (data.accumulatedTime || 0));
+      setRestDisplayMs(data.restAccumulatedMs || 0);
     } catch (err) {
       setIsOnline(false);
     } finally {
@@ -172,6 +199,7 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
       }
       setTimerState(data);
       setDisplayMs(0);
+      setRestDisplayMs(0);
     } catch (err) {
       setIsOnline(false);
     } finally {
@@ -219,12 +247,21 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
         )}
       </div>
 
-      {/* Display do Cronômetro Digital */}
-      <div className="flex items-center gap-1">
+      {/* Display do Cronômetro Digital com indicador de descanso na pausa */}
+      <div className="flex items-center gap-1.5">
         <Timer className="w-3.5 h-3.5 text-red-500 shrink-0" />
         <span className="font-mono text-sm sm:text-base font-extrabold text-white tracking-wider tabular-nums">
           {formatTime(displayMs)}
         </span>
+        {timerState.status === 'PAUSED' && restDisplayMs > 0 && (
+          <span
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/30 text-amber-400 font-mono text-xs font-bold animate-pulse"
+            title="Pausa em andamento"
+          >
+            <span>☕</span>
+            <span>{formatTime(restDisplayMs)}</span>
+          </span>
+        )}
       </div>
 
       {/* Botões de Ação */}
@@ -232,7 +269,7 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
         {isRunning ? (
           <button
             onClick={handlePause}
-            title="Pausar Cronômetro"
+            title="Pausar Cronômetro (Inicia contagem de descanso)"
             className="p-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 transition-all cursor-pointer"
           >
             <Pause className="w-3.5 h-3.5" />
@@ -240,7 +277,7 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
         ) : (
           <button
             onClick={handleStart}
-            title="Iniciar Estudo Sincronizado"
+            title={timerState.status === 'PAUSED' ? 'Retomar Estudo (Finaliza descanso)' : 'Iniciar Estudo Sincronizado'}
             className="p-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 transition-all cursor-pointer"
           >
             <Play className="w-3.5 h-3.5 fill-current" />

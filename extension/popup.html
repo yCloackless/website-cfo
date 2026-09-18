@@ -1,196 +1,268 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CFO CBMERJ — Extensão Tática</title>
+  <title>CFO CBMERJ — Rumo ao CFO</title>
   <link rel="stylesheet" href="popup.css">
+  <link rel="stylesheet" href="popup-polish.css">
 </head>
 <body>
   <div class="app-container">
-    <!-- Cabeçalho Tático -->
+    <!-- Header: Compact Premium Product Header -->
     <header class="app-header">
       <div class="brand">
-        <div class="brand-icon-wrapper">
-          <img src="icon48.png" alt="Rumo ao CFO" class="brand-icon-img">
-        </div>
-        <div>
-          <h1 class="brand-title">CFO CBMERJ</h1>
-          <p class="brand-sub">Rumo ao CFO ⚔️</p>
-        </div>
+        <h1 class="brand-title">Rumo ao CFO</h1>
       </div>
-      <div id="connection-badge" class="badge badge-offline" title="Status da sincronização com o site">
-        <span class="dot"></span>
-        <span id="connection-text">Desconectado</span>
+      <div class="header-actions">
+        <span id="connection-badge" class="connection-status" title="Status da sincronização com a plataforma">
+          <i class="status-dot"></i>
+          <span id="connection-text">Verificando</span>
+        </span>
+        <button id="btn-theme-toggle" class="icon-button" type="button" aria-label="Alternar tema" title="Alternar tema">
+          <svg id="theme-icon" class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0"/>
+            <path d="M3 12h1m8 -9v1m8 8h1m-9 8v1m-6.4 -15.4l.7 .7m12.1 -.7l-.7 .7m0 11.4l.7 .7m-12.1 -.7l-.7 .7"/>
+          </svg>
+        </button>
       </div>
     </header>
 
-    <!-- Navegação de Abas -->
-    <nav class="nav-tabs" role="tablist">
-      <button id="tab-btn-timer" class="tab-btn active" type="button" data-tab="timer">
-        <span>⏱️</span> Cronômetro
+    <!-- Navigation: Segmented Tabs (21st.dev / Linear style) -->
+    <nav class="nav-tabs" role="tablist" aria-label="Painéis da extensão">
+      <button id="tab-btn-timer" class="tab-btn active" type="button" role="tab" aria-selected="true" data-tab="timer">
+        <svg class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 13a7 7 0 1 0 14 0a7 7 0 0 0 -14 0z"/>
+          <path d="M14.5 10.5l-2.5 2.5"/>
+          <path d="M17 8l1 -1"/>
+          <path d="M14 3h-4"/>
+        </svg>
+        <span>Cronômetro</span>
       </button>
-      <button id="tab-btn-leveling" class="tab-btn" type="button" data-tab="leveling">
-        <span>🎯</span> Nivelamento
+      <button id="tab-btn-leveling" class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="leveling">
+        <svg class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="1"/>
+          <circle cx="12" cy="12" r="5"/>
+          <circle cx="12" cy="12" r="9"/>
+        </svg>
+        <span>Nivelamento</span>
       </button>
-      <button id="tab-btn-settings" class="tab-btn" type="button" data-tab="settings">
-        <span>⚙️</span> Conexão
+      <button id="tab-btn-settings" class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="settings">
+        <svg class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M9 15l6 -6"/>
+          <path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464"/>
+          <path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463"/>
+        </svg>
+        <span>Conexão</span>
       </button>
     </nav>
 
-    <!-- ABA 1: CRONÔMETRO -->
-    <main id="tab-content-timer" class="tab-content active">
-      <div class="timer-card">
-        <div class="subject-select-wrapper">
-          <label for="timer-subject">Disciplina:</label>
-          <select id="timer-subject">
-            <option value="fisica">Física</option>
-            <option value="quimica">Química</option>
-            <option value="matematica">Matemática</option>
-            <option value="biologia">Biologia</option>
-            <option value="portugues">Português / Literatura</option>
-            <option value="historia">História</option>
-            <option value="geografia">Geografia</option>
-            <option value="ingles">Língua Estrangeira</option>
-            <option value="redacao">Redação</option>
-            <option value="geral" selected>Estudo Geral / Questões</option>
-          </select>
+    <!-- Tab 1: Cronômetro (Centerpiece / Tactical Stopwatch) -->
+    <main id="tab-content-timer" class="tab-content active" role="tabpanel">
+      <section class="timer-panel">
+        <div class="discipline-control">
+          <label class="field-label" for="timer-subject">Disciplina</label>
+          <div class="select-wrapper">
+            <select id="timer-subject">
+              <option value="fisica">Física</option>
+              <option value="quimica">Química</option>
+              <option value="matematica">Matemática</option>
+              <option value="biologia">Biologia</option>
+              <option value="portugues">Português / Literatura</option>
+              <option value="historia">História</option>
+              <option value="geografia">Geografia</option>
+              <option value="ingles">Língua Estrangeira</option>
+              <option value="redacao">Redação</option>
+              <option value="geral" selected>Estudo Geral / Questões</option>
+            </select>
+            <svg class="select-chevron" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
         </div>
 
-        <div class="timer-display-container">
-          <div id="timer-display" class="timer-display font-mono">00:00:00</div>
-          <div id="timer-status-sub" class="timer-sub">PARADO</div>
+        <div id="timer-display-container" class="timer-display-container">
+          <span id="timer-status-sub" class="eyebrow">Parado</span>
+          <div id="timer-display" class="timer-display" aria-live="off">00:00:00</div>
+          <p id="timer-subject-name" class="timer-subject-name">Estudo Geral / Questões</p>
+
+          <!-- Recovery Pill: Micro-cronômetro de Descanso na Pausa -->
+          <div id="timer-rest-pill" class="timer-rest-pill hidden" aria-live="polite">
+            <div class="rest-pill-badge">
+              <span class="rest-pulse-dot"></span>
+              <span id="rest-zone-badge" class="rest-zone-badge zone-green">Recuperação Ativa</span>
+            </div>
+            <div class="rest-timer-wrap">
+              <span class="rest-label">Descanso:</span>
+              <span id="rest-timer-display" class="rest-timer-display">00:00:00</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Barra Tática de Proporção Foco vs. Descanso (Focus Ratio) -->
+        <div id="timer-ratio-card" class="timer-ratio-card hidden">
+          <div class="ratio-header">
+            <span class="ratio-title">Balanço da Sessão</span>
+            <span id="ratio-percentage" class="ratio-percentage">100% Foco</span>
+          </div>
+          <div class="ratio-track" role="progressbar" aria-label="Proporção de estudo e descanso">
+            <div id="ratio-fill-study" class="ratio-fill-study" style="width: 100%;"></div>
+            <div id="ratio-fill-rest" class="ratio-fill-rest" style="width: 0%;"></div>
+          </div>
+          <div class="ratio-footer">
+            <span id="ratio-study-time">Estudo: 00:00:00</span>
+            <span id="ratio-rest-time">Pausa: 00:00:00</span>
+          </div>
         </div>
 
         <div class="timer-actions">
-          <button id="btn-timer-toggle" class="btn btn-primary btn-large" type="button">
-            <span id="timer-toggle-icon">▶</span>
-            <span id="timer-toggle-label">Iniciar Foco</span>
+          <button id="btn-timer-toggle" class="btn btn-primary btn-cta" type="button">
+            <span id="timer-toggle-icon" class="button-icon" aria-hidden="true">
+              <svg class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 4v16l13 -8z"/>
+              </svg>
+            </span>
+            <span id="timer-toggle-label">Iniciar foco</span>
           </button>
-        </div>
 
-        <div class="timer-secondary-actions">
-          <button id="btn-timer-save" class="btn btn-secondary" type="button" title="Salvar tempo no histórico do site">
-            💾 Salvar no Site
-          </button>
-          <button id="btn-timer-reset" class="btn btn-ghost" type="button" title="Zerar tempo decorrido">
-            🔄 Resetar
-          </button>
+          <div class="timer-secondary-actions">
+            <button id="btn-timer-save" class="btn btn-secondary" type="button" title="Sincronizar tempo acumulado com a plataforma">
+              <svg class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 18a4.6 4.4 0 0 1 0 -9a5 4.5 0 0 1 11 2h1a3.5 3.5 0 0 1 0 7h-1"/>
+                <path d="M9 15l3 -3l3 3"/>
+                <path d="M12 12l0 9"/>
+              </svg>
+              <span>Salvar no site</span>
+            </button>
+            <button id="btn-timer-reset" class="btn btn-quiet" type="button" title="Zerar tempo decorrido">
+              <svg class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19.95 11a8 8 0 1 0 -.5 4m.5 5v-5h-5"/>
+              </svg>
+              <span>Resetar</span>
+            </button>
+          </div>
         </div>
-      </div>
+      </section>
     </main>
 
-    <!-- ABA 2: NIVELAMENTO (QUESTÕES CERTA / ERRADA) -->
-    <main id="tab-content-leveling" class="tab-content">
-      <div class="leveling-card">
-        <!-- Barra Superior da Bateria -->
+    <!-- Tab 2: Nivelamento (Structured Performance Drill) -->
+    <main id="tab-content-leveling" class="tab-content" role="tabpanel">
+      <section class="leveling-panel">
         <div class="leveling-header">
-          <div class="leveling-goal-info">
-            <span class="goal-tag">META: 80%</span>
-            <span id="leveling-status-label" class="goal-status">Defina a bateria</span>
+          <div>
+            <span class="eyebrow">Meta de desempenho · 80%</span>
+            <h2 id="leveling-status-label">Pronto para iniciar</h2>
           </div>
-          <div class="total-select-wrapper">
-            <label for="leveling-total">Qtd:</label>
-            <select id="leveling-total">
-              <option value="10">10</option>
-              <option value="20">20</option>
-              <option value="30" selected>30</option>
-              <option value="50">50</option>
-              <option value="60">60</option>
-              <option value="100">100</option>
-            </select>
+          <label class="compact-field" for="leveling-total">
+            <span>Questões</span>
+            <div class="input-wrapper-sm">
+              <input id="leveling-total" type="number" min="1" max="100" value="30" placeholder="30" title="Digite a quantidade de questões da bateria (máximo 100)">
+            </div>
+          </label>
+        </div>
+
+        <div class="question-progress">
+          <div class="progress-info">
+            <span>Questão atual</span>
+            <strong id="stat-progress">01 <small>de 30</small></strong>
+          </div>
+          <div class="progress-track" role="progressbar" aria-label="Progresso da bateria" aria-valuemin="0" aria-valuemax="30" aria-valuenow="0">
+            <div id="progress-fill" class="progress-fill"></div>
           </div>
         </div>
 
-        <!-- Estatísticas da Bateria -->
-        <div class="stats-grid">
-          <div class="stat-box">
-            <span class="stat-label">Progresso</span>
-            <span id="stat-progress" class="stat-value font-mono">0/30</span>
+        <!-- Integrated Typographic Stats Strip (Garmin/WHOOP style) -->
+        <div class="stats-strip">
+          <div class="stat-col stat-correct">
+            <strong id="stat-correct">0</strong>
+            <span>Acertos</span>
           </div>
-          <div class="stat-box stat-correct">
-            <span class="stat-label">Acertos</span>
-            <span id="stat-correct" class="stat-value font-mono">0</span>
+          <div class="stat-col stat-wrong">
+            <strong id="stat-wrong">0</strong>
+            <span>Erros</span>
           </div>
-          <div class="stat-box stat-wrong">
-            <span class="stat-label">Erros</span>
-            <span id="stat-wrong" class="stat-value font-mono">0</span>
-          </div>
-          <div class="stat-box stat-accuracy">
-            <span class="stat-label">Aproveitamento</span>
-            <span id="stat-accuracy" class="stat-value font-mono">0%</span>
+          <div class="stat-col stat-accuracy">
+            <strong id="stat-accuracy">0%</strong>
+            <span>Aproveitamento</span>
           </div>
         </div>
 
-        <!-- Barra de Progresso Visual -->
-        <div class="progress-track" role="progressbar" aria-label="Progresso da Bateria">
-          <div id="progress-fill" class="progress-fill" style="width: 0%;"></div>
-        </div>
-
-        <!-- BOTÕES TÁTEIS PRINCIPAIS -->
+        <!-- Tactile Answer Controls (Spell UI Rich Button inspired) -->
         <div class="question-buttons-grid">
-          <button id="btn-question-correct" class="btn btn-correct btn-giant" type="button">
-            <span class="btn-icon">✅</span>
-            <span class="btn-text">CERTA</span>
+          <button id="btn-question-correct" class="answer-button answer-correct" type="button">
+            <svg class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 12l5 5l10 -10"/>
+            </svg>
+            <span>Certa</span>
           </button>
-          <button id="btn-question-wrong" class="btn btn-wrong btn-giant" type="button">
-            <span class="btn-icon">❌</span>
-            <span class="btn-text">ERRADA</span>
+          <button id="btn-question-wrong" class="answer-button answer-wrong" type="button">
+            <svg class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M18 6l-12 12"/>
+              <path d="M6 6l12 12"/>
+            </svg>
+            <span>Errada</span>
           </button>
         </div>
 
-        <!-- Ações de Suporte do Nivelamento -->
+        <!-- Completion State -->
+        <div id="leveling-result" class="leveling-result" hidden>
+          <span class="eyebrow">Nivelamento concluído</span>
+          <strong id="result-accuracy">0%</strong>
+          <p id="result-summary"></p>
+        </div>
+
         <div class="leveling-actions-footer">
-          <button id="btn-leveling-undo" class="btn btn-ghost btn-sm" type="button">
-            ↩ Desfazer última
-          </button>
-          <button id="btn-leveling-reset" class="btn btn-ghost btn-sm" type="button">
-            🔄 Nova Bateria
-          </button>
+          <button id="btn-leveling-undo" class="text-button" type="button">Desfazer última</button>
+          <button id="btn-leveling-reset" class="text-button" type="button">Nova bateria</button>
         </div>
 
-        <!-- Mini Cartão-Resposta Visual -->
+        <!-- Compact Answer Matrix -->
         <div class="answer-sheet-container">
-          <div class="answer-sheet-title">Cartão-Resposta da Sessão</div>
-          <div id="answer-sheet-grid" class="answer-sheet-grid">
-            <!-- Bolinhas geradas via JavaScript -->
-          </div>
+          <p class="section-label">Mapa de respostas</p>
+          <div id="answer-sheet-grid" class="answer-sheet-grid"></div>
         </div>
-      </div>
+      </section>
     </main>
 
-    <!-- ABA 3: CONFIGURAÇÕES E VÍNCULO -->
-    <main id="tab-content-settings" class="tab-content">
-      <div class="settings-card">
-        <h2 class="settings-title">Vincular com o CFO CBMERJ</h2>
-        <p class="settings-desc">
-          Conecte a extensão à sua conta na plataforma para sincronizar o cronômetro de estudo e as baterias de nivelamento em tempo real.
-        </p>
+    <!-- Tab 3: Conexão (Professional Configuration / Sync) -->
+    <main id="tab-content-settings" class="tab-content" role="tabpanel">
+      <section class="settings-panel">
+        <span class="eyebrow">Sincronização</span>
+        <h2>Conecte sua plataforma</h2>
+        <p class="settings-desc">Foco e nivelamento acompanham você, em qualquer aba.</p>
 
         <form id="form-settings" class="settings-form">
           <div class="form-group">
-            <label for="server-url">URL da Plataforma:</label>
+            <label for="server-url">URL do servidor</label>
             <input id="server-url" type="url" placeholder="https://cfo-oficial-agorasim.onrender.com" value="https://cfo-oficial-agorasim.onrender.com" required>
-            <span class="form-hint">Padrão oficial: https://cfo-oficial-agorasim.onrender.com</span>
+            <small>Endereço usado para sincronizar seu progresso.</small>
           </div>
 
           <div class="form-group">
-            <label for="auth-token">Token de Acesso (Bearer):</label>
-            <input id="auth-token" type="password" placeholder="Cole sua chave aqui..." required>
-            <span class="form-hint">No site, abra seu <strong>Perfil</strong> e clique em <strong>"Copiar Token da Extensão"</strong>.</span>
+            <label for="auth-token">Token de acesso</label>
+            <div class="token-input">
+              <input id="auth-token" type="password" placeholder="Cole sua chave aqui" autocomplete="off" required>
+              <button id="btn-toggle-token" type="button" aria-label="Mostrar token" title="Mostrar token">
+                <svg id="token-eye-icon" class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0"/>
+                  <path d="M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6"/>
+                </svg>
+              </button>
+            </div>
+            <small>Copie a chave no seu perfil da plataforma.</small>
           </div>
 
-          <button id="btn-save-settings" class="btn btn-primary w-full" type="submit">
-            🔗 Salvar e Conectar
+          <button id="btn-save-settings" class="btn btn-primary btn-full" type="submit">
+            <span>Salvar e conectar</span>
           </button>
         </form>
 
-        <div id="settings-feedback" class="feedback-msg"></div>
-      </div>
+        <div id="settings-feedback" class="feedback-msg" role="status"></div>
+      </section>
     </main>
 
-    <!-- Notificação Toast Flutuante -->
-    <div id="toast" class="toast hidden"></div>
+    <!-- Toast Notification Container -->
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
   </div>
 
   <script src="popup.js"></script>

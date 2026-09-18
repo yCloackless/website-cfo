@@ -125,4 +125,25 @@ test('EXT-12: Minha Conta possui aba dedicada de Extensão e App.tsx suporta rot
   assert.match(appCode, /onOpenExtension/);
 });
 
+test('EXT-13: cronômetro suporta ciclos de descanso (Recovery Pill) e razão de foco', () => {
+  const popupHtml = readSource('extension/popup.html');
+  assert.match(popupHtml, /id="timer-rest-pill"/);
+  assert.match(popupHtml, /id="rest-timer-display"/);
+  assert.match(popupHtml, /id="timer-ratio-card"/);
+
+  const popupJs = readSource('extension/popup.js');
+  assert.match(popupJs, /getElapsedRestMs/);
+  assert.match(popupJs, /restAccumulatedMs/);
+  assert.match(popupJs, /restStartTime/);
+
+  const bgJs = readSource('extension/background.js');
+  assert.match(bgJs, /restAccumulatedMs/);
+  assert.match(bgJs, /restStartTime/);
+
+  const serverCode = readSource('server.ts');
+  assert.match(serverCode, /totalRestMs/);
+  assert.match(serverCode, /restAccumulatedMs/);
+});
+
+
 

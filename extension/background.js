@@ -20,6 +20,8 @@ chrome.runtime.onInstalled.addListener(() => {
           status: 'STOPPED',
           accumulatedMs: 0,
           startTime: null,
+          restAccumulatedMs: 0,
+          restStartTime: null,
           subjectId: 'geral',
           subjectName: 'Estudo Geral',
         },
@@ -57,6 +59,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       const timer = res[STORAGE_KEYS.TIMER];
       if (timer && timer.status === 'RUNNING') {
         updateBadge('RUNNING');
+      } else if (timer && timer.status === 'PAUSED') {
+        updateBadge('PAUSED');
       }
     });
   }
@@ -79,10 +83,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const settings = res[STORAGE_KEYS.SETTINGS] || {};
       const now = Date.now();
 
+      let restAccumulatedMs = prev.restAccumulatedMs || 0;
+      if (prev.status === 'PAUSED' && prev.restStartTime) {
+        restAccumulatedMs += Math.max(0, now - prev.restStartTime);
+      }
+
       const newTimer = {
         status: 'RUNNING',
         accumulatedMs: prev.status === 'PAUSED' ? prev.accumulatedMs : (prev.accumulatedMs || 0),
         startTime: now,
+        restAccumulatedMs,
+        restStartTime: null,
         subjectId: payload?.subjectId || prev.subjectId || 'geral',
         subjectName: payload?.subjectName || prev.subjectName || 'Estudo Geral',
       };
@@ -126,6 +137,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         status: 'PAUSED',
         accumulatedMs: prev.accumulatedMs + elapsed,
         startTime: null,
+        restStartTime: now,
+        restAccumulatedMs: prev.restAccumulatedMs || 0,
       };
 
       chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {
@@ -153,6 +166,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         status: 'STOPPED',
         accumulatedMs: 0,
         startTime: null,
+        restAccumulatedMs: 0,
+        restStartTime: null,
         subjectId: 'geral',
         subjectName: 'Estudo Geral',
       };

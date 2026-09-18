@@ -1,9 +1,93 @@
 /**
- * CFO CBMERJ — Controlador de Interface do Popup (popup.js)
- * Gerencia o cronômetro visual, o marcador de questões (certa/errada) e a sincronização.
+ * CFO CBMERJ — Rumo ao CFO
+ * Extension Popup Controller (Manifest V3)
+ * Preserves all business logic, timer communication, leveling calculation and platform synchronization.
  */
 
-// Estado da Aplicação no Popup
+// Safe wrapper for chrome.storage.local to allow standalone browser preview & extension runtime
+const storage = {
+  get: async (keys) => {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      return chrome.storage.local.get(keys);
+    }
+    const result = {};
+    const keyList = Array.isArray(keys) ? keys : [keys];
+    for (const key of keyList) {
+      try {
+        const item = localStorage.getItem(key);
+        if (item) result[key] = JSON.parse(item);
+      } catch {
+        /* fallback empty */
+      }
+    }
+    return result;
+  },
+  set: async (items) => {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      return chrome.storage.local.set(items);
+    }
+    for (const [k, v] of Object.entries(items)) {
+      try {
+        localStorage.setItem(k, JSON.stringify(v));
+      } catch {
+        /* fallback ignore */
+      }
+    }
+  },
+};
+
+const sendRuntimeMessage = (message, callback) => {
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+    chrome.runtime.sendMessage(message, callback);
+  } else if (callback) {
+    if (message.type === 'TIMER_START') {
+      const now = Date.now();
+      const prev = state.timer;
+      let restAccumulatedMs = prev.restAccumulatedMs || 0;
+      if (prev.status === 'PAUSED' && prev.restStartTime) {
+        restAccumulatedMs += Math.max(0, now - prev.restStartTime);
+      }
+      const newTimer = {
+        status: 'RUNNING',
+        accumulatedMs: prev.status === 'PAUSED' ? prev.accumulatedMs : (prev.accumulatedMs || 0),
+        startTime: now,
+        restAccumulatedMs,
+        restStartTime: null,
+        subjectId: message.payload?.subjectId || prev.subjectId || 'geral',
+        subjectName: message.payload?.subjectName || prev.subjectName || 'Estudo Geral',
+      };
+      callback({ success: true, timer: newTimer });
+    } else if (message.type === 'TIMER_PAUSE') {
+      const prev = state.timer;
+      const now = Date.now();
+      const elapsed = Math.max(0, now - (prev.startTime || now));
+      const newTimer = {
+        ...prev,
+        status: 'PAUSED',
+        accumulatedMs: prev.accumulatedMs + elapsed,
+        startTime: null,
+        restStartTime: now,
+        restAccumulatedMs: prev.restAccumulatedMs || 0,
+      };
+      callback({ success: true, timer: newTimer });
+    } else if (message.type === 'TIMER_RESET') {
+      const newTimer = {
+        status: 'STOPPED',
+        accumulatedMs: 0,
+        startTime: null,
+        restAccumulatedMs: 0,
+        restStartTime: null,
+        subjectId: 'geral',
+        subjectName: 'Estudo Geral',
+      };
+      callback({ success: true, timer: newTimer });
+    } else {
+      callback({ success: true, timer: state.timer });
+    }
+  }
+};
+
+
 const state = {
   activeTab: 'timer',
   settings: {
@@ -14,6 +98,8 @@ const state = {
     status: 'STOPPED',
     accumulatedMs: 0,
     startTime: null,
+    restAccumulatedMs: 0,
+    restStartTime: null,
     subjectId: 'geral',
     subjectName: 'Estudo Geral',
   },
@@ -27,24 +113,48 @@ const state = {
 
 let timerInterval = null;
 
-// Elementos do DOM
+const TABLER_ICONS = {
+  play: '<svg class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13 -8z"/></svg>',
+  pause: '<svg class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"/><path d="M14 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"/></svg>',
+  sun: '<path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0"/><path d="M3 12h1m8 -9v1m8 8h1m-9 8v1m-6.4 -15.4l.7 .7m12.1 -.7l-.7 .7m0 11.4l.7 .7m-12.1 -.7l-.7 .7"/>',
+  moon: '<path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z"/>',
+  eye: '<path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0"/><path d="M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6"/>',
+  eyeOff: '<path d="M10.585 10.587a2 2 0 0 0 2.829 2.828"/><path d="M16.681 16.673a8.717 8.717 0 0 1 -4.681 1.327c-3.6 0 -6.6 -2 -9 -6c1.272 -2.12 2.712 -3.678 4.32 -4.674m2.86 -1.146a9.055 9.055 0 0 1 1.82 -.18c3.6 0 6.6 2 9 6c-.666 1.11 -1.379 2.067 -2.138 2.87"/><path d="M3 3l18 18"/>',
+};
+
 const els = {
-  // Tabs
+  // Navigation & Shell
   tabBtns: document.querySelectorAll('.tab-btn'),
   tabContents: document.querySelectorAll('.tab-content'),
-  // Header
   connectionBadge: document.getElementById('connection-badge'),
   connectionText: document.getElementById('connection-text'),
-  // Timer
+  themeToggle: document.getElementById('btn-theme-toggle'),
+  themeIcon: document.getElementById('theme-icon'),
+
+  // Timer Controls
   timerSubject: document.getElementById('timer-subject'),
   timerDisplay: document.getElementById('timer-display'),
   timerStatusSub: document.getElementById('timer-status-sub'),
+  timerSubjectName: document.getElementById('timer-subject-name'),
+  timerDisplayContainer: document.getElementById('timer-display-container'),
   btnTimerToggle: document.getElementById('btn-timer-toggle'),
   timerToggleIcon: document.getElementById('timer-toggle-icon'),
   timerToggleLabel: document.getElementById('timer-toggle-label'),
   btnTimerSave: document.getElementById('btn-timer-save'),
   btnTimerReset: document.getElementById('btn-timer-reset'),
-  // Leveling
+
+  // Recovery Pill & Balanço Foco vs Descanso
+  timerRestPill: document.getElementById('timer-rest-pill'),
+  restZoneBadge: document.getElementById('rest-zone-badge'),
+  restTimerDisplay: document.getElementById('rest-timer-display'),
+  timerRatioCard: document.getElementById('timer-ratio-card'),
+  ratioPercentage: document.getElementById('ratio-percentage'),
+  ratioFillStudy: document.getElementById('ratio-fill-study'),
+  ratioFillRest: document.getElementById('ratio-fill-rest'),
+  ratioStudyTime: document.getElementById('ratio-study-time'),
+  ratioRestTime: document.getElementById('ratio-rest-time'),
+
+  // Leveling Controls
   levelingStatusLabel: document.getElementById('leveling-status-label'),
   levelingTotal: document.getElementById('leveling-total'),
   statProgress: document.getElementById('stat-progress'),
@@ -57,59 +167,65 @@ const els = {
   btnLevelingUndo: document.getElementById('btn-leveling-undo'),
   btnLevelingReset: document.getElementById('btn-leveling-reset'),
   answerSheetGrid: document.getElementById('answer-sheet-grid'),
-  // Settings
+  result: document.getElementById('leveling-result'),
+  resultAccuracy: document.getElementById('result-accuracy'),
+  resultSummary: document.getElementById('result-summary'),
+
+  // Settings & Feedback
   formSettings: document.getElementById('form-settings'),
   serverUrl: document.getElementById('server-url'),
   authToken: document.getElementById('auth-token'),
+  toggleToken: document.getElementById('btn-toggle-token'),
+  tokenEyeIcon: document.getElementById('token-eye-icon'),
+  saveSettings: document.getElementById('btn-save-settings'),
   settingsFeedback: document.getElementById('settings-feedback'),
-  // Toast
   toast: document.getElementById('toast'),
 };
 
-// ============================================================================
-// Utilitários e Formatação
-// ============================================================================
 function formatTime(ms) {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const pad = (value) => String(value).padStart(2, '0');
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  return `${pad(hours)}:${pad(minutes)}:${pad(secs)}`;
 }
 
-function showToast(message, duration = 2500) {
+function showToast(message, type = 'default', duration = 2500) {
   els.toast.textContent = message;
+  els.toast.dataset.type = type;
   els.toast.classList.remove('hidden');
-  setTimeout(() => {
-    els.toast.classList.add('hidden');
-  }, duration);
+  setTimeout(() => els.toast.classList.add('hidden'), duration);
 }
 
-// ============================================================================
-// Navegação entre Abas
-// ============================================================================
-els.tabBtns.forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const tabName = btn.dataset.tab;
-    switchTab(tabName);
-  });
-});
+function setTheme(theme) {
+  const apply = () => {
+    document.documentElement.dataset.theme = theme;
+    const isLight = theme === 'light';
+    els.themeToggle.setAttribute('aria-label', isLight ? 'Ativar tema escuro' : 'Ativar tema claro');
+    els.themeToggle.title = els.themeToggle.getAttribute('aria-label');
+    els.themeIcon.innerHTML = isLight ? TABLER_ICONS.moon : TABLER_ICONS.sun;
+  };
+
+  if (typeof document.startViewTransition === 'function') {
+    document.startViewTransition(apply);
+  } else {
+    apply();
+  }
+}
 
 function switchTab(tabName) {
   state.activeTab = tabName;
-  els.tabBtns.forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.tab === tabName);
+  els.tabBtns.forEach((button) => {
+    const active = button.dataset.tab === tabName;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
   });
   els.tabContents.forEach((content) => {
     content.classList.toggle('active', content.id === `tab-content-${tabName}`);
   });
 }
 
-// ============================================================================
-// Cronômetro (Timer)
-// ============================================================================
 function getElapsedTimerMs() {
   if (state.timer.status === 'RUNNING' && state.timer.startTime) {
     return state.timer.accumulatedMs + Math.max(0, Date.now() - state.timer.startTime);
@@ -117,107 +233,284 @@ function getElapsedTimerMs() {
   return state.timer.accumulatedMs || 0;
 }
 
-function updateTimerDisplay() {
-  const elapsed = getElapsedTimerMs();
-  els.timerDisplay.textContent = formatTime(elapsed);
+function getElapsedRestMs() {
+  if (state.timer.status === 'PAUSED' && state.timer.restStartTime) {
+    return (state.timer.restAccumulatedMs || 0) + Math.max(0, Date.now() - state.timer.restStartTime);
+  }
+  return state.timer.restAccumulatedMs || 0;
+}
 
-  if (state.timer.status === 'RUNNING') {
-    els.timerStatusSub.textContent = 'EM ANDAMENTO (FOCO)';
-    els.timerStatusSub.style.color = '#34d399';
-    els.timerToggleIcon.textContent = '⏸';
-    els.timerToggleLabel.textContent = 'Pausar Estudo';
-    els.btnTimerToggle.style.background = 'linear-gradient(135deg, #d97706, #f59e0b)';
-  } else if (state.timer.status === 'PAUSED') {
-    els.timerStatusSub.textContent = 'PAUSADO';
-    els.timerStatusSub.style.color = '#fbbf24';
-    els.timerToggleIcon.textContent = '▶';
-    els.timerToggleLabel.textContent = 'Continuar';
-    els.btnTimerToggle.style.background = 'var(--color-blue)';
+function updateTimerDisplay() {
+  const studyMs = getElapsedTimerMs();
+  const restMs = getElapsedRestMs();
+  els.timerDisplay.textContent = formatTime(studyMs);
+  els.timerSubjectName.textContent =
+    state.timer.subjectName || els.timerSubject.options[els.timerSubject.selectedIndex].text;
+
+  const running = state.timer.status === 'RUNNING';
+  const paused = state.timer.status === 'PAUSED';
+  els.timerDisplayContainer.classList.toggle('is-running', running);
+  els.timerDisplay.classList.toggle('is-paused-dimmed', paused);
+
+  if (running) {
+    els.timerStatusSub.textContent = 'Em foco';
+    els.timerToggleIcon.innerHTML = TABLER_ICONS.pause;
+    els.timerToggleLabel.textContent = 'Pausar foco';
+    if (els.timerRestPill) els.timerRestPill.classList.add('hidden');
+  } else if (paused) {
+    els.timerStatusSub.textContent = 'Em descanso';
+    els.timerToggleIcon.innerHTML = TABLER_ICONS.play;
+    els.timerToggleLabel.textContent = 'Retomar foco';
+
+    // Atualiza Recovery Pill
+    if (els.timerRestPill && els.restTimerDisplay && els.restZoneBadge) {
+      els.timerRestPill.classList.remove('hidden');
+      els.restTimerDisplay.textContent = formatTime(restMs);
+
+      // Zonas: Verde (0-10m), Âmbar (10-20m), Vermelha (>20m)
+      const tenMinMs = 10 * 60 * 1000;
+      const twentyMinMs = 20 * 60 * 1000;
+      els.timerRestPill.classList.remove('zone-amber', 'zone-red');
+      els.restZoneBadge.classList.remove('zone-green', 'zone-amber', 'zone-red');
+
+      const dot = els.timerRestPill.querySelector('.rest-pulse-dot');
+      if (dot) dot.classList.remove('dot-amber', 'dot-red');
+
+      if (restMs < tenMinMs) {
+        els.restZoneBadge.textContent = 'Recuperação Ativa';
+        els.restZoneBadge.classList.add('zone-green');
+      } else if (restMs < twentyMinMs) {
+        els.timerRestPill.classList.add('zone-amber');
+        els.restZoneBadge.textContent = 'Limite Operacional';
+        els.restZoneBadge.classList.add('zone-amber');
+        if (dot) dot.classList.add('dot-amber');
+      } else {
+        els.timerRestPill.classList.add('zone-red');
+        els.restZoneBadge.textContent = 'Descanso Excessivo';
+        els.restZoneBadge.classList.add('zone-red');
+        if (dot) dot.classList.add('dot-red');
+      }
+    }
   } else {
-    els.timerStatusSub.textContent = 'PARADO';
-    els.timerStatusSub.style.color = 'var(--text-muted)';
-    els.timerToggleIcon.textContent = '▶';
-    els.timerToggleLabel.textContent = 'Iniciar Foco';
-    els.btnTimerToggle.style.background = 'var(--color-blue)';
+    els.timerStatusSub.textContent = 'Parado';
+    els.timerToggleIcon.innerHTML = TABLER_ICONS.play;
+    els.timerToggleLabel.textContent = 'Iniciar foco';
+    if (els.timerRestPill) els.timerRestPill.classList.add('hidden');
+  }
+
+  // Atualiza Balanço Foco vs Descanso
+  if (els.timerRatioCard) {
+    const totalCycleMs = studyMs + restMs;
+    if (totalCycleMs > 0) {
+      els.timerRatioCard.classList.remove('hidden');
+      const studyPct = Math.max(0, Math.min(100, Math.round((studyMs / totalCycleMs) * 100)));
+      const restPct = 100 - studyPct;
+
+      if (els.ratioPercentage) els.ratioPercentage.textContent = `${studyPct}% Foco · ${restPct}% Pausa`;
+      if (els.ratioFillStudy) els.ratioFillStudy.style.width = `${studyPct}%`;
+      if (els.ratioFillRest) els.ratioFillRest.style.width = `${restPct}%`;
+      if (els.ratioStudyTime) els.ratioStudyTime.textContent = `Estudo: ${formatTime(studyMs)}`;
+      if (els.ratioRestTime) els.ratioRestTime.textContent = `Pausa: ${formatTime(restMs)}`;
+    } else {
+      els.timerRatioCard.classList.add('hidden');
+    }
   }
 }
 
 function startTimerTicker() {
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = setInterval(() => {
-    if (state.timer.status === 'RUNNING') {
+    if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') {
       updateTimerDisplay();
     }
   }, 500);
 }
 
-els.btnTimerToggle.addEventListener('click', () => {
-  const sel = els.timerSubject;
-  const subjectId = sel.value;
-  const subjectName = sel.options[sel.selectedIndex].text;
+function updateLevelingUI() {
+  const { total, answers } = state.leveling;
+  const answered = answers.length;
+  const correct = answers.filter((answer) => answer === 'correct').length;
+  const wrong = answers.filter((answer) => answer === 'wrong').length;
+  const accuracy = answered ? Math.round((correct / answered) * 100) : 0;
+  const required = Math.ceil(total * 0.8);
 
-  if (state.timer.status === 'RUNNING') {
-    chrome.runtime.sendMessage({ type: 'TIMER_PAUSE' }, (res) => {
-      if (res?.timer) {
-        state.timer = res.timer;
-        updateTimerDisplay();
-      }
-    });
+  const padAnswered = String(answered).padStart(2, '0');
+  const padTotal = String(total).padStart(2, '0');
+  els.statProgress.innerHTML = `${padAnswered} <small>de ${padTotal}</small>`;
+  els.statCorrect.textContent = String(correct);
+  els.statWrong.textContent = String(wrong);
+  els.statAccuracy.textContent = `${accuracy}%`;
+  els.progressFill.style.width = `${total ? Math.min(100, (answered / total) * 100) : 0}%`;
+
+  if (answered === 0) {
+    els.levelingStatusLabel.textContent = 'Inicie as resoluções';
+  } else if (correct >= required) {
+    els.levelingStatusLabel.textContent = 'Meta assegurada';
   } else {
-    chrome.runtime.sendMessage({
-      type: 'TIMER_START',
-      payload: { subjectId, subjectName },
-    }, (res) => {
-      if (res?.timer) {
-        state.timer = res.timer;
-        updateTimerDisplay();
-        startTimerTicker();
-      }
+    const diff = required - correct;
+    els.levelingStatusLabel.textContent = `Faltam ${Math.max(0, diff)} acerto${diff > 1 ? 's' : ''}`;
+  }
+
+  els.answerSheetGrid.innerHTML = '';
+  for (let index = 0; index < total; index += 1) {
+    const dot = document.createElement('div');
+    dot.className = `answer-dot${answers[index] ? ` ${answers[index]}` : ''}`;
+    dot.textContent = String(index + 1);
+    els.answerSheetGrid.appendChild(dot);
+  }
+}
+
+async function persistLevelingState() {
+  await storage.set({ cfo_ext_leveling: state.leveling });
+  if (!state.settings.serverUrl || !state.settings.token) return;
+
+  fetch(`${state.settings.serverUrl}/api/leveling/session`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${state.settings.token}`,
+    },
+    body: JSON.stringify({
+      mode: 'live',
+      total: state.leveling.total,
+      answers: state.leveling.answers,
+      started: state.leveling.answers.length > 0,
+    }),
+  }).catch(() => {});
+}
+
+function recordAnswer(type) {
+  if (state.leveling.answers.length >= state.leveling.total) {
+    return showToast('Bateria concluída. Inicie uma nova se desejar.');
+  }
+
+  state.leveling.answers.push(type);
+  updateLevelingUI();
+  persistLevelingState();
+
+  if (state.leveling.answers.length === state.leveling.total) {
+    const correct = state.leveling.answers.filter((answer) => answer === 'correct').length;
+    els.result.hidden = false;
+    els.resultAccuracy.textContent = `${Math.round((correct / state.leveling.total) * 100)}%`;
+    els.resultSummary.textContent = `${correct} acertos · ${state.leveling.total - correct} erros`;
+
+    const goalAchieved = correct >= Math.ceil(state.leveling.total * 0.8);
+    showToast(
+      goalAchieved ? 'Meta de 80% atingida no nivelamento.' : 'Bateria finalizada. Revise seus erros no site.',
+      goalAchieved ? 'success' : 'default'
+    );
+  }
+}
+
+function setConnectionStatus(status) {
+  const connected = status === 'connected';
+  state.isConnected = connected;
+  els.connectionBadge.className = `connection-status is-${status}`;
+  els.connectionText.textContent = connected
+    ? 'Conectado'
+    : status === 'connecting'
+      ? 'Conectando…'
+      : status === 'error'
+        ? 'Falha'
+        : 'Desconectado';
+}
+
+async function fetchLevelingFromCloud() {
+  if (!state.settings.serverUrl || !state.settings.token) return;
+  try {
+    const response = await fetch(`${state.settings.serverUrl}/api/leveling/session`, {
+      headers: { Authorization: `Bearer ${state.settings.token}` },
     });
+    if (!response.ok) return;
+    const data = await response.json();
+    if (data?.session && Array.isArray(data.session.answers)) {
+      state.leveling.total = data.session.total || state.leveling.total;
+      state.leveling.answers = data.session.answers;
+      els.levelingTotal.value = String(state.leveling.total);
+      updateLevelingUI();
+    }
+  } catch {
+    /* offline state stays local */
+  }
+}
+
+// Tab Switching Event Listeners
+els.tabBtns.forEach((button, index) => {
+  button.addEventListener('click', () => switchTab(button.dataset.tab));
+  button.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    event.preventDefault();
+    const next = (index + (event.key === 'ArrowRight' ? 1 : -1) + els.tabBtns.length) % els.tabBtns.length;
+    els.tabBtns[next].focus();
+    switchTab(els.tabBtns[next].dataset.tab);
+  });
+});
+
+// Theme Toggle Listener
+els.themeToggle.addEventListener('click', async () => {
+  const theme = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  setTheme(theme);
+  await storage.set({ cfo_ext_theme: theme });
+});
+
+// Password Masking Toggle Listener
+els.toggleToken.addEventListener('click', () => {
+  const isText = els.authToken.type === 'text';
+  els.authToken.type = isText ? 'password' : 'text';
+  els.toggleToken.setAttribute('aria-label', isText ? 'Mostrar token' : 'Ocultar token');
+  els.toggleToken.title = els.toggleToken.getAttribute('aria-label');
+  if (els.tokenEyeIcon) {
+    els.tokenEyeIcon.innerHTML = isText ? TABLER_ICONS.eye : TABLER_ICONS.eyeOff;
   }
 });
 
-els.btnTimerReset.addEventListener('click', () => {
-  if (state.timer.status === 'RUNNING' && !confirm('Deseja realmente zerar o cronômetro?')) {
-    return;
-  }
-  chrome.runtime.sendMessage({ type: 'TIMER_RESET' }, (res) => {
-    if (res?.timer) {
-      state.timer = res.timer;
+// Timer Listeners
+els.btnTimerToggle.addEventListener('click', () => {
+  const subjectId = els.timerSubject.value;
+  const subjectName = els.timerSubject.options[els.timerSubject.selectedIndex].text;
+  sendRuntimeMessage(
+    state.timer.status === 'RUNNING'
+      ? { type: 'TIMER_PAUSE' }
+      : { type: 'TIMER_START', payload: { subjectId, subjectName } },
+    (response) => {
+      if (!response?.timer) return;
+      state.timer = response.timer;
       updateTimerDisplay();
-      showToast('Cronômetro zerado.');
+      if (state.timer.status === 'RUNNING') startTimerTicker();
     }
+  );
+});
+
+els.btnTimerReset.addEventListener('click', () => {
+  if (state.timer.status === 'RUNNING' && !confirm('Deseja realmente zerar o cronômetro?')) return;
+  sendRuntimeMessage({ type: 'TIMER_RESET' }, (response) => {
+    if (!response?.timer) return;
+    state.timer = response.timer;
+    updateTimerDisplay();
+    showToast('Cronômetro zerado.');
   });
 });
 
 els.btnTimerSave.addEventListener('click', async () => {
-  const elapsedMs = getElapsedTimerMs();
-  const seconds = Math.floor(elapsedMs / 1000);
-
+  const seconds = Math.floor(getElapsedTimerMs() / 1000);
   if (seconds < 30) {
-    showToast('Estude pelo menos 30 segundos para registrar a sessão.');
-    return;
+    return showToast('Estude pelo menos 30 segundos para registrar a sessão.');
   }
-
   if (!state.settings.token) {
-    showToast('Conecte a extensão na aba "Conexão" para salvar no site.');
-    switchTab('settings');
-    return;
+    showToast('Conecte a extensão para salvar no site.');
+    return switchTab('settings');
   }
 
-  const sel = els.timerSubject;
-  const subjectId = sel.value;
-  const subjectName = sel.options[sel.selectedIndex].text;
+  const subjectId = els.timerSubject.value;
+  const subjectName = els.timerSubject.options[els.timerSubject.selectedIndex].text;
+  els.btnTimerSave.disabled = true;
 
   try {
-    els.btnTimerSave.disabled = true;
-    els.btnTimerSave.textContent = 'Salvando...';
-
-    const res = await fetch(`${state.settings.serverUrl}/api/timer/save-session`, {
+    const response = await fetch(`${state.settings.serverUrl}/api/timer/save-session`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${state.settings.token}`,
+        Authorization: `Bearer ${state.settings.token}`,
       },
       body: JSON.stringify({
         subjectId,
@@ -227,130 +520,26 @@ els.btnTimerSave.addEventListener('click', async () => {
       }),
     });
 
-    if (!res.ok) throw new Error('Falha na resposta do servidor');
+    if (!response.ok) throw new Error('server response');
 
-    // Reset local do timer após salvar com sucesso
-    chrome.runtime.sendMessage({ type: 'TIMER_RESET' }, (r) => {
-      if (r?.timer) state.timer = r.timer;
+    sendRuntimeMessage({ type: 'TIMER_RESET' }, (result) => {
+      if (result?.timer) state.timer = result.timer;
       updateTimerDisplay();
     });
-
-    showToast(`✅ Sessão de ${Math.round(seconds / 60)} min salva no site!`);
-  } catch (err) {
-    showToast('Erro ao salvar no servidor. Verifique a conexão.');
+    showToast(`Sessão de ${Math.round(seconds / 60)} min salva no site.`, 'success');
+  } catch {
+    showToast('Erro ao salvar no servidor. Verifique a conexão.', 'error');
   } finally {
     els.btnTimerSave.disabled = false;
-    els.btnTimerSave.textContent = '💾 Salvar no Site';
   }
 });
 
-// ============================================================================
-// Nivelamento (Questões Certa / Errada)
-// ============================================================================
-function updateLevelingUI() {
-  const { total, answers } = state.leveling;
-  const answered = answers.length;
-  const correct = answers.filter((a) => a === 'correct').length;
-  const wrong = answers.filter((a) => a === 'wrong').length;
-  const accuracy = answered > 0 ? Math.round((correct / answered) * 100) : 0;
-  const requiredCorrect = Math.ceil(total * 0.8);
-  const isGoalSecured = correct >= requiredCorrect;
-
-  // Atualiza valores nas caixas
-  els.statProgress.textContent = `${answered}/${total}`;
-  els.statCorrect.textContent = String(correct);
-  els.statWrong.textContent = String(wrong);
-  els.statAccuracy.textContent = `${accuracy}%`;
-
-  // Barra de progresso
-  const progressPct = total > 0 ? Math.min(100, (answered / total) * 100) : 0;
-  els.progressFill.style.width = `${progressPct}%`;
-
-  // Status da meta
-  if (answered === 0) {
-    els.levelingStatusLabel.textContent = 'Inicie as resoluções';
-    els.levelingStatusLabel.style.color = 'var(--text-primary)';
-  } else if (isGoalSecured) {
-    els.levelingStatusLabel.textContent = 'Meta assegurada! 🏆';
-    els.levelingStatusLabel.style.color = '#34d399';
-  } else {
-    const missing = Math.max(0, requiredCorrect - correct);
-    els.levelingStatusLabel.textContent = `Faltam ${missing} acerto${missing > 1 ? 's' : ''}`;
-    els.levelingStatusLabel.style.color = '#fbbf24';
-  }
-
-  // Renderiza o mini cartão-resposta
-  renderAnswerSheet(total, answers);
-}
-
-function renderAnswerSheet(total, answers) {
-  els.answerSheetGrid.innerHTML = '';
-  for (let i = 0; i < total; i++) {
-    const dot = document.createElement('div');
-    dot.className = 'answer-dot';
-    dot.textContent = String(i + 1);
-
-    if (i < answers.length) {
-      if (answers[i] === 'correct') dot.classList.add('correct');
-      else if (answers[i] === 'wrong') dot.classList.add('wrong');
-    }
-
-    els.answerSheetGrid.appendChild(dot);
-  }
-}
-
-async function persistLevelingState() {
-  // Salva no storage local da extensão
-  await chrome.storage.local.set({ cfo_ext_leveling: state.leveling });
-
-  // Sincroniza com o servidor se conectado
-  if (state.settings.serverUrl && state.settings.token) {
-    try {
-      fetch(`${state.settings.serverUrl}/api/leveling/session`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${state.settings.token}`,
-        },
-        body: JSON.stringify({
-          mode: 'live',
-          total: state.leveling.total,
-          answers: state.leveling.answers,
-          started: state.leveling.answers.length > 0,
-        }),
-      }).catch(() => {});
-    } catch {
-      // Falha silenciosa em offline
-    }
-  }
-}
-
-function recordAnswer(answerType) {
-  if (state.leveling.answers.length >= state.leveling.total) {
-    showToast('Bateria concluída! Inicie uma nova se desejar.');
-    return;
-  }
-
-  state.leveling.answers.push(answerType);
-  updateLevelingUI();
-  persistLevelingState();
-
-  if (state.leveling.answers.length === state.leveling.total) {
-    const correct = state.leveling.answers.filter((a) => a === 'correct').length;
-    const required = Math.ceil(state.leveling.total * 0.8);
-    if (correct >= required) {
-      showToast('🎉 Parabéns! Meta de 80% atingida no Nivelamento!');
-    } else {
-      showToast('Bateria finalizada. Revise seus erros no site.');
-    }
-  }
-}
-
+// Leveling Listeners
 els.btnQuestionCorrect.addEventListener('click', () => recordAnswer('correct'));
 els.btnQuestionWrong.addEventListener('click', () => recordAnswer('wrong'));
 
 els.btnLevelingUndo.addEventListener('click', () => {
-  if (state.leveling.answers.length === 0) return;
+  if (!state.leveling.answers.length) return;
   state.leveling.answers.pop();
   updateLevelingUI();
   persistLevelingState();
@@ -358,150 +547,135 @@ els.btnLevelingUndo.addEventListener('click', () => {
 });
 
 els.btnLevelingReset.addEventListener('click', () => {
-  if (state.leveling.answers.length > 0 && !confirm('Deseja iniciar uma nova bateria de nivelamento?')) {
-    return;
-  }
+  if (state.leveling.answers.length && !confirm('Deseja iniciar uma nova bateria de nivelamento?')) return;
   state.leveling.answers = [];
+  els.result.hidden = true;
   updateLevelingUI();
   persistLevelingState();
   showToast('Nova bateria iniciada.');
 });
 
-els.levelingTotal.addEventListener('change', (e) => {
-  const newTotal = Number(e.target.value) || 30;
-  state.leveling.total = newTotal;
-  if (state.leveling.answers.length > newTotal) {
-    state.leveling.answers = state.leveling.answers.slice(0, newTotal);
+function setLevelingTotal(raw) {
+  let val = parseInt(raw, 10);
+  if (isNaN(val) || val < 1) val = 1;
+  if (val > 100) {
+    val = 100;
+    showToast('Máximo de 100 questões por bateria.');
+  }
+  state.leveling.total = val;
+  els.levelingTotal.value = String(val);
+  if (state.leveling.answers.length > state.leveling.total) {
+    state.leveling.answers = state.leveling.answers.slice(0, state.leveling.total);
   }
   updateLevelingUI();
   persistLevelingState();
+}
+
+els.levelingTotal.addEventListener('change', (event) => {
+  setLevelingTotal(event.target.value);
 });
 
-// ============================================================================
-// Configurações & Vínculo com a Plataforma
-// ============================================================================
-els.formSettings.addEventListener('submit', async (e) => {
-  e.preventDefault();
+els.levelingTotal.addEventListener('input', (event) => {
+  const raw = event.target.value;
+  if (raw === '') return;
+  let val = parseInt(raw, 10);
+  if (!isNaN(val) && val >= 1) {
+    if (val > 100) {
+      val = 100;
+      els.levelingTotal.value = '100';
+      showToast('Máximo de 100 questões por bateria.');
+    }
+    state.leveling.total = val;
+    if (state.leveling.answers.length > state.leveling.total) {
+      state.leveling.answers = state.leveling.answers.slice(0, state.leveling.total);
+    }
+    updateLevelingUI();
+    persistLevelingState();
+  }
+});
+
+// Settings & Sync Form Listener
+els.formSettings.addEventListener('submit', async (event) => {
+  event.preventDefault();
   const url = els.serverUrl.value.trim().replace(/\/+$/, '');
   const token = els.authToken.value.trim();
 
   els.settingsFeedback.className = 'feedback-msg';
-  els.settingsFeedback.textContent = 'Testando conexão com o servidor...';
+  els.settingsFeedback.textContent = 'Testando conexão com o servidor…';
+  els.saveSettings.disabled = true;
+  setConnectionStatus('connecting');
 
   try {
-    const res = await fetch(`${url}/api/timer/status`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
+    const response = await fetch(`${url}/api/timer/status`, {
+      headers: { Authorization: `Bearer ${token}` },
     });
+    if (!response.ok) throw new Error('server response');
 
-    if (res.ok) {
-      state.settings.serverUrl = url;
-      state.settings.token = token;
-      state.isConnected = true;
-
-      await chrome.storage.local.set({
-        cfo_ext_settings: state.settings,
-      });
-
-      setConnectionStatus(true);
-      els.settingsFeedback.className = 'feedback-msg success';
-      els.settingsFeedback.textContent = '✅ Conectado com sucesso à plataforma CFO CBMERJ!';
-      showToast('Conectado à sua conta!');
-
-      // Sincroniza sessão de nivelamento da nuvem
-      fetchLevelingFromCloud();
-    } else {
-      throw new Error(`Código HTTP ${res.status}`);
-    }
-  } catch (err) {
-    state.isConnected = false;
-    setConnectionStatus(false);
+    state.settings = { serverUrl: url, token };
+    await storage.set({ cfo_ext_settings: state.settings });
+    setConnectionStatus('connected');
+    els.settingsFeedback.className = 'feedback-msg success';
+    els.settingsFeedback.textContent = 'Conectado com sucesso à plataforma CFO CBMERJ.';
+    showToast('Conectado à sua conta.', 'success');
+    fetchLevelingFromCloud();
+  } catch {
+    setConnectionStatus('error');
     els.settingsFeedback.className = 'feedback-msg error';
-    els.settingsFeedback.textContent = '❌ Falha ao conectar. Verifique se o servidor está ativo e o token está correto.';
+    els.settingsFeedback.textContent = 'Falha ao conectar. Verifique o servidor e o token.';
+    showToast('Não foi possível conectar.', 'error');
+  } finally {
+    els.saveSettings.disabled = false;
+    els.saveSettings.querySelector('span').textContent = state.isConnected ? 'Reconectar' : 'Salvar e conectar';
   }
 });
 
-function setConnectionStatus(connected) {
-  state.isConnected = connected;
-  if (connected) {
-    els.connectionBadge.className = 'badge badge-online';
-    els.connectionText.textContent = 'Conectado';
-  } else {
-    els.connectionBadge.className = 'badge badge-offline';
-    els.connectionText.textContent = 'Desconectado';
-  }
-}
-
-async function fetchLevelingFromCloud() {
-  if (!state.settings.serverUrl || !state.settings.token) return;
-  try {
-    const res = await fetch(`${state.settings.serverUrl}/api/leveling/session`, {
-      headers: { 'Authorization': `Bearer ${state.settings.token}` },
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data?.session && Array.isArray(data.session.answers)) {
-      state.leveling.total = data.session.total || state.leveling.total;
-      state.leveling.answers = data.session.answers || [];
-      els.levelingTotal.value = String(state.leveling.total);
-      updateLevelingUI();
-    }
-  } catch (e) {
-    // Modo offline preservado
-  }
-}
-
-// ============================================================================
-// Inicialização Geral do Popup
-// ============================================================================
+// Initialization
 async function initPopup() {
-  // Carrega configurações salvas
-  const storage = await chrome.storage.local.get([
+  const saved = await storage.get([
     'cfo_ext_settings',
     'cfo_ext_timer',
     'cfo_ext_leveling',
+    'cfo_ext_theme',
   ]);
 
-  if (storage.cfo_ext_settings) {
-    state.settings = storage.cfo_ext_settings;
+  if (saved.cfo_ext_settings) {
+    state.settings = saved.cfo_ext_settings;
     els.serverUrl.value = state.settings.serverUrl || 'https://cfo-oficial-agorasim.onrender.com';
     els.authToken.value = state.settings.token || '';
   }
 
-  if (storage.cfo_ext_leveling) {
-    state.leveling = storage.cfo_ext_leveling;
-    els.levelingTotal.value = String(state.leveling.total || 30);
+  if (saved.cfo_ext_leveling) {
+    state.leveling = saved.cfo_ext_leveling;
+    if (!state.leveling.total || state.leveling.total < 1) state.leveling.total = 30;
+    if (state.leveling.total > 100) state.leveling.total = 100;
+    els.levelingTotal.value = String(state.leveling.total);
   }
 
-  // Consulta estado do cronômetro com o background worker
-  chrome.runtime.sendMessage({ type: 'GET_TIMER_STATE' }, (res) => {
-    if (res?.timer) {
-      state.timer = res.timer;
-      if (state.timer.subjectId) {
-        els.timerSubject.value = state.timer.subjectId;
-      }
-      updateTimerDisplay();
-      if (state.timer.status === 'RUNNING') {
-        startTimerTicker();
-      }
-    }
-  });
-
-  // Testa conexão se já tiver token configurado
-  if (state.settings.serverUrl && state.settings.token) {
-    fetch(`${state.settings.serverUrl}/api/timer/status`, {
-      headers: { 'Authorization': `Bearer ${state.settings.token}` },
-    }).then((res) => {
-      setConnectionStatus(res.ok);
-      if (res.ok) fetchLevelingFromCloud();
-    }).catch(() => {
-      setConnectionStatus(false);
-    });
-  }
-
+  setTheme(saved.cfo_ext_theme || 'dark');
   updateLevelingUI();
   updateTimerDisplay();
+
+  sendRuntimeMessage({ type: 'GET_TIMER_STATE' }, (response) => {
+    if (!response?.timer) return;
+    state.timer = response.timer;
+    if (state.timer.subjectId) els.timerSubject.value = state.timer.subjectId;
+    updateTimerDisplay();
+    if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') startTimerTicker();
+  });
+
+  if (state.settings.serverUrl && state.settings.token) {
+    setConnectionStatus('connecting');
+    fetch(`${state.settings.serverUrl}/api/timer/status`, {
+      headers: { Authorization: `Bearer ${state.settings.token}` },
+    })
+      .then((response) => {
+        setConnectionStatus(response.ok ? 'connected' : 'error');
+        if (response.ok) fetchLevelingFromCloud();
+      })
+      .catch(() => setConnectionStatus('error'));
+  } else {
+    setConnectionStatus('disconnected');
+  }
 }
 
 document.addEventListener('DOMContentLoaded', initPopup);

@@ -28,6 +28,14 @@ interface TimerTabProps {
   weeklyGoalHours?: number;
 }
 
+interface TimerInterval {
+  type: 'study' | 'rest';
+  durationMs: number;
+  startTime: number;
+  endTime: number;
+  subjectId?: string;
+}
+
 interface TimerState {
   status: 'STOPPED' | 'RUNNING' | 'PAUSED';
   accumulatedTime: number;
@@ -35,6 +43,9 @@ interface TimerState {
   activeSubjectId?: string;
   activeSubjectName?: string;
   serverTime?: number;
+  restAccumulatedMs?: number;
+  restStartTime?: number | null;
+  intervals?: TimerInterval[];
 }
 
 export const TimerTab: React.FC<TimerTabProps> = ({
@@ -55,6 +66,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   });
 
   const [displayMs, setDisplayMs] = useState(0);
+  const [restDisplayMs, setRestDisplayMs] = useState(0);
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>(
     subjects[0]?.id || 'matematica'
   );
@@ -136,6 +148,14 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       } else {
         setDisplayMs(data.accumulatedTime || 0);
       }
+
+      if (data.status === 'PAUSED' && data.restStartTime) {
+        const estimatedServerNow = Date.now() + serverOffsetRef.current;
+        const currentRest = (data.restAccumulatedMs || 0) + Math.max(0, estimatedServerNow - data.restStartTime);
+        setRestDisplayMs(currentRest);
+      } else {
+        setRestDisplayMs(data.restAccumulatedMs || 0);
+      }
     } catch (err) {
       setIsOnline(false);
     } finally {
@@ -176,6 +196,20 @@ export const TimerTab: React.FC<TimerTabProps> = ({
     return () => clearInterval(interval);
   }, [timerState.status, timerState.startTime, timerState.accumulatedTime]);
 
+  // Tick contínuo de descanso quando PAUSED
+  useEffect(() => {
+    if (timerState.status !== 'PAUSED' || !timerState.restStartTime) return;
+
+    const interval = setInterval(() => {
+      const estimatedServerNow = Date.now() + serverOffsetRef.current;
+      const currentRest =
+        (timerState.restAccumulatedMs || 0) + Math.max(0, estimatedServerNow - (timerState.restStartTime || estimatedServerNow));
+      setRestDisplayMs(currentRest);
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [timerState.status, timerState.restStartTime, timerState.restAccumulatedMs]);
+
   const activeSubject = useMemo(() => {
     return subjects.find((s) => s.id === selectedSubjectId) || subjects[0];
   }, [subjects, selectedSubjectId]);
@@ -203,6 +237,11 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         const estimatedServerNow = Date.now() + serverOffsetRef.current;
         setDisplayMs(data.accumulatedTime + (data.startTime ? Math.max(0, estimatedServerNow - data.startTime) : 0));
       }
+      if (typeof data.totalRestMs === 'number') {
+        setRestDisplayMs(data.totalRestMs);
+      } else {
+        setRestDisplayMs(data.restAccumulatedMs || 0);
+      }
     } catch (err) {
       setIsOnline(false);
     } finally {
@@ -224,6 +263,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       }
       setTimerState(data);
       setDisplayMs(typeof data.totalElapsedMs === 'number' ? data.totalElapsedMs : (data.accumulatedTime || 0));
+      setRestDisplayMs(data.restAccumulatedMs || 0);
     } catch (err) {
       setIsOnline(false);
     } finally {
@@ -253,6 +293,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       }
       setTimerState(data);
       setDisplayMs(0);
+      setRestDisplayMs(0);
     } catch (err) {
       setIsOnline(false);
     } finally {
@@ -294,6 +335,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         setTimerState(data.timerState);
       }
       setDisplayMs(0);
+      setRestDisplayMs(0);
 
       // Notifica cronograma se handler existir
       if (onLogStudySession && activeSubject) {
@@ -320,6 +362,35 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   const tenths = Math.floor((displayMs % 1000) / 100);
 
   const pad = (n: number) => String(n).padStart(2, '0');
+
+  // Formatação de Descanso e Métricas de Balanço
+  const restTotalSeconds = Math.floor(restDisplayMs / 1000);
+  const restHours = Math.floor(restTotalSeconds / 3600);
+  const restMinutes = Math.floor((restTotalSeconds % 3600) / 60);
+  const restSecs = restTotalSeconds % 60;
+  const formattedRestTime = restHours > 0
+    ? `${pad(restHours)}:${pad(restMinutes)}:${pad(restSecs)}`
+    : `${pad(restMinutes)}:${pad(restSecs)}`;
+
+  const totalCycleMs = displayMs + restDisplayMs;
+  const focusPercentage = totalCycleMs > 0 ? Math.round((displayMs / totalCycleMs) * 100) : 100;
+  const restPercentage = 100 - focusPercentage;
+
+  const tenMinsMs = 10 * 60 * 1000;
+  const twentyMinsMs = 20 * 60 * 1000;
+  let restZone: 'green' | 'amber' | 'red' = 'green';
+  let restZoneLabel = 'Recuperação Ativa';
+  let restZoneDesc = 'Pausa ideal para assimilação e oxigenação mental.';
+
+  if (restDisplayMs >= twentyMinsMs) {
+    restZone = 'red';
+    restZoneLabel = 'Dispersão Detectada';
+    restZoneDesc = 'Descanso prolongado detectado. Retome o foco para manter o rendimento da missão!';
+  } else if (restDisplayMs >= tenMinsMs) {
+    restZone = 'amber';
+    restZoneLabel = 'Limite Operacional';
+    restZoneDesc = 'Atenção: Seu ritmo de estudo está esfriando. Prepare-se para retornar.';
+  }
 
   const isRunning = timerState.status === 'RUNNING';
   const isPaused = timerState.status === 'PAUSED';
@@ -499,6 +570,125 @@ export const TimerTab: React.FC<TimerTabProps> = ({
                 : 'Pronto para Iniciar'}
             </span>
           </div>
+
+          {/* Recovery Pill — Micro-cronômetro de Descanso na Pausa */}
+          {isPaused && (
+            <div className="mt-4 mb-2 flex flex-col items-center justify-center animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div
+                className={`inline-flex items-center gap-3 px-4 py-2 rounded-full border shadow-lg backdrop-blur-md transition-all ${
+                  restZone === 'red'
+                    ? 'bg-red-500/15 border-red-500/50 text-red-300 animate-pulse'
+                    : restZone === 'amber'
+                    ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                    : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 font-semibold text-xs uppercase tracking-wider">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      restZone === 'red'
+                        ? 'bg-red-400 animate-ping'
+                        : restZone === 'amber'
+                        ? 'bg-amber-400'
+                        : 'bg-emerald-400 animate-pulse'
+                    }`}
+                  />
+                  <span>{restZoneLabel}</span>
+                </div>
+                <div className="h-3 w-px bg-white/20" />
+                <div className="flex items-baseline gap-1.5 font-mono">
+                  <span className="text-[11px] text-slate-400 font-sans font-medium">Descanso:</span>
+                  <span className="text-sm sm:text-base font-bold tracking-tight text-white tabular-nums">
+                    {formattedRestTime}
+                  </span>
+                </div>
+              </div>
+              <p className={`mt-2 text-xs text-center font-medium max-w-sm ${
+                restZone === 'red' ? 'text-red-400 font-bold' : restZone === 'amber' ? 'text-amber-400' : 'text-slate-400'
+              }`}>
+                {restZoneDesc}
+              </p>
+            </div>
+          )}
+
+          {/* Barra Tática de Proporção Foco vs. Descanso (Focus Ratio) */}
+          {totalCycleMs > 0 && (
+            <div
+              className={`mt-4 mx-auto max-w-md w-full p-3.5 rounded-2xl border transition-all ${
+                isDark
+                  ? 'bg-slate-900/60 border-slate-800 text-slate-200'
+                  : 'bg-slate-50 border-slate-200 text-slate-700'
+              }`}
+            >
+              <div className="flex items-center justify-between text-xs mb-2">
+                <span className="font-bold tracking-wide uppercase text-[11px] text-slate-400">
+                  Balanço de Sessão
+                </span>
+                <span className="font-mono font-bold text-xs text-white">
+                  {focusPercentage}% Foco <span className="text-slate-500">·</span> {restPercentage}% Pausa
+                </span>
+              </div>
+
+              <div className="h-2 w-full rounded-full overflow-hidden bg-slate-800 flex shadow-inner">
+                <div
+                  style={{ width: `${focusPercentage}%` }}
+                  className="h-full bg-gradient-to-r from-blue-600 to-indigo-500 transition-all duration-300"
+                  title={`Estudo: ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`}
+                />
+                <div
+                  style={{ width: `${restPercentage}%` }}
+                  className={`h-full transition-all duration-300 ${
+                    restZone === 'red'
+                      ? 'bg-red-500'
+                      : restZone === 'amber'
+                      ? 'bg-amber-500'
+                      : 'bg-emerald-500'
+                  }`}
+                  title={`Descanso: ${formattedRestTime}`}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] mt-2 text-slate-400">
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                  Estudo: {pad(hours)}h {pad(minutes)}m
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className={`w-1.5 h-1.5 rounded-full ${restZone === 'red' ? 'bg-red-500' : restZone === 'amber' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                  Pausas: {pad(restHours)}h {pad(restMinutes)}m
+                </span>
+              </div>
+
+              {/* Timeline de blocos */}
+              {timerState.intervals && timerState.intervals.length > 0 && (
+                <div className="mt-3 pt-2.5 border-t border-slate-800/80">
+                  <div className="text-[10px] uppercase font-bold text-slate-500 mb-1.5 tracking-wider">
+                    Timeline de Ciclos
+                  </div>
+                  <div className="flex items-center gap-1.5 overflow-x-auto py-1 scrollbar-none">
+                    {timerState.intervals.map((int, idx) => {
+                      const durationMins = Math.max(1, Math.round(int.durationMs / 60000));
+                      const isStudy = int.type === 'study';
+                      return (
+                        <div
+                          key={idx}
+                          title={`${isStudy ? 'Estudo' : 'Descanso'}: ${durationMins}m`}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold shrink-0 flex items-center gap-1 border ${
+                            isStudy
+                              ? 'bg-blue-950/70 border-blue-600/40 text-blue-300'
+                              : 'bg-amber-950/70 border-amber-600/40 text-amber-300'
+                          }`}
+                        >
+                          <span>{isStudy ? '📖' : '☕'}</span>
+                          <span>{durationMins}m</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Primary Controls */}

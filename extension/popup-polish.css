@@ -1,0 +1,47 @@
+/* ==========================================================================
+   CFO CBMERJ — Final Interaction & State Polish
+   View Transitions, Button Loading States and High-Fidelity Details
+   ========================================================================== */
+
+/* View Transitions for Theme Toggle */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* Button Disabled & Loading State */
+.btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+  transform: none !important;
+}
+
+/* Custom Scrollbar for Answer Matrix */
+.answer-sheet-grid::-webkit-scrollbar {
+  width: 4px;
+}
+.answer-sheet-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+.answer-sheet-grid::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: var(--radius-full);
+}
+.answer-sheet-grid::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* Tab Active Focus Indicator */
+.tab-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Toast Semantic Colors */
+.toast[data-type="success"] {
+  border-color: color-mix(in srgb, var(--success) 40%, var(--border-strong));
+}
+.toast[data-type="error"] {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border-strong));
+}
