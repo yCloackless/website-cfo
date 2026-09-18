@@ -581,7 +581,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
 
       {/* Main Focus Room Card */}
       <div
-        className={`p-8 sm:p-12 rounded-3xl border relative overflow-hidden flex flex-col items-center justify-center text-center transition-all ${
+        className={`p-4 sm:p-8 md:p-12 rounded-2xl sm:rounded-3xl border relative overflow-hidden flex flex-col items-center justify-center text-center transition-all ${
           isDark
             ? 'bg-gradient-to-b from-[#0B1528] via-[#070D18] to-[#040810] border-blue-900/50 shadow-2xl shadow-blue-950/30'
             : 'bg-gradient-to-b from-white via-slate-50 to-blue-50/30 border-slate-200 shadow-xl'
@@ -632,9 +632,9 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         </div>
 
         {/* Big Digital Display */}
-        <div className="relative my-4 z-10 select-none">
+        <div className="relative my-4 z-10 select-none w-full">
           <div
-            className={`font-mono font-extrabold tracking-tight text-5xl sm:text-7xl md:text-8xl flex items-baseline justify-center drop-shadow-lg ${
+            className={`font-mono font-extrabold tracking-tight text-3xl min-[360px]:text-4xl min-[420px]:text-5xl sm:text-7xl md:text-8xl flex items-baseline justify-center drop-shadow-lg ${
               isRunning
                 ? 'text-white'
                 : isPaused
@@ -645,11 +645,11 @@ export const TimerTab: React.FC<TimerTabProps> = ({
             }`}
           >
             <span>{pad(hours)}</span>
-            <span className="text-blue-500/80 mx-1 sm:mx-2 animate-pulse">:</span>
+            <span className="text-blue-500/80 mx-0.5 min-[360px]:mx-1 sm:mx-2 animate-pulse">:</span>
             <span>{pad(minutes)}</span>
-            <span className="text-blue-500/80 mx-1 sm:mx-2 animate-pulse">:</span>
+            <span className="text-blue-500/80 mx-0.5 min-[360px]:mx-1 sm:mx-2 animate-pulse">:</span>
             <span>{pad(seconds)}</span>
-            <span className="text-sm sm:text-2xl font-semibold text-slate-500 ml-2">.{tenths}</span>
+            <span className="text-xs min-[360px]:text-sm sm:text-2xl font-semibold text-slate-500 ml-1 sm:ml-2">.{tenths}</span>
           </div>
 
           <div className="mt-3 flex items-center justify-center gap-2">
@@ -792,23 +792,23 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         </div>
 
         {/* Primary Controls */}
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-4 relative z-10">
+        <div className="mt-8 flex flex-col sm:flex-row flex-wrap items-center justify-center gap-3 sm:gap-4 relative z-10 w-full max-w-xl">
           {!isRunning ? (
             <button
               onClick={handleStart}
               disabled={isSyncing}
-              className="inline-flex items-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 text-white font-bold text-sm tracking-wider uppercase shadow-[0_10px_30px_rgba(0,86,210,0.4)] hover:shadow-[0_15px_35px_rgba(0,86,210,0.6)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer disabled:opacity-50"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-3.5 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 text-white font-bold text-xs sm:text-sm tracking-wider uppercase shadow-[0_10px_30px_rgba(0,86,210,0.4)] hover:shadow-[0_15px_35px_rgba(0,86,210,0.6)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer disabled:opacity-50"
             >
-              <Play className="w-5 h-5 fill-current" />
+              <Play className="w-4 sm:w-5 h-4 sm:h-5 fill-current" />
               <span>{displayMs > 0 ? 'RETOMAR ESTUDO' : 'INICIAR ESTUDO'}</span>
             </button>
           ) : (
             <button
               onClick={handlePause}
               disabled={isSyncing}
-              className="inline-flex items-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-blue-700 via-indigo-600 to-blue-800 hover:from-blue-600 hover:to-indigo-500 text-white font-bold text-sm tracking-wider uppercase shadow-[0_10px_30px_rgba(30,58,138,0.5)] hover:shadow-[0_15px_35px_rgba(30,58,138,0.7)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer disabled:opacity-50"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-3.5 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-700 via-indigo-600 to-blue-800 hover:from-blue-600 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm tracking-wider uppercase shadow-[0_10px_30px_rgba(30,58,138,0.5)] hover:shadow-[0_15px_35px_rgba(30,58,138,0.7)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer disabled:opacity-50"
             >
-              <Pause className="w-5 h-5 fill-current" />
+              <Pause className="w-4 sm:w-5 h-4 sm:h-5 fill-current" />
               <span>PAUSAR CRONÔMETRO</span>
             </button>
           )}
@@ -816,7 +816,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
           <button
             onClick={handleResetClick}
             disabled={isSyncing || displayMs === 0}
-            className={`inline-flex items-center gap-2 px-5 py-4 rounded-2xl border text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+            className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3.5 sm:py-4 rounded-2xl border text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
               isDark
                 ? 'bg-slate-900/80 hover:bg-slate-800 text-slate-300 border-slate-700'
                 : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
@@ -835,10 +835,10 @@ export const TimerTab: React.FC<TimerTabProps> = ({
               await handleSaveToDatabase();
             }}
             disabled={isSavingDb || displayMs === 0}
-            className="inline-flex items-center gap-2.5 px-7 py-4 rounded-2xl bg-[#0056D2] hover:bg-[#0047B3] text-white text-xs font-extrabold uppercase tracking-wider shadow-[0_10px_25px_rgba(0,86,210,0.5)] hover:shadow-[0_15px_35px_rgba(0,86,210,0.7)] transition-all cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 sm:px-7 py-3.5 sm:py-4 rounded-2xl bg-[#0056D2] hover:bg-[#0047B3] text-white text-xs font-extrabold uppercase tracking-wider shadow-[0_10px_25px_rgba(0,86,210,0.5)] hover:shadow-[0_15px_35px_rgba(0,86,210,0.7)] transition-all cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <CheckCircle2 className="w-4 h-4 text-sky-300" />
-            <span>{isSavingDb ? 'GRAVANDO NO BANCO...' : 'CONCLUIR & SALVAR HORAS NO BANCO →'}</span>
+            <span>{isSavingDb ? 'GRAVANDO...' : 'CONCLUIR & SALVAR HORAS'}</span>
           </button>
         </div>
 

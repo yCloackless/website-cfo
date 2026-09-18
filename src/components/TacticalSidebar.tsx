@@ -26,6 +26,7 @@ import {
   Pin,
   LogOut,
   Puzzle,
+  Heart,
 } from 'lucide-react';
 import { AppTheme } from '../types';
 
@@ -41,7 +42,8 @@ export type TabType =
   | 'calendar'
   | 'simulations'
   | 'flashcards'
-  | 'leveling';
+  | 'leveling'
+  | 'ifrij';
 
 export const TAB_ROUTE_MAP: Record<TabType, string> = {
   table: '/cronograma',
@@ -56,6 +58,7 @@ export const TAB_ROUTE_MAP: Record<TabType, string> = {
   flashcards: '/caderno-de-erros',
   leveling: '/nivelamento',
   calendar: '/agenda-notion',
+  ifrij: '/ifrj',
 };
 
 export const ROUTE_TAB_MAP: Record<string, TabType> = {
@@ -72,6 +75,7 @@ export const ROUTE_TAB_MAP: Record<string, TabType> = {
   '/caderno-de-erros': 'flashcards',
   '/nivelamento': 'leveling',
   '/agenda-notion': 'calendar',
+  '/ifrj': 'ifrij',
 };
 
 interface TacticalSidebarProps {
@@ -253,6 +257,15 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
     {
       title: 'PRINCIPAL',
       items: [
+        {
+          id: 'ifrij',
+          label: 'Rumo ao VEST',
+          icon: Heart,
+          tabId: 'ifrij',
+          route: '/ifrj',
+          badge: 'NOVO',
+          badgeClass: { dark: 'bg-pink-500/20 text-pink-300 border-pink-500/30', light: 'bg-pink-100 text-pink-700 border-pink-300' },
+        },
         {
           id: 'table',
           label: 'Cronograma',

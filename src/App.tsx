@@ -92,6 +92,8 @@ const SecurityAlertPopup = lazy(() => import('./components/SecurityAlertPopup').
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard').then(({ AdminDashboard }) => ({ default: AdminDashboard })));
 const MaintenanceScreen = lazy(() => import('./components/MaintenanceScreen').then(({ MaintenanceScreen }) => ({ default: MaintenanceScreen })));
 const NotFound = lazy(() => import('./components/NotFound').then(({ NotFound }) => ({ default: NotFound })));
+const IfriStudyTab = lazy(() => import('./components/IfriStudyTab').then(({ IfriStudyTab }) => ({ default: IfriStudyTab })));
+import { ConfirmModal } from './components/ConfirmModal';
 
 export default function App() {
   const location = useLocation();
@@ -115,6 +117,7 @@ export default function App() {
     const saved = localStorage.getItem('cfo_can_access_notion');
     return saved === null ? true : saved === 'true';
   });
+  const [canAccessIfrj, setCanAccessIfrj] = useState<boolean>(() => localStorage.getItem('cfo_can_access_ifrj') === 'true');
 
   // 👤 Minha Conta & Perfil do Aluno & Configurações
   const [isMyAccountOpen, setIsMyAccountOpen] = useState(false);
@@ -276,6 +279,16 @@ export default function App() {
     }
   });
 
+  const [appConfirmState, setAppConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
+
   const handleToggleSidebar = useCallback(() => {
     setIsSidebarOpen((prev) => {
       const next = !prev;
@@ -340,6 +353,10 @@ export default function App() {
               setCanAccessNotion(Boolean(data.canAccessNotion));
               localStorage.setItem('cfo_can_access_notion', String(Boolean(data.canAccessNotion)));
             }
+            if (data.canAccessIfrj !== undefined) {
+              setCanAccessIfrj(Boolean(data.canAccessIfrj));
+              localStorage.setItem('cfo_can_access_ifrj', String(Boolean(data.canAccessIfrj)));
+            }
           }
         } else {
           localStorage.removeItem('cfo_terminal_session');
@@ -347,6 +364,7 @@ export default function App() {
           localStorage.removeItem('cfo_terminal_user');
           localStorage.removeItem('cfo_terminal_role');
           localStorage.removeItem('cfo_can_access_notion');
+          localStorage.removeItem('cfo_can_access_ifrj');
         }
       } catch (err) {
         // Fallback para contingência caso backend offline mas token válido
@@ -377,6 +395,8 @@ export default function App() {
       .then((data) => {
         if (isMounted && data.success && data.user) {
           setUserProfile(data.user);
+          setCanAccessIfrj(Boolean(data.user.canAccessIfrj || data.user.role === 'admin'));
+          localStorage.setItem('cfo_can_access_ifrj', String(Boolean(data.user.canAccessIfrj || data.user.role === 'admin')));
         }
       })
       .catch(() => {});
@@ -431,8 +451,10 @@ export default function App() {
     localStorage.removeItem('cfo_terminal_user');
     localStorage.removeItem('cfo_terminal_role');
     localStorage.removeItem('cfo_can_access_notion');
+    localStorage.removeItem('cfo_can_access_ifrj');
     setUserProfile(null);
     setCanAccessNotion(true);
+    setCanAccessIfrj(false);
     setIsTerminalUnlocked(false);
     navigate('/login');
   }, [navigate]);
@@ -649,14 +671,17 @@ export default function App() {
       sessionStorage.setItem('cfo_admin_original_user', localStorage.getItem('cfo_terminal_user') || 'admin');
       sessionStorage.setItem('cfo_admin_original_role', localStorage.getItem('cfo_terminal_role') || 'admin');
       sessionStorage.setItem('cfo_admin_original_notion', localStorage.getItem('cfo_can_access_notion') || 'true');
+      sessionStorage.setItem('cfo_admin_original_ifrj', localStorage.getItem('cfo_can_access_ifrj') || 'true');
 
       localStorage.setItem('cfo_terminal_session', 'cookie');
       localStorage.setItem('cfo_terminal_expires_at', String(data.expiresAt));
       localStorage.setItem('cfo_terminal_user', data.username);
       localStorage.setItem('cfo_terminal_role', data.role);
       localStorage.setItem('cfo_can_access_notion', String(Boolean(data.canAccessNotion)));
+      localStorage.setItem('cfo_can_access_ifrj', String(Boolean(data.canAccessIfrj)));
       setUserProfile({ ...data.profile, username: data.username, role: data.role });
       setCanAccessNotion(Boolean(data.canAccessNotion));
+      setCanAccessIfrj(Boolean(data.canAccessIfrj));
       setAccountSwitcherOpen(false);
       setSwitchStepUpOpen(false);
       setPendingAccountId(null);
@@ -708,9 +733,11 @@ export default function App() {
       localStorage.setItem('cfo_terminal_user', sessionStorage.getItem('cfo_admin_original_user') || 'admin');
       localStorage.setItem('cfo_terminal_role', sessionStorage.getItem('cfo_admin_original_role') || 'admin');
       localStorage.setItem('cfo_can_access_notion', sessionStorage.getItem('cfo_admin_original_notion') || 'true');
-      ['cfo_admin_original_session', 'cfo_admin_original_expires_at', 'cfo_admin_original_user', 'cfo_admin_original_role', 'cfo_admin_original_notion'].forEach((key) => sessionStorage.removeItem(key));
+      localStorage.setItem('cfo_can_access_ifrj', sessionStorage.getItem('cfo_admin_original_ifrj') || 'true');
+      ['cfo_admin_original_session', 'cfo_admin_original_expires_at', 'cfo_admin_original_user', 'cfo_admin_original_role', 'cfo_admin_original_notion', 'cfo_admin_original_ifrj'].forEach((key) => sessionStorage.removeItem(key));
       setUserProfile(null);
       setCanAccessNotion(true);
+      setCanAccessIfrj(true);
       setIsPersistentStateReady(false);
       clearPersistentStateCache();
       await hydratePersistentState();
@@ -1259,12 +1286,20 @@ export default function App() {
       showToast('O cronograma semanal já está limpo.', 'info');
       return;
     }
-    if (window.confirm('Tem certeza de que deseja apagar TODOS os estudos marcados nesta semana? Esta ação limpará os tópicos e horas registradas.')) {
-      const updatedCycle = { ...currentCycle, entries: {}, updatedAt: new Date().toISOString() };
-      setCurrentCycle(updatedCycle);
-      saveActiveCycle(updatedCycle);
-      showToast('Todos os registros de estudo do cronograma foram limpos!', 'info');
-    }
+    setAppConfirmState({
+      isOpen: true,
+      title: 'Limpar Cronograma Semanal',
+      description: 'Tem certeza de que deseja apagar TODOS os estudos marcados nesta semana? Esta ação limpará os tópicos e horas registradas.',
+      confirmLabel: 'Apagar Tudo',
+      isDestructive: true,
+      onConfirm: () => {
+        setAppConfirmState(null);
+        const updatedCycle = { ...currentCycle, entries: {}, updatedAt: new Date().toISOString() };
+        setCurrentCycle(updatedCycle);
+        saveActiveCycle(updatedCycle);
+        showToast('Todos os registros de estudo do cronograma foram limpos!', 'info');
+      },
+    });
   };
 
   // Add custom subject handler
@@ -1510,12 +1545,20 @@ export default function App() {
 
   // Force reset weekly cycle
   const handleForceResetCycle = () => {
-    if (window.confirm('Deseja reiniciar a tabela semanal agora? As anotações da semana atual serão salvas no Histórico e a nova semana começará zerada.')) {
-      const freshCycle = forceResetCycle();
-      setCurrentCycle(freshCycle);
-      setCyclesHistory(getCyclesHistory());
-      showToast('Novo ciclo semanal iniciado com sucesso!', 'success');
-    }
+    setAppConfirmState({
+      isOpen: true,
+      title: 'Reiniciar Tabela Semanal',
+      description: 'Deseja reiniciar a tabela semanal agora? As anotações da semana atual serão salvas no Histórico e a nova semana começará zerada.',
+      confirmLabel: 'Iniciar Nova Semana',
+      isDestructive: false,
+      onConfirm: () => {
+        setAppConfirmState(null);
+        const freshCycle = forceResetCycle();
+        setCurrentCycle(freshCycle);
+        setCyclesHistory(getCyclesHistory());
+        showToast('Novo ciclo semanal iniciado com sucesso!', 'success');
+      },
+    });
   };
 
   // Toggle revision done
@@ -1641,6 +1684,7 @@ export default function App() {
     '/nivelamento',
     '/caderno-de-erros',
     '/agenda-notion',
+    '/ifrj',
     '/perfil',
     '/configuracoes',
     '/extensao',
@@ -1673,6 +1717,7 @@ export default function App() {
               setIsTerminalUnlocked(true);
               const notionAccess = localStorage.getItem('cfo_can_access_notion') === 'true';
               setCanAccessNotion(notionAccess);
+              setCanAccessIfrj(localStorage.getItem('cfo_can_access_ifrj') === 'true');
               // Recarrega matérias, ciclo e metas para a conta do usuário recém-autenticado
               setSubjects(loadSubjects());
               setWeeklyGoalHours(loadWeeklyGoalHours());
@@ -1726,6 +1771,19 @@ export default function App() {
           theme={theme}
           sessionToken={localStorage.getItem('cfo_terminal_session')}
           onBackToApp={() => navigate('/cronograma')}
+        />
+      </Suspense>
+    );
+  }
+
+  if (normalizedPath === '/ifrj') {
+    if (!canAccessIfrj && userProfile?.role !== 'admin') return <Navigate to="/cronograma" replace />;
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-[#fff8fb]" />}>
+        <IfriStudyTab
+          userProfile={userProfile}
+          onExit={() => navigate('/cronograma')}
+          onSignOut={handleLockTerminal}
         />
       </Suspense>
     );
@@ -2572,6 +2630,22 @@ export default function App() {
       />
 
       <UpdateNoticeModal />
+
+      {/* Modal de Confirmação Global do App */}
+      {appConfirmState && (
+        <ConfirmModal
+          isOpen={appConfirmState.isOpen}
+          title={appConfirmState.title}
+          description={appConfirmState.description}
+          confirmLabel={appConfirmState.confirmLabel || 'Confirmar'}
+          cancelLabel={appConfirmState.cancelLabel || 'Cancelar'}
+          variant={appConfirmState.isDestructive ? 'danger' : 'warning'}
+          iconType={appConfirmState.isDestructive ? 'danger' : 'reset'}
+          theme={theme}
+          onConfirm={appConfirmState.onConfirm}
+          onClose={() => setAppConfirmState(null)}
+        />
+      )}
       </Suspense>
     </div>
   );

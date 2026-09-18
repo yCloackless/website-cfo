@@ -95,6 +95,8 @@ import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtim
 import { createAuthMiddlewares } from "./src/middleware/auth";
 import { createRateLimitRedisStore, isRedisAvailable } from "./src/services/redisService";
 import { telemetryService } from "./src/services/telemetryService";
+import { StudentStudyRepository } from "./src/db/studentStudyRepository";
+import { calculatePriorityScore, classifyPriority, weightedAverage } from "./src/services/studentStudyPriority";
 
 const app = express();
 app.disable("x-powered-by");
@@ -783,6 +785,64 @@ const calendarLimiter = rateLimit({
   message: { error: 'CALENDAR_RATE_LIMITED', message: 'Limite de sincronizações atingido. Tente novamente mais tarde.' },
 });
 
+const studentAiMaxRequestsPerDay = Math.max(1, Number(process.env.AI_MAX_REQUESTS_PER_DAY || 10));
+const studentAiMaxReportAnalysesPerDay = Math.max(1, Number(process.env.AI_MAX_REPORT_ANALYSES_PER_DAY || 2));
+const studentAiMaxOutputTokens = Math.min(1200, Math.max(80, Number(process.env.AI_MAX_OUTPUT_TOKENS || 400)));
+
+function studentBodyText(value: unknown, max: number, fallback = ''): string {
+  return typeof value === 'string' ? value.trim().slice(0, max) : fallback;
+}
+
+function studentNumeric(value: unknown, min: number, max: number, fallback?: number): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
+}
+
+function studentUserId(req: Request): string | null {
+  const userId = String((req as any).user?.userId || '').trim();
+  return userId || null;
+}
+
+function openAiStructuredText(data: any): string {
+  if (typeof data?.output_text === 'string') return data.output_text;
+  const parts = (data?.output || []).flatMap((item: any) => item?.content || []).filter((item: any) => item?.type === 'output_text' && typeof item?.text === 'string');
+  return parts.map((item: any) => item.text).join('\n');
+}
+
+async function runStudentOpenAI(args: { userId: string; type: string; prompt: string; schema: Record<string, unknown>; file?: { buffer: Buffer; mimeType: string; filename: string }; report?: boolean }): Promise<{ data?: any; error?: string }> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return { error: 'AI_UNAVAILABLE' };
+  if (!studentStudyRepoInstance.reserveAiRequest(args.userId, { requests: studentAiMaxRequestsPerDay, reports: studentAiMaxReportAnalysesPerDay }, Boolean(args.report))) return { error: 'AI_LIMIT_REACHED' };
+  const content: any[] = [{ type: 'input_text', text: args.prompt }];
+  if (args.file) {
+    const dataUrl = `data:${args.file.mimeType};base64,${args.file.buffer.toString('base64')}`;
+    content.push(args.file.mimeType === 'application/pdf'
+      ? { type: 'input_file', filename: args.file.filename, file_data: dataUrl }
+      : { type: 'input_image', image_url: dataUrl, detail: 'low' });
+  }
+  try {
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: process.env.OPENAI_STUDENT_MODEL || process.env.OPENAI_MODEL || 'gpt-5.6-luna',
+        max_output_tokens: studentAiMaxOutputTokens,
+        instructions: 'Você é uma orientadora acadêmica brasileira. Use somente os dados fornecidos. Nunca invente notas, datas ou regras. Quando algo estiver ilegível ou ausente, marque como incerto e explique com objetividade.',
+        input: [{ role: 'user', content }],
+        text: { format: { type: 'json_schema', name: args.type.replace(/[^a-zA-Z0-9_-]/g, '_'), strict: true, schema: args.schema } },
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!response.ok) return { error: 'AI_UNAVAILABLE' };
+    const body = await response.json() as any;
+    const text = openAiStructuredText(body);
+    if (!text) return { error: 'AI_EMPTY_RESPONSE' };
+    try { return { data: JSON.parse(text) }; } catch { return { error: 'AI_INVALID_RESPONSE' }; }
+  } catch {
+    return { error: 'AI_UNAVAILABLE' };
+  }
+}
+
 // ── RUM Telemetry Endpoint (LGPD-compliant / anônimo / beacon)
 const telemetryLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -1151,7 +1211,7 @@ function createTerminalSession(identifierOrUser: string | DbUser, rememberMe: bo
   }
   if (!user || user.status !== 'active' || user.role !== role) throw new Error('SESSION_USER_INVALID');
   const created = sessionRepoInstance.createSession({ userId: user.id, role: user.role, expiresInDays: rememberMe ? 30 : 1 });
-  return { token: created.rawToken, expiresAt: Date.parse(created.session.expiresAt), role: user.role, canAccessNotion: user.role === 'admin' || user.canAccessNotion };
+  return { token: created.rawToken, expiresAt: Date.parse(created.session.expiresAt), role: user.role, canAccessNotion: user.role === 'admin' || user.canAccessNotion, canAccessIfrj: user.role === 'admin' || user.canAccessIfrj };
 }
 
 const databaseService = getDb();
@@ -1174,6 +1234,7 @@ systemIntegrationRepoInstance = new SystemIntegrationRepository(getDb().getRawDb
 const consentRepoInstance = new ConsentRepository(getDb().getRawDb());
 const privacyRequestRepoInstance = new PrivacyRequestRepository(getDb().getRawDb());
 const flashcardRepoInstance = new FlashcardRepository(getDb().getRawDb());
+const studentStudyRepoInstance = new StudentStudyRepository(getDb().getRawDb());
 
 // Migração inicial e garantia de persistência no boot do servidor
 try {
@@ -1294,6 +1355,7 @@ function verifyTerminalSession(token?: string | null): {
   username?: string;
   role?: string;
   canAccessNotion?: boolean;
+  canAccessIfrj?: boolean;
   expiresAt?: number;
   userId?: string;
   sessionId?: string;
@@ -1307,12 +1369,14 @@ function verifyTerminalSession(token?: string | null): {
   if (dbCheck.valid && dbCheck.user && dbCheck.session) {
     const role = dbCheck.user.role;
     const canAccessNotion = role === "admin" || dbCheck.user.canAccessNotion;
+    const canAccessIfrj = role === "admin" || dbCheck.user.canAccessIfrj;
     const expiresAt = new Date(dbCheck.session.expiresAt).getTime();
     return {
       valid: true,
       username: dbCheck.user.username,
       role,
       canAccessNotion,
+      canAccessIfrj,
       expiresAt,
       userId: dbCheck.user.id,
       sessionId: dbCheck.session.id,
@@ -2245,6 +2309,7 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
         username: dbUser.username,
         role: dbUser.role,
         canAccessNotion: dbUser.canAccessNotion,
+        canAccessIfrj: dbUser.canAccessIfrj,
       });
     }
 
@@ -2304,6 +2369,7 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
       username: dbUser.username,
       role: dbUser.role,
       canAccessNotion: true,
+      canAccessIfrj: true,
     });
   } catch (err: any) {
     console.error('[Auth]', err);
@@ -2447,6 +2513,7 @@ app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Res
       username: cleanUser,
       role: "admin",
       canAccessNotion: true,
+      canAccessIfrj: true,
       rememberMe: rememberMe !== false,
       is2faActive: true,
       expiresInDays: rememberMe !== false ? 30 : 1,
@@ -2515,6 +2582,7 @@ app.post("/api/auth/verify-session", (req: Request, res: Response) => {
     username: result.username,
     role: result.role,
     canAccessNotion: result.canAccessNotion,
+    canAccessIfrj: result.canAccessIfrj,
     expiresAt: result.expiresAt,
     sessionId: result.sessionId,
     isImpersonation: Boolean(result.impersonatedByUserId),
@@ -3198,6 +3266,7 @@ app.get("/api/admin/users/:id", requireAdminAuth, (req: Request, res: Response) 
         role: targetUser.role,
         status: targetUser.status,
         canAccessNotion: targetUser.role === 'admin' || targetUser.canAccessNotion,
+        canAccessIfrj: targetUser.role === 'admin' || targetUser.canAccessIfrj,
         createdAt: targetUser.createdAt,
         updatedAt: targetUser.updatedAt,
         profile: {
@@ -3221,7 +3290,7 @@ app.get("/api/admin/users/:id", requireAdminAuth, (req: Request, res: Response) 
 app.post("/api/admin/users", requireAdminWriteAuth, requireStepUpAuth, async (req: Request, res: Response) => {
   try {
     const adminUser = (req as any).user;
-    const { email, username, password, role = 'cadet', fullName, phone, canAccessNotion = false } = req.body || {};
+    const { email, username, password, role = 'cadet', fullName, phone, canAccessNotion = false, canAccessIfrj = false } = req.body || {};
     const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
     const cleanUsername = typeof username === 'string' ? username.trim().toLowerCase() : '';
     const cleanFullName = typeof fullName === 'string' ? fullName.trim() : cleanUsername;
@@ -3246,6 +3315,7 @@ app.post("/api/admin/users", requireAdminWriteAuth, requireStepUpAuth, async (re
       passwordHash,
       role: role as UserRole,
       canAccessNotion: role === 'admin' || Boolean(canAccessNotion),
+      canAccessIfrj: role === 'admin' || Boolean(canAccessIfrj),
     });
     profileRepoInstance.createOrUpdate({
       userId: createdUser.id,
@@ -3262,7 +3332,7 @@ app.post("/api/admin/users", requireAdminWriteAuth, requireStepUpAuth, async (re
       resource: `/users/${createdUser.id}`,
       status: 'SUCCESS',
       userId: createdUser.id,
-      newState: { role: createdUser.role, canAccessNotion: createdUser.canAccessNotion },
+      newState: { role: createdUser.role, canAccessNotion: createdUser.canAccessNotion, canAccessIfrj: createdUser.canAccessIfrj },
       details: { targetUsername: createdUser.username, targetEmail: createdUser.email },
     });
 
@@ -3276,6 +3346,7 @@ app.post("/api/admin/users", requireAdminWriteAuth, requireStepUpAuth, async (re
         role: createdUser.role,
         status: createdUser.status,
         canAccessNotion: createdUser.role === 'admin' || createdUser.canAccessNotion,
+        canAccessIfrj: createdUser.role === 'admin' || createdUser.canAccessIfrj,
       },
     });
   } catch (err: any) {
@@ -3313,6 +3384,24 @@ app.patch("/api/admin/users/:id/notion-access", requireAdminWriteAuth, requireSt
   } catch (err: any) {
     console.error("[Admin Notion Access Error]:", err);
     return res.status(500).json({ success: false, message: "Erro ao alterar acesso ao Notion." });
+  }
+});
+
+app.patch("/api/admin/users/:id/ifrij-access", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
+  try {
+    const adminUser = (req as any).user;
+    const targetUser = userRepoInstance.findById(req.params.id);
+    const requestedAccess = req.body?.canAccessIfrj;
+    if (!targetUser) return res.status(404).json({ success: false, error: "USER_NOT_FOUND", message: "Usuario nao encontrado." });
+    if (typeof requestedAccess !== 'boolean') return res.status(400).json({ success: false, message: "Informe canAccessIfrj como booleano." });
+    if (targetUser.role === 'admin' && !requestedAccess) return res.status(400).json({ success: false, message: "Administradores sempre mantem acesso ao IFRJ." });
+    const previousAccess = targetUser.role === 'admin' || targetUser.canAccessIfrj;
+    userRepoInstance.updateIfrjAccess(targetUser.id, requestedAccess);
+    logSecurityEvent(req, { action: 'IFRJ_ACCESS_CHANGED', actor: adminUser?.username || 'admin', actorUserId: adminUser?.id || null, targetType: 'user', targetId: targetUser.id, resource: `/users/${targetUser.id}/ifrij-access`, status: 'SUCCESS', userId: targetUser.id, previousState: { canAccessIfrj: previousAccess }, newState: { canAccessIfrj: requestedAccess }, details: { targetUsername: targetUser.username } });
+    return res.json({ success: true, message: requestedAccess ? "Acesso ao IFRJ liberado." : "Acesso ao IFRJ removido.", user: { id: targetUser.id, username: targetUser.username, canAccessIfrj: requestedAccess } });
+  } catch (err) {
+    console.error('[Admin IFRJ Access Error]', err);
+    return res.status(500).json({ success: false, message: "Erro ao alterar acesso ao IFRJ." });
   }
 });
 
@@ -4165,6 +4254,7 @@ app.get("/api/user/profile", requireUserAuth, (req: Request, res: Response) => {
         email: user.email,
         username: user.username,
         role: user.role,
+        canAccessIfrj: user.role === 'admin' || user.canAccessIfrj,
         fullName: profile?.fullName || user.username,
         phone: profile?.phone || "",
         targetExam: profile?.targetExam || "CFO CBMERJ 2026",
@@ -4959,6 +5049,85 @@ app.post("/api/calendar/batch-sync", requireAdminAuth, calendarLimiter, async (r
     });
   }
 });
+
+// ============================================================================
+// RUMO ESTUDOS — módulo acadêmico isolado e sempre escopado ao usuário
+// ============================================================================
+app.use('/api/rumo-estudos', requireUserAuth);
+
+app.use('/api/rumo-estudos', (req: Request, res: Response, next: NextFunction) => {
+  const sessionUser = (req as any).user;
+  const user = sessionUser?.userId ? userRepoInstance.findById(sessionUser.userId) : null;
+  if (!user || (user.role !== 'admin' && !user.canAccessIfrj)) {
+    return res.status(403).json({ error: 'IFRJ_FORBIDDEN', message: 'Acesso ao espaço IFRJ não liberado pelo administrador.' });
+  }
+  next();
+});
+
+function studentRouteUser(req: Request, res: Response): string | null {
+  const userId = studentUserId(req);
+  if (!userId) { res.status(401).json({ error: 'UNAUTHORIZED', message: 'Autenticação necessária.' }); return null; }
+  return userId;
+}
+
+function isStudentDate(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T12:00:00Z`).getTime());
+}
+
+app.get('/api/rumo-estudos/dashboard', (req, res) => {
+  const userId = studentRouteUser(req, res); if (!userId) return;
+  return res.json({ success: true, dashboard: studentStudyRepoInstance.dashboard(userId) });
+});
+
+app.get('/api/rumo-estudos/profile', (req, res) => {
+  const userId = studentRouteUser(req, res); if (!userId) return;
+  studentStudyRepoInstance.ensureDefaults(userId);
+  return res.json({ success: true, profile: studentStudyRepoInstance.getProfile(userId) });
+});
+app.patch('/api/rumo-estudos/profile', (req, res) => {
+  const userId = studentRouteUser(req, res); if (!userId) return;
+  const body = req.body || {};
+  return res.json({ success: true, profile: studentStudyRepoInstance.upsertProfile(userId, {
+    displayName: studentBodyText(body.displayName, 120), institution: studentBodyText(body.institution, 120, 'IFRJ'), campus: studentBodyText(body.campus, 120), course: studentBodyText(body.course, 160), schoolYear: studentBodyText(body.schoolYear, 80), className: studentBodyText(body.className, 80), shift: studentBodyText(body.shift, 40), availableTimeJson: studentBodyText(body.availableTimeJson, 8000), onboardingCompleted: Boolean(body.onboardingCompleted),
+  }) });
+});
+
+app.get('/api/rumo-estudos/subjects', (req, res) => { const userId=studentRouteUser(req,res); if(!userId)return; studentStudyRepoInstance.ensureDefaults(userId); return res.json({success:true,subjects:studentStudyRepoInstance.listSubjects(userId),periods:studentStudyRepoInstance.listPeriods(userId)}); });
+app.post('/api/rumo-estudos/subjects', (req, res) => { const userId=studentRouteUser(req,res); if(!userId)return; const name=studentBodyText(req.body?.name,120); if(!name)return res.status(400).json({error:'INVALID_SUBJECT'}); try{return res.status(201).json({success:true,subject:studentStudyRepoInstance.createSubject(userId,{name,category:studentBodyText(req.body?.category,40,'custom'),source:'custom'})});}catch{return res.status(409).json({error:'SUBJECT_ALREADY_EXISTS'});} });
+app.patch('/api/rumo-estudos/subjects/:id', (req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const updated=studentStudyRepoInstance.updateSubject(userId,req.params.id,{name:studentBodyText(req.body?.name,120),category:studentBodyText(req.body?.category,40)});return updated?res.json({success:true,subject:updated}):res.status(404).json({error:'NOT_FOUND'});});
+app.delete('/api/rumo-estudos/subjects/:id', (req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return studentStudyRepoInstance.deleteSubject(userId,req.params.id)?res.status(204).end():res.status(404).json({error:'NOT_FOUND'});});
+app.get('/api/rumo-estudos/subjects/:id/topics',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;if(!studentStudyRepoInstance.getSubject(userId,req.params.id))return res.status(404).json({error:'NOT_FOUND'});return res.json({success:true,topics:studentStudyRepoInstance.listTopics(userId,req.params.id)});});
+app.post('/api/rumo-estudos/subjects/:id/topics',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;if(!studentStudyRepoInstance.getSubject(userId,req.params.id))return res.status(404).json({error:'NOT_FOUND'});const name=studentBodyText(req.body?.name,120);if(!name)return res.status(400).json({error:'INVALID_TOPIC'});return res.status(201).json({success:true,topic:studentStudyRepoInstance.createTopic(userId,req.params.id,name)});});
+app.delete('/api/rumo-estudos/topics/:id',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return studentStudyRepoInstance.deleteTopic(userId,req.params.id)?res.status(204).end():res.status(404).json({error:'NOT_FOUND'});});
+
+app.get('/api/rumo-estudos/grades',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return res.json({success:true,grades:studentStudyRepoInstance.listGrades(userId)});});
+app.post('/api/rumo-estudos/grades',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const body=req.body||{},score=studentNumeric(body.score,0,10);const assessmentName=studentBodyText(body.assessmentName,120);if(!assessmentName||score===undefined)return res.status(400).json({error:'INVALID_GRADE'});const created=studentStudyRepoInstance.createGrade(userId,{subjectId:studentBodyText(body.subjectId,80),periodId:body.periodId?studentBodyText(body.periodId,80):null,assessmentName,score,weight:studentNumeric(body.weight,0.01,100,1),source:studentBodyText(body.source,40,'manual'),isUncertain:Boolean(body.isUncertain)});return created?res.status(201).json({success:true,grade:created}):res.status(404).json({error:'SUBJECT_NOT_FOUND'});});
+app.patch('/api/rumo-estudos/grades/:id',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const body=req.body||{},score=body.score===undefined?undefined:studentNumeric(body.score,0,10);if(body.score!==undefined&&score===undefined)return res.status(400).json({error:'INVALID_GRADE'});const updated=studentStudyRepoInstance.updateGrade(userId,req.params.id,{subjectId:body.subjectId?studentBodyText(body.subjectId,80):undefined,periodId:body.periodId===undefined?undefined:(body.periodId?studentBodyText(body.periodId,80):null),assessmentName:body.assessmentName===undefined?undefined:studentBodyText(body.assessmentName,120),score,weight:body.weight===undefined?undefined:studentNumeric(body.weight,0.01,100),source:body.source?studentBodyText(body.source,40):undefined,isUncertain:body.isUncertain===undefined?undefined:Boolean(body.isUncertain)});return updated?res.json({success:true,grade:updated}):res.status(404).json({error:'NOT_FOUND'});});
+app.delete('/api/rumo-estudos/grades/:id',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return studentStudyRepoInstance.deleteGrade(userId,req.params.id)?res.status(204).end():res.status(404).json({error:'NOT_FOUND'});});
+
+app.get('/api/rumo-estudos/exams',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return res.json({success:true,exams:studentStudyRepoInstance.listExams(userId)});});
+app.post('/api/rumo-estudos/exams',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const b=req.body||{},examDate=b.examDate; if(!studentBodyText(b.name,160)||!isStudentDate(examDate))return res.status(400).json({error:'INVALID_EXAM'});const exam=studentStudyRepoInstance.createExam(userId,{subjectId:b.subjectId?studentBodyText(b.subjectId,80):null,name:studentBodyText(b.name,160),examDate,examTime:studentBodyText(b.examTime,20),weight:studentNumeric(b.weight,0.01,100,1),targetGrade:b.targetGrade===null?null:studentNumeric(b.targetGrade,0,10),topics:Array.isArray(b.topics)?b.topics.slice(0,40):[],notes:studentBodyText(b.notes,2000),room:studentBodyText(b.room,120),status:['planned','completed','cancelled'].includes(b.status)?b.status:'planned'});return exam?res.status(201).json({success:true,exam}):res.status(404).json({error:'SUBJECT_NOT_FOUND'});});
+app.patch('/api/rumo-estudos/exams/:id',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const b=req.body||{},updated=studentStudyRepoInstance.updateExam(userId,req.params.id,{subjectId:b.subjectId===undefined?undefined:(b.subjectId?studentBodyText(b.subjectId,80):null),name:b.name===undefined?undefined:studentBodyText(b.name,160),examDate:b.examDate===undefined?undefined:(isStudentDate(b.examDate)?b.examDate:undefined),examTime:b.examTime===undefined?undefined:studentBodyText(b.examTime,20),weight:b.weight===undefined?undefined:studentNumeric(b.weight,0.01,100),targetGrade:b.targetGrade===undefined?undefined:(b.targetGrade===null?null:studentNumeric(b.targetGrade,0,10)),topics:Array.isArray(b.topics)?b.topics.slice(0,40):undefined,notes:b.notes===undefined?undefined:studentBodyText(b.notes,2000),room:b.room===undefined?undefined:studentBodyText(b.room,120),status:b.status});return updated?res.json({success:true,exam:updated}):res.status(404).json({error:'NOT_FOUND'});});
+app.delete('/api/rumo-estudos/exams/:id',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return studentStudyRepoInstance.deleteExam(userId,req.params.id)?res.status(204).end():res.status(404).json({error:'NOT_FOUND'});});
+
+app.get('/api/rumo-estudos/calendar',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return res.json({success:true,events:studentStudyRepoInstance.listEvents(userId)});});
+app.post('/api/rumo-estudos/calendar',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const b=req.body||{},allowed=['exam','assignment','vestibular','academic','custom'];if(!allowed.includes(b.eventType)||!studentBodyText(b.title,160)||!isStudentDate(b.eventDate))return res.status(400).json({error:'INVALID_EVENT'});const event=studentStudyRepoInstance.createEvent(userId,{eventType:b.eventType,title:studentBodyText(b.title,160),eventDate:b.eventDate,startTime:studentBodyText(b.startTime,20),endTime:studentBodyText(b.endTime,20),examId:b.examId?studentBodyText(b.examId,80):null,notes:studentBodyText(b.notes,2000)});return event?res.status(201).json({success:true,event}):res.status(404).json({error:'EXAM_NOT_FOUND'});});
+app.delete('/api/rumo-estudos/calendar/:id',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return studentStudyRepoInstance.deleteEvent(userId,req.params.id)?res.status(204).end():res.status(404).json({error:'NOT_FOUND'});});
+
+app.get('/api/rumo-estudos/goals',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return res.json({success:true,goals:studentStudyRepoInstance.listGoals(userId)});});
+app.post('/api/rumo-estudos/goals',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const degree=studentBodyText(req.body?.degree,160);if(!degree)return res.status(400).json({error:'INVALID_GOAL'});return res.status(201).json({success:true,goal:studentStudyRepoInstance.createGoal(userId,{degree,selectionSystem:studentBodyText(req.body?.selectionSystem,60,'ENEM'),institutions:Array.isArray(req.body?.institutions)?req.body.institutions.slice(0,20):[]})});});
+
+app.get('/api/rumo-estudos/universities/institutions',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return res.json({success:true,items:studentStudyRepoInstance.searchInstitutions(userId,studentBodyText(req.query.q,80),Number(req.query.limit)||25,Number(req.query.offset)||0)});});
+app.get('/api/rumo-estudos/universities/courses',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return res.json({success:true,items:studentStudyRepoInstance.searchCourses(userId,studentBodyText(req.query.q,80),Number(req.query.limit)||25,Number(req.query.offset)||0)});});
+app.get('/api/rumo-estudos/ai/history',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return res.json({success:true,items:studentStudyRepoInstance.listAnalyses(userId),usage:studentStudyRepoInstance.usage(userId)});});
+app.get('/api/rumo-estudos/ai/usage',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return res.json({success:true,usage:studentStudyRepoInstance.usage(userId),limits:{requestsPerDay:studentAiMaxRequestsPerDay,reportsPerDay:studentAiMaxReportAnalysesPerDay}});});
+
+app.post('/api/rumo-estudos/ai/analysis', aiLimiter, async (req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const dashboard=studentStudyRepoInstance.dashboard(userId),schema={type:'object',additionalProperties:false,properties:{summary:{type:'string'},priorities:{type:'array',items:{type:'object',additionalProperties:false,properties:{subject:{type:'string'},reason:{type:'string'},action:{type:'string'}},required:['subject','reason','action']}},todayPlan:{type:'array',items:{type:'string'}}},required:['summary','priorities','todayPlan']};const result=await runStudentOpenAI({userId,type:'performance_analysis',prompt:`Analise apenas este contexto acadêmico resumido e recomende o foco de hoje. Escola e vestibular são prioridades separadas. Contexto: ${JSON.stringify({profile:dashboard.profile,performance:dashboard.performance.slice(0,8),exams:dashboard.exams.slice(0,5),goals:dashboard.goals})}`,schema});if(result.data){studentStudyRepoInstance.saveAnalysis(userId,'performance_analysis',result.data.summary,result.data);return res.json({success:true,source:'openai',analysis:result.data});}return res.status(result.error==='AI_LIMIT_REACHED'?429:503).json({error:result.error||'AI_UNAVAILABLE',message:result.error==='AI_LIMIT_REACHED'?'Limite diário de IA atingido.':'Não foi possível realizar a análise agora. Suas informações continuam salvas.'});});
+
+app.post('/api/rumo-estudos/ai/assistant', aiLimiter, async (req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const question=studentBodyText(req.body?.question,600);if(!question)return res.status(400).json({error:'INVALID_QUESTION'});const dashboard=studentStudyRepoInstance.dashboard(userId),schema={type:'object',additionalProperties:false,properties:{answer:{type:'string'},actions:{type:'array',items:{type:'string'}}},required:['answer','actions']};const result=await runStudentOpenAI({userId,type:'study_assistant',prompt:`Responda à pergunta da estudante sem inventar dados. Pergunta: ${question}. Contexto mínimo: ${JSON.stringify({performance:dashboard.performance.slice(0,6),exams:dashboard.exams.slice(0,5),goals:dashboard.goals.slice(0,2),profile:{course:dashboard.profile?.course}})}`,schema});if(result.data){studentStudyRepoInstance.saveAnalysis(userId,'study_plan',result.data.answer,result.data);return res.json({success:true,source:'openai',...result.data});}return res.status(result.error==='AI_LIMIT_REACHED'?429:503).json({error:result.error||'AI_UNAVAILABLE',message:result.error==='AI_LIMIT_REACHED'?'Limite diário de IA atingido.':'Não foi possível responder agora.'});});
+
+app.post('/api/rumo-estudos/report-cards', (req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const fileId=studentBodyText(req.body?.fileId,80);const file=uploadedFileRepoInstance.findById(fileId);if(!file||file.userId!==userId)return res.status(404).json({error:'FILE_NOT_FOUND'});const reportCard=studentStudyRepoInstance.createReportCard(userId,fileId,req.body?.periodId?studentBodyText(req.body.periodId,80):null);return reportCard?res.status(201).json({success:true,reportCard}):res.status(404).json({error:'PERIOD_NOT_FOUND'});});
+app.post('/api/rumo-estudos/report-cards/analyze', aiLimiter, async (req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const fileId=studentBodyText(req.body?.fileId,80);const file=uploadedFileRepoInstance.findById(fileId);if(!file||file.userId!==userId)return res.status(404).json({error:'FILE_NOT_FOUND'});const access=secureUploadService.getAuthorizedFile(fileId,userId,false);if(!access.authorized||!access.file||!access.buffer)return res.status(400).json({error:'FILE_NOT_READY',message:'Não foi possível ler este arquivo.'});const schema={type:'object',additionalProperties:false,properties:{subjects:{type:'array',items:{type:'object',additionalProperties:false,properties:{name:{type:'string'},grade:{type:['number','null']},period:{type:'string'},assessment:{type:'string'},uncertain:{type:'boolean'}},required:['name','grade','period','assessment','uncertain']}}},required:['subjects']};const result=await runStudentOpenAI({userId,type:'report_card_extraction',prompt:'Extraia somente notas acadêmicas visíveis neste boletim. Para cada item, informe matéria, nota numérica de 0 a 10 se legível, período e avaliação. Se não for possível identificar a nota, use null e uncertain=true. Não crie dados ausentes.',schema,file:{buffer:access.buffer,mimeType:access.file.mimeType,filename:access.file.originalFilename},report:true});if(result.data){studentStudyRepoInstance.saveAnalysis(userId,'report_card',`Boletim analisado: ${result.data.subjects.length} item(ns) encontrado(s).`,result.data);return res.json({success:true,source:'openai',extracted:result.data});}return res.status(result.error==='AI_LIMIT_REACHED'?429:503).json({error:result.error||'AI_UNAVAILABLE',message:result.error==='AI_LIMIT_REACHED'?'Limite diário de análises de boletim atingido.':'Não foi possível analisar o arquivo agora.'});});
 
 // AI identity is derived solely from the authenticated server session.
 app.use('/api/ai', requireUserAuth, aiLimiter);

@@ -1128,6 +1128,235 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_flashcard_reviews_user_date ON flashcard_reviews(user_id, reviewed_at);
     `,
   },
+  {
+    id: 30,
+    name: '030_rumo_estudos_student_module',
+    sql: `
+      CREATE TABLE IF NOT EXISTS student_profiles (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL DEFAULT '',
+        institution TEXT NOT NULL DEFAULT 'IFRJ',
+        campus TEXT,
+        course TEXT,
+        school_year TEXT,
+        class_name TEXT,
+        shift TEXT,
+        available_time_json TEXT,
+        onboarding_completed INTEGER NOT NULL DEFAULT 0 CHECK (onboarding_completed IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_profiles_user ON student_profiles(user_id);
+
+      CREATE TABLE IF NOT EXISTS student_subjects (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'escola',
+        source TEXT NOT NULL DEFAULT 'custom',
+        active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_student_subjects_user_name ON student_subjects(user_id, name);
+
+      CREATE TABLE IF NOT EXISTS student_subject_topics (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        subject_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (subject_id) REFERENCES student_subjects(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_topics_user_subject ON student_subject_topics(user_id, subject_id);
+
+      CREATE TABLE IF NOT EXISTS student_academic_periods (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        starts_at TEXT,
+        ends_at TEXT,
+        active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_student_periods_user_name ON student_academic_periods(user_id, name);
+
+      CREATE TABLE IF NOT EXISTS student_grades (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        subject_id TEXT NOT NULL,
+        period_id TEXT,
+        assessment_name TEXT NOT NULL,
+        score REAL NOT NULL CHECK (score >= 0 AND score <= 10),
+        weight REAL NOT NULL DEFAULT 1 CHECK (weight > 0),
+        source TEXT NOT NULL DEFAULT 'manual',
+        is_uncertain INTEGER NOT NULL DEFAULT 0 CHECK (is_uncertain IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (subject_id) REFERENCES student_subjects(id) ON DELETE CASCADE,
+        FOREIGN KEY (period_id) REFERENCES student_academic_periods(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_grades_user_subject ON student_grades(user_id, subject_id);
+      CREATE INDEX IF NOT EXISTS idx_student_grades_user_period ON student_grades(user_id, period_id);
+
+      CREATE TABLE IF NOT EXISTS student_report_cards (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        file_id TEXT NOT NULL,
+        period_id TEXT,
+        status TEXT NOT NULL DEFAULT 'uploaded' CHECK (status IN ('uploaded', 'processing', 'ready', 'needs_review', 'failed')),
+        extracted_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (file_id) REFERENCES uploaded_files(id) ON DELETE CASCADE,
+        FOREIGN KEY (period_id) REFERENCES student_academic_periods(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_report_cards_user ON student_report_cards(user_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS student_exams (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        subject_id TEXT,
+        name TEXT NOT NULL,
+        exam_date TEXT NOT NULL,
+        exam_time TEXT,
+        weight REAL NOT NULL DEFAULT 1 CHECK (weight > 0),
+        target_grade REAL CHECK (target_grade IS NULL OR (target_grade >= 0 AND target_grade <= 10)),
+        topics_json TEXT NOT NULL DEFAULT '[]',
+        notes TEXT,
+        room TEXT,
+        status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'completed', 'cancelled')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (subject_id) REFERENCES student_subjects(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_exams_user_date ON student_exams(user_id, exam_date);
+
+      CREATE TABLE IF NOT EXISTS student_calendar_events (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        event_type TEXT NOT NULL CHECK (event_type IN ('exam', 'assignment', 'vestibular', 'academic', 'custom')),
+        title TEXT NOT NULL,
+        event_date TEXT NOT NULL,
+        start_time TEXT,
+        end_time TEXT,
+        exam_id TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (exam_id) REFERENCES student_exams(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_events_user_date ON student_calendar_events(user_id, event_date);
+
+      CREATE TABLE IF NOT EXISTS student_goals (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        degree TEXT NOT NULL,
+        selection_system TEXT NOT NULL DEFAULT 'ENEM',
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_goals_user_status ON student_goals(user_id, status);
+
+      CREATE TABLE IF NOT EXISTS student_goal_institutions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        goal_id TEXT NOT NULL,
+        institution_name TEXT NOT NULL,
+        institution_code TEXT,
+        state TEXT,
+        city TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (goal_id) REFERENCES student_goals(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_goal_institutions_user ON student_goal_institutions(user_id, goal_id);
+
+      CREATE TABLE IF NOT EXISTS student_recommendations (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        subject_id TEXT,
+        title TEXT NOT NULL,
+        minutes INTEGER NOT NULL CHECK (minutes > 0),
+        topic TEXT,
+        recommendation_date TEXT NOT NULL,
+        priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high', 'critical')),
+        completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1)),
+        source TEXT NOT NULL DEFAULT 'priority_engine',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (subject_id) REFERENCES student_subjects(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_recommendations_user_date ON student_recommendations(user_id, recommendation_date, completed);
+
+      CREATE TABLE IF NOT EXISTS student_ai_analyses (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        analysis_type TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        structured_json TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_ai_analyses_user_date ON student_ai_analyses(user_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS student_ai_usage (
+        user_id TEXT NOT NULL,
+        usage_date TEXT NOT NULL,
+        request_count INTEGER NOT NULL DEFAULT 0,
+        report_count INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, usage_date),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS university_institutions (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        acronym TEXT,
+        mec_code TEXT,
+        state TEXT,
+        city TEXT,
+        institution_type TEXT,
+        administrative_category TEXT,
+        status TEXT NOT NULL DEFAULT 'active'
+      );
+      CREATE INDEX IF NOT EXISTS idx_university_institutions_search ON university_institutions(name, acronym, state, city);
+
+      CREATE TABLE IF NOT EXISTS university_courses (
+        id TEXT PRIMARY KEY,
+        institution_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        degree_type TEXT,
+        modality TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        mec_code TEXT,
+        FOREIGN KEY (institution_id) REFERENCES university_institutions(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_university_courses_search ON university_courses(name, institution_id, modality);
+    `,
+  },
+  {
+    id: 31,
+    name: '031_user_ifrj_access',
+    sql: `
+      ALTER TABLE users ADD COLUMN can_access_ifrj INTEGER NOT NULL DEFAULT 0 CHECK (can_access_ifrj IN (0, 1));
+      UPDATE users SET can_access_ifrj = 1 WHERE role = 'admin';
+      CREATE INDEX IF NOT EXISTS idx_users_ifrj_access ON users(can_access_ifrj);
+    `,
+  },
 ];
 
 

@@ -100,6 +100,7 @@ export class UserRepository {
     role?: UserRole;
     status?: UserStatus;
     canAccessNotion?: boolean;
+    canAccessIfrj?: boolean;
   }): DbUser {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -108,8 +109,8 @@ export class UserRepository {
 
     this.db
       .prepare(
-        `INSERT INTO users (id, email, username, password_hash, role, status, can_access_notion, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO users (id, email, username, password_hash, role, status, can_access_notion, can_access_ifrj, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -119,6 +120,7 @@ export class UserRepository {
         role,
         status,
         data.canAccessNotion || role === 'admin' ? 1 : 0,
+        data.canAccessIfrj || role === 'admin' ? 1 : 0,
         now,
         now
       );
@@ -193,6 +195,11 @@ export class UserRepository {
     this.db.prepare('UPDATE users SET can_access_notion = ?, updated_at = ? WHERE id = ?').run(canAccessNotion ? 1 : 0, now, userId);
   }
 
+  public updateIfrjAccess(userId: string, canAccessIfrj: boolean): void {
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE users SET can_access_ifrj = ?, updated_at = ? WHERE id = ?').run(canAccessIfrj ? 1 : 0, now, userId);
+  }
+
   public deleteById(userId: string): boolean {
     const result = this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
     return Number(result.changes) > 0;
@@ -263,6 +270,7 @@ export class UserRepository {
       avatarUrl?: string | null;
       phone?: string | null;
       canAccessNotion: boolean;
+      canAccessIfrj: boolean;
     }>;
     total: number;
     page: number;
@@ -302,7 +310,7 @@ export class UserRepository {
 
     const rows: any[] = this.db
       .prepare(
-        `SELECT u.id, u.email, u.username, u.role, u.status, u.can_access_notion, u.created_at, u.updated_at,
+        `SELECT u.id, u.email, u.username, u.role, u.status, u.can_access_notion, u.can_access_ifrj, u.created_at, u.updated_at,
                 p.full_name, p.avatar_url, p.phone
          FROM users u
          LEFT JOIN profiles p ON u.id = p.user_id
@@ -319,6 +327,7 @@ export class UserRepository {
       role: r.role as UserRole,
       status: r.status as UserStatus,
       canAccessNotion: Boolean(r.can_access_notion) || r.role === 'admin',
+      canAccessIfrj: Boolean(r.can_access_ifrj) || r.role === 'admin',
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       fullName: r.full_name ?? null,
@@ -376,6 +385,7 @@ export class UserRepository {
       role: row.role as UserRole,
       status: row.status as UserStatus,
       canAccessNotion: Boolean(row.can_access_notion) || row.role === 'admin',
+      canAccessIfrj: Boolean(row.can_access_ifrj) || row.role === 'admin',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -1371,7 +1381,7 @@ export class SessionRepository {
         `SELECT s.id AS s_id, s.user_id, s.token_hash, s.role AS s_role, s.ip, s.user_agent,
                 s.expires_at, s.revoked_at, s.created_at AS s_created_at,
                 s.impersonated_by_user_id, s.parent_session_id,
-                u.id AS u_id, u.email, u.username, u.password_hash, u.role AS u_role, u.status, u.can_access_notion,
+                u.id AS u_id, u.email, u.username, u.password_hash, u.role AS u_role, u.status, u.can_access_notion, u.can_access_ifrj,
                 u.created_at AS u_created_at, u.updated_at AS u_updated_at
          FROM sessions s
          JOIN users u ON s.user_id = u.id
@@ -1404,6 +1414,7 @@ export class SessionRepository {
         role: row.u_role as UserRole,
         status: row.status as UserStatus,
         canAccessNotion: Boolean(row.can_access_notion) || row.u_role === 'admin',
+        canAccessIfrj: Boolean(row.can_access_ifrj) || row.u_role === 'admin',
         createdAt: row.u_created_at,
         updatedAt: row.u_updated_at,
       },
@@ -4794,5 +4805,3 @@ export class FlashcardRepository {
     };
   }
 }
-
-

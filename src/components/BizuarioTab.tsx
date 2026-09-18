@@ -1349,14 +1349,14 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
 
             {/* Mode Switcher: AI Direct vs Manual Form */}
             {!editingBizu && (
-              <div className={`px-6 py-2.5 border-b flex items-center justify-between gap-2 ${
+              <div className={`px-4 sm:px-6 py-2.5 border-b flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 ${
                 isDark ? 'border-slate-800 bg-slate-950/60' : 'border-slate-200 bg-slate-100/80'
               }`}>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col min-[420px]:flex-row items-stretch min-[420px]:items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setModalMode('ai_direct')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       modalMode === 'ai_direct'
                         ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
                         : isDark
@@ -1365,7 +1365,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                     }`}
                   >
                     <Zap className="w-3.5 h-3.5 text-amber-300" />
-                    <span>⚡ Gerador Direto com IA</span>
+                    <span>⚡ Gerador com IA</span>
                     <span className="px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-amber-400/20 text-amber-300 border border-amber-400/30">
                       Rápido
                     </span>
@@ -1374,7 +1374,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                   <button
                     type="button"
                     onClick={() => setModalMode('manual')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                       modalMode === 'manual'
                         ? 'bg-slate-800 text-white shadow-md'
                         : isDark
@@ -1383,7 +1383,7 @@ export const BizuarioTab: React.FC<BizuarioTabProps> = ({
                     }`}
                   >
                     <Edit3 className="w-3.5 h-3.5" />
-                    <span>Formulário Completo / Manual</span>
+                    <span>Formulário Manual</span>
                   </button>
                 </div>
 

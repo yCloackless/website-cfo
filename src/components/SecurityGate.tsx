@@ -344,6 +344,7 @@ export const SecurityGate: React.FC<SecurityGateProps> = ({ onAuthenticated, onB
       localStorage.setItem('cfo_terminal_user', data.username || cleanUser);
       localStorage.setItem('cfo_terminal_role', data.role || 'admin');
       localStorage.setItem('cfo_can_access_notion', String(Boolean(data.canAccessNotion ?? (data.role === 'admin'))));
+      localStorage.setItem('cfo_can_access_ifrj', String(Boolean(data.canAccessIfrj ?? (data.role === 'admin'))));
       onAuthenticated('cookie', data.expiresAt, Boolean(data.is2faActive));
       return;
     } catch (err) {

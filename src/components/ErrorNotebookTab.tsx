@@ -1344,7 +1344,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
             </nav>
 
             {/* Ações Globais Rápidas */}
-            <div className="flex items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={handleOpenAddCardModal}
                 className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-100 border border-slate-700/80 hover:border-slate-600 transition-all shadow-md cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
@@ -2253,7 +2253,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                     >
                       {/* LADO FRENTE (PERGUNTA) */}
                       <div
-                        className={`p-8 rounded-3xl border min-h-[380px] flex flex-col justify-between shadow-xl transition-all ${
+                        className={`p-4 sm:p-8 rounded-2xl sm:rounded-3xl border min-h-[340px] sm:min-h-[380px] flex flex-col justify-between shadow-xl transition-all ${
                           isDark
                             ? 'bg-slate-900/90 border-slate-800 shadow-slate-950/40'
                             : 'bg-white border-slate-200 shadow-slate-200/50'
@@ -2266,7 +2266,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                             <span className="text-slate-400 font-bold">{currentDeck?.name || currentSubject?.name || 'Geral'}</span>
                           </div>
 
-                          <div className="text-lg sm:text-xl font-semibold text-slate-100 leading-relaxed">
+                          <div className="text-base sm:text-xl font-semibold text-slate-100 leading-relaxed">
                             <ClozeLatexCard text={studyQueue[currentCardIndex].front} isAnswer={false} />
                           </div>
 
@@ -2298,7 +2298,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 
                       {/* LADO VERSO (RESPOSTA - GIRADO 180 DEG) */}
                       <div
-                        className={`p-8 rounded-3xl border min-h-[380px] flex flex-col justify-between shadow-xl transition-all absolute inset-0 ${
+                        className={`p-4 sm:p-8 rounded-2xl sm:rounded-3xl border min-h-[340px] sm:min-h-[380px] flex flex-col justify-between shadow-xl transition-all absolute inset-0 ${
                           isDark
                             ? 'bg-slate-900/95 border-emerald-900/40 shadow-slate-950/50'
                             : 'bg-white border-emerald-200 shadow-slate-200/60'

@@ -10,6 +10,7 @@ export interface ConfirmModalProps {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: 'danger' | 'warning' | 'info';
+  isDestructive?: boolean;
   iconType?: 'reset' | 'warning' | 'danger' | 'info';
   theme?: AppTheme;
   loading?: boolean;
@@ -25,6 +26,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   confirmLabel = 'Confirmar',
   cancelLabel = 'Cancelar',
   variant = 'warning',
+  isDestructive = false,
   iconType = 'reset',
   theme = 'dark',
   loading = false,
@@ -60,8 +62,8 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     }
   };
 
-  const getVariantStyles = () => {
-    if (variant === 'danger') {
+  const getVariantStyles = (activeVariant = variant) => {
+    if (activeVariant === 'danger') {
       return {
         iconBg: 'bg-red-500/15 border-red-500/30 text-red-400 shadow-red-950/40',
         badgeBg: 'bg-red-500/10 border-red-500/20 text-red-300',
@@ -69,7 +71,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         glowBg: 'bg-red-600/15',
       };
     }
-    if (variant === 'info') {
+    if (activeVariant === 'info') {
       return {
         iconBg: 'bg-blue-500/15 border-blue-500/30 text-blue-400 shadow-blue-950/40',
         badgeBg: 'bg-blue-500/10 border-blue-500/20 text-blue-300',
@@ -85,7 +87,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     };
   };
 
-  const styles = getVariantStyles();
+  const styles = getVariantStyles(isDestructive ? 'danger' : variant);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md transition-all duration-200">

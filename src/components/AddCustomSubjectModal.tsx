@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Plus, Palette, BookOpen, Trash2, RotateCcw, Check, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { Subject } from '../types';
 import { DEFAULT_CFO_SUBJECTS } from '../data/cfoSubjects';
+import { ConfirmModal } from './ConfirmModal';
 
 interface AddCustomSubjectModalProps {
   isOpen: boolean;
@@ -47,6 +48,7 @@ export const AddCustomSubjectModal: React.FC<AddCustomSubjectModalProps> = ({
   const [name, setName] = useState('');
   const [category, setCategory] = useState(PRESET_CATEGORIES[0]);
   const [color, setColor] = useState(PRESET_COLORS[0]);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -199,11 +201,7 @@ export const AddCustomSubjectModal: React.FC<AddCustomSubjectModalProps> = ({
             <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-3">
               <button
                 type="button"
-                onClick={() => {
-                  if (window.confirm('Deseja restaurar todas as 9 disciplinas oficiais do edital do CFO CBMERJ?')) {
-                    onResetDefaultSubjects();
-                  }
-                }}
+                onClick={() => setIsResetConfirmOpen(true)}
                 className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <RotateCcw className="w-3 h-3 text-red-500" />
@@ -292,6 +290,21 @@ export const AddCustomSubjectModal: React.FC<AddCustomSubjectModalProps> = ({
           </form>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={isResetConfirmOpen}
+        title="Restaurar Grade Padrão"
+        description="Deseja restaurar todas as 9 disciplinas oficiais do edital do CFO CBMERJ?"
+        confirmLabel="Restaurar Grade"
+        cancelLabel="Cancelar"
+        variant="info"
+        iconType="reset"
+        onConfirm={() => {
+          setIsResetConfirmOpen(false);
+          onResetDefaultSubjects();
+        }}
+        onClose={() => setIsResetConfirmOpen(false)}
+      />
     </div>
   );
 };

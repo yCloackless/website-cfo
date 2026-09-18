@@ -14,6 +14,7 @@ export interface DbUser {
   role: UserRole;
   status: UserStatus;
   canAccessNotion: boolean;
+  canAccessIfrj: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -674,5 +675,4 @@ export interface DbFlashcardReview {
   previousEaseFactor: number;
   newEaseFactor: number;
 }
-
 

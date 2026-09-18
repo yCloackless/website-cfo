@@ -23,6 +23,7 @@ import {
   Eye,
   Trash2,
   X,
+  ArrowLeft,
   Loader2,
   Zap,
   Crop,
@@ -1082,12 +1083,12 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
       {/* 5. TRÊS ÁREAS PRINCIPAIS (DESKTOP) / DRILL-DOWN (MOBILE) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
         {/* ============================================================== */}
-        {/* COLUNA 1: LISTA DAS PROVAS (lg:col-span-4)                     */}
+        {/* COLUNA 1: LISTA DAS PROVAS (lg:col-span-3)                     */}
         {/* ============================================================== */}
         <div
           className={`lg:col-span-3 rounded-2xl border p-3.5 space-y-3 shadow-xl ${
             isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200'
-          }`}
+          } ${mobileView !== 'papers' ? 'hidden lg:block' : 'block'}`}
         >
           <div className="flex items-center justify-between px-1">
             <h3 className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
@@ -1188,50 +1189,62 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
         </div>
 
         {/* ============================================================== */}
-        {/* COLUNA 2: QUESTÕES DA PROVA SELECIONADA (lg:col-span-4)         */}
+        {/* COLUNA 2: QUESTÕES DA PROVA SELECIONADA (lg:col-span-3)         */}
         {/* ============================================================== */}
         <div
           className={`lg:col-span-3 rounded-2xl border p-3.5 space-y-3 shadow-xl ${
             isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200'
-          }`}
+          } ${mobileView !== 'questions' ? 'hidden lg:block' : 'block'}`}
         >
           {/* Topo da Prova Selecionada */}
-          <div className="flex items-center justify-between px-1">
-            <div className="min-w-0">
-              <h3 className={`text-xs font-black truncate ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
-                {selectedPaper ? selectedPaper.title : 'Selecione uma prova'}
-              </h3>
-              <p className={`text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                {questions.length} questões detectadas
-              </p>
+          <div className="flex items-center justify-between px-1 gap-2 flex-wrap">
+            <div className="flex items-center gap-2 min-w-0">
+              <button
+                type="button"
+                onClick={() => setMobileView('papers')}
+                className="lg:hidden p-1.5 rounded-xl text-blue-400 hover:bg-blue-500/10 cursor-pointer shrink-0 border border-blue-500/20"
+                title="Voltar para Provas"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+              </button>
+              <div className="min-w-0">
+                <h3 className={`text-xs font-black truncate ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+                  {selectedPaper ? selectedPaper.title : 'Selecione uma prova'}
+                </h3>
+                <p className={`text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  {questions.length} questões detectadas
+                </p>
+              </div>
             </div>
-            <button
-              onClick={reviewSelectedPaper}
-              className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border transition-all flex items-center gap-1 cursor-pointer ${
-                isDark ? 'bg-indigo-950/60 border-indigo-800/60 text-indigo-300 hover:bg-indigo-900/60' : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
-              }`}
-            >
-              <Sparkles className="w-3 h-3 text-indigo-400" />
-              <span>Revisar prova</span>
-            </button>
-            {selectedPaper && selectedPaper.publicationStatus === 'IN_REVIEW' && (
+            <div className="flex items-center gap-1 shrink-0">
               <button
-                onClick={publishSelectedPaper}
-                className="px-2.5 py-1 rounded-xl text-[10px] font-bold border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-all cursor-pointer"
+                onClick={reviewSelectedPaper}
+                className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border transition-all flex items-center gap-1 cursor-pointer ${
+                  isDark ? 'bg-indigo-950/60 border-indigo-800/60 text-indigo-300 hover:bg-indigo-900/60' : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                }`}
               >
-                Publicar
+                <Sparkles className="w-3 h-3 text-indigo-400" />
+                <span>Revisar</span>
               </button>
-            )}
-            {selectedPaper?.fileId && (
-              <button
-                onClick={handleOpenOriginalPdf}
-                className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border transition-all flex items-center gap-1 cursor-pointer ${isDark ? 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
-                title="Abrir o arquivo original da prova"
-              >
-                <Eye className="w-3 h-3" />
-                <span>Ver PDF</span>
-              </button>
-            )}
+              {selectedPaper && selectedPaper.publicationStatus === 'IN_REVIEW' && (
+                <button
+                  onClick={publishSelectedPaper}
+                  className="px-2.5 py-1 rounded-xl text-[10px] font-bold border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-all cursor-pointer"
+                >
+                  Publicar
+                </button>
+              )}
+              {selectedPaper?.fileId && (
+                <button
+                  onClick={handleOpenOriginalPdf}
+                  className={`px-2 py-1 rounded-xl text-[10px] font-bold border transition-all flex items-center gap-1 cursor-pointer ${isDark ? 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+                  title="Abrir o arquivo original da prova"
+                >
+                  <Eye className="w-3 h-3" />
+                  <span className="hidden min-[400px]:inline">PDF</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Tabs de Disciplinas Dinâmicas */}
@@ -1364,18 +1377,26 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
         </div>
 
         {/* ============================================================== */}
-        {/* COLUNA 3: PAINEL DA QUESTÃO E RESOLUÇÃO IA (lg:col-span-4)       */}
+        {/* COLUNA 3: PAINEL DA QUESTÃO E RESOLUÇÃO IA (lg:col-span-6)       */}
         {/* ============================================================== */}
         <div
-          className={`lg:col-span-6 rounded-2xl border p-5 space-y-5 shadow-xl ${
+          className={`lg:col-span-6 rounded-2xl border p-4 sm:p-5 space-y-5 shadow-xl ${
             isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200'
-          }`}
+          } ${mobileView !== 'detail' ? 'hidden lg:block' : 'block'}`}
         >
           {selectedQuestion ? (
             <>
               {/* Topo do Painel */}
-              <div className="flex items-center justify-between gap-2 border-b border-slate-800/60 pb-3">
+              <div className="flex items-center justify-between gap-2 border-b border-slate-800/60 pb-3 flex-wrap">
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMobileView('questions')}
+                    className="lg:hidden p-1.5 rounded-xl text-blue-400 hover:bg-blue-500/10 cursor-pointer shrink-0 border border-blue-500/20"
+                    title="Voltar para Questões"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                  </button>
                   <span className={`text-xs font-black ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
                     Questão {selectedQuestion.questionNumber} de {questions.length}
                   </span>

@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Check, CheckCircle2, Clock, Calendar, Sparkles, Plus, Edit2, Trash2, RotateCcw } from 'lucide-react';
 import { Subject, StudyEntry, AppTheme } from '../types';
 import { WEEK_DAYS } from '../data/cfoSubjects';
 import { formatBRDateShort, formatDurationHours } from '../utils/dateUtils';
+import { ConfirmModal } from './ConfirmModal';
 
 interface HorizontalWeeklyTableProps {
   subjects: Subject[];
@@ -30,6 +31,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
   theme = 'dark',
 }) => {
   const isDark = theme === 'dark';
+  const [subjectToDelete, setSubjectToDelete] = useState<{ id: string; name: string } | null>(null);
 
   // Helper to get entry
   const getEntry = (subjectId: string, dayIndex: number): StudyEntry | undefined => {
@@ -207,13 +209,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (
-                              window.confirm(
-                                `Deseja retirar "${subject.name}" do cronograma de estudos? Você poderá reativá-la a qualquer momento clicando em "Matérias" no topo.`
-                              )
-                            ) {
-                              onDeleteCustomSubject(subject.id);
-                            }
+                            setSubjectToDelete({ id: subject.id, name: subject.name });
                           }}
                           className="text-slate-400 hover:text-red-400 p-1.5 rounded-lg hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100 shrink-0 cursor-pointer"
                           title={`Retirar ${subject.name} do cronograma`}
@@ -449,6 +445,24 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
           💡 Clique no botão <strong>+</strong> para marcar rápido ou no card para detalhar tópico e anotações.
         </span>
       </div>
+
+      {subjectToDelete && onDeleteCustomSubject && (
+        <ConfirmModal
+          isOpen={Boolean(subjectToDelete)}
+          title="Retirar matéria do cronograma"
+          description={`Deseja retirar "${subjectToDelete.name}" do cronograma de estudos? Você poderá reativá-la a qualquer momento clicando em "Matérias" no topo.`}
+          confirmLabel="Retirar Matéria"
+          cancelLabel="Cancelar"
+          variant="danger"
+          iconType="danger"
+          theme={theme}
+          onConfirm={() => {
+            onDeleteCustomSubject(subjectToDelete.id);
+            setSubjectToDelete(null);
+          }}
+          onClose={() => setSubjectToDelete(null)}
+        />
+      )}
     </div>
   );
 };

@@ -76,6 +76,7 @@ interface UserItem {
   avatarUrl?: string | null;
   phone?: string | null;
   canAccessNotion: boolean;
+  canAccessIfrj: boolean;
 }
 
 interface UserDetail {
@@ -190,7 +191,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [usersRoleFilter, setUsersRoleFilter] = useState<string>('');
   const [usersStatusFilter, setUsersStatusFilter] = useState<string>('');
   const [isUsersLoading, setIsUsersLoading] = useState(false);
-  const [newAccount, setNewAccount] = useState({ fullName: '', email: '', username: '', password: '', role: 'cadet' as 'cadet' | 'support' | 'admin', canAccessNotion: false });
+  const [newAccount, setNewAccount] = useState({ fullName: '', email: '', username: '', password: '', role: 'cadet' as 'cadet' | 'support' | 'admin', canAccessNotion: false, canAccessIfrj: false });
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [accountCreationKeys, setAccountCreationKeys] = useState<AccountCreationKeyItem[]>([]);
   const [generatedAccountKey, setGeneratedAccountKey] = useState<{ rawKey: string; expiresAt: string } | null>(null);
@@ -852,6 +853,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const handleToggleIfrjAccess = async (user: UserItem, overrideStepUp?: string) => {
+    const nextAccess = user.role === 'admin' ? true : !user.canAccessIfrj;
+    if (!overrideStepUp && !window.confirm(nextAccess ? `Liberar o Rumo ao VEST para @${user.username}?` : `Remover o Rumo ao VEST de @${user.username}?`)) return;
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/ifrij-access`, { method: 'PATCH', headers: getHeaders(overrideStepUp), body: JSON.stringify({ canAccessIfrj: nextAccess }) });
+      const data = await res.json();
+      if (res.status === 403 && data.error === 'STEP_UP_REQUIRED') {
+        setPendingAction(() => (token: string) => handleToggleIfrjAccess(user, token));
+        setIsStepUpModalOpen(true);
+        return;
+      }
+      setActionFeedback({ type: res.ok ? 'success' : 'error', message: data.message || 'Falha ao alterar acesso ao Rumo ao VEST.' });
+      if (res.ok) loadUsers();
+    } catch {
+      setActionFeedback({ type: 'error', message: 'Erro de comunicacao ao alterar acesso ao Rumo ao VEST.' });
+    }
+  };
+
   const handleDeleteAccount = async (user: UserItem, overrideStepUp?: string) => {
     if (!overrideStepUp && !window.confirm(`Excluir definitivamente a conta @${user.username}? Esta acao nao pode ser desfeita.`)) return;
     try {
@@ -885,7 +904,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
       setActionFeedback({ type: res.ok ? 'success' : 'error', message: data.message || 'Falha ao criar conta.' });
       if (res.ok) {
-        setNewAccount({ fullName: '', email: '', username: '', password: '', role: 'cadet', canAccessNotion: false });
+        setNewAccount({ fullName: '', email: '', username: '', password: '', role: 'cadet', canAccessNotion: false, canAccessIfrj: false });
         loadUsers();
         loadDashboard();
       }
@@ -1775,6 +1794,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <input type="checkbox" checked={newAccount.role === 'admin' || newAccount.canAccessNotion} disabled={newAccount.role === 'admin'} onChange={(e) => setNewAccount((v) => ({ ...v, canAccessNotion: e.target.checked }))} />
                     Liberar acesso ao Notion
                   </label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300 px-2">
+                    <input type="checkbox" checked={newAccount.role === 'admin' || newAccount.canAccessIfrj} disabled={newAccount.role === 'admin'} onChange={(e) => setNewAccount((v) => ({ ...v, canAccessIfrj: e.target.checked }))} />
+                    Liberar acesso ao Rumo ao VEST
+                  </label>
                 </div>
                 <button type="submit" disabled={isCreatingAccount} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
                   <UserCheck className="w-4 h-4" /> {isCreatingAccount ? 'Criando...' : 'Adicionar conta'}
@@ -1783,18 +1806,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <div className="bg-[#0B1220] border border-slate-800/90 rounded-2xl overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-white">Contas e permissao da aba Notion</h3>
+                  <h3 className="text-sm font-bold text-white">Contas e permissões de módulos</h3>
                   <span className="text-[11px] text-slate-500">{usersTotal} contas</span>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-900/80 text-slate-400 font-mono text-[11px]"><tr><th className="px-5 py-3">Conta</th><th className="px-5 py-3">Papel</th><th className="px-5 py-3">Notion</th><th className="px-5 py-3 text-right">Acoes</th></tr></thead>
+                    <thead className="bg-slate-900/80 text-slate-400 font-mono text-[11px]"><tr><th className="px-5 py-3">Conta</th><th className="px-5 py-3">Papel</th><th className="px-5 py-3">Notion</th><th className="px-5 py-3">Rumo VEST</th><th className="px-5 py-3 text-right">Ações</th></tr></thead>
                     <tbody className="divide-y divide-slate-800/60">
                       {users.map((u) => (
                         <tr key={u.id} className="hover:bg-slate-900/40">
                           <td className="px-5 py-3"><p className="font-bold text-white">{u.fullName || u.username}</p><p className="text-[11px] text-blue-400 font-mono">@{u.username}</p></td>
                           <td className="px-5 py-3 text-slate-300">{u.role === 'admin' ? 'Administrador' : u.role === 'support' ? 'Suporte' : 'Cadete'}</td>
                           <td className="px-5 py-3"><span className={`font-mono text-[10px] font-bold px-2 py-1 rounded-full border ${u.canAccessNotion ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>{u.canAccessNotion ? 'LIBERADO' : 'BLOQUEADO'}</span></td>
+                          <td className="px-5 py-3"><button type="button" onClick={() => handleToggleIfrjAccess(u)} disabled={u.role === 'admin'} className={`font-mono text-[10px] font-bold px-2 py-1 rounded-full border cursor-pointer disabled:opacity-60 ${u.canAccessIfrj ? 'bg-pink-500/10 border-pink-500/30 text-pink-300' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>{u.canAccessIfrj ? 'LIBERADO' : 'LIBERAR'}</button></td>
                           <td className="px-5 py-3 text-right"><div className="inline-flex items-center gap-2">
                             <button type="button" onClick={() => handleToggleNotionAccess(u)} disabled={u.role === 'admin'} className="px-2.5 py-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 disabled:opacity-50 text-[11px] font-semibold cursor-pointer">{u.canAccessNotion ? 'Remover' : 'Liberar'}</button>
                             <button type="button" onClick={() => handleDeleteAccount(u)} disabled={u.username === 'admin'} className="px-2.5 py-1 rounded-lg border border-red-500/30 bg-red-500/10 text-red-300 disabled:opacity-50 text-[11px] font-semibold cursor-pointer"><UserX className="w-3 h-3 inline mr-1" />Excluir</button>

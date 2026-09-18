@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { AppTheme, Subject } from '../types';
 import { apiFetch } from '../services/apiFetch';
+import { ConfirmModal } from './ConfirmModal';
 
 interface DayStudySummary {
   dateStr: string; // YYYY-MM-DD
@@ -216,158 +217,181 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
     setManualMode(mode);
   };
 
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    confirmLabel?: string;
+    onConfirm: () => void;
+    isDestructive?: boolean;
+  } | null>(null);
+
   // Exclui as horas de uma matéria específica em um dia
-  const handleDeleteSubjectHours = async (
+  const handleDeleteSubjectHours = (
     dateStr: string,
     subjectId: string,
     subjectName: string,
     durationSeconds: number
   ) => {
-    if (!window.confirm(`Deseja realmente excluir as horas de "${subjectName}" do dia ${dateStr}?`)) {
-      return;
-    }
+    setConfirmState({
+      isOpen: true,
+      title: 'Excluir Horas de Estudo',
+      description: `Deseja realmente excluir as horas de "${subjectName}" do dia ${dateStr}?`,
+      confirmLabel: 'Excluir Horas',
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmState(null);
 
-    // 🚀 ATUALIZAÇÃO OTIMISTA: Remove instantaneamente da interface
-    setDailySummaries((prev) => {
-      const existingDay = prev[dateStr];
-      if (!existingDay) return prev;
+        // 🚀 ATUALIZAÇÃO OTIMISTA: Remove instantaneamente da interface
+        setDailySummaries((prev) => {
+          const existingDay = prev[dateStr];
+          if (!existingDay) return prev;
 
-      const updatedSubjects = existingDay.subjects.filter((s) => s.subjectId !== subjectId);
-      const newSeconds = Math.max(0, existingDay.totalSeconds - durationSeconds);
-      const newHours = Math.round((newSeconds / 3600) * 10) / 10;
+          const updatedSubjects = existingDay.subjects.filter((s) => s.subjectId !== subjectId);
+          const newSeconds = Math.max(0, existingDay.totalSeconds - durationSeconds);
+          const newHours = Math.round((newSeconds / 3600) * 10) / 10;
 
-      const nextMap = { ...prev };
-      if (updatedSubjects.length === 0 || newSeconds === 0) {
-        delete nextMap[dateStr];
-      } else {
-        nextMap[dateStr] = {
-          ...existingDay,
-          totalSeconds: newSeconds,
-          totalHours: newHours,
-          sessionsCount: Math.max(0, existingDay.sessionsCount - 1),
-          subjects: updatedSubjects,
-        };
-      }
-
-      // Atualiza também o modal detalhado do dia
-      setSelectedDaySummary((currentModal) => {
-        if (currentModal && currentModal.dateStr === dateStr) {
+          const nextMap = { ...prev };
           if (updatedSubjects.length === 0 || newSeconds === 0) {
-            return null;
+            delete nextMap[dateStr];
+          } else {
+            nextMap[dateStr] = {
+              ...existingDay,
+              totalSeconds: newSeconds,
+              totalHours: newHours,
+              sessionsCount: Math.max(0, existingDay.sessionsCount - 1),
+              subjects: updatedSubjects,
+            };
           }
+
+          // Atualiza também o modal detalhado do dia
+          setSelectedDaySummary((currentModal) => {
+            if (currentModal && currentModal.dateStr === dateStr) {
+              if (updatedSubjects.length === 0 || newSeconds === 0) {
+                return null;
+              }
+              return {
+                ...currentModal,
+                totalSeconds: newSeconds,
+                totalHours: newHours,
+                sessionsCount: Math.max(0, currentModal.sessionsCount - 1),
+                subjects: updatedSubjects,
+              };
+            }
+            return currentModal;
+          });
+
+          try {
+            const newMonthSec = Math.max(0, monthTotals.totalSeconds - durationSeconds);
+            localStorage.setItem(
+              `cfo_monthly_study_sessions_${yearMonth}`,
+              JSON.stringify({
+                summary: nextMap,
+                totals: {
+                  totalSeconds: newMonthSec,
+                  totalHours: Math.round((newMonthSec / 3600) * 10) / 10,
+                  totalSessions: Math.max(0, monthTotals.totalSessions - 1),
+                },
+              })
+            );
+          } catch (e) {}
+
+          return nextMap;
+        });
+
+        setMonthTotals((prev) => {
+          const newSec = Math.max(0, prev.totalSeconds - durationSeconds);
           return {
-            ...currentModal,
-            totalSeconds: newSeconds,
-            totalHours: newHours,
-            sessionsCount: Math.max(0, currentModal.sessionsCount - 1),
-            subjects: updatedSubjects,
+            totalSeconds: newSec,
+            totalHours: Math.round((newSec / 3600) * 10) / 10,
+            totalSessions: Math.max(0, prev.totalSessions - 1),
           };
+        });
+
+        showToast(`Horas de ${subjectName} excluídas com sucesso.`, 'info');
+
+        try {
+          setIsDeletingSubject(subjectId);
+          await apiFetch(`/api/study-sessions/day-subject?dateStr=${dateStr}&subjectId=${subjectId}`, {
+            method: 'DELETE',
+            headers: { 'Cache-Control': 'no-cache, no-store' },
+          });
+          await fetchMonthlyData();
+        } catch (err) {
+          console.warn('Falha ao excluir horas no backend:', err);
+        } finally {
+          setIsDeletingSubject(null);
         }
-        return currentModal;
-      });
-
-      try {
-        const newMonthSec = Math.max(0, monthTotals.totalSeconds - durationSeconds);
-        localStorage.setItem(
-          `cfo_monthly_study_sessions_${yearMonth}`,
-          JSON.stringify({
-            summary: nextMap,
-            totals: {
-              totalSeconds: newMonthSec,
-              totalHours: Math.round((newMonthSec / 3600) * 10) / 10,
-              totalSessions: Math.max(0, monthTotals.totalSessions - 1),
-            },
-          })
-        );
-      } catch (e) {}
-
-      return nextMap;
+      },
     });
-
-    setMonthTotals((prev) => {
-      const newSec = Math.max(0, prev.totalSeconds - durationSeconds);
-      return {
-        totalSeconds: newSec,
-        totalHours: Math.round((newSec / 3600) * 10) / 10,
-        totalSessions: Math.max(0, prev.totalSessions - 1),
-      };
-    });
-
-    showToast(`Horas de ${subjectName} excluídas com sucesso.`, 'info');
-
-    try {
-      setIsDeletingSubject(subjectId);
-      await apiFetch(`/api/study-sessions/day-subject?dateStr=${dateStr}&subjectId=${subjectId}`, {
-        method: 'DELETE',
-        headers: { 'Cache-Control': 'no-cache, no-store' },
-      });
-      await fetchMonthlyData();
-    } catch (err) {
-      console.warn('Falha ao excluir horas no backend:', err);
-    } finally {
-      setIsDeletingSubject(null);
-    }
   };
 
   // Limpa todas as horas registradas em um determinado dia
-  const handleClearDayHours = async (dateStr: string) => {
+  const handleClearDayHours = (dateStr: string) => {
     const day = dailySummaries[dateStr];
     if (!day) return;
 
-    if (!window.confirm(`Tem certeza de que deseja apagar TODOS os estudos registrados em ${dateStr}?`)) {
-      return;
-    }
+    setConfirmState({
+      isOpen: true,
+      title: 'Limpar Estudos do Dia',
+      description: `Tem certeza de que deseja apagar TODOS os estudos registrados em ${dateStr}?`,
+      confirmLabel: 'Apagar Tudo',
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmState(null);
 
-    const removedSeconds = day.totalSeconds;
-    const removedSessions = day.sessionsCount;
+        const removedSeconds = day.totalSeconds;
+        const removedSessions = day.sessionsCount;
 
-    // 🚀 ATUALIZAÇÃO OTIMISTA: Remove o dia inteiro na hora
-    setDailySummaries((prev) => {
-      const nextMap = { ...prev };
-      delete nextMap[dateStr];
+        // 🚀 ATUALIZAÇÃO OTIMISTA: Remove o dia inteiro na hora
+        setDailySummaries((prev) => {
+          const nextMap = { ...prev };
+          delete nextMap[dateStr];
 
-      try {
-        const newMonthSec = Math.max(0, monthTotals.totalSeconds - removedSeconds);
-        localStorage.setItem(
-          `cfo_monthly_study_sessions_${yearMonth}`,
-          JSON.stringify({
-            summary: nextMap,
-            totals: {
-              totalSeconds: newMonthSec,
-              totalHours: Math.round((newMonthSec / 3600) * 10) / 10,
-              totalSessions: Math.max(0, monthTotals.totalSessions - removedSessions),
-            },
-          })
-        );
-      } catch (e) {}
+          try {
+            const newMonthSec = Math.max(0, monthTotals.totalSeconds - removedSeconds);
+            localStorage.setItem(
+              `cfo_monthly_study_sessions_${yearMonth}`,
+              JSON.stringify({
+                summary: nextMap,
+                totals: {
+                  totalSeconds: newMonthSec,
+                  totalHours: Math.round((newMonthSec / 3600) * 10) / 10,
+                  totalSessions: Math.max(0, monthTotals.totalSessions - removedSessions),
+                },
+              })
+            );
+          } catch (e) {}
 
-      return nextMap;
+          return nextMap;
+        });
+
+        setMonthTotals((prev) => {
+          const newSec = Math.max(0, prev.totalSeconds - removedSeconds);
+          return {
+            totalSeconds: newSec,
+            totalHours: Math.round((newSec / 3600) * 10) / 10,
+            totalSessions: Math.max(0, prev.totalSessions - removedSessions),
+          };
+        });
+
+        setSelectedDaySummary(null);
+        showToast(`Todos os estudos de ${dateStr} foram limpos.`, 'info');
+
+        try {
+          setIsClearingDay(true);
+          await apiFetch(`/api/study-sessions/day/${dateStr}`, {
+            method: 'DELETE',
+            headers: { 'Cache-Control': 'no-cache, no-store' },
+          });
+          await fetchMonthlyData();
+        } catch (err) {
+          console.warn('Falha ao limpar dia no backend:', err);
+        } finally {
+          setIsClearingDay(false);
+        }
+      },
     });
-
-    setMonthTotals((prev) => {
-      const newSec = Math.max(0, prev.totalSeconds - removedSeconds);
-      return {
-        totalSeconds: newSec,
-        totalHours: Math.round((newSec / 3600) * 10) / 10,
-        totalSessions: Math.max(0, prev.totalSessions - removedSessions),
-      };
-    });
-
-    setSelectedDaySummary(null);
-    showToast(`Todos os estudos de ${dateStr} foram limpos.`, 'info');
-
-    try {
-      setIsClearingDay(true);
-      await apiFetch(`/api/study-sessions/day/${dateStr}`, {
-        method: 'DELETE',
-        headers: { 'Cache-Control': 'no-cache, no-store' },
-      });
-      await fetchMonthlyData();
-    } catch (err) {
-      console.warn('Falha ao limpar dia no backend:', err);
-    } finally {
-      setIsClearingDay(false);
-    }
   };
 
   const handleSaveManualEntry = async (event: React.FormEvent) => {
@@ -883,7 +907,7 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
         </div>
 
         {/* Grade de Células (Heatmap Azul) */}
-        <div className="grid grid-cols-7 gap-1.5 sm:gap-2 p-3 sm:p-5">
+        <div className="grid grid-cols-7 gap-1 sm:gap-2 p-1.5 sm:p-5">
           {calendarDays.map((day, idx) => {
             const summary = dailySummaries[day.dateStr];
             const hours = summary ? summary.totalHours : 0;
@@ -897,21 +921,21 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
                   if (summary && summary.totalSeconds > 0) setSelectedDaySummary(summary);
                   else if (day.isCurrentMonth) openManualEntry(day.dateStr);
                 }}
-                className={`min-h-[75px] sm:min-h-[95px] p-2 sm:p-2.5 rounded-2xl border flex flex-col justify-between transition-all select-none relative group cursor-pointer ${styleClass} ${
+                className={`min-h-[52px] sm:min-h-[95px] p-1 sm:p-2.5 rounded-xl sm:rounded-2xl border flex flex-col justify-between transition-all select-none relative group cursor-pointer ${styleClass} ${
                   day.isToday ? 'ring-2 ring-sky-400 ring-offset-2 ring-offset-[#070D18]' : ''
                 }`}
               >
                 {/* Header da Célula: Número do Dia + Indicador "Hoje" */}
                 <div className="flex items-center justify-between w-full">
                   <span
-                    className={`text-xs font-extrabold ${
+                    className={`text-[11px] sm:text-xs font-extrabold ${
                       day.isToday ? 'text-sky-400' : ''
                     }`}
                   >
                     {day.dayNumber}
                   </span>
                   {day.isToday && (
-                    <span className="text-[8px] font-black uppercase tracking-tighter px-1 py-0.2 rounded bg-sky-400 text-slate-950">
+                    <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-tighter px-0.5 sm:px-1 py-0.2 rounded bg-sky-400 text-slate-950">
                       Hoje
                     </span>
                   )}
@@ -921,7 +945,7 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
                 <div className="my-auto flex flex-col items-center justify-center text-center">
                   {hours > 0 ? (
                     <>
-                      <span className="text-sm sm:text-base font-black tracking-tight drop-shadow-sm">
+                      <span className="text-xs min-[380px]:text-sm sm:text-base font-black tracking-tight drop-shadow-sm">
                         {hours}h
                       </span>
                       <span className="text-[9px] opacity-85 font-medium hidden sm:inline">
@@ -929,7 +953,7 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
                       </span>
                     </>
                   ) : (
-                    <span className="text-[10px] opacity-30 font-medium">0h</span>
+                    <span className="text-[9px] sm:text-[10px] opacity-30 font-medium">0h</span>
                   )}
                 </div>
 
@@ -1198,6 +1222,21 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
             </div>
           </form>
         </div>
+      )}
+
+      {/* Modal de Confirmação Não-Bloqueante */}
+      {confirmState && (
+        <ConfirmModal
+          isOpen={confirmState.isOpen}
+          title={confirmState.title}
+          description={confirmState.description}
+          confirmLabel={confirmState.confirmLabel || 'Confirmar'}
+          variant="danger"
+          iconType="danger"
+          theme={theme}
+          onConfirm={confirmState.onConfirm}
+          onClose={() => setConfirmState(null)}
+        />
       )}
     </div>
   );
