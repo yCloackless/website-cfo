@@ -444,9 +444,24 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   const isRunning = timerState.status === 'RUNNING';
   const isPaused = timerState.status === 'PAUSED';
 
+  // Atualiza título da aba do navegador para visibilidade contínua em tempo real fora da aplicação
+  useEffect(() => {
+    const originalTitle = 'Cronograma CFO CBMERJ';
+    if (isRunning) {
+      document.title = `▶ [${pad(hours)}:${pad(minutes)}:${pad(seconds)}] ${activeSubject?.name || 'Estudo'} · CFO`;
+    } else if (isPaused) {
+      document.title = `☕ [${formattedRestTime} Descanso] ${activeSubject?.name || 'Estudo'} · CFO`;
+    } else {
+      document.title = originalTitle;
+    }
+    return () => {
+      document.title = originalTitle;
+    };
+  }, [isRunning, isPaused, hours, minutes, seconds, formattedRestTime, activeSubject?.name]);
+
   if (isFloating) {
-    // Só exibe o relógio minimizado no canto se o cronômetro tiver sido iniciado (em andamento ou pausado com tempo ativo)
-    const isSessionActive = isRunning || (isPaused && displayMs > 0);
+    // Exibe o relógio minimizado no canto se o cronômetro estiver em andamento ou em pausa
+    const isSessionActive = isRunning || isPaused;
     if (!isSessionActive) {
       return null;
     }
@@ -463,19 +478,55 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         onPointerCancel={handleFloatingPointerUp}
         title="Arraste para mover o cronômetro"
       >
-        <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${isRunning ? 'bg-emerald-400 animate-pulse' : isPaused ? 'bg-amber-400' : 'bg-slate-400'}`} />
-        <button
-          type="button"
-          onClick={isRunning ? handlePause : handleStart}
-          className="flex items-center gap-2 rounded-lg px-1 py-1 font-mono text-base font-bold hover:bg-white/10"
-          aria-label={isRunning ? 'Pausar cronômetro' : 'Iniciar cronômetro'}
-        >
-          {pad(hours)}:{pad(minutes)}:{pad(seconds)}
-        </button>
+        <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${
+          isRunning
+            ? 'bg-emerald-400 animate-pulse'
+            : isPaused
+            ? restZone === 'red'
+              ? 'bg-red-400 animate-ping'
+              : restZone === 'amber'
+              ? 'bg-amber-400'
+              : 'bg-emerald-400 animate-pulse'
+            : 'bg-slate-400'
+        }`} />
+
+        {isPaused ? (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleStart}
+              className={`flex items-center gap-1.5 rounded-lg px-2 py-1 font-mono text-xs font-bold border transition-all cursor-pointer ${
+                restZone === 'red'
+                  ? 'bg-red-500/20 border-red-500/50 text-red-300 animate-pulse'
+                  : restZone === 'amber'
+                  ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                  : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+              }`}
+              title="Clique para retomar o foco"
+              aria-label="Retomar foco"
+            >
+              <span>☕</span>
+              <span>{formattedRestTime}</span>
+            </button>
+            <span className="font-mono text-xs text-slate-400 tabular-nums">
+              ({pad(hours)}:{pad(minutes)}:{pad(seconds)})
+            </span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={isRunning ? handlePause : handleStart}
+            className="flex items-center gap-2 rounded-lg px-1 py-1 font-mono text-base font-bold hover:bg-white/10 cursor-pointer"
+            aria-label={isRunning ? 'Pausar cronômetro' : 'Iniciar cronômetro'}
+          >
+            {pad(hours)}:{pad(minutes)}:{pad(seconds)}
+          </button>
+        )}
+
         <button
           type="button"
           onClick={onNavigateToTimer}
-          className="rounded-lg px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-blue-300 hover:bg-blue-500/15"
+          className="rounded-lg px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-blue-300 hover:bg-blue-500/15 cursor-pointer"
           aria-label="Abrir cronômetro completo"
         >
           Abrir

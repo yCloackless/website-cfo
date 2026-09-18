@@ -84,6 +84,10 @@ const sendRuntimeMessage = (message, callback) => {
       };
       storage.set({ cfo_ext_timer: newTimer });
       callback({ success: true, timer: newTimer });
+    } else if (message.type === 'GET_TIMER_STATE') {
+      storage.get(['cfo_ext_timer']).then((res) => {
+        callback({ success: true, timer: res.cfo_ext_timer || state.timer });
+      });
     } else {
       callback({ success: true, timer: state.timer });
     }
@@ -689,9 +693,17 @@ async function initPopup() {
     els.levelingTotal.value = String(state.leveling.total);
   }
 
+  if (saved.cfo_ext_timer) {
+    state.timer = saved.cfo_ext_timer;
+    if (state.timer.subjectId) els.timerSubject.value = state.timer.subjectId;
+  }
+
   setTheme(saved.cfo_ext_theme || 'dark');
   updateLevelingUI();
   updateTimerDisplay();
+  if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') {
+    startTimerTicker();
+  }
 
   sendRuntimeMessage({ type: 'GET_TIMER_STATE' }, (response) => {
     if (!response?.timer) return;
@@ -706,9 +718,25 @@ async function initPopup() {
     fetch(`${state.settings.serverUrl}/api/timer/status`, {
       headers: { Authorization: `Bearer ${state.settings.token}` },
     })
-      .then((response) => {
-        setConnectionStatus(response.ok ? 'connected' : 'error');
-        if (response.ok) fetchLevelingFromCloud();
+      .then(async (response) => {
+        if (!response.ok) throw new Error('status error');
+        setConnectionStatus('connected');
+        const cloud = await response.json();
+        if (cloud && cloud.status) {
+          state.timer = {
+            status: cloud.status,
+            accumulatedMs: cloud.accumulatedTime || 0,
+            startTime: cloud.startTime || null,
+            restAccumulatedMs: cloud.restAccumulatedMs || 0,
+            restStartTime: cloud.restStartTime || null,
+            subjectId: cloud.activeSubjectId || state.timer.subjectId || 'geral',
+            subjectName: cloud.activeSubjectName || state.timer.subjectName || 'Estudo Geral',
+          };
+          await storage.set({ cfo_ext_timer: state.timer });
+          updateTimerDisplay();
+          if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') startTimerTicker();
+        }
+        fetchLevelingFromCloud();
       })
       .catch(() => setConnectionStatus('error'));
   } else {

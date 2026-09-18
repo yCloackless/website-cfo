@@ -38,32 +38,93 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-// Atualiza o badge do ícone do navegador
-function updateBadge(status) {
-  if (status === 'RUNNING') {
-    chrome.action.setBadgeText({ text: 'ON' });
-    chrome.action.setBadgeBackgroundColor({ color: '#10b981' });
-  } else if (status === 'PAUSED') {
-    chrome.action.setBadgeText({ text: '||' });
-    chrome.action.setBadgeBackgroundColor({ color: '#f59e0b' });
-  } else {
-    chrome.action.setBadgeText({ text: '' });
+// Formata tempo compacto para o badge do ícone do navegador (máx 4 caracteres)
+function formatBadgeTime(ms) {
+  const totalSecs = Math.max(0, Math.floor(ms / 1000));
+  const mins = Math.floor(totalSecs / 60);
+  const hrs = Math.floor(mins / 60);
+
+  if (hrs > 0) {
+    return `${hrs}h`;
   }
+  if (mins > 0) {
+    return `${mins}m`;
+  }
+  return `${totalSecs}s`;
 }
 
-// Alarme para manter sincronização e badges
+// Atualiza o badge do ícone do navegador com contagem em tempo real fora da extensão
+function updateBadge(timerOrStatus) {
+  chrome.storage.local.get([STORAGE_KEYS.TIMER], (res) => {
+    const timer = (typeof timerOrStatus === 'object' && timerOrStatus !== null)
+      ? timerOrStatus
+      : res[STORAGE_KEYS.TIMER];
+
+    if (!timer || timer.status === 'STOPPED') {
+      chrome.action.setBadgeText({ text: '' });
+      chrome.action.setTitle({ title: 'CFO CBMERJ — Painel Tático' });
+      return;
+    }
+
+    const now = Date.now();
+
+    if (timer.status === 'RUNNING') {
+      const elapsed = (timer.accumulatedMs || 0) + (timer.startTime ? Math.max(0, now - timer.startTime) : 0);
+      const text = formatBadgeTime(elapsed);
+      chrome.action.setBadgeText({ text });
+      chrome.action.setBadgeBackgroundColor({ color: '#10b981' });
+      chrome.action.setTitle({
+        title: `CFO CBMERJ: Em foco (${text}) — ${timer.subjectName || 'Estudos'}`,
+      });
+    } else if (timer.status === 'PAUSED') {
+      const restStart = timer.restStartTime || now;
+      const restElapsed = (timer.restAccumulatedMs || 0) + Math.max(0, now - restStart);
+      const text = formatBadgeTime(restElapsed);
+      chrome.action.setBadgeText({ text });
+
+      const tenMinMs = 10 * 60 * 1000;
+      const twentyMinMs = 20 * 60 * 1000;
+      if (restElapsed >= twentyMinMs) {
+        chrome.action.setBadgeBackgroundColor({ color: '#ef4444' });
+        chrome.action.setTitle({ title: `CFO CBMERJ: Descanso excessivo (${text}) — Retome o foco!` });
+      } else if (restElapsed >= tenMinMs) {
+        chrome.action.setBadgeBackgroundColor({ color: '#f59e0b' });
+        chrome.action.setTitle({ title: `CFO CBMERJ: Limite operacional (${text})` });
+      } else {
+        chrome.action.setBadgeBackgroundColor({ color: '#2563eb' });
+        chrome.action.setTitle({ title: `CFO CBMERJ: Em descanso (${text})` });
+      }
+    }
+  });
+}
+
+// Loop ativo para atualizar o badge do navegador em tempo real fora da extensão
+let badgeInterval = null;
+function ensureBadgeTicker() {
+  if (badgeInterval) clearInterval(badgeInterval);
+  badgeInterval = setInterval(() => {
+    chrome.storage.local.get([STORAGE_KEYS.TIMER], (res) => {
+      const timer = res[STORAGE_KEYS.TIMER];
+      if (timer && (timer.status === 'RUNNING' || timer.status === 'PAUSED')) {
+        updateBadge(timer);
+      }
+    });
+  }, 2000);
+}
+ensureBadgeTicker();
+
+// Alarme para manter sincronização e badges vivos mesmo em suspensão do service worker
 chrome.alarms.create('cfo_timer_tick', { periodInMinutes: 1 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'cfo_timer_tick') {
-    chrome.storage.local.get([STORAGE_KEYS.TIMER], (res) => {
-      const timer = res[STORAGE_KEYS.TIMER];
-      if (timer && timer.status === 'RUNNING') {
-        updateBadge('RUNNING');
-      } else if (timer && timer.status === 'PAUSED') {
-        updateBadge('PAUSED');
-      }
-    });
+    ensureBadgeTicker();
+    updateBadge();
   }
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  ensureBadgeTicker();
+  updateBadge();
 });
 
 // Comunicação com o popup
