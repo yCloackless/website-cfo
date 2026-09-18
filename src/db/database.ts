@@ -1430,7 +1430,7 @@ export class DatabaseService {
           this.db
             .prepare('INSERT INTO _migrations (id, name, applied_at) VALUES (?, ?, ?)')
             .run(migration.id, migration.name, new Date().toISOString());
-          if (this.db.prepare('PRAGMA foreign_key_check').all().length) throw new Error('Foreign key integrity check failed');
+          if (!this.postgres && this.db.prepare('PRAGMA foreign_key_check').all().length) throw new Error('Foreign key integrity check failed');
           this.db.exec('COMMIT;');
         } catch (err) {
           this.db.exec('ROLLBACK;');

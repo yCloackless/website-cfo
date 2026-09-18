@@ -42,11 +42,11 @@ const normalize = (sql) => sql
   .replace(/\\bPRAGMA\\s+[^;]+;?/gi, '')
   .replace(/\\s+COLLATE\\s+NOCASE/gi, '')
   .replace(/\\bINSERT\\s+OR\\s+IGNORE\\s+INTO\\b/gi, 'INSERT INTO')
-  .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s+INTEGER\\b/gi, '$1 BOOLEAN')
-  .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s*=\\s*0\\b/gi, '$1 = FALSE')
-  .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s*=\\s*1\\b/gi, '$1 = TRUE')
-  .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s+BOOLEAN\\s+NOT NULL DEFAULT\\s+([01])\\b/gi, (_match, column, value) => column + ' BOOLEAN NOT NULL DEFAULT ' + (value === '1' ? 'TRUE' : 'FALSE'))
-  .replace(/\\bCHECK\\s*\\(\\s*(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)\\s+IN\\s*\\(\\s*0\\s*,\\s*1\\s*\\)\\s*\\)/gi, '');
+  .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|can_access_ifrj|onboarding_completed|is_uncertain|is_manual_review)\\s+INTEGER\\b/gi, '$1 BOOLEAN')
+  .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|can_access_ifrj|onboarding_completed|is_uncertain|is_manual_review)\\s*=\\s*0\\b/gi, '$1 = FALSE')
+  .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|can_access_ifrj|onboarding_completed|is_uncertain|is_manual_review)\\s*=\\s*1\\b/gi, '$1 = TRUE')
+  .replace(/\\b(is_used|is_read|is_correct|is_active|can_access_notion|can_access_ifrj|onboarding_completed|is_uncertain|is_manual_review)\\s+BOOLEAN\\s+NOT NULL DEFAULT\\s+([01])\\b/gi, (_match, column, value) => column + ' BOOLEAN NOT NULL DEFAULT ' + (value === '1' ? 'TRUE' : 'FALSE'))
+  .replace(/\\bCHECK\\s*\\(\\s*(is_used|is_read|is_correct|is_active|can_access_notion|can_access_ifrj|onboarding_completed|is_uncertain|is_manual_review)\\s+IN\\s*\\(\\s*0\\s*,\\s*1\\s*\\)\\s*\\)/gi, '');
 
 // Inicialização com teste de conectividade e circuit breaker
 (async () => {
@@ -139,15 +139,15 @@ function postgresParams(sql: string, params: unknown[]): { text: string; values:
   let index = 0;
   let text = sql.replace(/\?/g, () => `$${++index}`);
   const values = [...params];
-  const boolColumns = '(?:is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)';
+  const boolColumns = '(?:is_used|is_read|is_correct|is_active|can_access_notion|can_access_ifrj|onboarding_completed|is_uncertain|is_manual_review)';
   for (const match of text.matchAll(new RegExp(`\\b${boolColumns}\\s*=\\s*\\$(\\d+)`, 'gi'))) values[Number(match[1]) - 1] = Boolean(values[Number(match[1]) - 1]);
   const insert = text.match(/INSERT INTO\s+"?([a-z_]+)"?\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)/i);
   if (insert) {
     const columns = insert[2].split(',').map((column) => column.trim().replaceAll('"', '').toLowerCase());
     const placeholders = [...insert[3].matchAll(/\$(\d+)/g)].map((match) => Number(match[1]) - 1);
-    columns.forEach((column, position) => { if (/^(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)$/.test(column) && placeholders[position] !== undefined) values[placeholders[position]] = Boolean(values[placeholders[position]]); });
+    columns.forEach((column, position) => { if (/^(is_used|is_read|is_correct|is_active|can_access_notion|can_access_ifrj|onboarding_completed|is_uncertain|is_manual_review)$/.test(column) && placeholders[position] !== undefined) values[placeholders[position]] = Boolean(values[placeholders[position]]); });
     const valueTokens = insert[3].split(',').map((token) => token.trim());
-    columns.forEach((column, position) => { if (/^(is_used|is_read|is_correct|is_active|can_access_notion|is_manual_review)$/.test(column) && /^(0|1)$/.test(valueTokens[position])) valueTokens[position] = valueTokens[position] === '1' ? 'TRUE' : 'FALSE'; });
+    columns.forEach((column, position) => { if (/^(is_used|is_read|is_correct|is_active|can_access_notion|can_access_ifrj|onboarding_completed|is_uncertain|is_manual_review)$/.test(column) && /^(0|1)$/.test(valueTokens[position])) valueTokens[position] = valueTokens[position] === '1' ? 'TRUE' : 'FALSE'; });
     text = text.replace(insert[3], valueTokens.join(', '));
   }
   return { text, values };
