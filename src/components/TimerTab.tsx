@@ -198,12 +198,19 @@ export const TimerTab: React.FC<TimerTabProps> = ({
 
   // Tick contínuo de descanso quando PAUSED
   useEffect(() => {
-    if (timerState.status !== 'PAUSED' || !timerState.restStartTime) return;
+    if (timerState.status !== 'PAUSED') return;
+
+    // Se estiver em PAUSED mas sem restStartTime registrado, inicializa imediatamente
+    if (!timerState.restStartTime) {
+      const nowEstimated = Date.now() + serverOffsetRef.current;
+      setTimerState((prev) => ({ ...prev, restStartTime: nowEstimated }));
+    }
 
     const interval = setInterval(() => {
       const estimatedServerNow = Date.now() + serverOffsetRef.current;
+      const start = timerState.restStartTime || estimatedServerNow;
       const currentRest =
-        (timerState.restAccumulatedMs || 0) + Math.max(0, estimatedServerNow - (timerState.restStartTime || estimatedServerNow));
+        (timerState.restAccumulatedMs || 0) + Math.max(0, estimatedServerNow - start);
       setRestDisplayMs(currentRest);
     }, 100);
 
@@ -216,6 +223,26 @@ export const TimerTab: React.FC<TimerTabProps> = ({
 
   // Iniciar
   const handleStart = async () => {
+    const now = Date.now();
+    const estimatedServerNow = now + serverOffsetRef.current;
+
+    // Transição otimista imediata para feedback instantâneo no clique
+    setTimerState((prev) => {
+      let addRest = 0;
+      if (prev.status === 'PAUSED' && prev.restStartTime) {
+        addRest = Math.max(0, estimatedServerNow - prev.restStartTime);
+      }
+      return {
+        ...prev,
+        status: 'RUNNING',
+        startTime: estimatedServerNow,
+        restStartTime: null,
+        restAccumulatedMs: (prev.restAccumulatedMs || 0) + addRest,
+        activeSubjectId: activeSubject?.id,
+        activeSubjectName: activeSubject?.name,
+      };
+    });
+
     try {
       setIsSyncing(true);
       const res = await apiFetch('/api/timer/start', {
@@ -234,8 +261,8 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       if (typeof data.totalElapsedMs === 'number') {
         setDisplayMs(data.totalElapsedMs);
       } else {
-        const estimatedServerNow = Date.now() + serverOffsetRef.current;
-        setDisplayMs(data.accumulatedTime + (data.startTime ? Math.max(0, estimatedServerNow - data.startTime) : 0));
+        const estNow = Date.now() + serverOffsetRef.current;
+        setDisplayMs(data.accumulatedTime + (data.startTime ? Math.max(0, estNow - data.startTime) : 0));
       }
       if (typeof data.totalRestMs === 'number') {
         setRestDisplayMs(data.totalRestMs);
@@ -251,6 +278,21 @@ export const TimerTab: React.FC<TimerTabProps> = ({
 
   // Pausar
   const handlePause = async () => {
+    const now = Date.now();
+    const currentRestStart = now + serverOffsetRef.current;
+
+    // Transição otimista imediata para início instantâneo da contagem de descanso no clique
+    setTimerState((prev) => {
+      const elapsed = prev.startTime ? Math.max(0, currentRestStart - prev.startTime) : 0;
+      return {
+        ...prev,
+        status: 'PAUSED',
+        startTime: null,
+        restStartTime: currentRestStart,
+        accumulatedTime: (prev.accumulatedTime || 0) + elapsed,
+      };
+    });
+
     try {
       setIsSyncing(true);
       const res = await apiFetch('/api/timer/pause', {
@@ -263,7 +305,14 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       }
       setTimerState(data);
       setDisplayMs(typeof data.totalElapsedMs === 'number' ? data.totalElapsedMs : (data.accumulatedTime || 0));
-      setRestDisplayMs(data.restAccumulatedMs || 0);
+      if (typeof data.totalRestMs === 'number') {
+        setRestDisplayMs(data.totalRestMs);
+      } else if (data.status === 'PAUSED' && data.restStartTime) {
+        const estNow = Date.now() + serverOffsetRef.current;
+        setRestDisplayMs((data.restAccumulatedMs || 0) + Math.max(0, estNow - data.restStartTime));
+      } else {
+        setRestDisplayMs(data.restAccumulatedMs || 0);
+      }
     } catch (err) {
       setIsOnline(false);
     } finally {

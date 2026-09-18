@@ -123,19 +123,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (type === 'TIMER_PAUSE') {
     chrome.storage.local.get([STORAGE_KEYS.TIMER, STORAGE_KEYS.SETTINGS], (res) => {
-      const prev = res[STORAGE_KEYS.TIMER];
+      const prev = res[STORAGE_KEYS.TIMER] || { accumulatedMs: 0 };
       const settings = res[STORAGE_KEYS.SETTINGS] || {};
-      if (!prev || prev.status !== 'RUNNING') {
-        sendResponse({ success: false });
-        return;
-      }
 
       const now = Date.now();
-      const elapsed = Math.max(0, now - (prev.startTime || now));
+      const elapsed = prev.status === 'RUNNING' && prev.startTime ? Math.max(0, now - prev.startTime) : 0;
       const newTimer = {
         ...prev,
         status: 'PAUSED',
-        accumulatedMs: prev.accumulatedMs + elapsed,
+        accumulatedMs: (prev.accumulatedMs || 0) + elapsed,
         startTime: null,
         restStartTime: now,
         restAccumulatedMs: prev.restAccumulatedMs || 0,

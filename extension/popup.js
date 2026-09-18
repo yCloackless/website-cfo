@@ -56,19 +56,21 @@ const sendRuntimeMessage = (message, callback) => {
         subjectId: message.payload?.subjectId || prev.subjectId || 'geral',
         subjectName: message.payload?.subjectName || prev.subjectName || 'Estudo Geral',
       };
+      storage.set({ cfo_ext_timer: newTimer });
       callback({ success: true, timer: newTimer });
     } else if (message.type === 'TIMER_PAUSE') {
       const prev = state.timer;
       const now = Date.now();
-      const elapsed = Math.max(0, now - (prev.startTime || now));
+      const elapsed = prev.status === 'RUNNING' && prev.startTime ? Math.max(0, now - prev.startTime) : 0;
       const newTimer = {
         ...prev,
         status: 'PAUSED',
-        accumulatedMs: prev.accumulatedMs + elapsed,
+        accumulatedMs: (prev.accumulatedMs || 0) + elapsed,
         startTime: null,
         restStartTime: now,
         restAccumulatedMs: prev.restAccumulatedMs || 0,
       };
+      storage.set({ cfo_ext_timer: newTimer });
       callback({ success: true, timer: newTimer });
     } else if (message.type === 'TIMER_RESET') {
       const newTimer = {
@@ -80,6 +82,7 @@ const sendRuntimeMessage = (message, callback) => {
         subjectId: 'geral',
         subjectName: 'Estudo Geral',
       };
+      storage.set({ cfo_ext_timer: newTimer });
       callback({ success: true, timer: newTimer });
     } else {
       callback({ success: true, timer: state.timer });
@@ -234,7 +237,10 @@ function getElapsedTimerMs() {
 }
 
 function getElapsedRestMs() {
-  if (state.timer.status === 'PAUSED' && state.timer.restStartTime) {
+  if (state.timer.status === 'PAUSED') {
+    if (!state.timer.restStartTime) {
+      state.timer.restStartTime = Date.now();
+    }
     return (state.timer.restAccumulatedMs || 0) + Math.max(0, Date.now() - state.timer.restStartTime);
   }
   return state.timer.restAccumulatedMs || 0;
@@ -323,7 +329,7 @@ function startTimerTicker() {
     if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') {
       updateTimerDisplay();
     }
-  }, 500);
+  }, 200);
 }
 
 function updateLevelingUI() {
@@ -468,15 +474,47 @@ els.toggleToken.addEventListener('click', () => {
 els.btnTimerToggle.addEventListener('click', () => {
   const subjectId = els.timerSubject.value;
   const subjectName = els.timerSubject.options[els.timerSubject.selectedIndex].text;
+  const isCurrentlyRunning = state.timer.status === 'RUNNING';
+  const now = Date.now();
+
+  // Transição otimista imediata para início imediato da contagem de descanso no clique
+  if (isCurrentlyRunning) {
+    const elapsed = Math.max(0, now - (state.timer.startTime || now));
+    state.timer = {
+      ...state.timer,
+      status: 'PAUSED',
+      accumulatedMs: (state.timer.accumulatedMs || 0) + elapsed,
+      startTime: null,
+      restStartTime: now,
+      restAccumulatedMs: state.timer.restAccumulatedMs || 0,
+    };
+  } else {
+    let addRest = 0;
+    if (state.timer.status === 'PAUSED' && state.timer.restStartTime) {
+      addRest = Math.max(0, now - state.timer.restStartTime);
+    }
+    state.timer = {
+      ...state.timer,
+      status: 'RUNNING',
+      startTime: now,
+      restStartTime: null,
+      restAccumulatedMs: (state.timer.restAccumulatedMs || 0) + addRest,
+      subjectId,
+      subjectName,
+    };
+  }
+  updateTimerDisplay();
+  startTimerTicker();
+
   sendRuntimeMessage(
-    state.timer.status === 'RUNNING'
+    isCurrentlyRunning
       ? { type: 'TIMER_PAUSE' }
       : { type: 'TIMER_START', payload: { subjectId, subjectName } },
     (response) => {
       if (!response?.timer) return;
       state.timer = response.timer;
       updateTimerDisplay();
-      if (state.timer.status === 'RUNNING') startTimerTicker();
+      startTimerTicker();
     }
   );
 });

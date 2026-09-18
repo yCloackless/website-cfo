@@ -1210,8 +1210,9 @@ input:hover {
   animation: toast-enter 0.2s var(--ease-spring);
 }
 
+.hidden,
 .toast.hidden {
-  display: none;
+  display: none !important;
 }
 
 @keyframes toast-enter {

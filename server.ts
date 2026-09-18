@@ -1668,7 +1668,11 @@ app.get("/api/timer/status", (req: Request, res: Response) => {
 
   if (state.status === "RUNNING" && state.startTime) {
     totalElapsedMs += Math.max(0, now - state.startTime);
-  } else if (state.status === "PAUSED" && state.restStartTime) {
+  } else if (state.status === "PAUSED") {
+    if (!state.restStartTime) {
+      state.restStartTime = now;
+      saveTimerState((req as any).user.userId, state);
+    }
     totalRestMs += Math.max(0, now - state.restStartTime);
   }
 
@@ -1736,12 +1740,13 @@ app.post("/api/timer/pause", (req: Request, res: Response) => {
       endTime: now,
       subjectId: state.activeSubjectId,
     });
-    state.startTime = null;
-    state.status = "PAUSED";
-    state.restStartTime = now;
-    state.updatedAt = new Date().toISOString();
-    saveTimerState((req as any).user.userId, state);
   }
+
+  state.startTime = null;
+  state.status = "PAUSED";
+  state.restStartTime = now;
+  state.updatedAt = new Date().toISOString();
+  saveTimerState((req as any).user.userId, state);
 
   const currentRestMs = state.restAccumulatedMs || 0;
   return res.json({
