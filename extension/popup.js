@@ -339,9 +339,22 @@ function startTimerTicker() {
   timerInterval = setInterval(() => {
     if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') {
       updateTimerDisplay();
+    } else {
+      // Para de contar se o timer parou
+      clearInterval(timerInterval);
+      timerInterval = null;
     }
   }, 200);
 }
+
+// Reinicia o ticker quando a extensão volta a ficar visível (reopen do popup)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') {
+      startTimerTicker();
+    }
+  }
+});
 
 function updateLevelingUI() {
   const { total, answers } = state.leveling;
@@ -747,21 +760,36 @@ async function initPopup() {
         setConnectionStatus('connected');
         const cloud = await response.json();
         if (cloud && cloud.status) {
-          const isLocalPaused = state.timer.status === 'PAUSED' && state.timer.restStartTime;
+          // Preserva restStartTime local se já estamos em pausa (não sobrescreve com null do servidor)
+          const localRestStart = state.timer.restStartTime;
+          const isLocalPaused = state.timer.status === 'PAUSED' && localRestStart;
           const cloudAcc = Number(cloud.accumulatedTime ?? cloud.accumulatedMs ?? cloud.totalElapsedMs) || 0;
-          state.timer = {
-            status: cloud.status,
-            accumulatedMs: cloudAcc,
-            accumulatedTime: cloudAcc,
-            startTime: cloud.startTime || null,
-            restAccumulatedMs: 0,
-            restStartTime: isLocalPaused ? state.timer.restStartTime : (cloud.restStartTime || null),
-            subjectId: cloud.activeSubjectId || state.timer.subjectId || 'geral',
-            subjectName: cloud.activeSubjectName || state.timer.subjectName || 'Estudo Geral',
-          };
-          await storage.set({ cfo_ext_timer: state.timer });
-          updateTimerDisplay();
-          if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') startTimerTicker();
+
+          // Se o servidor diz RUNNING mas o startTime do servidor é anterior ao nosso startTime local,
+          // usa o estado local para não perder o tempo já contabilizado no popup
+          const localIsMoreRecent =
+            state.timer.status === 'RUNNING' &&
+            state.timer.startTime &&
+            cloud.startTime &&
+            state.timer.startTime >= cloud.startTime;
+
+          if (!localIsMoreRecent) {
+            state.timer = {
+              status: cloud.status,
+              accumulatedMs: cloudAcc,
+              accumulatedTime: cloudAcc,
+              startTime: cloud.startTime || null,
+              restAccumulatedMs: 0,
+              // Mantém restStartTime local se já está pausado localmente,
+              // caso contrário usa o do servidor
+              restStartTime: isLocalPaused ? localRestStart : (cloud.restStartTime || null),
+              subjectId: cloud.activeSubjectId || state.timer.subjectId || 'geral',
+              subjectName: cloud.activeSubjectName || state.timer.subjectName || 'Estudo Geral',
+            };
+            await storage.set({ cfo_ext_timer: state.timer });
+            updateTimerDisplay();
+            if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') startTimerTicker();
+          }
         }
         fetchLevelingFromCloud();
       })

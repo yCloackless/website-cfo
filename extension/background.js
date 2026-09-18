@@ -100,32 +100,26 @@ function updateBadge(timerOrStatus) {
   });
 }
 
-// Loop ativo para atualizar o badge do navegador em tempo real fora da extensão
-let badgeInterval = null;
-function ensureBadgeTicker() {
-  if (badgeInterval) clearInterval(badgeInterval);
-  badgeInterval = setInterval(() => {
-    chrome.storage.local.get([STORAGE_KEYS.TIMER], (res) => {
-      const timer = res[STORAGE_KEYS.TIMER];
-      if (timer && (timer.status === 'RUNNING' || timer.status === 'PAUSED')) {
-        updateBadge(timer);
-      }
-    });
-  }, 2000);
+// Usa chrome.alarms para atualizar o badge — único mecanismo que sobrevive à suspensão do service worker MV3
+// setInterval NÃO sobrevive à suspensão; alarms são a solução correta para MV3.
+function setupAlarms() {
+  // Alarme a cada 30s para atualização frequente do badge
+  chrome.alarms.get('cfo_timer_tick', (existing) => {
+    if (!existing) {
+      chrome.alarms.create('cfo_timer_tick', { periodInMinutes: 0.5 });
+    }
+  });
 }
-ensureBadgeTicker();
+setupAlarms();
 
-// Alarme para manter sincronização e badges vivos mesmo em suspensão do service worker
-chrome.alarms.create('cfo_timer_tick', { periodInMinutes: 1 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'cfo_timer_tick') {
-    ensureBadgeTicker();
     updateBadge();
   }
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  ensureBadgeTicker();
+  setupAlarms();
   updateBadge();
 });
 
