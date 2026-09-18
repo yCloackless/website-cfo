@@ -215,5 +215,79 @@ test('EXT-14: pausas não acumulam entre ciclos e iniciam sempre zeradas para um
   assert.equal(restDuration2, 1000, 'Segunda pausa após 1s deve medir exatamente 1000ms (tempo novo), sem acumular pausa anterior');
 });
 
+test('EXT-15: retoma foco sem exibir NaN : NaN : NaN e mantém resiliência numérica entre accumulatedTime e accumulatedMs', () => {
+  const popupJs = readSource('extension/popup.js');
+  const bgJs = readSource('extension/background.js');
+
+  // Verifica normalização no popup.js
+  assert.match(popupJs, /accumulatedMs:\s*cloudAcc/, 'popup.js deve atribuir accumulatedMs a partir da resposta cloud');
+  assert.match(popupJs, /accumulatedTime:\s*cloudAcc/, 'popup.js deve atribuir accumulatedTime a partir da resposta cloud');
+  assert.match(popupJs, /Number\(state\.timer\.accumulatedMs\s*\?\?\s*state\.timer\.accumulatedTime\)/, 'getElapsedTimerMs deve aceitar accumulatedMs ou accumulatedTime');
+
+  // Verifica normalização no background.js
+  assert.match(bgJs, /Number\(prev\.accumulatedMs\s*\?\?\s*prev\.accumulatedTime\)/, 'background.js deve suportar accumulatedTime como fallback');
+
+  // Simulação da função formatTime do popup.js
+  function formatTime(ms: any) {
+    const safeMs = typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? ms : 0;
+    const seconds = Math.floor(safeMs / 1000);
+    const pad = (value: number) => String(value).padStart(2, '0');
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${pad(hours)}:${pad(minutes)}:${pad(secs)}`;
+  }
+
+  // formatTime nunca deve produzir NaN
+  assert.equal(formatTime(NaN), '00:00:00', 'formatTime(NaN) deve retornar 00:00:00');
+  assert.equal(formatTime(undefined), '00:00:00', 'formatTime(undefined) deve retornar 00:00:00');
+  assert.equal(formatTime(null), '00:00:00', 'formatTime(null) deve retornar 00:00:00');
+  assert.equal(formatTime(-1000), '00:00:00', 'formatTime(-1000) deve retornar 00:00:00');
+  assert.equal(formatTime(65000), '00:01:05', 'formatTime(65000) deve retornar 00:01:05');
+
+  // Simulação do cenário exato do bug:
+  // 1. Estado vindo da nuvem com accumulatedTime (sem accumulatedMs)
+  const cloudResponse: any = {
+    status: 'PAUSED',
+    accumulatedTime: 120000, // 2 minutos
+    startTime: null,
+    restStartTime: 1000000,
+  };
+
+  const cloudAcc = Number(cloudResponse.accumulatedTime ?? cloudResponse.accumulatedMs) || 0;
+  let timerState: any = {
+    status: cloudResponse.status,
+    accumulatedMs: cloudAcc,
+    accumulatedTime: cloudAcc,
+    startTime: cloudResponse.startTime,
+    restStartTime: cloudResponse.restStartTime,
+    restAccumulatedMs: 0,
+  };
+
+  // 2. Cadete clica em "Retomar foco"
+  const now = 1005000;
+  const currentAccumulated = Number(timerState.accumulatedMs ?? timerState.accumulatedTime) || 0;
+  timerState = {
+    ...timerState,
+    status: 'RUNNING',
+    accumulatedMs: currentAccumulated,
+    accumulatedTime: currentAccumulated,
+    startTime: now,
+    restStartTime: null,
+    restAccumulatedMs: 0,
+  };
+
+  // 3. getElapsedTimerMs após 3 segundos
+  const simulatedNow = now + 3000;
+  const accumulated = Number(timerState.accumulatedMs ?? timerState.accumulatedTime) || 0;
+  const elapsed = accumulated + Math.max(0, simulatedNow - timerState.startTime);
+  const display = formatTime(elapsed);
+
+  assert.equal(Number.isNaN(elapsed), false, 'elapsed não pode ser NaN ao retomar o foco');
+  assert.equal(display, '00:02:03', 'Deve exibir 00:02:03 com precisão após retomar o foco');
+  assert.doesNotMatch(display, /NaN/, 'Display nunca pode conter NaN');
+});
+
+
 
 

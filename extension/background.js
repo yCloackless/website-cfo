@@ -40,7 +40,8 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // Formata tempo compacto para o badge do ícone do navegador (máx 4 caracteres)
 function formatBadgeTime(ms) {
-  const totalSecs = Math.max(0, Math.floor(ms / 1000));
+  const safeMs = typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? ms : 0;
+  const totalSecs = Math.floor(safeMs / 1000);
   const mins = Math.floor(totalSecs / 60);
   const hrs = Math.floor(mins / 60);
 
@@ -69,7 +70,8 @@ function updateBadge(timerOrStatus) {
     const now = Date.now();
 
     if (timer.status === 'RUNNING') {
-      const elapsed = (timer.accumulatedMs || 0) + (timer.startTime ? Math.max(0, now - timer.startTime) : 0);
+      const acc = Number(timer.accumulatedMs ?? timer.accumulatedTime) || 0;
+      const elapsed = acc + (timer.startTime ? Math.max(0, now - timer.startTime) : 0);
       const text = formatBadgeTime(elapsed);
       chrome.action.setBadgeText({ text });
       chrome.action.setBadgeBackgroundColor({ color: '#10b981' });
@@ -143,10 +145,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const prev = res[STORAGE_KEYS.TIMER] || { accumulatedMs: 0 };
       const settings = res[STORAGE_KEYS.SETTINGS] || {};
       const now = Date.now();
+      const prevAcc = Number(prev.accumulatedMs ?? prev.accumulatedTime) || 0;
 
       const newTimer = {
         status: 'RUNNING',
-        accumulatedMs: prev.status === 'PAUSED' ? prev.accumulatedMs : (prev.accumulatedMs || 0),
+        accumulatedMs: prevAcc,
+        accumulatedTime: prevAcc,
         startTime: now,
         restAccumulatedMs: 0,
         restStartTime: null,
@@ -184,10 +188,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       const now = Date.now();
       const elapsed = prev.status === 'RUNNING' && prev.startTime ? Math.max(0, now - prev.startTime) : 0;
+      const prevAcc = Number(prev.accumulatedMs ?? prev.accumulatedTime) || 0;
+      const newAcc = prevAcc + elapsed;
       const newTimer = {
         ...prev,
         status: 'PAUSED',
-        accumulatedMs: (prev.accumulatedMs || 0) + elapsed,
+        accumulatedMs: newAcc,
+        accumulatedTime: newAcc,
         startTime: null,
         restStartTime: now,
         restAccumulatedMs: 0,
@@ -217,6 +224,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const newTimer = {
         status: 'STOPPED',
         accumulatedMs: 0,
+        accumulatedTime: 0,
         startTime: null,
         restAccumulatedMs: 0,
         restStartTime: null,

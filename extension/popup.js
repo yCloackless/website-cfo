@@ -43,9 +43,11 @@ const sendRuntimeMessage = (message, callback) => {
     if (message.type === 'TIMER_START') {
       const now = Date.now();
       const prev = state.timer;
+      const prevAcc = Number(prev.accumulatedMs ?? prev.accumulatedTime) || 0;
       const newTimer = {
         status: 'RUNNING',
-        accumulatedMs: prev.status === 'PAUSED' ? prev.accumulatedMs : (prev.accumulatedMs || 0),
+        accumulatedMs: prevAcc,
+        accumulatedTime: prevAcc,
         startTime: now,
         restAccumulatedMs: 0,
         restStartTime: null,
@@ -58,10 +60,13 @@ const sendRuntimeMessage = (message, callback) => {
       const prev = state.timer;
       const now = Date.now();
       const elapsed = prev.status === 'RUNNING' && prev.startTime ? Math.max(0, now - prev.startTime) : 0;
+      const prevAcc = Number(prev.accumulatedMs ?? prev.accumulatedTime) || 0;
+      const newAcc = prevAcc + elapsed;
       const newTimer = {
         ...prev,
         status: 'PAUSED',
-        accumulatedMs: (prev.accumulatedMs || 0) + elapsed,
+        accumulatedMs: newAcc,
+        accumulatedTime: newAcc,
         startTime: null,
         restStartTime: now,
         restAccumulatedMs: 0,
@@ -72,6 +77,7 @@ const sendRuntimeMessage = (message, callback) => {
       const newTimer = {
         status: 'STOPPED',
         accumulatedMs: 0,
+        accumulatedTime: 0,
         startTime: null,
         restAccumulatedMs: 0,
         restStartTime: null,
@@ -82,7 +88,9 @@ const sendRuntimeMessage = (message, callback) => {
       callback({ success: true, timer: newTimer });
     } else if (message.type === 'GET_TIMER_STATE') {
       storage.get(['cfo_ext_timer']).then((res) => {
-        callback({ success: true, timer: res.cfo_ext_timer || state.timer });
+        const raw = res.cfo_ext_timer || state.timer;
+        const acc = Number(raw.accumulatedMs ?? raw.accumulatedTime) || 0;
+        callback({ success: true, timer: { ...raw, accumulatedMs: acc, accumulatedTime: acc } });
       });
     } else {
       callback({ success: true, timer: state.timer });
@@ -186,7 +194,8 @@ const els = {
 };
 
 function formatTime(ms) {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const safeMs = typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? ms : 0;
+  const seconds = Math.floor(safeMs / 1000);
   const pad = (value) => String(value).padStart(2, '0');
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
@@ -230,10 +239,12 @@ function switchTab(tabName) {
 }
 
 function getElapsedTimerMs() {
+  const accumulated = Number(state.timer.accumulatedMs ?? state.timer.accumulatedTime) || 0;
   if (state.timer.status === 'RUNNING' && state.timer.startTime) {
-    return state.timer.accumulatedMs + Math.max(0, Date.now() - state.timer.startTime);
+    const start = Number(state.timer.startTime);
+    return accumulated + (Number.isFinite(start) && start > 0 ? Math.max(0, Date.now() - start) : 0);
   }
-  return state.timer.accumulatedMs || 0;
+  return accumulated;
 }
 
 function getElapsedRestMs() {
@@ -476,14 +487,17 @@ els.btnTimerToggle.addEventListener('click', () => {
   const subjectName = els.timerSubject.options[els.timerSubject.selectedIndex].text;
   const isCurrentlyRunning = state.timer.status === 'RUNNING';
   const now = Date.now();
+  const currentAccumulated = Number(state.timer.accumulatedMs ?? state.timer.accumulatedTime) || 0;
 
   // Transição otimista imediata para início imediato da contagem de descanso no clique
   if (isCurrentlyRunning) {
     const elapsed = Math.max(0, now - (state.timer.startTime || now));
+    const newAccumulated = currentAccumulated + elapsed;
     state.timer = {
       ...state.timer,
       status: 'PAUSED',
-      accumulatedMs: (state.timer.accumulatedMs || 0) + elapsed,
+      accumulatedMs: newAccumulated,
+      accumulatedTime: newAccumulated,
       startTime: null,
       restStartTime: now,
       restAccumulatedMs: 0,
@@ -492,6 +506,8 @@ els.btnTimerToggle.addEventListener('click', () => {
     state.timer = {
       ...state.timer,
       status: 'RUNNING',
+      accumulatedMs: currentAccumulated,
+      accumulatedTime: currentAccumulated,
       startTime: now,
       restStartTime: null,
       restAccumulatedMs: 0,
@@ -508,7 +524,12 @@ els.btnTimerToggle.addEventListener('click', () => {
       : { type: 'TIMER_START', payload: { subjectId, subjectName } },
     (response) => {
       if (!response?.timer) return;
-      state.timer = response.timer;
+      const respAcc = Number(response.timer.accumulatedMs ?? response.timer.accumulatedTime) || 0;
+      state.timer = {
+        ...response.timer,
+        accumulatedMs: respAcc,
+        accumulatedTime: respAcc,
+      };
       updateTimerDisplay();
       startTimerTicker();
     }
@@ -686,7 +707,13 @@ async function initPopup() {
   }
 
   if (saved.cfo_ext_timer) {
-    state.timer = saved.cfo_ext_timer;
+    const savedTimer = saved.cfo_ext_timer;
+    const acc = Number(savedTimer.accumulatedMs ?? savedTimer.accumulatedTime) || 0;
+    state.timer = {
+      ...savedTimer,
+      accumulatedMs: acc,
+      accumulatedTime: acc,
+    };
     if (state.timer.subjectId) els.timerSubject.value = state.timer.subjectId;
   }
 
@@ -699,7 +726,12 @@ async function initPopup() {
 
   sendRuntimeMessage({ type: 'GET_TIMER_STATE' }, (response) => {
     if (!response?.timer) return;
-    state.timer = response.timer;
+    const respAcc = Number(response.timer.accumulatedMs ?? response.timer.accumulatedTime) || 0;
+    state.timer = {
+      ...response.timer,
+      accumulatedMs: respAcc,
+      accumulatedTime: respAcc,
+    };
     if (state.timer.subjectId) els.timerSubject.value = state.timer.subjectId;
     updateTimerDisplay();
     if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') startTimerTicker();
@@ -716,9 +748,11 @@ async function initPopup() {
         const cloud = await response.json();
         if (cloud && cloud.status) {
           const isLocalPaused = state.timer.status === 'PAUSED' && state.timer.restStartTime;
+          const cloudAcc = Number(cloud.accumulatedTime ?? cloud.accumulatedMs ?? cloud.totalElapsedMs) || 0;
           state.timer = {
             status: cloud.status,
-            accumulatedTime: cloud.accumulatedTime || 0,
+            accumulatedMs: cloudAcc,
+            accumulatedTime: cloudAcc,
             startTime: cloud.startTime || null,
             restAccumulatedMs: 0,
             restStartTime: isLocalPaused ? state.timer.restStartTime : (cloud.restStartTime || null),
