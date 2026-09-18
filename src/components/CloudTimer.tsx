@@ -1,6 +1,7 @@
 import { apiFetch } from '../services/apiFetch';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, RotateCcw, Cloud, CloudOff, Timer, Sparkles } from 'lucide-react';
+import { ConfirmModal } from './ConfirmModal';
 
 interface TimerState {
   status: 'STOPPED' | 'RUNNING' | 'PAUSED';
@@ -224,15 +225,23 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
     }
   };
 
-  // Resetar contadores no servidor
-  const handleReset = async () => {
-    if (displayMs > 60000 && onLogStudyTime) {
+  const [resetModal, setResetModal] = useState<{ isOpen: boolean; minutes: number } | null>(null);
+
+  // Resetar contadores no servidor com modal de confirmação bonito
+  const handleResetClick = () => {
+    if (displayMs > 60000) {
       const minutes = Math.round(displayMs / 60000);
-      const confirmLog = window.confirm(`Deseja registrar ${minutes} minutos de estudo no seu cronograma antes de resetar?`);
-      if (confirmLog) {
-        onLogStudyTime(minutes);
-      }
+      setResetModal({ isOpen: true, minutes });
+    } else {
+      void executeReset(false);
     }
+  };
+
+  const executeReset = async (shouldLogTime: boolean = false) => {
+    if (shouldLogTime && resetModal && onLogStudyTime) {
+      onLogStudyTime(resetModal.minutes);
+    }
+    setResetModal(null);
 
     try {
       setIsSyncing(true);
@@ -332,13 +341,27 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
         )}
 
         <button
-          onClick={handleReset}
+          onClick={handleResetClick}
           title="Resetar Cronômetro"
           className="p-1 rounded-lg bg-zinc-800/60 hover:bg-zinc-700/60 text-zinc-400 hover:text-white border border-zinc-700/40 transition-all cursor-pointer"
         >
           <RotateCcw className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {/* Modal de Confirmação Personalizado */}
+      <ConfirmModal
+        isOpen={!!resetModal?.isOpen}
+        title="Zerar Cronômetro?"
+        description={onLogStudyTime ? "Deseja salvar estes minutos de estudo no seu cronograma antes de zerar?" : "Esta ação irá reiniciar o tempo do cronômetro."}
+        badgeText={resetModal ? `⏱️ ${resetModal.minutes} min nesta sessão` : undefined}
+        confirmLabel={onLogStudyTime ? "Salvar & Zerar" : "Zerar"}
+        cancelLabel="Apenas Zerar"
+        variant="warning"
+        iconType="reset"
+        onConfirm={() => void executeReset(true)}
+        onClose={() => void executeReset(false)}
+      />
     </div>
   );
 };

@@ -17,6 +17,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { Subject, AppTheme } from '../types';
+import { ConfirmModal } from './ConfirmModal';
 
 interface TimerTabProps {
   theme: AppTheme;
@@ -315,16 +316,20 @@ export const TimerTab: React.FC<TimerTabProps> = ({
     }
   };
 
-  // Resetar
-  const handleReset = async () => {
+  const [resetModal, setResetModal] = useState<{ isOpen: boolean; minutes: number } | null>(null);
+
+  // Resetar com modal de confirmação personalizado de alto padrão
+  const handleResetClick = () => {
     if (displayMs > 60000) {
       const minutes = Math.round(displayMs / 60000);
-      const confirmReset = window.confirm(
-        `Deseja zerar o cronômetro? Foram contabilizados ${minutes} minutos nesta sessão.`
-      );
-      if (!confirmReset) return;
+      setResetModal({ isOpen: true, minutes });
+    } else {
+      void executeReset();
     }
+  };
 
+  const executeReset = async () => {
+    setResetModal(null);
     try {
       setIsSyncing(true);
       const res = await apiFetch('/api/timer/reset', {
@@ -809,7 +814,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
           )}
 
           <button
-            onClick={handleReset}
+            onClick={handleResetClick}
             disabled={isSyncing || displayMs === 0}
             className={`inline-flex items-center gap-2 px-5 py-4 rounded-2xl border text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
               isDark
@@ -825,7 +830,6 @@ export const TimerTab: React.FC<TimerTabProps> = ({
           <button
             onClick={async () => {
               if (displayMs < 1000) {
-                alert('Inicie o cronômetro para contabilizar o tempo antes de salvar.');
                 return;
               }
               await handleSaveToDatabase();
@@ -846,6 +850,21 @@ export const TimerTab: React.FC<TimerTabProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Modal de Confirmação Personalizado (Substitui window.confirm nativo) */}
+      <ConfirmModal
+        isOpen={!!resetModal?.isOpen}
+        title="Deseja zerar o cronômetro?"
+        description="Esta ação irá reiniciar o tempo de foco da sua sessão atual para 00:00:00."
+        badgeText={resetModal ? `⏱️ ${resetModal.minutes} minutos contabilizados nesta sessão` : undefined}
+        confirmLabel="Zerar Cronômetro"
+        cancelLabel="Cancelar"
+        variant="warning"
+        iconType="reset"
+        theme={theme}
+        onConfirm={executeReset}
+        onClose={() => setResetModal(null)}
+      />
     </div>
   );
 };
