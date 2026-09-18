@@ -230,9 +230,20 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   const [studySessionStats, setStudySessionStats] = useState({ again: 0, hard: 0, good: 0, easy: 0, total: 0 });
   const [cramMode, setCramMode] = useState(false); // Modo Maratona (Treino livre sem alterar SM-2)
 
-  // Refs para inputs de imagem
+  // Refs para inputs de imagem e textarea de cartões
   const questionFileInputRef = useRef<HTMLInputElement | null>(null);
   const answerFileInputRef = useRef<HTMLInputElement | null>(null);
+  const cardFrontTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const cardBackTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Seleção e criação inline de Disciplina/Baralho para autonomia na criação manual de Flashcards
+  const [cardFormSubjectId, setCardFormSubjectId] = useState<string>('');
+  const [cardFormNewSubjectName, setCardFormNewSubjectName] = useState<string>('');
+  const [cardFormDeckId, setCardFormDeckId] = useState<string>('');
+  const [cardFormNewDeckName, setCardFormNewDeckName] = useState<string>('');
+  const [cardModalDecks, setCardModalDecks] = useState<DeckWithStats[]>([]);
+  const [cardModalLoadingDecks, setCardModalLoadingDecks] = useState<boolean>(false);
+  const [isSavingCard, setIsSavingCard] = useState<boolean>(false);
 
   // =========================================================================
   // 📡 CARREGAMENTO INICIAL E SINCRONIZAÇÃO COM O BACKEND
@@ -537,8 +548,41 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   };
 
   // =========================================================================
-  // 🃏 CRUD FLASHCARDS
+  // 🃏 CRUD FLASHCARDS & AUTONOMIA MANUAL
   // =========================================================================
+
+  // Carrega baralhos para o modal de criação de card quando a disciplina selecionada muda
+  const loadDecksForCardModal = useCallback(async (subjectId: string, preselectedDeckId?: string) => {
+    if (!subjectId || subjectId === '__new__') {
+      setCardModalDecks([]);
+      setCardFormDeckId('__new__');
+      return;
+    }
+    try {
+      setCardModalLoadingDecks(true);
+      const res = await apiFetch(`/api/flashcards/decks?subjectId=${encodeURIComponent(subjectId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        const dList: DeckWithStats[] = data.decks || [];
+        setCardModalDecks(dList);
+        if (preselectedDeckId && dList.some((d) => d.id === preselectedDeckId)) {
+          setCardFormDeckId(preselectedDeckId);
+        } else if (dList.length > 0) {
+          setCardFormDeckId(dList[0].id);
+        } else {
+          setCardFormDeckId('__new__');
+        }
+      } else {
+        setCardModalDecks([]);
+        setCardFormDeckId('__new__');
+      }
+    } catch {
+      setCardModalDecks([]);
+      setCardFormDeckId('__new__');
+    } finally {
+      setCardModalLoadingDecks(false);
+    }
+  }, []);
 
   const handleOpenAddCardModal = () => {
     setEditingCard(null);
@@ -546,6 +590,21 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     setCardFormBack('');
     setCardFormFrontImage(null);
     setCardFormBackImage(null);
+    setCardFormNewSubjectName('');
+    setCardFormNewDeckName('');
+
+    const initialSubjectId = currentSubject?.id || (subjects.length > 0 ? subjects[0].id : '__new__');
+    const initialDeckId = currentDeck?.id || '';
+
+    setCardFormSubjectId(initialSubjectId);
+
+    if (initialSubjectId === '__new__') {
+      setCardModalDecks([]);
+      setCardFormDeckId('__new__');
+    } else {
+      void loadDecksForCardModal(initialSubjectId, initialDeckId);
+    }
+
     setIsCardModalOpen(true);
   };
 
@@ -556,7 +615,43 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     setCardFormBack(card.back);
     setCardFormFrontImage(card.frontImage || null);
     setCardFormBackImage(card.backImage || null);
+    setCardFormSubjectId(card.subjectId || currentSubject?.id || '');
+    setCardFormDeckId(card.deckId || currentDeck?.id || '');
+    setCardFormNewSubjectName('');
+    setCardFormNewDeckName('');
+    if (card.subjectId) {
+      void loadDecksForCardModal(card.subjectId, card.deckId);
+    }
     setIsCardModalOpen(true);
+  };
+
+  const insertFormatting = (
+    field: 'front' | 'back',
+    before: string,
+    after: string,
+    placeholder: string
+  ) => {
+    const textarea = field === 'front' ? cardFrontTextareaRef.current : cardBackTextareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = field === 'front' ? cardFormFront : cardFormBack;
+    const selected = text.slice(start, end);
+    const contentToInsert = selected || placeholder;
+    const newText = text.slice(0, start) + before + contentToInsert + after + text.slice(end);
+
+    if (field === 'front') {
+      setCardFormFront(newText);
+    } else {
+      setCardFormBack(newText);
+    }
+
+    setTimeout(() => {
+      textarea.focus();
+      const newCursorPos = start + before.length + contentToInsert.length + after.length;
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
   };
 
   const handleSaveCard = async (e: React.FormEvent) => {
@@ -569,12 +664,11 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
       showToast?.('Informe a resposta ou cole uma foto no verso.', 'error');
       return;
     }
-    if (!currentDeck) {
-      showToast?.('Baralho não selecionado.', 'error');
-      return;
-    }
 
     try {
+      setIsSavingCard(true);
+
+      // Edição de cartão existente
       if (editingCard) {
         const res = await apiFetch(`/api/flashcards/cards/${editingCard.id}`, {
           method: 'PATCH',
@@ -587,36 +681,91 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
           }),
         });
         if (res.ok) {
-          showToast?.('Flashcard atualizado!', 'success');
+          showToast?.('Flashcard atualizado com sucesso!', 'success');
           setIsCardModalOpen(false);
-          void fetchCardsForDeck(currentDeck.id);
+          if (currentDeck) void fetchCardsForDeck(currentDeck.id);
           if (currentSubject) void fetchDecksForSubject(currentSubject.id);
+          void fetchGlobalData();
         } else {
           showToast?.('Falha ao atualizar flashcard.', 'error');
         }
-      } else {
-        const res = await apiFetch('/api/flashcards/cards', {
+        return;
+      }
+
+      // 1. Resolução ou criação da Disciplina
+      let resolvedSubjectId = cardFormSubjectId;
+      if (!resolvedSubjectId || resolvedSubjectId === '__new__' || subjects.length === 0) {
+        const subName = cardFormNewSubjectName.trim();
+        if (!subName) {
+          showToast?.('Por favor, informe o nome da Disciplina.', 'error');
+          return;
+        }
+        const subRes = await apiFetch('/api/flashcards/subjects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: subName }),
+        });
+        if (!subRes.ok) {
+          const err = await subRes.json().catch(() => ({}));
+          showToast?.(err.message || 'Falha ao criar disciplina.', 'error');
+          return;
+        }
+        const subData = await subRes.json();
+        resolvedSubjectId = subData.subject.id;
+      }
+
+      // 2. Resolução ou criação do Baralho
+      let resolvedDeckId = cardFormDeckId;
+      if (!resolvedDeckId || resolvedDeckId === '__new__' || cardModalDecks.length === 0) {
+        const deckName = cardFormNewDeckName.trim() || 'Baralho Principal';
+        const deckRes = await apiFetch('/api/flashcards/decks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            deckId: currentDeck.id,
-            front: cardFormFront.trim(),
-            back: cardFormBack.trim(),
-            frontImage: cardFormFrontImage,
-            backImage: cardFormBackImage,
+            subjectId: resolvedSubjectId,
+            name: deckName,
+            description: 'Baralho criado manualmente',
           }),
         });
-        if (res.ok) {
-          showToast?.('Flashcard adicionado ao baralho!', 'success');
-          setIsCardModalOpen(false);
-          void fetchCardsForDeck(currentDeck.id);
-          if (currentSubject) void fetchDecksForSubject(currentSubject.id);
-        } else {
-          showToast?.('Falha ao criar flashcard.', 'error');
+        if (!deckRes.ok) {
+          const err = await deckRes.json().catch(() => ({}));
+          showToast?.(err.message || 'Falha ao criar baralho.', 'error');
+          return;
         }
+        const deckData = await deckRes.json();
+        resolvedDeckId = deckData.deck.id;
+      }
+
+      // 3. Criação do Flashcard
+      const cardRes = await apiFetch('/api/flashcards/cards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deckId: resolvedDeckId,
+          front: cardFormFront.trim(),
+          back: cardFormBack.trim(),
+          frontImage: cardFormFrontImage,
+          backImage: cardFormBackImage,
+        }),
+      });
+
+      if (cardRes.ok) {
+        showToast?.('Flashcard criado com sucesso!', 'success');
+        setIsCardModalOpen(false);
+        if (currentDeck && currentDeck.id === resolvedDeckId) {
+          void fetchCardsForDeck(resolvedDeckId);
+        } else if (currentSubject && currentSubject.id === resolvedSubjectId) {
+          void fetchDecksForSubject(resolvedSubjectId);
+        }
+        void fetchGlobalData();
+      } else {
+        const err = await cardRes.json().catch(() => ({}));
+        showToast?.(err.message || 'Falha ao criar flashcard.', 'error');
       }
     } catch {
-      showToast?.('Erro de conexão ao salvar cartão.', 'error');
+      showToast?.('Erro de conexão ao salvar flashcard.', 'error');
+    } finally {
+      setIsSavingCard(false);
     }
   };
 
@@ -1049,11 +1198,13 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
         }));
 
         // Se errou (rating 1), adiciona o cartão novamente ao final da fila para repetição na mesma sessão
+        let effectiveQueueLength = studyQueue.length;
         if (rating === 1) {
+          effectiveQueueLength += 1;
           setStudyQueue((prev) => [...prev, currentCard]);
         }
 
-        if (currentCardIndex + 1 < studyQueue.length) {
+        if (currentCardIndex + 1 < effectiveQueueLength) {
           setCurrentCardIndex((prev) => prev + 1);
           setIsAnswerRevealed(false);
         } else {
@@ -1194,6 +1345,15 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 
             {/* Ações Globais Rápidas */}
             <div className="flex items-center gap-2.5">
+              <button
+                onClick={handleOpenAddCardModal}
+                className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-100 border border-slate-700/80 hover:border-slate-600 transition-all shadow-md cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                title="Criar um flashcard manualmente a qualquer momento"
+              >
+                <PlusCircle className="w-4 h-4 text-red-400" />
+                <span>+ Novo Flashcard</span>
+              </button>
+
               <button
                 onClick={handleOpenAiGenerator}
                 className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-red-600/20 via-amber-600/20 to-indigo-600/20 border border-red-500/40 text-amber-300 hover:text-white hover:border-red-500/60 transition-all shadow-md backdrop-blur-md cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
@@ -1483,11 +1643,19 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 
                   <div className="flex flex-wrap items-center justify-center gap-3">
                     <button
-                      onClick={handleOpenCreateSubject}
+                      onClick={handleOpenAddCardModal}
                       className="px-5 py-3 text-xs sm:text-sm font-bold rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white shadow-lg shadow-red-950/50 transition-all transform hover:-translate-y-0.5 active:translate-y-0 flex items-center gap-2 cursor-pointer"
                     >
-                      <FolderPlus className="w-4 h-4" />
-                      <span>+ Criar Primeira Disciplina</span>
+                      <PlusCircle className="w-4 h-4" />
+                      <span>+ Criar Primeiro Flashcard</span>
+                    </button>
+
+                    <button
+                      onClick={handleOpenCreateSubject}
+                      className="px-4 py-3 text-xs sm:text-sm font-semibold rounded-xl bg-slate-800/90 hover:bg-slate-800 text-slate-200 border border-slate-700/80 hover:border-slate-600 transition-all flex items-center gap-2 cursor-pointer"
+                    >
+                      <FolderPlus className="w-4 h-4 text-slate-400" />
+                      <span>+ Criar Disciplina</span>
                     </button>
 
                     <button
@@ -2396,56 +2564,180 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                 <div className="min-w-0">
                   <p className="text-[11px] font-mono uppercase tracking-[0.18em] text-red-400">Editor de cartões</p>
                   <h3 className="font-semibold text-lg text-slate-100">
-                    {editingCard ? 'Editar flashcard' : 'Adicionar flashcard'}
-                    {currentDeck && <span className="font-normal text-sm text-slate-400"> · {currentDeck.name}</span>}
+                    {editingCard ? 'Editar flashcard' : 'Criar Flashcard Manual'}
+                    {currentDeck && !editingCard && <span className="font-normal text-sm text-slate-400"> · {currentDeck.name}</span>}
                   </h3>
                 </div>
-                <button type="button" onClick={() => setIsCardModalOpen(false)} className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors" aria-label="Fechar editor">
+                <button type="button" onClick={() => setIsCardModalOpen(false)} className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer" aria-label="Fechar editor">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               <form onSubmit={handleSaveCard} className="grid lg:grid-cols-[1.05fr_.95fr]">
                 <section className="p-5 sm:p-6 space-y-5 border-b lg:border-b-0 lg:border-r border-slate-800/80">
-                  <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-900/80 border border-slate-800">
-                    <Layers className="w-4 h-4 mt-0.5 text-red-400 shrink-0" />
-                    <p className="text-xs leading-5 text-slate-400">Use <code className="text-slate-200">{'{{c1::termo}}'}</code> para lacunas e <code className="text-slate-200">$fórmula$</code> para KaTeX.</p>
+                  {/* Destino do Flashcard (Disciplina & Baralho) */}
+                  {!editingCard && (
+                    <div className={`p-4 rounded-xl border space-y-3 ${isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-100/80 border-slate-200'}`}>
+                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-red-400">
+                        <Folder className="w-4 h-4" />
+                        <span>Destino do Flashcard</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* Seletor de Disciplina */}
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-300">
+                            Disciplina (Matéria)
+                          </label>
+                          <select
+                            value={cardFormSubjectId}
+                            onChange={(e) => {
+                              const newSubId = e.target.value;
+                              setCardFormSubjectId(newSubId);
+                              void loadDecksForCardModal(newSubId);
+                            }}
+                            className={`w-full p-2.5 rounded-lg border text-xs font-medium outline-none transition-colors ${
+                              isDark
+                                ? 'bg-slate-950 border-slate-700 text-white focus:border-red-500'
+                                : 'bg-white border-slate-300 focus:border-red-500'
+                            }`}
+                          >
+                            {subjects.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name}
+                              </option>
+                            ))}
+                            <option value="__new__">+ Criar Nova Disciplina...</option>
+                          </select>
+
+                          {(cardFormSubjectId === '__new__' || subjects.length === 0) && (
+                            <input
+                              type="text"
+                              placeholder="Ex: Direito Constitucional, Física..."
+                              value={cardFormNewSubjectName}
+                              onChange={(e) => setCardFormNewSubjectName(e.target.value)}
+                              className={`w-full mt-1.5 p-2 rounded-lg border text-xs outline-none ${
+                                isDark
+                                  ? 'bg-slate-950 border-red-500/60 text-white focus:ring-1 focus:ring-red-500'
+                                  : 'bg-white border-red-400 focus:ring-1 focus:ring-red-400'
+                              }`}
+                            />
+                          )}
+                        </div>
+
+                        {/* Seletor de Baralho */}
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-300">
+                            Baralho (Tópico)
+                          </label>
+                          <select
+                            value={cardFormDeckId}
+                            onChange={(e) => setCardFormDeckId(e.target.value)}
+                            disabled={cardModalLoadingDecks}
+                            className={`w-full p-2.5 rounded-lg border text-xs font-medium outline-none transition-colors ${
+                              isDark
+                                ? 'bg-slate-950 border-slate-700 text-white focus:border-red-500'
+                                : 'bg-white border-slate-300 focus:border-red-500'
+                            }`}
+                          >
+                            {cardModalDecks.map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {d.name}
+                              </option>
+                            ))}
+                            <option value="__new__">+ Criar Novo Baralho...</option>
+                          </select>
+
+                          {(cardFormDeckId === '__new__' || cardModalDecks.length === 0) && (
+                            <input
+                              type="text"
+                              placeholder="Ex: Artigo 5º da CF, Termodinâmica..."
+                              value={cardFormNewDeckName}
+                              onChange={(e) => setCardFormNewDeckName(e.target.value)}
+                              className={`w-full mt-1.5 p-2 rounded-lg border text-xs outline-none ${
+                                isDark
+                                  ? 'bg-slate-950 border-red-500/60 text-white focus:ring-1 focus:ring-red-500'
+                                  : 'bg-white border-red-400 focus:ring-1 focus:ring-red-400'
+                              }`}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Barra de Formatação Rápida (Cloze, KaTeX, Bizu) */}
+                  <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <span className="text-[11px] font-mono text-slate-400 pl-1">Atalhos:</span>
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting('front', '{{c1::', '}}', 'termo')}
+                      className="px-2.5 py-1 text-xs font-mono rounded-lg bg-red-500/15 border border-red-500/30 text-red-300 hover:bg-red-500/25 transition-colors cursor-pointer"
+                      title="Envolve a seleção ou insere omissão para lacuna Anki"
+                    >
+                      [..] Cloze / Lacuna
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting('front', '$', '$', 'fórmula')}
+                      className="px-2.5 py-1 text-xs font-mono rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/25 transition-colors cursor-pointer"
+                      title="Envolve a seleção em delimitador KaTeX $"
+                    >
+                      $ KaTeX $
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting('back', '🎯 Bizu: ', '', 'Palavra-chave')}
+                      className="px-2.5 py-1 text-xs font-mono rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/25 transition-colors cursor-pointer"
+                      title="Insere prefixo de Bizu no verso"
+                    >
+                      💡 Bizu
+                    </button>
                   </div>
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
-                      <label htmlFor="flashcard-front" className="text-sm font-semibold text-slate-200">Frente <span className="font-normal text-slate-500">· pergunta</span></label>
-                      <button type="button" onClick={() => questionFileInputRef.current?.click()} className="text-xs font-medium text-red-400 hover:text-red-300 flex items-center gap-1.5">
+                      <label htmlFor="flashcard-front" className="text-sm font-semibold text-slate-200">Frente <span className="font-normal text-slate-500">· pergunta / enunciado</span></label>
+                      <button type="button" onClick={() => questionFileInputRef.current?.click()} className="text-xs font-medium text-red-400 hover:text-red-300 flex items-center gap-1.5 cursor-pointer">
                         <ImageIcon className="w-3.5 h-3.5" /> Anexar imagem
                       </button>
                     </div>
-                    <textarea id="flashcard-front" rows={6} placeholder="Ex.: Qual é a unidade de força no SI?" value={cardFormFront} onChange={(e) => setCardFormFront(e.target.value)} onPaste={(e) => handlePasteImage(e, 'front')} className={`w-full p-3.5 rounded-xl border text-sm leading-6 resize-y outline-none transition-colors ${isDark ? 'bg-slate-950 border-slate-700 text-white placeholder:text-slate-600 focus:border-red-500/80 focus:ring-2 focus:ring-red-500/15' : 'bg-slate-50 border-slate-300 focus:border-red-500'}`} />
+                    <textarea ref={cardFrontTextareaRef} id="flashcard-front" rows={6} placeholder="Ex.: Qual é a unidade de força no SI?" value={cardFormFront} onChange={(e) => setCardFormFront(e.target.value)} onPaste={(e) => handlePasteImage(e, 'front')} className={`w-full p-3.5 rounded-xl border text-sm leading-6 resize-y outline-none transition-colors ${isDark ? 'bg-slate-950 border-slate-700 text-white placeholder:text-slate-600 focus:border-red-500/80 focus:ring-2 focus:ring-red-500/15' : 'bg-slate-50 border-slate-300 focus:border-red-500'}`} />
                     <input ref={questionFileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void processImageFile(file, 'front'); e.target.value = ''; }} />
-                    {cardFormFrontImage && <div className="relative inline-block"><img src={cardFormFrontImage} alt="Imagem da frente" className="h-20 rounded-lg border border-slate-700 object-cover" /><button type="button" onClick={() => setCardFormFrontImage(null)} className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white"><X className="w-3 h-3" /></button></div>}
+                    {cardFormFrontImage && <div className="relative inline-block"><img src={cardFormFrontImage} alt="Imagem da frente" className="h-20 rounded-lg border border-slate-700 object-cover" /><button type="button" onClick={() => setCardFormFrontImage(null)} className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white cursor-pointer"><X className="w-3 h-3" /></button></div>}
                   </div>
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
-                      <label htmlFor="flashcard-back" className="text-sm font-semibold text-slate-200">Verso <span className="font-normal text-slate-500">· resposta</span></label>
-                      <button type="button" onClick={() => answerFileInputRef.current?.click()} className="text-xs font-medium text-red-400 hover:text-red-300 flex items-center gap-1.5">
+                      <label htmlFor="flashcard-back" className="text-sm font-semibold text-slate-200">Verso <span className="font-normal text-slate-500">· resposta / bizu</span></label>
+                      <button type="button" onClick={() => answerFileInputRef.current?.click()} className="text-xs font-medium text-red-400 hover:text-red-300 flex items-center gap-1.5 cursor-pointer">
                         <ImageIcon className="w-3.5 h-3.5" /> Anexar imagem
                       </button>
                     </div>
-                    <textarea id="flashcard-back" rows={6} placeholder="Ex.: Newton (N) = kg·m/s²" value={cardFormBack} onChange={(e) => setCardFormBack(e.target.value)} onPaste={(e) => handlePasteImage(e, 'back')} className={`w-full p-3.5 rounded-xl border text-sm leading-6 resize-y outline-none transition-colors ${isDark ? 'bg-slate-950 border-slate-700 text-white placeholder:text-slate-600 focus:border-red-500/80 focus:ring-2 focus:ring-red-500/15' : 'bg-slate-50 border-slate-300 focus:border-red-500'}`} />
+                    <textarea ref={cardBackTextareaRef} id="flashcard-back" rows={6} placeholder="Ex.: Newton (N) = kg·m/s²" value={cardFormBack} onChange={(e) => setCardFormBack(e.target.value)} onPaste={(e) => handlePasteImage(e, 'back')} className={`w-full p-3.5 rounded-xl border text-sm leading-6 resize-y outline-none transition-colors ${isDark ? 'bg-slate-950 border-slate-700 text-white placeholder:text-slate-600 focus:border-red-500/80 focus:ring-2 focus:ring-red-500/15' : 'bg-slate-50 border-slate-300 focus:border-red-500'}`} />
                     <input ref={answerFileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void processImageFile(file, 'back'); e.target.value = ''; }} />
-                    {cardFormBackImage && <div className="relative inline-block"><img src={cardFormBackImage} alt="Imagem do verso" className="h-20 rounded-lg border border-slate-700 object-cover" /><button type="button" onClick={() => setCardFormBackImage(null)} className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white"><X className="w-3 h-3" /></button></div>}
+                    {cardFormBackImage && <div className="relative inline-block"><img src={cardFormBackImage} alt="Imagem do verso" className="h-20 rounded-lg border border-slate-700 object-cover" /><button type="button" onClick={() => setCardFormBackImage(null)} className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white cursor-pointer"><X className="w-3 h-3" /></button></div>}
                   </div>
 
                   <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
-                    <button type="button" onClick={() => setIsCardModalOpen(false)} className="px-4 py-2.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700">Cancelar</button>
-                    <button type="submit" className="px-4 py-2.5 text-sm font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-950/40">{editingCard ? 'Salvar alterações' : 'Adicionar ao baralho'}</button>
+                    <button type="button" onClick={() => setIsCardModalOpen(false)} className="px-4 py-2.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer">Cancelar</button>
+                    <button type="submit" disabled={isSavingCard} className="px-5 py-2.5 text-sm font-semibold rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white shadow-lg shadow-red-950/40 cursor-pointer flex items-center gap-2">
+                      {isSavingCard ? 'Salvando...' : editingCard ? 'Salvar alterações' : 'Salvar Flashcard'}
+                    </button>
                   </div>
                 </section>
 
                 <aside className="p-5 sm:p-6 bg-slate-950/45 space-y-4">
                   <div className="flex items-center justify-between"><div><p className="text-sm font-semibold text-slate-200">Pré-visualização</p><p className="text-xs text-slate-500">Assim o cartão aparecerá na revisão.</p></div><span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded border border-slate-700 text-slate-400">Anki</span></div>
                   <div className="min-h-[310px] rounded-xl border border-slate-700 bg-[#1f1f1f] shadow-[0_18px_45px_rgba(0,0,0,.3)] overflow-hidden flex flex-col">
-                    <div className="flex justify-between px-4 py-3 border-b border-slate-700/80 text-[10px] font-mono uppercase tracking-wider text-slate-500"><span>{currentDeck?.name || 'Novo baralho'}</span><span>Frente</span></div>
+                    <div className="flex justify-between px-4 py-3 border-b border-slate-700/80 text-[10px] font-mono uppercase tracking-wider text-slate-500">
+                      <span>
+                        {cardFormDeckId === '__new__'
+                          ? (cardFormNewDeckName || 'Novo Baralho')
+                          : (cardModalDecks.find((d) => d.id === cardFormDeckId)?.name || currentDeck?.name || 'Baralho')}
+                      </span>
+                      <span>Frente</span>
+                    </div>
                     <div className="flex-1 flex flex-col justify-center p-7 text-center">
                       {cardFormFrontImage && <img src={cardFormFrontImage} alt="Prévia da frente" className="max-h-32 max-w-full mx-auto mb-5 rounded-lg object-contain" />}
                       <div className="text-lg leading-8 text-slate-100 break-words"><ClozeLatexCard text={cardFormFront || 'Sua pergunta aparecerá aqui'} isAnswer={false} /></div>

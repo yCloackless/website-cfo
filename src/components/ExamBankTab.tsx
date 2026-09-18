@@ -643,10 +643,6 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
   };
 
   const handleSaveFlashcardFromQuestion = async () => {
-    if (!flashcardDeckId) {
-      showToast?.('Selecione ou crie um baralho de destino na aba de Flashcards.', 'error');
-      return;
-    }
     if (!flashcardFront.trim() || !flashcardBack.trim()) {
       showToast?.('A frente e o verso não podem ficar vazios.', 'error');
       return;
@@ -655,6 +651,46 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
     try {
       setIsSavingFlashcard(true);
       const token = getAuthToken();
+
+      let targetDeckId = flashcardDeckId;
+      // Se não há baralho ou matéria, cria automaticamente a matéria "Caderno de Erros (Simulados)" e baralho "Questões com Erro"
+      if (!targetDeckId) {
+        let targetSubId = flashcardSubjectId;
+        if (!targetSubId) {
+          const subRes = await fetch('/api/flashcards/subjects', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ name: 'Caderno de Erros (Simulados)' }),
+          });
+          if (subRes.ok) {
+            const subData = await subRes.json();
+            targetSubId = subData.subject?.id;
+          }
+        }
+        if (targetSubId) {
+          const deckRes = await fetch('/api/flashcards/decks', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ subjectId: targetSubId, name: 'Questões com Erro' }),
+          });
+          if (deckRes.ok) {
+            const deckData = await deckRes.json();
+            targetDeckId = deckData.deck?.id;
+          }
+        }
+      }
+
+      if (!targetDeckId) {
+        showToast?.('Não foi possível inicializar o baralho de destino.', 'error');
+        return;
+      }
+
       const res = await fetch('/api/flashcards/cards', {
         method: 'POST',
         headers: {
@@ -662,7 +698,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          deckId: flashcardDeckId,
+          deckId: targetDeckId,
           front: flashcardFront.trim(),
           back: flashcardBack.trim(),
         }),

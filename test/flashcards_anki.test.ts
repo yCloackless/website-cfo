@@ -609,6 +609,14 @@ test('Flashcards Anki: Endpoints HTTP de Lote, Fila por Matéria, Heatmap e Prev
     const heatmapData = await heatmapRes.json();
     assert.ok(Array.isArray(heatmapData.heatmap));
   } finally {
+    try {
+      const raw = getDb().getRawDb();
+      raw.exec(`DELETE FROM flashcard_reviews WHERE flashcard_id IN (SELECT id FROM flashcards WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@cfo.test%'))`);
+      raw.exec(`DELETE FROM flashcards WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@cfo.test%')`);
+      raw.exec(`DELETE FROM flashcard_decks WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@cfo.test%')`);
+      raw.exec(`DELETE FROM flashcard_subjects WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@cfo.test%')`);
+      raw.exec(`DELETE FROM users WHERE email LIKE '%@cfo.test%'`);
+    } catch {}
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
