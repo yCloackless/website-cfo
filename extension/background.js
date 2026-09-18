@@ -78,7 +78,7 @@ function updateBadge(timerOrStatus) {
       });
     } else if (timer.status === 'PAUSED') {
       const restStart = timer.restStartTime || now;
-      const restElapsed = (timer.restAccumulatedMs || 0) + Math.max(0, now - restStart);
+      const restElapsed = Math.max(0, now - restStart);
       const text = formatBadgeTime(restElapsed);
       chrome.action.setBadgeText({ text });
 
@@ -144,16 +144,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const settings = res[STORAGE_KEYS.SETTINGS] || {};
       const now = Date.now();
 
-      let restAccumulatedMs = prev.restAccumulatedMs || 0;
-      if (prev.status === 'PAUSED' && prev.restStartTime) {
-        restAccumulatedMs += Math.max(0, now - prev.restStartTime);
-      }
-
       const newTimer = {
         status: 'RUNNING',
         accumulatedMs: prev.status === 'PAUSED' ? prev.accumulatedMs : (prev.accumulatedMs || 0),
         startTime: now,
-        restAccumulatedMs,
+        restAccumulatedMs: 0,
         restStartTime: null,
         subjectId: payload?.subjectId || prev.subjectId || 'geral',
         subjectName: payload?.subjectName || prev.subjectName || 'Estudo Geral',
@@ -195,7 +190,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         accumulatedMs: (prev.accumulatedMs || 0) + elapsed,
         startTime: null,
         restStartTime: now,
-        restAccumulatedMs: prev.restAccumulatedMs || 0,
+        restAccumulatedMs: 0,
       };
 
       chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {

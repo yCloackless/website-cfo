@@ -151,10 +151,10 @@ export const TimerTab: React.FC<TimerTabProps> = ({
 
       if (data.status === 'PAUSED' && data.restStartTime) {
         const estimatedServerNow = Date.now() + serverOffsetRef.current;
-        const currentRest = (data.restAccumulatedMs || 0) + Math.max(0, estimatedServerNow - data.restStartTime);
+        const currentRest = Math.max(0, estimatedServerNow - data.restStartTime);
         setRestDisplayMs(currentRest);
       } else {
-        setRestDisplayMs(data.restAccumulatedMs || 0);
+        setRestDisplayMs(0);
       }
     } catch (err) {
       setIsOnline(false);
@@ -209,13 +209,12 @@ export const TimerTab: React.FC<TimerTabProps> = ({
     const interval = setInterval(() => {
       const estimatedServerNow = Date.now() + serverOffsetRef.current;
       const start = timerState.restStartTime || estimatedServerNow;
-      const currentRest =
-        (timerState.restAccumulatedMs || 0) + Math.max(0, estimatedServerNow - start);
+      const currentRest = Math.max(0, estimatedServerNow - start);
       setRestDisplayMs(currentRest);
     }, 100);
 
     return () => clearInterval(interval);
-  }, [timerState.status, timerState.restStartTime, timerState.restAccumulatedMs]);
+  }, [timerState.status, timerState.restStartTime]);
 
   const activeSubject = useMemo(() => {
     return subjects.find((s) => s.id === selectedSubjectId) || subjects[0];
@@ -228,16 +227,12 @@ export const TimerTab: React.FC<TimerTabProps> = ({
 
     // Transição otimista imediata para feedback instantâneo no clique
     setTimerState((prev) => {
-      let addRest = 0;
-      if (prev.status === 'PAUSED' && prev.restStartTime) {
-        addRest = Math.max(0, estimatedServerNow - prev.restStartTime);
-      }
       return {
         ...prev,
         status: 'RUNNING',
         startTime: estimatedServerNow,
         restStartTime: null,
-        restAccumulatedMs: (prev.restAccumulatedMs || 0) + addRest,
+        restAccumulatedMs: 0,
         activeSubjectId: activeSubject?.id,
         activeSubjectName: activeSubject?.name,
       };
@@ -309,9 +304,9 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         setRestDisplayMs(data.totalRestMs);
       } else if (data.status === 'PAUSED' && data.restStartTime) {
         const estNow = Date.now() + serverOffsetRef.current;
-        setRestDisplayMs((data.restAccumulatedMs || 0) + Math.max(0, estNow - data.restStartTime));
+        setRestDisplayMs(Math.max(0, estNow - data.restStartTime));
       } else {
-        setRestDisplayMs(data.restAccumulatedMs || 0);
+        setRestDisplayMs(0);
       }
     } catch (err) {
       setIsOnline(false);

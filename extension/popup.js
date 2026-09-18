@@ -43,15 +43,11 @@ const sendRuntimeMessage = (message, callback) => {
     if (message.type === 'TIMER_START') {
       const now = Date.now();
       const prev = state.timer;
-      let restAccumulatedMs = prev.restAccumulatedMs || 0;
-      if (prev.status === 'PAUSED' && prev.restStartTime) {
-        restAccumulatedMs += Math.max(0, now - prev.restStartTime);
-      }
       const newTimer = {
         status: 'RUNNING',
         accumulatedMs: prev.status === 'PAUSED' ? prev.accumulatedMs : (prev.accumulatedMs || 0),
         startTime: now,
-        restAccumulatedMs,
+        restAccumulatedMs: 0,
         restStartTime: null,
         subjectId: message.payload?.subjectId || prev.subjectId || 'geral',
         subjectName: message.payload?.subjectName || prev.subjectName || 'Estudo Geral',
@@ -68,7 +64,7 @@ const sendRuntimeMessage = (message, callback) => {
         accumulatedMs: (prev.accumulatedMs || 0) + elapsed,
         startTime: null,
         restStartTime: now,
-        restAccumulatedMs: prev.restAccumulatedMs || 0,
+        restAccumulatedMs: 0,
       };
       storage.set({ cfo_ext_timer: newTimer });
       callback({ success: true, timer: newTimer });
@@ -245,9 +241,9 @@ function getElapsedRestMs() {
     if (!state.timer.restStartTime) {
       state.timer.restStartTime = Date.now();
     }
-    return (state.timer.restAccumulatedMs || 0) + Math.max(0, Date.now() - state.timer.restStartTime);
+    return Math.max(0, Date.now() - state.timer.restStartTime);
   }
-  return state.timer.restAccumulatedMs || 0;
+  return 0;
 }
 
 function updateTimerDisplay() {
@@ -490,19 +486,15 @@ els.btnTimerToggle.addEventListener('click', () => {
       accumulatedMs: (state.timer.accumulatedMs || 0) + elapsed,
       startTime: null,
       restStartTime: now,
-      restAccumulatedMs: state.timer.restAccumulatedMs || 0,
+      restAccumulatedMs: 0,
     };
   } else {
-    let addRest = 0;
-    if (state.timer.status === 'PAUSED' && state.timer.restStartTime) {
-      addRest = Math.max(0, now - state.timer.restStartTime);
-    }
     state.timer = {
       ...state.timer,
       status: 'RUNNING',
       startTime: now,
       restStartTime: null,
-      restAccumulatedMs: (state.timer.restAccumulatedMs || 0) + addRest,
+      restAccumulatedMs: 0,
       subjectId,
       subjectName,
     };
@@ -723,12 +715,13 @@ async function initPopup() {
         setConnectionStatus('connected');
         const cloud = await response.json();
         if (cloud && cloud.status) {
+          const isLocalPaused = state.timer.status === 'PAUSED' && state.timer.restStartTime;
           state.timer = {
             status: cloud.status,
-            accumulatedMs: cloud.accumulatedTime || 0,
+            accumulatedTime: cloud.accumulatedTime || 0,
             startTime: cloud.startTime || null,
-            restAccumulatedMs: cloud.restAccumulatedMs || 0,
-            restStartTime: cloud.restStartTime || null,
+            restAccumulatedMs: 0,
+            restStartTime: isLocalPaused ? state.timer.restStartTime : (cloud.restStartTime || null),
             subjectId: cloud.activeSubjectId || state.timer.subjectId || 'geral',
             subjectName: cloud.activeSubjectName || state.timer.subjectName || 'Estudo Geral',
           };

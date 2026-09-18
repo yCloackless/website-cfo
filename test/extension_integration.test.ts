@@ -145,5 +145,75 @@ test('EXT-13: cronômetro suporta ciclos de descanso (Recovery Pill) e razão de
   assert.match(serverCode, /restAccumulatedMs/);
 });
 
+test('EXT-14: pausas não acumulam entre ciclos e iniciam sempre zeradas para um novo descanso', () => {
+  const popupJs = readSource('extension/popup.js');
+  const bgJs = readSource('extension/background.js');
+
+  // getElapsedRestMs não deve somar restAccumulatedMs na pausa
+  assert.match(popupJs, /Math\.max\(0,\s*Date\.now\(\)\s*-\s*state\.timer\.restStartTime\)/);
+  assert.doesNotMatch(popupJs, /state\.timer\.restAccumulatedMs\s*\+\s*Math\.max/);
+
+  // background.js badge não deve somar restAccumulatedMs na pausa
+  assert.match(bgJs, /const restElapsed = Math\.max\(0,\s*now\s*-\s*restStart\);/);
+  assert.doesNotMatch(bgJs, /timer\.restAccumulatedMs.*Math\.max\(0,\s*now\s*-\s*restStart\)/);
+
+  // Simulação de transição: Pausa 1 (5s) -> Retoma Foco -> Pausa 2 (1s)
+  const now1 = 1000000;
+  // Estado inicial estudando
+  let timer: any = {
+    status: 'RUNNING',
+    accumulatedMs: 60000,
+    startTime: now1,
+    restStartTime: null,
+    restAccumulatedMs: 0,
+  };
+
+  // 1. Cadete pausa pela primeira vez em now1 + 10s
+  const pause1Time = now1 + 10000;
+  const elapsed1 = pause1Time - timer.startTime;
+  timer = {
+    ...timer,
+    status: 'PAUSED',
+    accumulatedMs: timer.accumulatedMs + elapsed1,
+    startTime: null,
+    restStartTime: pause1Time,
+    restAccumulatedMs: 0,
+  };
+
+  // Descanso da primeira pausa após 5s
+  const duringPause1Time = pause1Time + 5000;
+  const restDuration1 = Math.max(0, duringPause1Time - timer.restStartTime);
+  assert.equal(restDuration1, 5000, 'Primeira pausa após 5s deve medir 5000ms');
+
+  // 2. Cadete retoma foco em pause1Time + 5s
+  const resumeTime = duringPause1Time;
+  timer = {
+    ...timer,
+    status: 'RUNNING',
+    startTime: resumeTime,
+    restStartTime: null,
+    restAccumulatedMs: 0,
+  };
+
+  // 3. Cadete estuda por 20s e pausa novamente (Pausa 2)
+  const pause2Time = resumeTime + 20000;
+  const elapsed2 = pause2Time - timer.startTime;
+  timer = {
+    ...timer,
+    status: 'PAUSED',
+    accumulatedMs: timer.accumulatedMs + elapsed2,
+    startTime: null,
+    restStartTime: pause2Time,
+    restAccumulatedMs: 0,
+  };
+
+  // Descanso da segunda pausa após 1s
+  const duringPause2Time = pause2Time + 1000;
+  const restDuration2 = Math.max(0, duringPause2Time - timer.restStartTime);
+
+  // Deve medir estritamente 1000ms, e NÃO acumular os 5000ms da pausa anterior
+  assert.equal(restDuration2, 1000, 'Segunda pausa após 1s deve medir exatamente 1000ms (tempo novo), sem acumular pausa anterior');
+});
+
 
 

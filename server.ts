@@ -1664,7 +1664,7 @@ app.get("/api/timer/status", (req: Request, res: Response) => {
   const state = readTimerState((req as any).user.userId);
   const now = Date.now();
   let totalElapsedMs = state.accumulatedTime;
-  let totalRestMs = state.restAccumulatedMs || 0;
+  let totalRestMs = 0;
 
   if (state.status === "RUNNING" && state.startTime) {
     totalElapsedMs += Math.max(0, now - state.startTime);
@@ -1673,11 +1673,12 @@ app.get("/api/timer/status", (req: Request, res: Response) => {
       state.restStartTime = now;
       saveTimerState((req as any).user.userId, state);
     }
-    totalRestMs += Math.max(0, now - state.restStartTime);
+    totalRestMs = Math.max(0, now - state.restStartTime);
   }
 
   return res.json({
     ...state,
+    restAccumulatedMs: 0,
     totalElapsedMs,
     totalRestMs,
     serverTime: now,
@@ -1690,10 +1691,10 @@ app.post("/api/timer/start", (req: Request, res: Response) => {
   const state = readTimerState((req as any).user.userId);
   const now = Date.now();
 
-  // Se estava em pausa/descanso, encerra o ciclo de descanso e acumula
+  // Se estava em pausa/descanso, encerra o ciclo de descanso e registra no histórico
   if (state.status === "PAUSED" && state.restStartTime) {
     const restDelta = Math.max(0, now - state.restStartTime);
-    state.restAccumulatedMs = (state.restAccumulatedMs || 0) + restDelta;
+    state.restAccumulatedMs = 0; // Cada pausa é individual; não acumula sobre descansos futuros
     if (!state.intervals) state.intervals = [];
     state.intervals.push({
       type: "rest",
@@ -1719,7 +1720,7 @@ app.post("/api/timer/start", (req: Request, res: Response) => {
     success: true,
     ...state,
     totalElapsedMs,
-    totalRestMs: state.restAccumulatedMs || 0,
+    totalRestMs: 0,
     serverTime: now,
   });
 });
@@ -1745,15 +1746,15 @@ app.post("/api/timer/pause", (req: Request, res: Response) => {
   state.startTime = null;
   state.status = "PAUSED";
   state.restStartTime = now;
+  state.restAccumulatedMs = 0;
   state.updatedAt = new Date().toISOString();
   saveTimerState((req as any).user.userId, state);
 
-  const currentRestMs = state.restAccumulatedMs || 0;
   return res.json({
     success: true,
     ...state,
     totalElapsedMs: state.accumulatedTime,
-    totalRestMs: currentRestMs,
+    totalRestMs: 0,
     serverTime: now,
   });
 });
