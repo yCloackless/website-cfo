@@ -33,6 +33,7 @@ let server: http.Server;
 let baseUrl: string;
 let adminToken = '';
 let cadetToken = '';
+let adminCookie = '';
 
 async function request(path: string, options: RequestInit = {}) {
   const response = await nativeFetch(baseUrl + path, {
@@ -58,6 +59,7 @@ test.before(async () => {
   });
   adminToken = adminLogin.body.token;
   assert.ok(adminToken, 'Fixture must initially issue the setup session while 2FA is disabled');
+  adminCookie = adminLogin.response.headers.get('set-cookie') || '';
 
   const cadetLogin = await request('/api/auth/check-credentials', {
     method: 'POST',
@@ -138,4 +140,36 @@ test('F-05: reset delivery never logs the recovery code', async () => {
     console.warn = originalWarn;
   }
   assert.equal(warnings.some((line) => line.includes(syntheticCode)), false);
+});
+
+test('F-06: cookie-authenticated mutations reject cross-site origins', async () => {
+  assert.match(adminCookie, /(?:^|;)\s*cfo_session=/);
+  const rejected = await request('/api/auth/logout', {
+    method: 'POST',
+    headers: {
+      Cookie: adminCookie,
+      Origin: 'https://attacker.example',
+    },
+  });
+  assert.equal(rejected.response.status, 403);
+  assert.equal(rejected.body.error, 'CSRF_ORIGIN_REJECTED');
+});
+
+test('F-07: extension token is restricted to extension synchronization routes', async () => {
+  const issued = await request('/api/user/extension-token', {
+    headers: { Authorization: `Bearer ${cadetToken}` },
+  });
+  assert.equal(issued.response.status, 200);
+  assert.ok(issued.body.token);
+
+  const timer = await request('/api/timer/status', {
+    headers: { Authorization: `Bearer ${issued.body.token}` },
+  });
+  assert.equal(timer.response.status, 200);
+
+  const profile = await request('/api/user/profile', {
+    headers: { Authorization: `Bearer ${issued.body.token}` },
+  });
+  assert.equal(profile.response.status, 401);
+  assert.equal(profile.body.error, 'UNAUTHORIZED');
 });

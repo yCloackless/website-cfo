@@ -18,7 +18,6 @@ import {
   Monitor,
   Puzzle,
 } from 'lucide-react';
-import { ExtensionModal } from './ExtensionModal';
 import { AppTheme } from '../types';
 import { getUserStorageKey } from '../utils/userStorage';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/dialog';
@@ -29,6 +28,8 @@ import {
   MAX_LEVELING_QUESTIONS,
   requiredLevelingCorrect,
 } from '../utils/leveling';
+
+const ExtensionModal = React.lazy(() => import('./ExtensionModal').then(({ ExtensionModal }) => ({ default: ExtensionModal })));
 
 type Mode = 'live' | 'manual';
 type Answer = 'correct' | 'wrong';
@@ -399,11 +400,13 @@ export const LevelingTab: React.FC<LevelingTabProps> = ({ theme = 'dark', showTo
         )}
       </Dialog>
 
-      <ExtensionModal
-        isOpen={isExtensionModalOpen}
-        onClose={() => setIsExtensionModalOpen(false)}
-        theme={theme}
-      />
+      <React.Suspense fallback={null}>
+        <ExtensionModal
+          isOpen={isExtensionModalOpen}
+          onClose={() => setIsExtensionModalOpen(false)}
+          theme={theme}
+        />
+      </React.Suspense>
     </div>
   );
 };

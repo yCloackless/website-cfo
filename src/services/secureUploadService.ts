@@ -98,7 +98,7 @@ const MAGIC_SIGNATURES: Array<{
       if (!searchHead.includes('%PDF-')) return false;
       // Tail %%EOF nos últimos 2048 bytes
       const searchTail = buf.subarray(Math.max(0, buf.length - 2048)).toString('ascii');
-      return searchTail.includes('%%EOF') || searchHead.includes('%PDF-');
+      return searchTail.includes('%%EOF');
     },
   },
 ];
@@ -221,6 +221,14 @@ export class SecureUploadService {
       };
     }
 
+    const normalizedDeclaredMime = declaredMime?.split(';', 1)[0].trim().toLowerCase();
+    if (normalizedDeclaredMime && normalizedDeclaredMime !== 'application/octet-stream' && normalizedDeclaredMime !== matchedSig.mime) {
+      return {
+        valid: false,
+        error: `Inconsistência de MIME: ${normalizedDeclaredMime} não corresponde ao conteúdo real (${matchedSig.mime}).`,
+      };
+    }
+
     // 3. Consistência Estrita entre Extensão Declarada e Conteúdo Real
     const validExtsForMime: Record<string, string[]> = {
       'image/jpeg': ['jpg', 'jpeg'],
@@ -240,13 +248,14 @@ export class SecureUploadService {
     // 4. Validação Estrutural e Limites Específicos do Tipo
     if (matchedSig.mime === 'image/png' || matchedSig.mime === 'image/jpeg' || matchedSig.mime === 'image/webp') {
       const imgDim = this.extractImageDimensions(buffer, matchedSig.mime);
-      if (imgDim) {
-        if (imgDim.width > this.limits.maxImageWidth || imgDim.height > this.limits.maxImageHeight) {
-          return {
-            valid: false,
-            error: `Dimensões da imagem (${imgDim.width}x${imgDim.height}) excedem o limite de ${this.limits.maxImageWidth}x${this.limits.maxImageHeight}px.`,
-          };
-        }
+      if (!imgDim || imgDim.width < 1 || imgDim.height < 1) {
+        return { valid: false, error: 'Imagem corrompida ou sem dimensões válidas.' };
+      }
+      if (imgDim.width > this.limits.maxImageWidth || imgDim.height > this.limits.maxImageHeight) {
+        return {
+          valid: false,
+          error: `Dimensões da imagem (${imgDim.width}x${imgDim.height}) excedem o limite de ${this.limits.maxImageWidth}x${this.limits.maxImageHeight}px.`,
+        };
       }
     }
 
@@ -323,6 +332,10 @@ export class SecureUploadService {
 
     // [FASE 1 & 2] Validação de Tamanho, Magic Bytes e Tipos
     const validation = this.validateFileBuffer(buffer, originalName, declaredMime);
+    if (validation.valid && validation.detectedMime === 'application/pdf') {
+      validation.error = await this.validatePdfPageLimit(buffer);
+      validation.valid = !validation.error;
+    }
     if (!validation.valid || !validation.canonicalExtension || !validation.detectedMime) {
       if (this.auditRepo) {
         this.auditRepo.log({
@@ -509,10 +522,52 @@ export class SecureUploadService {
           offset += 2 + length;
         }
       }
+      if (mime === 'image/webp' && buffer.length >= 30) {
+        const chunk = buffer.subarray(12, 16).toString('ascii');
+        if (chunk === 'VP8X') {
+          return {
+            width: 1 + buffer.readUIntLE(24, 3),
+            height: 1 + buffer.readUIntLE(27, 3),
+          };
+        }
+        if (chunk === 'VP8L' && buffer[20] === 0x2f) {
+          return {
+            width: 1 + (buffer[21] | ((buffer[22] & 0x3f) << 8)),
+            height: 1 + ((buffer[22] >> 6) | (buffer[23] << 2) | ((buffer[24] & 0x0f) << 10)),
+          };
+        }
+        if (chunk === 'VP8 ' && buffer.subarray(23, 26).equals(Buffer.from([0x9d, 0x01, 0x2a]))) {
+          return {
+            width: buffer.readUInt16LE(26) & 0x3fff,
+            height: buffer.readUInt16LE(28) & 0x3fff,
+          };
+        }
+      }
     } catch {
       // Ignora falhas de parsing de dimensões
     }
     return null;
+  }
+
+  private async validatePdfPageLimit(buffer: Buffer): Promise<string | undefined> {
+    try {
+      const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      const loadingTask = getDocument({
+        data: new Uint8Array(buffer),
+        useSystemFonts: false,
+        stopAtErrors: true,
+      });
+      try {
+        const document = await loadingTask.promise;
+        return document.numPages > this.limits.maxPdfPages
+          ? `O PDF excede o limite de ${this.limits.maxPdfPages} páginas.`
+          : undefined;
+      } finally {
+        await loadingTask.destroy().catch(() => undefined);
+      }
+    } catch {
+      return 'PDF corrompido ou estruturalmente inválido.';
+    }
   }
 
   /**

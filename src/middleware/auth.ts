@@ -8,6 +8,7 @@ export interface TerminalSession {
   sessionId?: string;
   impersonatedByUserId?: string | null;
   parentSessionId?: string | null;
+  authScope?: 'default' | 'extension';
 }
 
 type VerifySession = (token?: string | null) => TerminalSession;
@@ -25,13 +26,21 @@ export function createAuthMiddlewares(verifySession: VerifySession) {
     return null;
   }
   function authenticatedSession(req: Request): TerminalSession {
+    const acceptsScope = (session: TerminalSession) => {
+      if (session.authScope !== 'extension') return true;
+      const requestPath = String(req.originalUrl || req.url).split('?')[0];
+      return requestPath === '/api/timer'
+        || requestPath.startsWith('/api/timer/')
+        || requestPath === '/api/leveling/session';
+    };
     const value = req.headers.authorization;
     const bearer = value?.startsWith('Bearer ') ? value.slice(7).trim() : null;
     if (bearer && bearer !== 'cookie') {
       const result = verifySession(bearer);
-      if (result.valid) return result;
+      if (result.valid && acceptsScope(result)) return result;
     }
-    return verifySession(cookieToken(req));
+    const cookieSession = verifySession(cookieToken(req));
+    return cookieSession.valid && acceptsScope(cookieSession) ? cookieSession : { valid: false };
   }
   function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
     const session = authenticatedSession(req);

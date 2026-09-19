@@ -1,10 +1,11 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Calendar, Check, Flame, Moon, PanelLeft, Puzzle, ShieldCheck, Sun } from 'lucide-react';
-import { ExtensionModal } from './ExtensionModal';
 import { User } from 'firebase/auth';
 import { AppTheme } from '../types';
 import { TabType } from './TacticalSidebar';
+
+const ExtensionModal = React.lazy(() => import('./ExtensionModal').then(({ ExtensionModal }) => ({ default: ExtensionModal })));
 
 interface HeaderProps {
   user: User | null;
@@ -120,11 +121,13 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      <ExtensionModal
-        isOpen={isExtensionModalOpen}
-        onClose={() => setIsExtensionModalOpen(false)}
-        theme={theme}
-      />
+      <React.Suspense fallback={null}>
+        <ExtensionModal
+          isOpen={isExtensionModalOpen}
+          onClose={() => setIsExtensionModalOpen(false)}
+          theme={theme}
+        />
+      </React.Suspense>
     </header>
   );
 };

@@ -238,6 +238,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [stepUpError, setStepUpError] = useState('');
   const [isStepUpLoading, setIsStepUpLoading] = useState(false);
   const [pendingAction, setPendingAction] = useState<((token: string) => Promise<void>) | null>(null);
+  const requestStepUp = useCallback((action: (token: string) => Promise<void>) => {
+    setPendingAction(() => action);
+    setStepUpError('');
+    setIsStepUpModalOpen(true);
+  }, []);
 
   // 🔐 Recovery Codes State
   const [recoveryCount, setRecoveryCount] = useState<number | null>(null);
@@ -2242,8 +2247,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {activeTab === 'maintenance' && (
             <AdminMaintenanceTab
               theme={theme}
-              sessionToken={sessionToken}
               getHeaders={getHeaders}
+              requestStepUp={requestStepUp}
             />
           )}
 

@@ -4,6 +4,7 @@ import { test, expect } from '@playwright/test';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import express from 'express';
 
 let server: http.Server;
 let baseUrl: string;
@@ -14,6 +15,7 @@ test.beforeAll(async () => {
   const distIndex = path.join(process.cwd(), 'dist', 'public', 'index.html');
   const rootIndex = path.join(process.cwd(), 'index.html');
   const indexHtml = fs.existsSync(distIndex) ? fs.readFileSync(distIndex, 'utf-8') : fs.readFileSync(rootIndex, 'utf-8');
+  if (fs.existsSync(distIndex)) app.use(express.static(path.dirname(distIndex), { index: false }));
 
   app.get('/', (_req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -56,6 +58,12 @@ test.describe('Jornada do Aluno & Integridade Operacional (Rumo ao CFO)', () => 
     // Valida logotipo da fênix no cabeçalho
     const logoImg = page.locator('header img.brand-phoenix');
     await expect(logoImg).toBeVisible();
+
+    const viewport = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+    }));
+    expect(viewport.scrollWidth).toBeLessThanOrEqual(viewport.clientWidth + 1);
   });
 
   test('2. Presença de metatags PWA e manifesto web', async ({ page }) => {

@@ -32,8 +32,22 @@ async function request(path: string, options: RequestInit = {}) {
 }
 
 // Helpers para gerar buffers de arquivos sintéticos válidos
-function createValidPdfBuffer(): Buffer {
-  const content = `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\nxref\n0 4\n0000000000 65535 f\n0000000010 00000 n\n0000000060 00000 n\n0000000117 00000 n\ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n170\n%%EOF`;
+function createValidPdfBuffer(pageCount = 1): Buffer {
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    `<< /Type /Pages /Kids [${Array.from({ length: pageCount }, (_, index) => `${index + 3} 0 R`).join(' ')}] /Count ${pageCount} >>`,
+    ...Array.from({ length: pageCount }, () => '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>'),
+  ];
+  let content = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(content));
+    content += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = Buffer.byteLength(content);
+  content += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  content += offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  content += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
   return Buffer.from(content, 'utf-8');
 }
 
@@ -64,14 +78,16 @@ function createValidJpgBuffer(width = 100, height = 100): Buffer {
   return Buffer.concat([header, dim, tail]);
 }
 
-function createValidWebpBuffer(): Buffer {
-  // RIFF (4b) + Size (4b) + WEBP (4b) + VP8 (4b)
-  const header = Buffer.alloc(16);
+function createValidWebpBuffer(width = 100, height = 100): Buffer {
+  const header = Buffer.alloc(30);
   header.write('RIFF', 0, 'ascii');
-  header.writeUInt32LE(20, 4);
+  header.writeUInt32LE(header.length - 8, 4);
   header.write('WEBP', 8, 'ascii');
-  header.write('VP8 ', 12, 'ascii');
-  return Buffer.concat([header, Buffer.from('mockpayload1234')]);
+  header.write('VP8X', 12, 'ascii');
+  header.writeUInt32LE(10, 16);
+  header.writeUIntLE(width - 1, 24, 3);
+  header.writeUIntLE(height - 1, 27, 3);
+  return header;
 }
 
 test.before(async () => {
@@ -429,4 +445,34 @@ test('SEC-UP-16: Bloqueio de download de arquivos em Quarentena / Não Liberados
   assert.equal(res.response.status, 403);
   assert.equal(res.body.error, 'ACCESS_DENIED');
   assert.match(res.body.message, /quarentena|processamento/i);
+});
+
+test('SEC-UP-17: Rejeita PDF sem marcador final e MIME declarado divergente', () => {
+  const pdf = createValidPdfBuffer();
+  const withoutEof = pdf.subarray(0, pdf.lastIndexOf('%%EOF'));
+  assert.equal(secureUploadService.validateFileBuffer(withoutEof, 'arquivo.pdf', 'application/pdf').valid, false);
+  assert.equal(secureUploadService.validateFileBuffer(pdf, 'arquivo.pdf', 'image/png').valid, false);
+});
+
+test('SEC-UP-18: Rejeita WEBP sem estrutura de dimensões válida', () => {
+  const malformed = Buffer.alloc(30);
+  malformed.write('RIFF', 0, 'ascii');
+  malformed.writeUInt32LE(22, 4);
+  malformed.write('WEBP', 8, 'ascii');
+  malformed.write('BAD!', 12, 'ascii');
+  assert.equal(secureUploadService.validateFileBuffer(malformed, 'imagem.webp', 'image/webp').valid, false);
+});
+
+test('SEC-UP-19: Rejeita PDF acima do limite de 200 páginas', async () => {
+  const res = await request('/api/uploads/file', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cadetToken}` },
+    body: JSON.stringify({
+      fileName: 'pdf-bomba.pdf',
+      declaredMime: 'application/pdf',
+      contentBase64: createValidPdfBuffer(201).toString('base64'),
+    }),
+  });
+  assert.equal(res.response.status, 400);
+  assert.match(res.body.message, /200 páginas/i);
 });

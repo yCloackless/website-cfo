@@ -156,7 +156,7 @@ test('4. Backup do Sistema: Criação de arquivo comprimido gzip e checksum sha2
 
     // Valida que o arquivo gzip é descompactável e contém estrutura de snapshot válida
     const rawGzip = fs.readFileSync(backupFilePath);
-    assert.equal(rawGzip.subarray(0, 5).toString('ascii'), 'CFOB1');
+    assert.equal(rawGzip.subarray(0, 5).toString('ascii'), 'CFOB2');
     assert.throws(() => zlib.gunzipSync(rawGzip), 'O backup nao deve revelar dados sem a chave');
 
     // Confirma registro no índice de backups

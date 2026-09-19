@@ -28,8 +28,8 @@ import { MaintenanceScreen } from '../MaintenanceScreen';
 
 interface AdminMaintenanceTabProps {
   theme: AppTheme;
-  sessionToken: string | null;
   getHeaders: (overrideStepUp?: string | null) => Record<string, string>;
+  requestStepUp: (action: (token: string) => Promise<void>) => void;
 }
 
 interface MaintenanceConfigData {
@@ -58,6 +58,7 @@ const PAGE_DEFINITIONS = [
 export const AdminMaintenanceTab: React.FC<AdminMaintenanceTabProps> = ({
   theme,
   getHeaders,
+  requestStepUp,
 }) => {
   const isLight = theme === 'light';
 
@@ -152,13 +153,13 @@ export const AdminMaintenanceTab: React.FC<AdminMaintenanceTabProps> = ({
   };
 
   // 🚨 Disparo do Modo de Emergência / Kill Switch Anti-Invasão
-  const handleEmergencyLockdown = async (active: boolean) => {
+  const handleEmergencyLockdown = async (active: boolean, stepUpToken?: string) => {
     setIsEmergencySubmitting(true);
     setFeedback(null);
     try {
       const res = await fetch('/api/admin/system/emergency-lockdown', {
         method: 'POST',
-        headers: getHeaders(),
+        headers: getHeaders(stepUpToken),
         body: JSON.stringify({
           active,
           message: emergencyMessage.trim() || config.message || 'Sistema em procedimento de contingência e contenção de segurança. Acesso suspenso para manutenção emergencial.',
@@ -166,6 +167,10 @@ export const AdminMaintenanceTab: React.FC<AdminMaintenanceTabProps> = ({
         }),
       });
       const data = await res.json();
+      if (res.status === 403 && data.error === 'STEP_UP_REQUIRED') {
+        requestStepUp((token) => handleEmergencyLockdown(active, token));
+        return;
+      }
       if (res.ok && data.success) {
         setConfig((prev) => ({
           ...prev,
@@ -192,15 +197,19 @@ export const AdminMaintenanceTab: React.FC<AdminMaintenanceTabProps> = ({
   };
 
   // 🔄 Disparo da Reinicialização Tática do Servidor
-  const handleRestartServer = async () => {
+  const handleRestartServer = async (stepUpToken?: string) => {
     setIsRestarting(true);
     setFeedback(null);
     try {
       const res = await fetch('/api/admin/system/restart', {
         method: 'POST',
-        headers: getHeaders(),
+        headers: getHeaders(stepUpToken),
       });
       const data = await res.json();
+      if (res.status === 403 && data.error === 'STEP_UP_REQUIRED') {
+        requestStepUp((token) => handleRestartServer(token));
+        return;
+      }
       if (res.ok && data.success) {
         setShowRestartModal(false);
         setRestartCountdown(6);
@@ -713,7 +722,7 @@ export const AdminMaintenanceTab: React.FC<AdminMaintenanceTabProps> = ({
               <button
                 type="button"
                 disabled={isRestarting}
-                onClick={handleRestartServer}
+                onClick={() => handleRestartServer()}
                 className="px-5 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-[0_0_20px_rgba(245,158,11,0.4)] transition-all disabled:opacity-50"
               >
                 {isRestarting ? 'Reiniciando...' : 'Confirmar Reinicialização'}

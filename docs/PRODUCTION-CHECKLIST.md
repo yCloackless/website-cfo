@@ -1,5 +1,20 @@
 # GSD — FASE 13: Production Readiness
 
+## Revalidacao de seguranca em 19/09/2026
+
+Esta secao atualiza apenas os controles novamente verificados; o restante abaixo permanece como registro historico de 07/09/2026 e nao deve ser interpretado como estado atual sem nova prova.
+
+- Mutacoes autenticadas por cookie agora rejeitam origem ausente ou externa; same-origin e Bearer foram exercitados por teste HTTP.
+- Helmet, Permissions-Policy e rate limit operacional sao registrados antes de health/readiness/version. A CSP usa estilos e fontes auto-hospedados, sem Google Fonts em `style-src`.
+- O limite de trabalho simultaneo passou para o inicio do pipeline e libera o contador uma unica vez em `finish`/`close`.
+- Suporte nao pode desbloquear honeypot nem alterar Google Calendar; lockdown e reinicio exigem admin com step-up.
+- Tokens da extensao foram reduzidos a cronometro/nivelamento e nao herdam papel admin.
+- Uploads agora conferem MIME declarado, EOF e ate 200 paginas de PDF, e rejeitam imagens sem dimensoes validas.
+- A suite isolada passou a executar com concorrencia limitada, sem compartilhar SQLite, reduzindo o tempo observado de cerca de 120 s para cerca de 63 s.
+- Build de producao e 14 cenarios Playwright passaram em Desktop Chrome e Pixel 7, inclusive sem overflow horizontal na landing compilada.
+
+Limites desta revalidacao: o Deep Scan canonico nao iniciou por falta do perfil gerenciado de filesystem; foi aplicado o fallback manual do `AGENTS.md`. Docker Compose foi validado estaticamente, mas o daemon local nao estava disponivel para construir/iniciar a imagem. TLS, Cloudflare/Render e provedores externos nao foram testados em producao.
+
 **Data:** 2026-09-07 · **Base auditada:** `b26c722` · **Decisão: NÃO PRONTO PARA PRODUÇÃO.**
 
 Esta revisão substitui as conclusões anteriores deste checklist. Há blockers reproduzidos em autenticação, exposição de código/segredos e integridade dos dados. Build e testes existentes aprovados não representam aprovação de produção.

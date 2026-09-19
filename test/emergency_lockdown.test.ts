@@ -1,5 +1,6 @@
 process.env.NODE_ENV = 'test';
 process.env.SECURITY_TEST_ALLOWLIST_KEY = 'authorized-pentest-scan-key-2026';
+process.env.ADMIN_PASSWORD ||= 'fixture-admin-password-2026';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,6 +17,7 @@ let authService: AuthService;
 let sessionRepo: SessionRepository;
 let systemRepo: SystemIntegrationRepository;
 let adminToken: string;
+let adminStepUpToken: string;
 let cadetToken: string;
 let cadetUserId: string;
 
@@ -45,6 +47,15 @@ test.before(async () => {
   }
   const adminSession = sessionRepo.createSession({ userId: adminUser.id, role: 'admin' });
   adminToken = adminSession.rawToken;
+
+  const stepUpResponse = await fetch(`${baseUrl}/api/admin/step-up`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+    body: JSON.stringify({ password: process.env.ADMIN_PASSWORD }),
+  });
+  assert.equal(stepUpResponse.status, 200);
+  adminStepUpToken = (await stepUpResponse.json()).stepUpToken;
+  assert.ok(adminStepUpToken);
 
   // Garante usuário cadete e cria sessão direta
   const cadetEmail = `cadet_${Date.now()}@teste.com`;
@@ -113,6 +124,14 @@ test('Emergency Lockdown & Server Restart Suite', async (t) => {
     });
     assert.equal(resCadet.status, 403);
 
+    const resWithoutStepUp = await fetch(`${baseUrl}/api/admin/system/emergency-lockdown`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ active: true }),
+    });
+    assert.equal(resWithoutStepUp.status, 403);
+    assert.equal((await resWithoutStepUp.json()).error, 'STEP_UP_REQUIRED');
+
     // Restart sem auth
     const restartNoAuth = await fetch(`${baseUrl}/api/admin/system/restart`, {
       method: 'POST',
@@ -126,6 +145,7 @@ test('Emergency Lockdown & Server Restart Suite', async (t) => {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${adminToken}`,
+        'x-admin-step-up-token': adminStepUpToken,
       },
       body: JSON.stringify({
         active: true,
@@ -170,7 +190,7 @@ test('Emergency Lockdown & Server Restart Suite', async (t) => {
 
   await t.test('5. Durante o lockdown, rotas administrativas continuam operando normalmente para o Admin', async () => {
     const adminRes = await fetch(`${baseUrl}/api/admin/verify`, {
-      headers: { Authorization: `Bearer ${adminToken}` },
+      headers: { Authorization: `Bearer ${adminToken}`, 'x-admin-step-up-token': adminStepUpToken },
     });
     assert.equal(adminRes.status, 200);
     const adminBody = await adminRes.json();
@@ -188,7 +208,7 @@ test('Emergency Lockdown & Server Restart Suite', async (t) => {
   await t.test('6. Comando de Reinicialização Tática responde com sucesso para o Administrador', async () => {
     const res = await fetch(`${baseUrl}/api/admin/system/restart`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${adminToken}` },
+      headers: { Authorization: `Bearer ${adminToken}`, 'x-admin-step-up-token': adminStepUpToken },
     });
     assert.equal(res.status, 200);
     const body = await res.json();
@@ -203,6 +223,7 @@ test('Emergency Lockdown & Server Restart Suite', async (t) => {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${adminToken}`,
+        'x-admin-step-up-token': adminStepUpToken,
       },
       body: JSON.stringify({
         active: false,

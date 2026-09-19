@@ -10,14 +10,14 @@ Nenhum sistema publico pode prometer risco zero. Este projeto usa defesa em prof
 - COEP `credentialless` + COOP habilitados para isolamento de processo (mitigacao Spectre) sem bloquear iframes de terceiros.
 - Permissions-Policy aplicado globalmente (camera, microphone, geolocation, payment, usb desabilitados).
 - Violacoes CSP reportadas ao endpoint `POST /api/csp-report` e registradas na auditoria.
-- CORS limitado aos dominios configurados em `APP_URL`/Render.
+- CORS limitado aos dominios configurados em `APP_URL`/Render; mutacoes autenticadas por cookie exigem `Origin`/`Referer` da mesma origem.
 - Cookies de sessao `HttpOnly`, `Secure` em producao, `SameSite=Strict` e prefixo `__Host-`.
 - Sessoes assinadas com HMAC-SHA256; `SESSION_SECRET` e `DATABASE_URL` sao obrigatorios em producao.
 - Senhas protegidas por bcrypt custo 12 (uniforme para todos os tipos de usuario), mensagens genericas contra enumeracao e comparacao com trabalho criptografico mesmo para usuario inexistente.
 - Derivacao de chave AES-256 via scrypt (N=16384, r=8, p=1) com salt de contexto fixo — resistente a ataques de dicionario. Formato `version:2` nos payloads; dados legados `version:1` (sha256) sao migrados automaticamente na primeira leitura.
 - Backups criptografados com AES-256-GCM (CFOB2, scrypt KDF). Backups legados CFOB1 sao re-criptografados automaticamente pelo scheduler. SHA-256 do arquivo verificado antes de cada restauracao.
 - Fonte Inter auto-hospedada (sem dependencia de CDN externo); elimina vetor de supply chain via Google Fonts.
-- RBAC no backend, 2FA para administracao e step-up para operacoes administrativas sensiveis.
+- RBAC no backend, suporte somente leitura, 2FA para administracao e step-up para operacoes sensiveis, inclusive lockdown e reinicio.
 - Cloudflare Turnstile validado no backend. Em producao, rede privada/localhost nao gera bypass; apenas `ADMIN_TRUSTED_IPS` explicitamente configurado.
 - Rate limit global (350 requisicoes/15 min), login e recuperacao (15/15 min), 2FA (10/15 min), CSP report (30/min), IA e upload com limites proprios.
 - Bloqueio persistente de tentativas abusivas e revogacao de sessoes.
@@ -27,7 +27,9 @@ Nenhum sistema publico pode prometer risco zero. Este projeto usa defesa em prof
 - IP completo e user-agent ficam restritos ao armazenamento forense. Respostas administrativas e eventos SSE recebem IP parcialmente mascarado e credenciais redigidas.
 - Erros enviados ao navegador nao incluem mensagem interna, stack trace, caminho de arquivo ou erro SQL.
 - Subprocessos Python recebem somente variaveis operacionais; secrets do processo Node nao sao repassados.
-- Uploads validam tipo, tamanho, assinatura e propriedade. O container executa como usuario `node`, nao como root.
+- Uploads validam tipo, MIME, extensao, assinatura, dimensoes, EOF/estrutura e limite de 200 paginas em PDF, alem de propriedade. O container executa como usuario `node`, nao como root.
+- Tokens da extensao possuem escopo restrito as rotas de cronometro e sincronizacao de nivelamento, sem herdar privilegios administrativos.
+- Health/readiness/version recebem headers de seguranca e rate limit antes das rotas; excesso de requisicoes simultaneas falha cedo com 503.
 - PostgreSQL nao e publicado pela aplicacao; no Docker local ele escuta somente em `127.0.0.1`.
 - Auditoria append-only via API e backups criptografados com verificacao de integridade.
 

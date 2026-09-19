@@ -1132,6 +1132,12 @@ export const MIGRATIONS: Migration[] = [
     id: 30,
     name: '030_rumo_estudos_student_module',
     sql: `
+      -- Remove only records that already point to deleted users. These are
+      -- non-user-owned session/lock artifacts and would otherwise make the
+      -- first post-029 migration fail its full foreign-key integrity check.
+      DELETE FROM sessions WHERE user_id NOT IN (SELECT id FROM users);
+      DELETE FROM cadet_session_locks WHERE user_id NOT IN (SELECT id FROM users);
+
       CREATE TABLE IF NOT EXISTS student_profiles (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL UNIQUE,
@@ -1380,7 +1386,12 @@ export class DatabaseService {
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
       }
-      this.dbPath = path.join(dataDir, 'cfo_app.sqlite');
+      const testDbPath = process.env.NODE_ENV === 'test' ? process.env.SQLITE_DB_PATH : undefined;
+      this.dbPath = testDbPath || path.join(dataDir, 'cfo_app.sqlite');
+      if (testDbPath) {
+        const testDir = path.dirname(testDbPath);
+        if (!fs.existsSync(testDir)) fs.mkdirSync(testDir, { recursive: true });
+      }
     }
 
     this.db = this.postgres ? new PostgresSyncDatabase() : new DatabaseSync(this.dbPath);

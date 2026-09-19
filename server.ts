@@ -14,7 +14,7 @@ import compression from "compression";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import bcrypt from "bcryptjs";
 
-dotenv.config();
+if (process.env.NODE_ENV !== 'test') dotenv.config();
 
 if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL_REQUIRED_IN_PRODUCTION');
@@ -100,13 +100,6 @@ import { calculatePriorityScore, classifyPriority, weightedAverage } from "./src
 
 const app = express();
 app.disable("x-powered-by");
-app.use(compression({
-  threshold: 1024,
-  filter: (req, res) => {
-    if (req.headers['x-no-compression']) return false;
-    return compression.filter(req, res);
-  },
-}));
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -149,6 +142,98 @@ const isProxyEnvironment = Boolean(process.env.RENDER || process.env.RENDER_EXTE
 const trustedProxyEntries = (process.env.TRUSTED_PROXIES || '')
   .split(',').map(value => value.trim()).filter(value => value && value !== '*' && value !== 'true');
 app.set("trust proxy", trustedProxyEntries.length > 0 ? trustedProxyEntries : (isProxyEnvironment ? 1 : false));
+
+// Security headers must be registered before public operational/static routes.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com"],
+        styleSrc: ["'self'"],
+        styleSrcElem: ["'self'"],
+        // KaTeX, Motion and Recharts still require runtime style attributes.
+        styleSrcAttr: ["'unsafe-inline'"],
+        fontSrc: ["'self'", "data:"],
+        imgSrc: ["'self'", "data:", "blob:"],
+        frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com"],
+        connectSrc: [
+          "'self'",
+          "https://challenges.cloudflare.com",
+          "https://*.googleapis.com",
+          "https://generativelanguage.googleapis.com",
+          "https://*.google.com",
+        ],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'self'"],
+        workerSrc: ["'self'"],
+        manifestSrc: ["'self'"],
+        reportTo: ["csp-violations"],
+      },
+    },
+    crossOriginEmbedderPolicy: { policy: 'credentialless' } as any,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    hsts: process.env.NODE_ENV === 'production' ? {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    } : false,
+    noSniff: true,
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  })
+);
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=(self)');
+  res.setHeader('Reporting-Endpoints', 'csp-violations="/api/csp-report"');
+  next();
+});
+
+// Reject excess in-flight work before any route allocates expensive resources.
+let activeRequests = 0;
+const MAX_ACTIVE_REQUESTS = 200;
+app.use((req: Request, res: Response, next: NextFunction) => {
+  // Keep the platform liveness probe available even under application pressure.
+  if (req.path === '/api/health') return next();
+  if (activeRequests >= MAX_ACTIVE_REQUESTS) {
+    res.setHeader('Retry-After', '5');
+    return res.status(503).json({
+      error: 'SERVICE_OVERLOADED',
+      message: 'Servidor temporariamente sobrecarregado. Tente novamente em instantes.',
+    });
+  }
+
+  activeRequests++;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    activeRequests = Math.max(0, activeRequests - 1);
+  };
+  res.once('finish', release);
+  res.once('close', release);
+  next();
+});
+
+app.use(compression({
+  threshold: 1024,
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  },
+}));
+
+const operationalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  store: createRateLimitRedisStore('operational'),
+  validate: { xForwardedForHeader: false },
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "TOO_MANY_REQUESTS", message: "Muitas requisições ao endpoint operacional." },
+});
+app.use(['/api/health', '/api/ready', '/api/version'], operationalLimiter);
 
 app.get("/sw.js", (_req: Request, res: Response) => {
   const swPath = path.join(process.cwd(), "public", "sw.js");
@@ -607,89 +692,6 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// 3. Compressão Gzip/Brotli de payloads e assets estáticos
-app.use(compression());
-
-// 4. Segurança de Borda e Cabeçalhos com Helmet (Defesa em Profundidade)
-
-// Reporting-Endpoints header: necessário para que navegadores modernos enviem relatórios
-// de violação de CSP ao endpoint /api/csp-report. Configurado antes do Helmet.
-app.use((_req: Request, res: Response, next: NextFunction) => {
-  res.setHeader('Reporting-Endpoints', 'csp-violations="/api/csp-report"');
-  next();
-});
-
-app.use(
-  helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: [
-          "'self'",
-          "https://challenges.cloudflare.com",
-          "https://accounts.google.com",
-        ],
-        styleSrc: [
-          "'self'",
-          "https://fonts.googleapis.com",
-        ],
-        styleSrcElem: [
-          "'self'",
-          "https://fonts.googleapis.com",
-        ],
-        // RISCO RESIDUAL ACEITO: style-src-attr 'unsafe-inline' é necessário para
-        // KaTeX (fórmulas matemáticas), Framer Motion (animações) e Recharts (gráficos)
-        // injetarem atributos style="" em runtime. Removê-lo quebraria a renderização.
-        // Mitigação: script-src não permite unsafe-inline, então XSS não pode executar
-        // JS arbitrário para abusar desta permissão de estilo.
-        styleSrcAttr: [
-          "'unsafe-inline'",
-        ],
-        fontSrc: ["'self'", "data:"],
-        imgSrc: ["'self'", "data:", "blob:"],
-        frameSrc: [
-          "'self'",
-          "https://challenges.cloudflare.com",
-          "https://accounts.google.com",
-        ],
-        connectSrc: [
-          "'self'",
-          "https://challenges.cloudflare.com",
-          "https://*.googleapis.com",
-          "https://generativelanguage.googleapis.com",
-          "https://*.google.com",
-        ],
-        objectSrc: ["'none'"],
-        baseUri: ["'self'"],
-        formAction: ["'self'"],
-        frameAncestors: ["'self'"],
-        workerSrc: ["'self'"],
-        manifestSrc: ["'self'"],
-        reportTo: ["csp-violations"],
-      },
-    },
-    // 'credentialless' habilita isolamento de processo (Spectre mitigation) sem bloquear
-    // iframes de terceiros (Cloudflare Turnstile, Google OAuth) que não enviam credenciais.
-    crossOriginEmbedderPolicy: { policy: 'credentialless' } as any,
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-    // HSTS must not be sent from the local HTTP development server.
-    hsts: process.env.NODE_ENV === 'production' ? {
-      maxAge: 31536000,
-      includeSubDomains: true,
-      preload: true,
-    } : false,
-    noSniff: true,
-    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
-  })
-);
-
-// Permissions-Policy aplicado globalmente (inclusive para HTML do SPA).
-// Helmet 8.x não suporta permissionsPolicy no options object; middleware dedicado.
-app.use((_req: Request, res: Response, next: NextFunction) => {
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=(self)');
-  next();
-});
-
 // 5. Configuração Estrita de CORS
 const APP_URL = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 const allowedOriginsList = [
@@ -711,6 +713,23 @@ function extractOrigin(urlStr: string): string | null {
 const normalizedAllowedOrigins = new Set(
   allowedOriginsList.map(extractOrigin).filter(Boolean) as string[]
 );
+
+// Cookie sessions require a same-origin browser signal on state-changing API calls.
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || !readSessionCookie(req)) return next();
+
+  const sourceOrigin = extractOrigin(String(req.headers.origin || req.headers.referer || ''));
+  if (sourceOrigin && normalizedAllowedOrigins.has(sourceOrigin)) return next();
+  if (sourceOrigin && process.env.NODE_ENV !== 'production') {
+    const hostname = new URL(sourceOrigin).hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') return next();
+  }
+
+  return res.status(403).json({
+    error: 'CSRF_ORIGIN_REJECTED',
+    message: 'Origem da requisição não autorizada.',
+  });
+});
 
 // Os visuais de ponto são documentos HTML autocontidos: precisam executar o
 // módulo inline e importar somente o Three.js do CDN, sem abrir essa exceção
@@ -775,22 +794,6 @@ const apiLimiter = rateLimit({
   },
 });
 app.use("/api/", apiLimiter);
-
-// ── Health endpoint: 60 req / min por IP (evitar uso como amplificador de escaner)
-const healthLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 60,
-  store: createRateLimitRedisStore('health'),
-  validate: { xForwardedForHeader: false },
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: (req: Request, res: Response) => {
-    const ip = getClientIp(req);
-    console.warn(`[RATE_LIMIT_TRIGGERED] Limiter: health | Method: ${req.method} | Path: ${req.path} | Status: 429 | IP: ${ip}`);
-    res.status(429).json({ error: "TOO_MANY_REQUESTS", message: "Muitas requisições ao health check." });
-  },
-});
-app.use("/api/health", healthLimiter);
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -930,7 +933,7 @@ const telemetryLimiter = rateLimit({
   message: { error: "TOO_MANY_REQUESTS", message: "Limite de telemetria atingido." },
 });
 
-app.post("/api/telemetry/vitals", telemetryLimiter, (req: Request, res: Response) => {
+app.post("/api/telemetry/vitals", telemetryLimiter, express.json({ limit: '16kb' }), (req: Request, res: Response) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   const payload = req.body;
   if (payload && typeof payload === "object") {
@@ -1452,15 +1455,17 @@ function verifyTerminalSession(token?: string | null): {
   sessionId?: string;
   impersonatedByUserId?: string | null;
   parentSessionId?: string | null;
+  authScope?: 'default' | 'extension';
 } {
   if (!token || typeof token !== "string") return { valid: false };
 
   // 1. Verificação primária na nova base de sessões do banco de dados
   const dbCheck = authServiceInstance.validateToken(token);
   if (dbCheck.valid && dbCheck.user && dbCheck.session) {
-    const role = dbCheck.user.role;
-    const canAccessNotion = role === "admin" || dbCheck.user.canAccessNotion;
-    const canAccessIfrj = role === "admin" || dbCheck.user.canAccessIfrj;
+    const authScope = dbCheck.session.userAgent === 'cfo-browser-extension' ? 'extension' : 'default';
+    const role = authScope === 'extension' ? 'cadet' : dbCheck.user.role;
+    const canAccessNotion = authScope === 'default' && (role === "admin" || dbCheck.user.canAccessNotion);
+    const canAccessIfrj = authScope === 'default' && (role === "admin" || dbCheck.user.canAccessIfrj);
     const expiresAt = new Date(dbCheck.session.expiresAt).getTime();
     return {
       valid: true,
@@ -1473,6 +1478,7 @@ function verifyTerminalSession(token?: string | null): {
       sessionId: dbCheck.session.id,
       impersonatedByUserId: dbCheck.session.impersonatedByUserId || null,
       parentSessionId: dbCheck.session.parentSessionId || null,
+      authScope,
     };
   }
 
@@ -2998,7 +3004,7 @@ app.get("/api/admin/honeypot/metrics", requireAdminAuth, (_req: Request, res: Re
   }
 });
 
-app.post("/api/admin/honeypot/unblock", requireAdminAuth, (req: Request, res: Response) => {
+app.post("/api/admin/honeypot/unblock", requireAdminWriteAuth, (req: Request, res: Response) => {
   try {
     const { ip } = req.body || {};
     if (!ip || typeof ip !== "string") {
@@ -4223,7 +4229,7 @@ app.post("/api/admin/maintenance", requireAdminWriteAuth, (req: Request, res: Re
 });
 
 // 4. Modo de Emergência / Kill Switch Anti-Invasão (Desliga o site para todos exceto admin)
-app.post("/api/admin/system/emergency-lockdown", requireAdminWriteAuth, (req: Request, res: Response) => {
+app.post("/api/admin/system/emergency-lockdown", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const adminUser = (req as any).user;
     const { active, message, revokeActiveSessions } = req.body || {};
@@ -4285,7 +4291,7 @@ app.post("/api/admin/system/emergency-lockdown", requireAdminWriteAuth, (req: Re
 });
 
 // 5. Reinicialização Tática do Servidor (Graceful Restart)
-app.post("/api/admin/system/restart", requireAdminWriteAuth, (req: Request, res: Response) => {
+app.post("/api/admin/system/restart", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const adminUser = (req as any).user;
 
@@ -4998,7 +5004,7 @@ app.post("/api/calendar/verify-token", requireAdminAuth, calendarLimiter, async 
 });
 
 // 7. Create single Calendar Event endpoint (com auto-refresh de token)
-app.post("/api/calendar/create-event", requireAdminAuth, calendarLimiter, async (req: Request, res: Response) => {
+app.post("/api/calendar/create-event", requireAdminWriteAuth, calendarLimiter, async (req: Request, res: Response) => {
   try {
     let token = await getValidCalendarAccessToken();
 
@@ -5054,7 +5060,7 @@ app.post("/api/calendar/create-event", requireAdminAuth, calendarLimiter, async 
 });
 
 // 8. Batch Sync Study Session & Spaced Revisions endpoint (com auto-refresh de token)
-app.post("/api/calendar/batch-sync", requireAdminAuth, calendarLimiter, async (req: Request, res: Response) => {
+app.post("/api/calendar/batch-sync", requireAdminWriteAuth, calendarLimiter, async (req: Request, res: Response) => {
   try {
     let token = await getValidCalendarAccessToken();
 
@@ -6222,6 +6228,7 @@ app.get("/api/user/extension-token", requireUserAuth, (req: Request, res: Respon
       userId,
       role: user.role || 'cadet',
       expiresInDays: 90,
+      userAgent: 'cfo-browser-extension',
     });
 
     return res.json({
@@ -6277,39 +6284,6 @@ app.post("/api/user/sync-backup", requireUserAuth, (req: Request, res: Response)
     if (!userId) return res.status(401).json({ error: 'UNAUTHORIZED' });
     const savedAt = userStateRepoInstance.upsert(userId, { cfo_legacy_snapshot: JSON.stringify(snapshot) });
     return res.json({ success: true, message: "Progresso sincronizado no banco de dados.", savedAt });
-
-    const userBackupDir = path.join(process.cwd(), "data", "user-backups");
-    if (!fs.existsSync(userBackupDir)) {
-      fs.mkdirSync(userBackupDir, { recursive: true });
-    }
-
-    const sanitizedUsername = String(user.username || "cadete").replace(/[^a-zA-Z0-9_-]/g, "_");
-    const userBackupFile = path.join(userBackupDir, `${sanitizedUsername}.json`);
-
-    const dataToSave = {
-      username: user.username,
-      role: user.role,
-      savedAt: new Date().toISOString(),
-      clientIp: getClientIp(req),
-      snapshot,
-    };
-
-    fs.writeFileSync(userBackupFile, JSON.stringify(dataToSave, null, 2), "utf-8");
-
-    logAuditEvent({
-      action: "USER_BACKUP_SYNC",
-      actor: user.username,
-      resource: `/data/user-backups/${sanitizedUsername}.json`,
-      status: "SUCCESS",
-      ip: getClientIp(req),
-      details: { sizeBytes: Buffer.byteLength(JSON.stringify(dataToSave)) },
-    });
-
-    return res.json({
-      success: true,
-      message: "Progresso tático sincronizado e salvo em backup seguro no servidor.",
-      savedAt: dataToSave.savedAt,
-    });
   } catch (err: any) {
     console.error("[User Backup] Falha ao salvar backup do usuário:", err);
     return res.status(500).json({
@@ -8415,30 +8389,6 @@ app.delete("/api/exams/segments/:segmentId", requireUserAuth, (req: Request, res
   } catch (err: any) {
     return res.status(500).json({ error: "DELETE_SEGMENT_FAILED", message: "Falha ao remover segmento." });
   }
-});
-
-// ── Middleware de Pressão: Fail-Fast 503 ────────────────────────────────────
-// Quando o número de requests simultâneos excede o threshold, retornamos 503
-// imediatamente antes de alocar recursos. Evita cascata de timeouts sob ataque L7.
-let _activeRequests = 0;
-const MAX_ACTIVE_REQUESTS = 200; // Threshold de pressão — ajustar conforme plano do Render
-
-app.use((req: Request, res: Response, next: NextFunction) => {
-  // Health check nunca entra na fila de pressão (liveness do Render depende dele)
-  if (req.path === '/api/health') return next();
-
-  if (_activeRequests >= MAX_ACTIVE_REQUESTS) {
-    res.setHeader('Retry-After', '5');
-    return res.status(503).json({
-      error: 'SERVICE_OVERLOADED',
-      message: 'Servidor temporariamente sobrecarregado. Tente novamente em instantes.',
-    });
-  }
-
-  _activeRequests++;
-  res.on('finish', () => { _activeRequests = Math.max(0, _activeRequests - 1); });
-  res.on('close', () => { _activeRequests = Math.max(0, _activeRequests - 1); });
-  next();
 });
 
 // 🛑 Camada de Decepção Defensiva (Honeypot, Canários e Rotas Decoy)

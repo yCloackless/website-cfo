@@ -35,11 +35,10 @@ test('OWASP ZAP 1: Helmet CSP style-src does NOT contain unsafe-inline', async (
 
   assert.ok(csp, 'CSP header must be present');
   
-  // style-src must allow 'self' and Google Fonts, but NOT 'unsafe-inline'
+  // Fonts and styles are self-hosted; style-src must not permit inline styles.
   const styleSrcMatch = csp.match(/style-src\s+([^;]+)/);
   assert.ok(styleSrcMatch, 'style-src directive must exist in CSP');
-  assert.match(styleSrcMatch[1], /'self'/);
-  assert.match(styleSrcMatch[1], /https:\/\/fonts\.googleapis\.com/);
+  assert.equal(styleSrcMatch[1].trim(), "'self'");
   assert.doesNotMatch(styleSrcMatch[1], /'unsafe-inline'/, 'style-src must NOT contain unsafe-inline');
 
   // style-src-elem must NOT contain 'unsafe-inline'
@@ -103,6 +102,8 @@ test('OWASP ZAP 2: /api/health returns operational Unix timestamp with strict no
   assert.match(cacheControl, /must-revalidate/);
   assert.equal(res.headers.get('pragma'), 'no-cache');
   assert.equal(res.headers.get('expires'), '0');
+  assert.ok(res.headers.get('content-security-policy'));
+  assert.match(res.headers.get('permissions-policy') || '', /camera=\(\)/);
 
   // Payload verification
   const data = await res.json();

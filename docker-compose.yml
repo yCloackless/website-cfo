@@ -41,6 +41,7 @@ services:
   backup-offsite:
     image: amazon/aws-cli:2
     profiles: ["offsite"]
+    restart: unless-stopped
     environment:
       AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY:-}
       AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_KEY:-}
@@ -54,8 +55,11 @@ services:
       test -n "$$AWS_ACCESS_KEY_ID" -a -n "$$AWS_SECRET_ACCESS_KEY" -a
       -n "$$BACKUP_S3_BUCKET" -a -n "$$BACKUP_S3_ENDPOINT" ||
       { echo 'Configure BACKUP_S3_* no .env antes do upload offsite.'; exit 2; };
+      while true; do
       aws s3 sync /backup/backups "s3://$$BACKUP_S3_BUCKET/"
-      --endpoint-url "$$BACKUP_S3_ENDPOINT" --only-show-errors
+      --endpoint-url "$$BACKUP_S3_ENDPOINT" --only-show-errors;
+      sleep 86400;
+      done
 
 volumes:
   cfo_data:

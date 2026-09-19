@@ -37,3 +37,11 @@ Antes de iniciar qualquer alteração no código:
 ## Skills
 
 As skills globais `obsidian-*` estão instaladas para Codex e Antigravity. Se não forem exibidas, reinicie o agente e verifique se ele foi iniciado como uma nova sessão.
+
+## Protocolo de Auditoria de Segurança (Codex Security & Antigravity)
+
+Quando uma auditoria ou varredura de segurança for solicitada:
+1. Se a ferramenta/subagente `deep-security-scan` encontrar restrição de ambiente (`managed filesystem permission profile`), **NÃO aborte nem fique em loop**.
+2. Prossiga imediatamente com a auditoria manual e estática do repositório utilizando as ferramentas nativas de filesystem (`view_file`, `grep_search`, `list_dir`, `readiness-suite.mjs`, `npm audit`).
+3. Analise: `server.ts`, autenticação, endpoints de upload, RBAC, banco de dados, Docker/infra, cabeçalhos de segurança HTTP, `.env.example` e dependências.
+4. Jamais exponha segredos ou edite arquivos durante a fase de auditoria.
