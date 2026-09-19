@@ -234,6 +234,60 @@ app.get('/oauth-callback.js', (_req: Request, res: Response) => {
   return res.send(`(function(){try{var el=document.getElementById('oauth-payload');if(!el)return;var data=JSON.parse(el.textContent||'{}');localStorage.setItem('cfo_calendar_status',JSON.stringify(data));localStorage.setItem('cfo_calendar_auth_success',JSON.stringify(data));if(window.opener&&data.targetOrigin)window.opener.postMessage(data,data.targetOrigin);if(typeof BroadcastChannel!=='undefined'){var channel=new BroadcastChannel('cfo_google_calendar_auth');channel.postMessage(data);channel.close();}}catch(_e){}setTimeout(function(){window.close();},250);}());`);
 });
 
+// ── CSP Violation Report Endpoint ────────────────────────────────────────────
+// Recebe relatórios de violação de Content-Security-Policy enviados por navegadores
+// via diretiva report-to. Não requer autenticação (navegador envia sem cookies).
+// Rate limiting dedicado para evitar spam/flood neste endpoint.
+const cspReportLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  store: createRateLimitRedisStore('csp_report'),
+  validate: { xForwardedForHeader: false },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req: Request, res: Response) => {
+    res.status(429).json({ error: "TOO_MANY_REQUESTS" });
+  },
+});
+
+app.post('/api/csp-report', cspReportLimiter, (req: Request, res: Response) => {
+  const contentType = req.headers['content-type'] || '';
+  // Navegadores enviam application/csp-report ou application/reports+json
+  if (!contentType.includes('csp-report') && !contentType.includes('reports+json') && !contentType.includes('json')) {
+    return res.status(415).end();
+  }
+  const chunks: Buffer[] = [];
+  let size = 0;
+  req.on('data', (chunk: Buffer) => {
+    size += chunk.length;
+    if (size > 50 * 1024) { req.destroy(); return; } // 50 KB máx
+    chunks.push(chunk);
+  });
+  req.on('end', () => {
+    try {
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      const ip = getClientIp(req);
+      const report = body?.['csp-report'] || body;
+      logAuditEvent({
+        eventType: 'CSP_VIOLATION',
+        action: 'CSP_VIOLATION',
+        ip,
+        details: {
+          blockedUri: report?.['blocked-uri'] ?? report?.blockedURL,
+          violatedDirective: report?.['violated-directive'] ?? report?.effectiveDirective,
+          documentUri: report?.['document-uri'] ?? report?.documentURL,
+          disposition: report?.disposition,
+        },
+      });
+      console.warn(`[CSP] Violação reportada por ${maskIpForClient(ip)}: ${report?.['violated-directive'] ?? report?.effectiveDirective} — ${report?.['blocked-uri'] ?? report?.blockedURL}`);
+    } catch {
+      // Relatório malformado; ignorar silenciosamente
+    }
+    res.status(204).end();
+  });
+  req.on('error', () => res.status(400).end());
+});
+
 // ============================================================================
 // 🛑 GERENCIAMENTO DE IPs BANIDOS & LISTA NEGRA PERMANENTE
 // ============================================================================
@@ -538,7 +592,6 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
   res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
-  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
 
   const largePayloadRoute = /^\/(uploads|exams)(\/|$)/.test(req.path)
     || /^\/admin\/board-intelligence(\/|$)/.test(req.path)
@@ -558,6 +611,14 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
 app.use(compression());
 
 // 4. Segurança de Borda e Cabeçalhos com Helmet (Defesa em Profundidade)
+
+// Reporting-Endpoints header: necessário para que navegadores modernos enviem relatórios
+// de violação de CSP ao endpoint /api/csp-report. Configurado antes do Helmet.
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Reporting-Endpoints', 'csp-violations="/api/csp-report"');
+  next();
+});
+
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -570,16 +631,19 @@ app.use(
         ],
         styleSrc: [
           "'self'",
-          "https://fonts.googleapis.com",
         ],
         styleSrcElem: [
           "'self'",
-          "https://fonts.googleapis.com",
         ],
+        // RISCO RESIDUAL ACEITO: style-src-attr 'unsafe-inline' é necessário para
+        // KaTeX (fórmulas matemáticas), Framer Motion (animações) e Recharts (gráficos)
+        // injetarem atributos style="" em runtime. Removê-lo quebraria a renderização.
+        // Mitigação: script-src não permite unsafe-inline, então XSS não pode executar
+        // JS arbitrário para abusar desta permissão de estilo.
         styleSrcAttr: [
           "'unsafe-inline'",
         ],
-        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+        fontSrc: ["'self'", "data:"],
         imgSrc: ["'self'", "data:", "blob:"],
         frameSrc: [
           "'self'",
@@ -599,9 +663,12 @@ app.use(
         frameAncestors: ["'self'"],
         workerSrc: ["'self'"],
         manifestSrc: ["'self'"],
+        reportTo: ["csp-violations"],
       },
     },
-    crossOriginEmbedderPolicy: false,
+    // 'credentialless' habilita isolamento de processo (Spectre mitigation) sem bloquear
+    // iframes de terceiros (Cloudflare Turnstile, Google OAuth) que não enviam credenciais.
+    crossOriginEmbedderPolicy: { policy: 'credentialless' } as any,
     crossOriginResourcePolicy: { policy: "cross-origin" },
     // HSTS must not be sent from the local HTTP development server.
     hsts: process.env.NODE_ENV === 'production' ? {
@@ -613,6 +680,13 @@ app.use(
     referrerPolicy: { policy: "strict-origin-when-cross-origin" },
   })
 );
+
+// Permissions-Policy aplicado globalmente (inclusive para HTML do SPA).
+// Helmet 8.x não suporta permissionsPolicy no options object; middleware dedicado.
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=(self)');
+  next();
+});
 
 // 5. Configuração Estrita de CORS
 const APP_URL = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
@@ -894,18 +968,28 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || defaultClientId;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const CALENDAR_SESSION_FILE = path.join(process.cwd(), "data", "calendar-session.json");
 
-function dataEncryptionKey(): Buffer {
+// ── Key Derivation: SHA-256 era fraco para senhas com baixa entropia.
+// Versão 1 (legada): sha256(secret) — mantido apenas para descriptografar dados antigos.
+// Versão 2 (atual): scrypt(secret, contextSalt, 32) — resistente a ataques de dicionário.
+function deriveDataKeyLegacy(): Buffer {
   const secret = process.env.DATA_ENCRYPTION_KEY || process.env.SESSION_SECRET;
   if (!secret) throw new Error('DATA_ENCRYPTION_KEY ou SESSION_SECRET e obrigatoria para persistir segredos');
   return crypto.createHash('sha256').update(secret).digest();
 }
 
+function deriveDataKey(): Buffer {
+  const secret = process.env.DATA_ENCRYPTION_KEY || process.env.SESSION_SECRET;
+  if (!secret) throw new Error('DATA_ENCRYPTION_KEY ou SESSION_SECRET e obrigatoria para persistir segredos');
+  // scrypt com salt de contexto fixo; N=16384, r=8, p=1 → ~0.1s em hardware moderno
+  return crypto.scryptSync(secret, 'cfo-data-enc-v1', 32, { N: 16384, r: 8, p: 1 });
+}
+
 function encryptStoredJson(value: unknown): string {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', dataEncryptionKey(), iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', deriveDataKey(), iv);
   const encrypted = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
   return JSON.stringify({
-    version: 1,
+    version: 2,
     algorithm: 'aes-256-gcm',
     iv: iv.toString('base64'),
     tag: cipher.getAuthTag().toString('base64'),
@@ -915,13 +999,18 @@ function encryptStoredJson(value: unknown): string {
 
 function decryptStoredJson<T>(raw: string): { value: T; legacy: boolean } {
   const parsed = JSON.parse(raw);
-  if (parsed?.version !== 1 || parsed?.algorithm !== 'aes-256-gcm') {
+  const version = parsed?.version;
+  if (version !== 1 && version !== 2) {
+    // Payload plaintext sem envelope (legado anterior à criptografia)
     return { value: parsed as T, legacy: true };
   }
-  const decipher = crypto.createDecipheriv('aes-256-gcm', dataEncryptionKey(), Buffer.from(parsed.iv, 'base64'));
+  // Versão 1 usa sha256 direto; versão 2 usa scrypt
+  const key = version === 1 ? deriveDataKeyLegacy() : deriveDataKey();
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(parsed.iv, 'base64'));
   decipher.setAuthTag(Buffer.from(parsed.tag, 'base64'));
   const clear = Buffer.concat([decipher.update(Buffer.from(parsed.data, 'base64')), decipher.final()]).toString('utf8');
-  return { value: JSON.parse(clear) as T, legacy: false };
+  // version 1 está desatualizado → sinalizar para re-criptografar com v2
+  return { value: JSON.parse(clear) as T, legacy: version === 1 };
 }
 
 // Google Calendar is a shared administrative integration.

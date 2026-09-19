@@ -28,29 +28,52 @@ export interface BackupStatus {
 const BACKUP_DIR = path.join(process.cwd(), 'data', 'backups');
 const BACKUP_INDEX_FILE = path.join(BACKUP_DIR, 'backup-index.json');
 const DATA_DIR = path.join(process.cwd(), 'data');
-const BACKUP_MAGIC = Buffer.from('CFOB1');
+const BACKUP_MAGIC = Buffer.from('CFOB1'); // legado — mantido para leitura de backups antigos
+const BACKUP_MAGIC_V2 = Buffer.from('CFOB2'); // novo — AES-256-GCM com scrypt KDF
 
-function backupEncryptionKey(): Buffer {
+// KDF legada: sha256 direto — usada APENAS para descriptografar backups CFOB1 antigos
+function legacyBackupEncryptionKey(): Buffer {
   const secret = process.env.BACKUP_ENCRYPTION_KEY || process.env.DATA_ENCRYPTION_KEY || process.env.SESSION_SECRET;
   if (!secret) throw new Error('BACKUP_ENCRYPTION_KEY_REQUIRED');
   return crypto.createHash('sha256').update(secret).digest();
+}
+
+// KDF atual: scrypt com salt de contexto fixo — resistente a ataques de dicionário
+function backupEncryptionKey(): Buffer {
+  const secret = process.env.BACKUP_ENCRYPTION_KEY || process.env.DATA_ENCRYPTION_KEY || process.env.SESSION_SECRET;
+  if (!secret) throw new Error('BACKUP_ENCRYPTION_KEY_REQUIRED');
+  return crypto.scryptSync(secret, 'cfo-backup-enc-v1', 32, { N: 16384, r: 8, p: 1 });
 }
 
 function encryptBackup(data: Buffer): Buffer {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', backupEncryptionKey(), iv);
   const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
-  return Buffer.concat([BACKUP_MAGIC, iv, cipher.getAuthTag(), encrypted]);
+  // Grava CFOB2: magic(5) + iv(12) + authTag(16) + ciphertext
+  return Buffer.concat([BACKUP_MAGIC_V2, iv, cipher.getAuthTag(), encrypted]);
 }
 
 function decryptBackup(data: Buffer): Buffer {
-  if (!data.subarray(0, BACKUP_MAGIC.length).equals(BACKUP_MAGIC)) throw new Error('LEGACY_UNENCRYPTED_BACKUP_REJECTED');
-  const ivStart = BACKUP_MAGIC.length;
-  const tagStart = ivStart + 12;
-  const contentStart = tagStart + 16;
-  const decipher = crypto.createDecipheriv('aes-256-gcm', backupEncryptionKey(), data.subarray(ivStart, tagStart));
-  decipher.setAuthTag(data.subarray(tagStart, contentStart));
-  return Buffer.concat([decipher.update(data.subarray(contentStart)), decipher.final()]);
+  // Detecta a versão pelo magic header
+  if (data.subarray(0, BACKUP_MAGIC_V2.length).equals(BACKUP_MAGIC_V2)) {
+    // Formato atual (CFOB2) — usa scrypt
+    const ivStart = BACKUP_MAGIC_V2.length;
+    const tagStart = ivStart + 12;
+    const contentStart = tagStart + 16;
+    const decipher = crypto.createDecipheriv('aes-256-gcm', backupEncryptionKey(), data.subarray(ivStart, tagStart));
+    decipher.setAuthTag(data.subarray(tagStart, contentStart));
+    return Buffer.concat([decipher.update(data.subarray(contentStart)), decipher.final()]);
+  }
+  if (data.subarray(0, BACKUP_MAGIC.length).equals(BACKUP_MAGIC)) {
+    // Formato legado (CFOB1) — usa sha256 para compatibilidade retroativa
+    const ivStart = BACKUP_MAGIC.length;
+    const tagStart = ivStart + 12;
+    const contentStart = tagStart + 16;
+    const decipher = crypto.createDecipheriv('aes-256-gcm', legacyBackupEncryptionKey(), data.subarray(ivStart, tagStart));
+    decipher.setAuthTag(data.subarray(tagStart, contentStart));
+    return Buffer.concat([decipher.update(data.subarray(contentStart)), decipher.final()]);
+  }
+  throw new Error('INVALID_BACKUP_FORMAT: magic header não reconhecido (esperado CFOB1 ou CFOB2)');
 }
 
 function backupPath(filename: string): string {
@@ -124,9 +147,14 @@ export function migrateLegacyBackups(): number {
   for (const filename of fs.readdirSync(BACKUP_DIR).filter((name) => /^backup_[\w.-]+\.json\.gz$/.test(name))) {
     const filePath = backupPath(filename);
     const current = fs.readFileSync(filePath);
-    if (current.subarray(0, BACKUP_MAGIC.length).equals(BACKUP_MAGIC)) continue;
-    zlib.gunzipSync(current);
-    const encrypted = encryptBackup(current);
+    // Pular backups já no formato atual (CFOB2)
+    if (current.subarray(0, BACKUP_MAGIC_V2.length).equals(BACKUP_MAGIC_V2)) continue;
+    // CFOB1 (sha256 KDF legada): descriptografar e re-criptografar com scrypt (CFOB2)
+    // Backups sem magic (totalmente não criptografados): apenas criptografar
+    const rawCompressed = current.subarray(0, BACKUP_MAGIC.length).equals(BACKUP_MAGIC)
+      ? decryptBackup(current)   // descriptografa CFOB1 com sha256 legado
+      : (zlib.gunzipSync(current), current); // valida e usa diretamente se plaintext
+    const encrypted = encryptBackup(rawCompressed);
     const staged = `${filePath}.tmp`;
     fs.writeFileSync(staged, encrypted, { mode: 0o600 });
     fs.renameSync(staged, filePath);
