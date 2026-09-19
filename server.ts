@@ -631,9 +631,11 @@ app.use(
         ],
         styleSrc: [
           "'self'",
+          "https://fonts.googleapis.com",
         ],
         styleSrcElem: [
           "'self'",
+          "https://fonts.googleapis.com",
         ],
         // RISCO RESIDUAL ACEITO: style-src-attr 'unsafe-inline' é necessário para
         // KaTeX (fórmulas matemáticas), Framer Motion (animações) e Recharts (gráficos)

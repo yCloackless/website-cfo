@@ -22,7 +22,7 @@ import {
 import { DbUser, DbSession, UserRole, DbSecurityNotification } from './schema';
 import { setCadetLockInRedis, clearCadetLockInRedis } from '../services/redisService';
 
-const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 12);
 
 export interface AuthConfig {
   sessionDurationDays?: number;
@@ -705,7 +705,7 @@ export class AuthService {
       return { success: false, message: 'Código de recuperação inválido ou expirado.' };
     }
 
-    const newHash = await bcrypt.hash(newPassword, 10);
+    const newHash = await bcrypt.hash(newPassword, 12);
     this.userRepo.updatePasswordHash(user.id, newHash);
     // Invalidate all active sessions for security
     this.sessionRepo.revokeAllUserSessions(user.id);
@@ -742,7 +742,7 @@ export class AuthService {
       return { success: false, message: 'A nova senha deve ter pelo menos 8 caracteres.' };
     }
 
-    const newHash = await bcrypt.hash(newPass, 10);
+    const newHash = await bcrypt.hash(newPass, 12);
     this.userRepo.updatePasswordHash(userId, newHash);
     this.sessionRepo.revokeAllUserSessions(userId);
     this.auditRepo.log({
