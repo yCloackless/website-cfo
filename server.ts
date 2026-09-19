@@ -886,6 +886,10 @@ function studentBodyText(value: unknown, max: number, fallback = ''): string {
 }
 
 function studentNumeric(value: unknown, min: number, max: number, fallback?: number): number | undefined {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (typeof value === 'string') {
+    value = value.trim().replace(',', '.');
+  }
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
 }
@@ -5237,8 +5241,41 @@ app.post('/api/rumo-estudos/subjects/:id/topics',(req,res)=>{const userId=studen
 app.delete('/api/rumo-estudos/topics/:id',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return studentStudyRepoInstance.deleteTopic(userId,req.params.id)?res.status(204).end():res.status(404).json({error:'NOT_FOUND'});});
 
 app.get('/api/rumo-estudos/grades',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return res.json({success:true,grades:studentStudyRepoInstance.listGrades(userId)});});
-app.post('/api/rumo-estudos/grades',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const body=req.body||{},score=studentNumeric(body.score,0,10);const assessmentName=studentBodyText(body.assessmentName,120);if(!assessmentName||score===undefined)return res.status(400).json({error:'INVALID_GRADE'});const created=studentStudyRepoInstance.createGrade(userId,{subjectId:studentBodyText(body.subjectId,80),periodId:body.periodId?studentBodyText(body.periodId,80):null,assessmentName,score,weight:studentNumeric(body.weight,0.01,100,1),source:studentBodyText(body.source,40,'manual'),isUncertain:Boolean(body.isUncertain)});return created?res.status(201).json({success:true,grade:created}):res.status(404).json({error:'SUBJECT_NOT_FOUND'});});
-app.patch('/api/rumo-estudos/grades/:id',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const body=req.body||{},score=body.score===undefined?undefined:studentNumeric(body.score,0,10);if(body.score!==undefined&&score===undefined)return res.status(400).json({error:'INVALID_GRADE'});const updated=studentStudyRepoInstance.updateGrade(userId,req.params.id,{subjectId:body.subjectId?studentBodyText(body.subjectId,80):undefined,periodId:body.periodId===undefined?undefined:(body.periodId?studentBodyText(body.periodId,80):null),assessmentName:body.assessmentName===undefined?undefined:studentBodyText(body.assessmentName,120),score,weight:body.weight===undefined?undefined:studentNumeric(body.weight,0.01,100),source:body.source?studentBodyText(body.source,40):undefined,isUncertain:body.isUncertain===undefined?undefined:Boolean(body.isUncertain)});return updated?res.json({success:true,grade:updated}):res.status(404).json({error:'NOT_FOUND'});});
+app.post('/api/rumo-estudos/grades', (req, res) => {
+  const userId = studentRouteUser(req, res); if (!userId) return;
+  const body = req.body || {};
+  const score = studentNumeric(body.score, 0, 10);
+  const assessmentName = studentBodyText(body.assessmentName, 120);
+  if (!assessmentName || score === undefined) return res.status(400).json({ error: 'INVALID_GRADE', message: 'A nota deve estar entre 0 e 10 e o nome da avaliação é obrigatório.' });
+  const subjectId = studentBodyText(body.subjectId, 80);
+  if (!subjectId) return res.status(400).json({ error: 'INVALID_SUBJECT', message: 'Selecione uma matéria válida.' });
+  const created = studentStudyRepoInstance.createGrade(userId, {
+    subjectId,
+    periodId: body.periodId ? studentBodyText(body.periodId, 80) : null,
+    assessmentName,
+    score,
+    weight: studentNumeric(body.weight, 0.01, 100, 1) ?? 1,
+    source: studentBodyText(body.source, 40, 'manual'),
+    isUncertain: Boolean(body.isUncertain)
+  });
+  return created ? res.status(201).json({ success: true, grade: created }) : res.status(404).json({ error: 'SUBJECT_NOT_FOUND', message: 'Matéria ou período não encontrado para este estudante.' });
+});
+app.patch('/api/rumo-estudos/grades/:id', (req, res) => {
+  const userId = studentRouteUser(req, res); if (!userId) return;
+  const body = req.body || {};
+  const score = body.score === undefined ? undefined : studentNumeric(body.score, 0, 10);
+  if (body.score !== undefined && score === undefined) return res.status(400).json({ error: 'INVALID_GRADE', message: 'A nota deve estar entre 0 e 10.' });
+  const updated = studentStudyRepoInstance.updateGrade(userId, req.params.id, {
+    subjectId: body.subjectId ? studentBodyText(body.subjectId, 80) : undefined,
+    periodId: body.periodId === undefined ? undefined : (body.periodId ? studentBodyText(body.periodId, 80) : null),
+    assessmentName: body.assessmentName === undefined ? undefined : studentBodyText(body.assessmentName, 120),
+    score,
+    weight: body.weight === undefined ? undefined : studentNumeric(body.weight, 0.01, 100),
+    source: body.source ? studentBodyText(body.source, 40) : undefined,
+    isUncertain: body.isUncertain === undefined ? undefined : Boolean(body.isUncertain)
+  });
+  return updated ? res.json({ success: true, grade: updated }) : res.status(404).json({ error: 'NOT_FOUND', message: 'Avaliação não encontrada.' });
+});
 app.delete('/api/rumo-estudos/grades/:id',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return studentStudyRepoInstance.deleteGrade(userId,req.params.id)?res.status(204).end():res.status(404).json({error:'NOT_FOUND'});});
 
 app.get('/api/rumo-estudos/exams',(req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;return res.json({success:true,exams:studentStudyRepoInstance.listExams(userId)});});

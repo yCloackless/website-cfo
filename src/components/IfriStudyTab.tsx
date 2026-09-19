@@ -227,10 +227,41 @@ export function IfriStudyTab({ userProfile, onExit, onSignOut }: Props) {
   };
 
   const submitGrade = async () => {
+    if (!gradeForm.subjectId) {
+      setMessage('Por favor, selecione uma matéria para lançar a nota.');
+      return;
+    }
+    if (!gradeForm.assessmentName.trim()) {
+      setMessage('Informe o nome da avaliação (ex: P1, AV1, Trabalho...).');
+      return;
+    }
+    const cleanScore = String(gradeForm.score).trim().replace(',', '.');
+    if (cleanScore === '') {
+      setMessage('Informe a nota obtida (entre 0 e 10).');
+      return;
+    }
+    const numScore = Number(cleanScore);
+    if (!Number.isFinite(numScore) || numScore < 0 || numScore > 10) {
+      setMessage('A nota deve ser um número entre 0 e 10.');
+      return;
+    }
+    const cleanWeight = String(gradeForm.weight).trim().replace(',', '.');
+    const numWeight = Number(cleanWeight);
+    if (!Number.isFinite(numWeight) || numWeight <= 0) {
+      setMessage('O peso deve ser maior que zero.');
+      return;
+    }
+
     const ok = await save(
       editingGrade ? `/api/rumo-estudos/grades/${editingGrade}` : '/api/rumo-estudos/grades',
       editingGrade ? 'PATCH' : 'POST',
-      { ...gradeForm, score: Number(gradeForm.score), weight: Number(gradeForm.weight), periodId: gradeForm.periodId || null }
+      {
+        ...gradeForm,
+        assessmentName: gradeForm.assessmentName.trim(),
+        score: numScore,
+        weight: numWeight,
+        periodId: gradeForm.periodId || null,
+      }
     );
     if (ok) {
       setGradeForm(emptyGrade);
@@ -239,10 +270,32 @@ export function IfriStudyTab({ userProfile, onExit, onSignOut }: Props) {
   };
 
   const submitExam = async () => {
+    if (!examForm.name.trim()) {
+      setMessage('Informe o nome da prova ou simulado.');
+      return;
+    }
+    if (!examForm.examDate) {
+      setMessage('Informe a data da prova.');
+      return;
+    }
+    let targetGradeNum: number | null = null;
+    if (examForm.targetGrade) {
+      const cleanTarget = String(examForm.targetGrade).trim().replace(',', '.');
+      const parsed = Number(cleanTarget);
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed > 10) {
+        setMessage('A nota desejada deve ser entre 0 e 10.');
+        return;
+      }
+      targetGradeNum = parsed;
+    }
+    const cleanWeight = String(examForm.weight).trim().replace(',', '.');
+    const weightNum = Number(cleanWeight) || 1;
+
     const ok = await save('/api/rumo-estudos/exams', 'POST', {
       ...examForm,
-      weight: Number(examForm.weight),
-      targetGrade: examForm.targetGrade ? Number(examForm.targetGrade) : null,
+      name: examForm.name.trim(),
+      weight: weightNum,
+      targetGrade: targetGradeNum,
       topics: examForm.topics.split(',').map((item) => item.trim()).filter(Boolean),
     });
     if (ok) setExamForm(emptyExam);
@@ -983,8 +1036,35 @@ function GradesView({ grades, subjects, periods, form, setForm, onSubmit, onEdit
               <input value={form.assessmentName} onChange={(e) => setForm({ ...form, assessmentName: e.target.value })} placeholder="AV1, trabalho..." />
             </label>
             <label>
-              Nota
-              <input type="number" min="0" max="10" step="0.1" value={form.score} onChange={(e) => setForm({ ...form, score: e.target.value })} />
+              Nota (máx. 10)
+              <input
+                type="number"
+                min="0"
+                max="10"
+                step="0.1"
+                value={form.score}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === '') {
+                    setForm({ ...form, score: '' });
+                    return;
+                  }
+                  const normalized = raw.replace(',', '.');
+                  const num = Number(normalized);
+                  if (!Number.isNaN(num)) {
+                    if (num > 10) {
+                      setForm({ ...form, score: '10' });
+                      return;
+                    }
+                    if (num < 0) {
+                      setForm({ ...form, score: '0' });
+                      return;
+                    }
+                  }
+                  setForm({ ...form, score: raw });
+                }}
+                placeholder="0 a 10"
+              />
             </label>
             <label>
               Peso
@@ -1118,8 +1198,35 @@ function ExamsView({ exams, subjects, form, setForm, onSubmit, onDelete, saving 
               <input type="number" min="0.1" step="0.1" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} />
             </label>
             <label>
-              Nota desejada
-              <input type="number" min="0" max="10" step="0.1" value={form.targetGrade} onChange={(e) => setForm({ ...form, targetGrade: e.target.value })} />
+              Nota desejada (máx. 10)
+              <input
+                type="number"
+                min="0"
+                max="10"
+                step="0.1"
+                value={form.targetGrade}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === '') {
+                    setForm({ ...form, targetGrade: '' });
+                    return;
+                  }
+                  const normalized = raw.replace(',', '.');
+                  const num = Number(normalized);
+                  if (!Number.isNaN(num)) {
+                    if (num > 10) {
+                      setForm({ ...form, targetGrade: '10' });
+                      return;
+                    }
+                    if (num < 0) {
+                      setForm({ ...form, targetGrade: '0' });
+                      return;
+                    }
+                  }
+                  setForm({ ...form, targetGrade: raw });
+                }}
+                placeholder="0 a 10"
+              />
             </label>
             <label>
               Conteúdos

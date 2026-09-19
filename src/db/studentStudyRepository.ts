@@ -18,6 +18,17 @@ const rowGrade = (r: any) => r && ({ id: r.id, userId: r.user_id, subjectId: r.s
 const rowExam = (r: any) => r && ({ id: r.id, userId: r.user_id, subjectId: r.subject_id, subjectName: r.subject_name, name: r.name, examDate: r.exam_date, examTime: r.exam_time, weight: Number(r.weight), targetGrade: r.target_grade == null ? null : Number(r.target_grade), topics: parseJson<string[]>(r.topics_json, []), notes: r.notes, room: r.room, status: r.status, createdAt: r.created_at, updatedAt: r.updated_at });
 const rowEvent = (r: any) => ({ id: r.id, userId: r.user_id, eventType: r.event_type, title: r.title, eventDate: r.event_date, startTime: r.start_time, endTime: r.end_time, examId: r.exam_id, notes: r.notes, createdAt: r.created_at, updatedAt: r.updated_at });
 
+export const COLLEGE_PERIODS = [
+  '1º Período',
+  '2º Período',
+  '3º Período',
+  '4º Período',
+  '5º Período',
+  '6º Período',
+  '7º Período',
+  '8º Período',
+];
+
 export class StudentStudyRepository {
   constructor(private db: Db) {}
 
@@ -28,11 +39,26 @@ export class StudentStudyRepository {
       const now = isoNow();
       for (const name of DEFAULT_SUBJECTS) this.db.prepare('INSERT INTO student_subjects (id, user_id, name, category, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(crypto.randomUUID(), userId, name, 'escola', 'default', now, now);
     }
-    const periods = Number((this.db.prepare('SELECT COUNT(*) AS count FROM student_academic_periods WHERE user_id = ?').get(userId) as any)?.count || 0);
-    if (!periods) {
-      const now = isoNow();
-      ['1º Bimestre', '2º Bimestre', '3º Bimestre', '4º Bimestre'].forEach((name, index) => this.db.prepare('INSERT INTO student_academic_periods (id, user_id, name, sort_order, created_at) VALUES (?, ?, ?, ?, ?)').run(crypto.randomUUID(), userId, name, index, now));
+    const renameMap: Record<string, string> = {
+      '1º Bimestre': '1º Período',
+      '2º Bimestre': '2º Período',
+      '3º Bimestre': '3º Período',
+      '4º Bimestre': '4º Período',
+    };
+    for (const [oldName, newName] of Object.entries(renameMap)) {
+      try {
+        this.db.prepare('UPDATE student_academic_periods SET name = ? WHERE user_id = ? AND name = ?').run(newName, userId, oldName);
+      } catch {}
     }
+    const now = isoNow();
+    COLLEGE_PERIODS.forEach((name, index) => {
+      const exists = Boolean(this.db.prepare('SELECT 1 FROM student_academic_periods WHERE user_id = ? AND name = ?').get(userId, name));
+      if (!exists) {
+        this.db.prepare('INSERT INTO student_academic_periods (id, user_id, name, sort_order, created_at) VALUES (?, ?, ?, ?, ?)').run(crypto.randomUUID(), userId, name, index + 1, now);
+      } else {
+        this.db.prepare('UPDATE student_academic_periods SET sort_order = ? WHERE user_id = ? AND name = ?').run(index + 1, userId, name);
+      }
+    });
   }
 
   ensureUniversitySeed(): void {

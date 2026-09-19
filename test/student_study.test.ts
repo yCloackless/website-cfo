@@ -176,5 +176,59 @@ test('perfil IFRJ: preserva nome completo composto (ex.: João Pedro) e integrid
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('períodos acadêmicos: provisiona 1º ao 8º período universitário e migra bimestres legados', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rumo-estudos-periodos-'));
+  const db = getDb(path.join(dir, 'student_periodos.sqlite'));
+  const raw = db.getRawDb();
+  const users = new UserRepository(raw);
+  const repo = new StudentStudyRepository(raw);
+  const aluno = users.create({ username: 'universitario', email: 'universitario@ifrj.edu.br', passwordHash: 'hash' });
 
+  // 1. Novo usuário recebe do 1º ao 8º Período
+  repo.ensureDefaults(aluno.id);
+  const periods = repo.listPeriods(aluno.id);
+  assert.equal(periods.length, 8);
+  assert.deepEqual(
+    periods.map((p) => p.name),
+    ['1º Período', '2º Período', '3º Período', '4º Período', '5º Período', '6º Período', '7º Período', '8º Período']
+  );
+  assert.equal(periods[0].sortOrder, 1);
+  assert.equal(periods[7].sortOrder, 8);
 
+  // 2. Usuário legado que possuía apenas bimestres tem os dados migrados e preservados
+  const legado = users.create({ username: 'legado', email: 'legado@ifrj.edu.br', passwordHash: 'hash' });
+  // Simula banco antigo com 4 bimestres
+  ['1º Bimestre', '2º Bimestre', '3º Bimestre', '4º Bimestre'].forEach((name, idx) => {
+    raw.prepare('INSERT INTO student_academic_periods (id, user_id, name, sort_order, created_at) VALUES (?, ?, ?, ?, ?)').run(
+      `bim-${idx + 1}`, legado.id, name, idx + 1, new Date().toISOString()
+    );
+  });
+  // Vincula uma nota ao 1º Bimestre
+  const subject = repo.createSubject(legado.id, { name: 'Cálculo I', category: 'exatas' });
+  const gradeAntiga = repo.createGrade(legado.id, {
+    subjectId: subject.id,
+    periodId: 'bim-1',
+    assessmentName: 'P1 Cálculo',
+    score: 9.5,
+    weight: 2,
+  });
+  assert.ok(gradeAntiga);
+
+  // Roda ensureDefaults para migrar o usuário legado
+  repo.ensureDefaults(legado.id);
+  const periodosMigrados = repo.listPeriods(legado.id);
+  assert.equal(periodosMigrados.length, 8);
+  assert.equal(periodosMigrados[0].id, 'bim-1');
+  assert.equal(periodosMigrados[0].name, '1º Período');
+  assert.equal(periodosMigrados[7].name, '8º Período');
+
+  // A nota antiga deve continuar associada ao período agora renomeado para 1º Período
+  const grades = repo.listGrades(legado.id);
+  assert.equal(grades.length, 1);
+  assert.equal(grades[0].periodId, 'bim-1');
+  assert.equal(grades[0].periodName, '1º Período');
+  assert.equal(grades[0].score, 9.5);
+
+  db.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
