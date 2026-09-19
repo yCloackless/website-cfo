@@ -693,13 +693,17 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
 });
 
 // 5. Configuração Estrita de CORS
-const APP_URL = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+const renderHostnameUrl = process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : '';
+const APP_URL = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || renderHostnameUrl || `http://localhost:${PORT}`;
 const allowedOriginsList = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",
   "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "https://cfo-oficial-agorasim.onrender.com",
   APP_URL,
   process.env.RENDER_EXTERNAL_URL,
+  renderHostnameUrl,
 ].filter(Boolean) as string[];
 
 function extractOrigin(urlStr: string): string | null {
@@ -723,6 +727,15 @@ app.use('/api', (req: Request, res: Response, next: NextFunction) => {
   if (sourceOrigin && process.env.NODE_ENV !== 'production') {
     const hostname = new URL(sourceOrigin).hostname;
     if (hostname === 'localhost' || hostname === '127.0.0.1') return next();
+  }
+
+  // Permite requisições same-host legítimas do navegador
+  if (sourceOrigin) {
+    try {
+      const originHost = new URL(sourceOrigin).host.toLowerCase();
+      const requestHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').toLowerCase();
+      if (requestHost && (originHost === requestHost || originHost === requestHost.split(':')[0])) return next();
+    } catch {}
   }
 
   return res.status(403).json({
@@ -5181,13 +5194,25 @@ app.get('/api/rumo-estudos/profile', (req, res) => {
   studentStudyRepoInstance.ensureDefaults(userId);
   return res.json({ success: true, profile: studentStudyRepoInstance.getProfile(userId) });
 });
-app.patch('/api/rumo-estudos/profile', (req, res) => {
+const handleStudentProfileUpsert = (req: Request, res: Response) => {
   const userId = studentRouteUser(req, res); if (!userId) return;
   const body = req.body || {};
-  return res.json({ success: true, profile: studentStudyRepoInstance.upsertProfile(userId, {
-    displayName: studentBodyText(body.displayName, 120), institution: studentBodyText(body.institution, 120, 'IFRJ'), campus: studentBodyText(body.campus, 120), course: studentBodyText(body.course, 160), schoolYear: studentBodyText(body.schoolYear, 80), className: studentBodyText(body.className, 80), shift: studentBodyText(body.shift, 40), availableTimeJson: studentBodyText(body.availableTimeJson, 8000), onboardingCompleted: Boolean(body.onboardingCompleted),
-  }) });
-});
+  const payload: any = {};
+  if (body.displayName !== undefined) payload.displayName = studentBodyText(body.displayName, 120);
+  if (body.institution !== undefined) payload.institution = studentBodyText(body.institution, 120, 'IFRJ');
+  if (body.campus !== undefined) payload.campus = studentBodyText(body.campus, 120);
+  if (body.course !== undefined) payload.course = studentBodyText(body.course, 160);
+  if (body.schoolYear !== undefined) payload.schoolYear = studentBodyText(body.schoolYear, 80);
+  if (body.className !== undefined) payload.className = studentBodyText(body.className, 80);
+  if (body.shift !== undefined) payload.shift = studentBodyText(body.shift, 40);
+  if (body.availableTimeJson !== undefined) payload.availableTimeJson = studentBodyText(body.availableTimeJson, 8000);
+  if (body.onboardingCompleted !== undefined) payload.onboardingCompleted = Boolean(body.onboardingCompleted);
+
+  const profile = studentStudyRepoInstance.upsertProfile(userId, payload);
+  return res.json({ success: true, profile });
+};
+app.patch('/api/rumo-estudos/profile', handleStudentProfileUpsert);
+app.put('/api/rumo-estudos/profile', handleStudentProfileUpsert);
 
 app.get('/api/rumo-estudos/subjects', (req, res) => { const userId=studentRouteUser(req,res); if(!userId)return; studentStudyRepoInstance.ensureDefaults(userId); return res.json({success:true,subjects:studentStudyRepoInstance.listSubjects(userId),periods:studentStudyRepoInstance.listPeriods(userId)}); });
 app.post('/api/rumo-estudos/subjects', (req, res) => { const userId=studentRouteUser(req,res); if(!userId)return; const name=studentBodyText(req.body?.name,120); if(!name)return res.status(400).json({error:'INVALID_SUBJECT'}); try{return res.status(201).json({success:true,subject:studentStudyRepoInstance.createSubject(userId,{name,category:studentBodyText(req.body?.category,40,'custom'),source:'custom'})});}catch{return res.status(409).json({error:'SUBJECT_ALREADY_EXISTS'});} });
@@ -5221,7 +5246,60 @@ app.get('/api/rumo-estudos/ai/usage',(req,res)=>{const userId=studentRouteUser(r
 
 app.post('/api/rumo-estudos/ai/analysis', aiLimiter, async (req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const dashboard=studentStudyRepoInstance.dashboard(userId),schema={type:'object',additionalProperties:false,properties:{summary:{type:'string'},priorities:{type:'array',items:{type:'object',additionalProperties:false,properties:{subject:{type:'string'},reason:{type:'string'},action:{type:'string'}},required:['subject','reason','action']}},todayPlan:{type:'array',items:{type:'string'}}},required:['summary','priorities','todayPlan']};const result=await runStudentOpenAI({userId,type:'performance_analysis',prompt:`Analise apenas este contexto acadêmico resumido e recomende o foco de hoje. Escola e vestibular são prioridades separadas. Contexto: ${JSON.stringify({profile:dashboard.profile,performance:dashboard.performance.slice(0,8),exams:dashboard.exams.slice(0,5),goals:dashboard.goals})}`,schema});if(result.data){studentStudyRepoInstance.saveAnalysis(userId,'performance_analysis',result.data.summary,result.data);return res.json({success:true,source:'openai',analysis:result.data});}return res.status(result.error==='AI_LIMIT_REACHED'?429:503).json({error:result.error||'AI_UNAVAILABLE',message:result.error==='AI_LIMIT_REACHED'?'Limite diário de IA atingido.':'Não foi possível realizar a análise agora. Suas informações continuam salvas.'});});
 
-app.post('/api/rumo-estudos/ai/assistant', aiLimiter, async (req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const question=studentBodyText(req.body?.question,600);if(!question)return res.status(400).json({error:'INVALID_QUESTION'});const dashboard=studentStudyRepoInstance.dashboard(userId),schema={type:'object',additionalProperties:false,properties:{answer:{type:'string'},actions:{type:'array',items:{type:'string'}}},required:['answer','actions']};const result=await runStudentOpenAI({userId,type:'study_assistant',prompt:`Responda à pergunta da estudante sem inventar dados. Pergunta: ${question}. Contexto mínimo: ${JSON.stringify({performance:dashboard.performance.slice(0,6),exams:dashboard.exams.slice(0,5),goals:dashboard.goals.slice(0,2),profile:{course:dashboard.profile?.course}})}`,schema});if(result.data){studentStudyRepoInstance.saveAnalysis(userId,'study_plan',result.data.answer,result.data);return res.json({success:true,source:'openai',...result.data});}return res.status(result.error==='AI_LIMIT_REACHED'?429:503).json({error:result.error||'AI_UNAVAILABLE',message:result.error==='AI_LIMIT_REACHED'?'Limite diário de IA atingido.':'Não foi possível responder agora.'});});
+app.post('/api/rumo-estudos/ai/assistant', aiLimiter, async (req, res) => {
+  const userId = studentRouteUser(req, res); if (!userId) return;
+  const question = studentBodyText(req.body?.question, 600);
+  if (!question) return res.status(400).json({ error: 'INVALID_QUESTION' });
+
+  // Guarda de escopo estrito: o assistente NÃO responde questões de prova, vestibulares ou exercícios acadêmicos
+  const qLower = question.toLowerCase();
+  const isQuestionSolvingRequest =
+    /(\bquest[aã]o\b|\bexerc[íi]cio\b|\balternativa\b|\bassinale\b|\bmarque a op[cç][aã]o\b|\bgabarito\b|\bresolva (esta|a|o|os|as)\b|\bqual (a|é a) resposta\b|\bcalcule\b|\b[a-e]\)\s+)/i.test(qLower) &&
+    !/(\bcomo organizar\b|\bminhas provas\b|\bquando [eé]\b|\bmeu boletim\b|\bcomo estudar\b|\bcalend[aá]rio\b|\bgrade\b)/i.test(qLower);
+
+  if (isQuestionSolvingRequest) {
+    const refusal = {
+      answer: "Como assistente acadêmica do seu espaço IFRJ, meu foco é exclusivamente a organização da sua rotina de estudos, matérias, boletim, provas cadastradas e ferramentas da plataforma. Não resolvo questões ou exercícios de provas diretamente. Que tal conversarmos sobre como organizar seu cronograma para essa matéria ou cadastrar suas próximas provas no calendário?",
+      actions: ["Revisar matérias cadastradas", "Ver próximas provas no calendário", "Acessar o Banco de Provas"]
+    };
+    studentStudyRepoInstance.saveAnalysis(userId, 'study_plan', refusal.answer, refusal);
+    return res.json({ success: true, source: 'system_guardrail', ...refusal });
+  }
+
+  const dashboard = studentStudyRepoInstance.dashboard(userId);
+  const schema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      answer: { type: 'string' },
+      actions: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['answer', 'actions']
+  };
+
+  const systemPrompt = `Você é a Assistente Acadêmica do Espaço IFRJ (Rumo Estudos).
+Seu objetivo é orientar a aluna exclusivamente sobre organização acadêmica, rotina de estudos, matérias escolares do IFRJ, boletim, próximas provas e uso dos recursos da plataforma.
+REGRA INEGOCIÁVEL DE ESCOPO:
+Você NUNCA deve responder questões de provas, vestibulares, concursos ou exercícios escolares. Se o aluno pedir resolução de exercícios, enunciados ou gabaritos, recuse educadamente explicando que você é focada na gestão da rotina e planejamento do site, e sugira como a aluna pode organizar seus horários para estudar esse conteúdo.
+Pergunta da estudante: ${question}
+Contexto acadêmico da estudante: ${JSON.stringify({ performance: dashboard.performance.slice(0, 6), exams: dashboard.exams.slice(0, 5), goals: dashboard.goals.slice(0, 2), profile: { course: dashboard.profile?.course } })}`;
+
+  const result = await runStudentOpenAI({
+    userId,
+    type: 'study_assistant',
+    prompt: systemPrompt,
+    schema
+  });
+
+  if (result.data) {
+    studentStudyRepoInstance.saveAnalysis(userId, 'study_plan', result.data.answer, result.data);
+    return res.json({ success: true, source: 'openai', ...result.data });
+  }
+  return res.status(result.error === 'AI_LIMIT_REACHED' ? 429 : 503).json({
+    error: result.error || 'AI_UNAVAILABLE',
+    message: result.error === 'AI_LIMIT_REACHED' ? 'Limite diário de IA atingido.' : 'Não foi possível responder agora.'
+  });
+});
 
 app.post('/api/rumo-estudos/report-cards', (req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const fileId=studentBodyText(req.body?.fileId,80);const file=uploadedFileRepoInstance.findById(fileId);if(!file||file.userId!==userId)return res.status(404).json({error:'FILE_NOT_FOUND'});const reportCard=studentStudyRepoInstance.createReportCard(userId,fileId,req.body?.periodId?studentBodyText(req.body.periodId,80):null);return reportCard?res.status(201).json({success:true,reportCard}):res.status(404).json({error:'PERIOD_NOT_FOUND'});});
 app.post('/api/rumo-estudos/report-cards/analyze', aiLimiter, async (req,res)=>{const userId=studentRouteUser(req,res);if(!userId)return;const fileId=studentBodyText(req.body?.fileId,80);const file=uploadedFileRepoInstance.findById(fileId);if(!file||file.userId!==userId)return res.status(404).json({error:'FILE_NOT_FOUND'});const access=secureUploadService.getAuthorizedFile(fileId,userId,false);if(!access.authorized||!access.file||!access.buffer)return res.status(400).json({error:'FILE_NOT_READY',message:'Não foi possível ler este arquivo.'});const schema={type:'object',additionalProperties:false,properties:{subjects:{type:'array',items:{type:'object',additionalProperties:false,properties:{name:{type:'string'},grade:{type:['number','null']},period:{type:'string'},assessment:{type:'string'},uncertain:{type:'boolean'}},required:['name','grade','period','assessment','uncertain']}}},required:['subjects']};const result=await runStudentOpenAI({userId,type:'report_card_extraction',prompt:'Extraia somente notas acadêmicas visíveis neste boletim. Para cada item, informe matéria, nota numérica de 0 a 10 se legível, período e avaliação. Se não for possível identificar a nota, use null e uncertain=true. Não crie dados ausentes.',schema,file:{buffer:access.buffer,mimeType:access.file.mimeType,filename:access.file.originalFilename},report:true});if(result.data){studentStudyRepoInstance.saveAnalysis(userId,'report_card',`Boletim analisado: ${result.data.subjects.length} item(ns) encontrado(s).`,result.data);return res.json({success:true,source:'openai',extracted:result.data});}return res.status(result.error==='AI_LIMIT_REACHED'?429:503).json({error:result.error||'AI_UNAVAILABLE',message:result.error==='AI_LIMIT_REACHED'?'Limite diário de análises de boletim atingido.':'Não foi possível analisar o arquivo agora.'});});
@@ -7690,14 +7768,14 @@ app.post('/api/student/simulations/:id/adapt', requireUserAuth, (req: Request, r
 app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { title, institution, examYear, fileName, declaredMime, contentBase64, rawTextContent } = req.body || {};
+    const { title, institution, examYear, fileName, declaredMime, contentBase64, rawTextContent, metadata } = req.body || {};
 
-    if (!title || typeof title !== 'string') {
+    if (!title || typeof title !== 'string' || !title.trim()) {
       return res.status(400).json({ error: "INVALID_TITLE", message: "O título da prova é obrigatório." });
     }
 
-    const cleanTitle = title.trim();
-    const cleanInstitution = (institution && typeof institution === 'string' ? institution.trim() : 'Banca Examinadora');
+    const cleanTitle = title.trim().slice(0, 200);
+    const cleanInstitution = (institution && typeof institution === 'string' && institution.trim()) ? institution.trim().slice(0, 100) : 'Banca Examinadora';
     const parsedYear = Number(examYear) || new Date().getFullYear();
 
     let fileId: string | undefined;
@@ -7731,77 +7809,79 @@ app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async 
       fileId = uploadRes.file.id;
     }
 
-    // Extrai e cadastra a prova e suas questões
-    const extractionPayload = {
-      userId: user.userId,
-      fileId,
-      title: cleanTitle,
-      institution: cleanInstitution,
-      examYear: parsedYear,
-      rawTextContent: typeof rawTextContent === 'string' ? rawTextContent : undefined,
-    };
-    const job = examJobRepoInstance.create({
-      userId: user.userId,
-      jobType: 'EXTRACTION',
-      status: req.body?.async === true ? 'queued' : 'processing',
-      totalItems: 1,
-      payload: extractionPayload,
-    });
-
-    if (req.body?.async === true) {
-      return res.status(202).json({ success: true, processing: true, jobId: job.id, message: 'Prova recebida. A extracao continuara em segundo plano.' });
-    }
-
-    if (false && req.body?.async === true) {
-      void examServiceInstance.extractAndRegisterExam({
+    let result: { paper: any; questions: any[] };
+    try {
+      result = await examServiceInstance.extractAndRegisterExam({
         userId: user.userId,
         fileId,
         title: cleanTitle,
         institution: cleanInstitution,
         examYear: parsedYear,
         rawTextContent: typeof rawTextContent === 'string' ? rawTextContent : undefined,
-      }).then((result) => {
-        examJobRepoInstance.updateStatus(job.id, 'completed', 1, { paperId: result.paper.id, questionsCount: result.questions.length });
-        logSecurityEvent(req, { action: 'EXAM_PAPER_CREATED', actor: user.username || user.userId, actorUserId: user.userId, resource: 'exam_papers', status: 'SUCCESS', targetType: 'exam_paper', targetId: result.paper.id, details: { totalQuestions: result.paper.totalQuestions } });
-      }).catch((err) => {
-        logInternalError("Background Exam Extraction Error", err);
-        examJobRepoInstance.updateStatus(job.id, 'failed', 0, undefined, 'Falha ao processar a prova.');
       });
-
-      return res.status(202).json({ success: true, processing: true, jobId: job.id, message: 'Prova recebida. A extração continuará em segundo plano.' });
+    } catch (extractErr) {
+      console.warn('[Exam Extract Fallback]', extractErr);
+      const paper = examPaperRepoInstance.create({
+        userId: user.userId,
+        title: cleanTitle,
+        institution: cleanInstitution,
+        examYear: parsedYear,
+        fileId,
+        status: 'READY',
+        totalQuestions: 0,
+        metadata: metadata && typeof metadata === 'object' ? metadata : {},
+      });
+      result = { paper, questions: [] };
     }
 
-    let result;
-    try {
-      result = await examServiceInstance.extractAndRegisterExam({
-      userId: user.userId,
-      fileId,
-      title: cleanTitle,
-      institution: cleanInstitution,
-      examYear: parsedYear,
-      rawTextContent: typeof rawTextContent === 'string' ? rawTextContent : undefined,
-      });
-      examJobRepoInstance.updateStatus(job.id, 'completed', 1, { paperId: result.paper.id, questionsCount: result.questions.length });
-    } catch (err: any) {
-      examJobRepoInstance.updateStatus(job.id, 'failed', 0, undefined, 'Falha ao processar a prova.');
-      throw err;
-    }
-    logSecurityEvent(req, { action: 'EXAM_PAPER_CREATED', actor: user.username || user.userId, actorUserId: user.userId, resource: 'exam_papers', status: 'SUCCESS', targetType: 'exam_paper', targetId: result.paper.id, details: { totalQuestions: result.paper.totalQuestions } });
+    logSecurityEvent(req, {
+      action: 'EXAM_PAPER_CREATED',
+      actor: user.username || user.userId,
+      actorUserId: user.userId,
+      resource: 'exam_papers',
+      status: 'SUCCESS',
+      targetType: 'exam_paper',
+      targetId: result.paper.id,
+      details: { title: result.paper.title, year: result.paper.examYear }
+    });
 
     return res.status(201).json({
       success: true,
       paper: result.paper,
       questionsCount: result.questions.length,
-      jobId: job.id,
-      message: 'Prova cadastrada e processada com sucesso.',
+      message: 'Prova cadastrada com sucesso no acervo.',
     });
 
   } catch (err: any) {
     logInternalError("Exam Upload & Process Error", err);
     return res.status(500).json({
       error: "EXAM_PROCESSING_FAILED",
-      message: "Falha ao processar e extrair dados da prova.",
+      message: "Falha ao processar e salvar a prova.",
     });
+  }
+});
+
+// Edição de dados da prova (renomear, alterar ano ou banca): PATCH /api/exams/:id
+app.patch("/api/exams/:id", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const paper = examPaperRepoInstance.findById(req.params.id);
+    if (!paper) return res.status(404).json({ error: "EXAM_NOT_FOUND" });
+    if (paper.userId !== user.userId && user.role !== 'admin') {
+      return res.status(403).json({ error: "ACCESS_DENIED" });
+    }
+
+    const { title, institution, examYear, metadata } = req.body || {};
+    const updated = examPaperRepoInstance.update(req.params.id, {
+      title: typeof title === 'string' && title.trim() ? title.trim().slice(0, 200) : undefined,
+      institution: typeof institution === 'string' && institution.trim() ? institution.trim().slice(0, 100) : undefined,
+      examYear: Number(examYear) ? Number(examYear) : undefined,
+      metadata: metadata && typeof metadata === 'object' ? metadata : undefined,
+    });
+
+    return res.json({ success: true, paper: updated });
+  } catch (err: any) {
+    return res.status(500).json({ error: "EXAM_UPDATE_FAILED" });
   }
 });
 

@@ -4,99 +4,49 @@ import {
   UploadCloud,
   CheckCircle2,
   Clock,
-  ShieldCheck,
   Search,
-  ChevronRight,
-  ChevronLeft,
-  Sparkles,
-  Layers,
-  MoreVertical,
-  Check,
-  AlertCircle,
-  Maximize2,
-  Minimize2,
+  ArrowUpDown,
   Filter,
-  Camera,
-  Image as ImageIcon,
-  FolderOpen,
-  HelpCircle,
   Eye,
+  Download,
   Trash2,
   X,
-  ArrowLeft,
   Loader2,
-  Zap,
-  Crop,
+  Sparkles,
+  Award,
+  BookOpen,
+  Calendar,
+  ExternalLink,
+  Pencil,
+  Check,
+  Flame,
+  Plus,
+  RotateCcw,
+  Maximize2
 } from 'lucide-react';
 import { AppTheme } from '../types';
-import { Latex } from './LatexRenderer';
-import { QuestionCropReviewModal } from './QuestionCropReviewModal';
 
-interface ExamOption {
-  letter: 'A' | 'B' | 'C' | 'D' | 'E';
-  text: string;
-}
-
-interface AISolutionStep {
-  stepNumber: number;
-  title: string;
-  explanation: string;
-  latex?: string;
-}
-
-interface AISolutionPayload {
-  selectedOption: 'A' | 'B' | 'C' | 'D' | 'E';
-  steps: AISolutionStep[];
-  concepts: string[];
-  explanationSummary: string;
-  calculatedDifficulty: 'Fácil' | 'Médio' | 'Difícil';
-  confidencePercent: number;
-}
-
-interface ExamQuestion {
-  id: string;
-  examId: string;
-  questionNumber: number;
-  statement: string;
-  supportText?: string | null;
-  optionsJson: string;
-  correctOption?: 'A' | 'B' | 'C' | 'D' | 'E' | null;
-  discipline: string;
-  topic: string;
-  subtopic: string;
-  difficulty: 'Fácil' | 'Médio' | 'Difícil';
-  difficultyScore: number;
-  confidenceScore: number;
-  imagesJson?: string | null;
-  aiSolutionJson?: string | null;
-  status: string;
-}
-
-interface ExamPaper {
+export interface ExamPaper {
   id: string;
   title: string;
   institution: string;
   examYear: number;
-  totalQuestions: number;
-  status: 'QUEUED' | 'PROCESSING' | 'READY' | 'ERROR' | 'NEEDS_REVIEW';
-  publicationStatus?: 'DRAFT' | 'IN_REVIEW' | 'PUBLISHED' | 'REJECTED';
+  totalQuestions?: number;
+  status: string;
   fileId?: string | null;
-  primaryDisciplinesJson?: string | null;
   createdAt: string;
-}
-
-interface ExamStats {
-  totalPapers: number;
-  totalQuestions: number;
-  resolvedQuestions: number;
-  successRatePercent: number;
-  averageTimeMinutes: number;
+  updatedAt?: string;
+  metadataJson?: string | null;
 }
 
 interface ExamBankTabProps {
   theme: AppTheme;
   showToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
 }
+
+type SortOption = 'name_asc' | 'name_desc' | 'year_desc' | 'year_asc' | 'recent';
+
+const POPULAR_INSTITUTIONS = ['VUNESP', 'UERJ', 'FGV', 'CFO CBMERJ', 'CEPERJ', 'IBADE', 'IFRJ', 'ENEM'];
 
 function getAuthToken(): string | null {
   return localStorage.getItem('cfo_terminal_session') || localStorage.getItem('cfo_terminal_token') || null;
@@ -105,1862 +55,1140 @@ function getAuthToken(): string | null {
 export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) => {
   const isDark = theme === 'dark';
 
-  // Estados principais
+  // Lista de provas
   const [papers, setPapers] = useState<ExamPaper[]>([]);
-  const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null);
-  const [questions, setQuestions] = useState<ExamQuestion[]>([]);
-  const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
-  const [selectedQuestionIdsForSolve, setSelectedQuestionIdsForSolve] = useState<string[]>([]);
-  const [userAnswers, setUserAnswers] = useState<Record<string, 'A' | 'B' | 'C' | 'D' | 'E'>>({});
-  const [answeredQuestionIds, setAnsweredQuestionIds] = useState<string[]>([]);
-  const [activeDisciplineFilter, setActiveDisciplineFilter] = useState<string>('Todas');
-  const [activeTabFilter, setActiveTabFilter] = useState<'mine' | 'recent' | 'popular'>('mine');
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Filtros e Ordenação
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedYearFilter, setSelectedYearFilter] = useState<string>('all');
-  const [selectedResolutionTab, setSelectedResolutionTab] = useState<'ai' | 'gabarito' | 'concepts'>('ai');
+  const [sortBy, setSortBy] = useState<SortOption>('name_asc');
+  const [selectedInstitution, setSelectedInstitution] = useState<string>('Todas');
+  const [selectedYear, setSelectedYear] = useState<string>('Todos');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending'>('all');
 
-  // Estados de Carregamento e Operação
-  const [isLoadingPapers, setIsLoadingPapers] = useState(true);
-  const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
-  const [isSolvingAI, setIsSolvingAI] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [stats, setStats] = useState<ExamStats | null>(null);
-
-  // Modais
+  // Modal de Upload
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [isCropModalOpen, setIsCropModalOpen] = useState(false);
-  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
-
-  // Modal Flashcard a partir da Questão
-  const [isFlashcardModalOpen, setIsFlashcardModalOpen] = useState(false);
-  const [flashcardFront, setFlashcardFront] = useState('');
-  const [flashcardBack, setFlashcardBack] = useState('');
-  const [flashcardSubjectId, setFlashcardSubjectId] = useState('');
-  const [flashcardDeckId, setFlashcardDeckId] = useState('');
-  const [flashcardSubjects, setFlashcardSubjects] = useState<Array<{ id: string; name: string }>>([]);
-  const [flashcardDecks, setFlashcardDecks] = useState<Array<{ id: string; name: string; subjectId: string }>>([]);
-  const [isSavingFlashcard, setIsSavingFlashcard] = useState(false);
-
-  // Form State para Novo Upload
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploadInstitution, setUploadInstitution] = useState('VUNESP');
   const [uploadYear, setUploadYear] = useState(new Date().getFullYear());
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  // Visualização Mobile Drill-down
-  const [mobileView, setMobileView] = useState<'papers' | 'questions' | 'detail'>('papers');
+  // Modal de Edição de Nome / Ano
+  const [editingPaper, setEditingPaper] = useState<ExamPaper | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editInstitution, setEditInstitution] = useState('');
+  const [editYear, setEditYear] = useState(new Date().getFullYear());
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  // Modal de Exclusão
+  const [deletingPaper, setDeletingPaper] = useState<ExamPaper | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Visualizador de PDF Embutido
+  const [viewingPaper, setViewingPaper] = useState<ExamPaper | null>(null);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [isLoadingPdf, setIsLoadingPdf] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const questionsRequestRef = useRef(0);
 
-  const handleOpenOriginalPdf = async () => {
-    if (!selectedPaper?.fileId) return;
-    const popup = window.open('', '_blank');
+  // Carrega as provas do backend
+  const fetchPapers = async () => {
     try {
-      const token = getAuthToken();
-      const response = await fetch(`/api/files/${selectedPaper.fileId}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
-      if (!response.ok) throw new Error('PDF indisponível');
-      const url = URL.createObjectURL(await response.blob());
-      if (popup) popup.location.href = url;
-      else window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch {
-      popup?.close();
-      showToast?.('Não foi possível abrir o PDF original.', 'error');
-    }
-  };
-
-  // Carrega Provas e Estatísticas
-  const fetchPapersAndStats = async () => {
-    try {
-      setIsLoadingPapers(true);
-      const token = getAuthToken();
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const [papersRes, statsRes] = await Promise.all([
-        fetch('/api/exams', { headers }),
-        fetch('/api/exams/stats', { headers }),
-      ]);
-
-      if (papersRes.ok) {
-        const data = await papersRes.json();
-        const paperList: ExamPaper[] = data.papers || [];
-        setPapers(paperList);
-        if (paperList.length > 0 && !selectedPaperId) {
-          setSelectedPaperId(paperList[0].id);
-        }
-      }
-
-      if (statsRes.ok) {
-        const statsData = await statsRes.json();
-        setStats(statsData.stats);
-      }
-    } catch (err) {
-      console.warn('Falha ao carregar banco de provas:', err);
-    } finally {
-      setIsLoadingPapers(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchPapersAndStats();
-  }, []);
-
-  // Carrega Questões da Prova
-  const fetchQuestionsForPaper = async (paperId: string, keepSelectedId = false) => {
-    const requestId = ++questionsRequestRef.current;
-    try {
-      setIsLoadingQuestions(true);
+      setIsLoading(true);
       const token = getAuthToken();
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch(`/api/exams/${paperId}/questions`, { headers });
-      if (res.ok && requestId === questionsRequestRef.current) {
+      const res = await fetch('/api/exams?limit=100', { headers });
+      if (res.ok) {
         const data = await res.json();
-        const qList: ExamQuestion[] = data.questions || [];
-        setQuestions(qList);
-        if (!keepSelectedId) {
-          if (qList.length > 0) {
-            setSelectedQuestionId(qList[0].id);
-          } else {
-            setSelectedQuestionId(null);
-          }
-          setSelectedQuestionIdsForSolve([]);
-          setActiveDisciplineFilter('Todas');
-        }
-      }
-    } catch (err) {
-      console.warn('Falha ao carregar questões da prova:', err);
-    } finally {
-      if (requestId === questionsRequestRef.current) {
-        setIsLoadingQuestions(false);
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (!selectedPaperId) {
-      setQuestions([]);
-      setSelectedQuestionId(null);
-      return;
-    }
-
-    fetchQuestionsForPaper(selectedPaperId);
-  }, [selectedPaperId]);
-
-  // Prova Selecionada Atual
-  const selectedPaper = useMemo(() => {
-    return papers.find((p) => p.id === selectedPaperId) || papers[0] || null;
-  }, [papers, selectedPaperId]);
-
-  // Questão Selecionada Atual
-  const selectedQuestion = useMemo(() => {
-    return questions.find((q) => q.id === selectedQuestionId) || questions[0] || null;
-  }, [questions, selectedQuestionId]);
-
-  // Disciplinas Disponíveis na Prova Selecionada com contagens
-  const availableDisciplines = useMemo(() => {
-    const map = new Map<string, number>();
-    questions.forEach((q) => {
-      const disc = q.discipline || 'Geral';
-      map.set(disc, (map.get(disc) || 0) + 1);
-    });
-
-    const list: { name: string; count: number }[] = [{ name: 'Todas', count: questions.length }];
-    map.forEach((count, name) => {
-      list.push({ name, count });
-    });
-    return list;
-  }, [questions]);
-
-  // Questões Filtradas pela Disciplina Ativa
-  const filteredQuestions = useMemo(() => {
-    if (activeDisciplineFilter === 'Todas') return questions;
-    return questions.filter((q) => q.discipline === activeDisciplineFilter);
-  }, [questions, activeDisciplineFilter]);
-
-  // Keep the detail panel inside the currently visible discipline filter.
-  useEffect(() => {
-    if (filteredQuestions.length > 0 && !filteredQuestions.some((q) => q.id === selectedQuestionId)) {
-      setSelectedQuestionId(filteredQuestions[0].id);
-    }
-  }, [filteredQuestions, selectedQuestionId]);
-
-  // Provas Filtradas
-  const filteredPapers = useMemo(() => {
-    return papers.filter((paper) => {
-      const matchesSearch =
-        searchQuery === '' ||
-        paper.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        paper.institution.toLowerCase().includes(searchQuery.toLowerCase());
-
-      const matchesYear =
-        selectedYearFilter === 'all' || String(paper.examYear) === selectedYearFilter;
-
-      return matchesSearch && matchesYear;
-    });
-  }, [papers, searchQuery, selectedYearFilter]);
-
-  // Anos Únicos Disponíveis
-  const availableYears = useMemo(() => {
-    const years = Array.from(new Set(papers.map((p) => Number(p.examYear)))).sort((a: number, b: number) => b - a);
-    return years;
-  }, [papers]);
-
-  // Alternativas da Questão Selecionada
-  const selectedQuestionOptions: ExamOption[] = useMemo(() => {
-    if (!selectedQuestion) return [];
-    try {
-      return JSON.parse(selectedQuestion.optionsJson);
-    } catch {
-      return [];
-    }
-  }, [selectedQuestion]);
-
-  const selectedQuestionImages: string[] = useMemo(() => {
-    if (!selectedQuestion?.imagesJson) return [];
-    try {
-      const parsed = JSON.parse(selectedQuestion.imagesJson);
-      if (!Array.isArray(parsed)) return [];
-      return parsed
-        .filter((item) => typeof item === 'string' && item.trim().length > 0)
-        .map((img: string) => {
-          if (img.startsWith('http://') || img.startsWith('https://') || img.startsWith('data:') || img.startsWith('/api/')) {
-            return img;
-          }
-          const baseName = img.split(/[\\/]/).pop();
-          return `/api/exams/assets/file/${baseName}`;
-        });
-    } catch { return []; }
-  }, [selectedQuestion]);
-
-  // Solução de IA da Questão Selecionada
-  const selectedQuestionAISolution: AISolutionPayload | null = useMemo(() => {
-    if (!selectedQuestion || !selectedQuestion.aiSolutionJson) return null;
-    try {
-      return JSON.parse(selectedQuestion.aiSolutionJson);
-    } catch {
-      return null;
-    }
-  }, [selectedQuestion]);
-
-  // Toggle de Seleção de Questão para Correção com IA (Trava em 10)
-  const handleToggleQuestionForSolve = (id: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-
-    setSelectedQuestionIdsForSolve((prev) => {
-      if (prev.includes(id)) {
-        return prev.filter((item) => item !== id);
+        setPapers(data.papers || []);
       } else {
-        if (prev.length >= 10) {
-          if (showToast) {
-            showToast('Você pode corrigir até 10 questões por vez.', 'warning');
-          }
-          return prev;
-        }
-        return [...prev, id];
+        showToast?.('Não foi possível carregar as provas.', 'error');
       }
-    });
+    } catch {
+      showToast?.('Erro de conexão ao buscar provas.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // Correção com IA das Questões Selecionadas
-  const handleSolveSelectedWithAI = async (questionIds = selectedQuestionIdsForSolve) => {
-    if (questionIds.length === 0) return;
-    if (questionIds.length > 10) {
-      showToast?.('Você pode corrigir até 10 questões por vez.', 'error');
-      return;
-    }
+  useEffect(() => {
+    fetchPapers();
+  }, []);
 
+  // Helper para verificar se a prova foi marcada como concluída/resolvida
+  const isPaperCompleted = (paper: ExamPaper): boolean => {
+    if (!paper.metadataJson) return false;
     try {
-      setIsSolvingAI(true);
+      const meta = JSON.parse(paper.metadataJson);
+      return Boolean(meta?.completed);
+    } catch {
+      return false;
+    }
+  };
+
+  // Alterna status de concluída da prova
+  const togglePaperCompleted = async (paper: ExamPaper, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    try {
+      let currentMeta: Record<string, any> = {};
+      try {
+        if (paper.metadataJson) currentMeta = JSON.parse(paper.metadataJson);
+      } catch {}
+
+      const newCompleted = !currentMeta.completed;
+      const updatedMeta = { ...currentMeta, completed: newCompleted, completedAt: newCompleted ? new Date().toISOString() : null };
+
       const token = getAuthToken();
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch('/api/exams/solve-with-ai', {
-        method: 'POST',
+      const res = await fetch(`/api/exams/${paper.id}`, {
+        method: 'PATCH',
         headers,
-        body: JSON.stringify({
-          questionIds,
-          idempotencyKey: `solve-${Date.now()}-${questionIds.join('-')}`,
-        }),
+        body: JSON.stringify({ metadata: updatedMeta }),
       });
 
-      const data = await res.json().catch(() => ({ message: `Servidor respondeu com HTTP ${res.status}.` }));
-
-      if (res.ok && data.success) {
-        showToast?.(`✅ ${data.totalSolved} questões corrigidas com sucesso pela IA!`, 'success');
-        // Recarrega as questões
-        if (selectedPaperId) {
-          const qRes = await fetch(`/api/exams/${selectedPaperId}/questions`, { headers });
-          if (qRes.ok) {
-            const qData = await qRes.json();
-            setQuestions(qData.questions || []);
-          }
-        }
-        // Atualiza estatísticas reais
-        const statsRes = await fetch('/api/exams/stats', { headers });
-        if (statsRes.ok) {
-          const statsData = await statsRes.json();
-          setStats(statsData.stats);
-        }
-        setSelectedQuestionIdsForSolve([]);
-      } else {
-        showToast?.(data.message || 'Falha ao corrigir questões com IA.', 'error');
+      if (res.ok) {
+        setPapers((prev) =>
+          prev.map((p) => (p.id === paper.id ? { ...p, metadataJson: JSON.stringify(updatedMeta) } : p))
+        );
+        showToast?.(
+          newCompleted ? `"${paper.title}" marcada como concluída!` : `"${paper.title}" marcada como pendente.`,
+          'success'
+        );
       }
-    } catch (err: any) {
-      showToast?.('Erro de conexão durante a resolução por IA.', 'error');
-    } finally {
-      setIsSolvingAI(false);
+    } catch {
+      showToast?.('Erro ao atualizar status da prova.', 'error');
     }
   };
 
-  // Upload e Processamento de Nova Prova
-  const handleProcessUpload = async (fileToUpload?: File) => {
-    const file = fileToUpload || selectedFile;
-    if (!uploadTitle.trim() && !file) {
-      showToast?.('Informe o título da prova ou selecione um arquivo.', 'warning');
+  // Upload da Prova
+  const handleFileDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      selectUploadFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const selectUploadFile = (file: File) => {
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      showToast?.('Por favor, selecione um arquivo em formato PDF.', 'warning');
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      showToast?.('O arquivo excede o limite de 50 MB.', 'warning');
+      return;
+    }
+    setUploadFile(file);
+    if (!uploadTitle.trim()) {
+      // Sugere título limpo a partir do nome do arquivo
+      const cleanName = file.name
+        .replace(/\.pdf$/i, '')
+        .replace(/[-_]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      setUploadTitle(cleanName);
+    }
+  };
+
+  const handleUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadTitle.trim()) {
+      showToast?.('Informe o nome da prova.', 'warning');
+      return;
+    }
+    if (!uploadFile) {
+      showToast?.('Selecione o arquivo PDF da prova.', 'warning');
       return;
     }
 
     try {
       setIsUploading(true);
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = reject;
+        reader.readAsDataURL(uploadFile);
+      });
+
       const token = getAuthToken();
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      let base64Content: string | undefined;
-      let declaredMime: string | undefined;
-      let fileName: string | undefined;
-
-      if (file) {
-        fileName = file.name;
-        declaredMime = file.type || 'application/pdf';
-        const buffer = await file.arrayBuffer();
-        base64Content = btoa(
-          new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-        );
-      }
 
       const res = await fetch('/api/exams/upload-and-process', {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          title: uploadTitle.trim() || file?.name.replace(/\.[^/.]+$/, '') || 'Prova CFO CBMERJ',
-          institution: uploadInstitution,
-          examYear: uploadYear,
-          fileName,
-          declaredMime,
-          contentBase64: base64Content,
+          title: uploadTitle.trim(),
+          institution: uploadInstitution.trim() || 'Banca Examinadora',
+          examYear: Number(uploadYear) || new Date().getFullYear(),
+          fileName: uploadFile.name,
+          declaredMime: 'application/pdf',
+          contentBase64: base64,
         }),
       });
 
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        showToast?.('Prova recebida. A leitura continuará em segundo plano.', 'info');
+      if (res.ok) {
+        showToast?.('Prova adicionada com sucesso ao acervo!', 'success');
         setIsUploadModalOpen(false);
         setUploadTitle('');
-        setSelectedFile(null);
-        await fetchPapersAndStats();
-        if (data.jobId) {
-          const poll = window.setInterval(async () => {
-            try {
-              const token = getAuthToken();
-              const jobRes = await fetch(`/api/exams/jobs/${data.jobId}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-              const jobData = await jobRes.json();
-              if (jobData.job?.status === 'completed' || jobData.job?.status === 'failed') {
-                window.clearInterval(poll);
-                if (jobData.job.status === 'completed' && jobData.job.resultSummaryJson) {
-                  try {
-                    const summary = JSON.parse(jobData.job.resultSummaryJson);
-                    if (summary.paperId) setSelectedPaperId(summary.paperId);
-                  } catch { /* resumo opcional */ }
-                }
-                await fetchPapersAndStats();
-                showToast?.(jobData.job.status === 'completed' ? 'Prova processada. As questões já estão disponíveis.' : 'A leitura da prova falhou. Ela ficou disponível para revisão.', jobData.job.status === 'completed' ? 'success' : 'warning');
-              }
-            } catch { /* tenta novamente */ }
-          }, 2500);
-          window.setTimeout(() => window.clearInterval(poll), 30 * 60 * 1000);
-        }
+        setUploadFile(null);
+        fetchPapers();
       } else {
-        showToast?.(data.message || 'Falha no processamento da prova.', 'error');
+        const data = await res.json().catch(() => ({}));
+        showToast?.(data.message || 'Falha ao salvar a prova.', 'error');
       }
-    } catch (err: any) {
-      showToast?.(`Erro ao enviar prova para o servidor: ${err?.message || 'verifique sua conexão.'}`, 'error');
+    } catch {
+      showToast?.('Erro de conexão ao enviar o arquivo.', 'error');
     } finally {
       setIsUploading(false);
     }
   };
 
-  // Handler de Drag & Drop
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') setDragActive(true);
-    else if (e.type === 'dragleave') setDragActive(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0];
-      setSelectedFile(file);
-      if (!uploadTitle) {
-        setUploadTitle(file.name.replace(/\.[^/.]+$/, ''));
-      }
-      setIsUploadModalOpen(true);
-    }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setSelectedFile(file);
-      if (!uploadTitle) {
-        setUploadTitle(file.name.replace(/\.[^/.]+$/, ''));
-      }
-      setIsUploadModalOpen(true);
-    }
-  };
-
-  const reviewSelectedPaper = async () => {
-    if (!selectedPaper) return;
+  // Edição de Prova
+  const handleSaveEdit = async () => {
+    if (!editingPaper || !editTitle.trim()) return;
     try {
+      setIsSavingEdit(true);
       const token = getAuthToken();
-      const res = await fetch(`/api/exams/${selectedPaper.id}/review`, {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || data.error || 'Falha na revisao');
-      showToast?.('Questoes validadas. A prova pode ser publicada.', 'success');
-      await fetchPapersAndStats();
-    } catch (error: any) {
-      showToast?.(error?.message || 'Nao foi possivel revisar a prova.', 'error');
-    }
-  };
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const publishSelectedPaper = async () => {
-    if (!selectedPaper) return;
-    try {
-      const token = getAuthToken();
-      const res = await fetch(`/api/exams/${selectedPaper.id}/publish`, {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || data.error || 'Falha na publicacao');
-      showToast?.('Prova publicada com sucesso.', 'success');
-      await fetchPapersAndStats();
-    } catch (error: any) {
-      showToast?.(error?.message || 'Nao foi possivel publicar a prova.', 'error');
-    }
-  };
-
-  const handleOpenFlashcardFromQuestion = async (q: ExamQuestion) => {
-    let options: ExamOption[] = [];
-    try {
-      options = JSON.parse(q.optionsJson);
-    } catch {}
-    const correctOpt = q.correctOption || '';
-    const correctText = options.find((o) => o.letter === correctOpt)?.text || '';
-    let aiSolution: AISolutionPayload | null = null;
-    if (q.aiSolutionJson) {
-      try {
-        aiSolution = JSON.parse(q.aiSolutionJson);
-      } catch {}
-    }
-
-    let backContent = `Gabarito Oficial: Alternativa ${correctOpt}`;
-    if (correctText) {
-      backContent += `\n\n${correctText}`;
-    }
-    if (aiSolution?.explanationSummary) {
-      backContent += `\n\nResumo da Solução:\n${aiSolution.explanationSummary}`;
-    }
-
-    setFlashcardFront(`[${q.discipline || 'Geral'}] ${q.statement}`);
-    setFlashcardBack(backContent);
-    setIsFlashcardModalOpen(true);
-
-    try {
-      const token = getAuthToken();
-      const resSubs = await fetch('/api/flashcards/subjects', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (resSubs.ok) {
-        const dataSubs = await resSubs.json();
-        const subs = dataSubs.subjects || [];
-        setFlashcardSubjects(subs);
-        if (subs.length > 0) {
-          setFlashcardSubjectId(subs[0].id);
-          const resDecks = await fetch(`/api/flashcards/decks?subjectId=${encodeURIComponent(subs[0].id)}`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-          });
-          if (resDecks.ok) {
-            const dataDecks = await resDecks.json();
-            const dList = dataDecks.decks || [];
-            setFlashcardDecks(dList);
-            if (dList.length > 0) {
-              setFlashcardDeckId(dList[0].id);
-            }
-          }
-        }
-      }
-    } catch {}
-  };
-
-  const handleSubjectChangeInFlashcardModal = async (subjectId: string) => {
-    setFlashcardSubjectId(subjectId);
-    try {
-      const token = getAuthToken();
-      const resDecks = await fetch(`/api/flashcards/decks?subjectId=${encodeURIComponent(subjectId)}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (resDecks.ok) {
-        const dataDecks = await resDecks.json();
-        const dList = dataDecks.decks || [];
-        setFlashcardDecks(dList);
-        if (dList.length > 0) {
-          setFlashcardDeckId(dList[0].id);
-        } else {
-          setFlashcardDeckId('');
-        }
-      }
-    } catch {}
-  };
-
-  const handleSaveFlashcardFromQuestion = async () => {
-    if (!flashcardFront.trim() || !flashcardBack.trim()) {
-      showToast?.('A frente e o verso não podem ficar vazios.', 'error');
-      return;
-    }
-
-    try {
-      setIsSavingFlashcard(true);
-      const token = getAuthToken();
-
-      let targetDeckId = flashcardDeckId;
-      // Se não há baralho ou matéria, cria automaticamente a matéria "Caderno de Erros (Simulados)" e baralho "Questões com Erro"
-      if (!targetDeckId) {
-        let targetSubId = flashcardSubjectId;
-        if (!targetSubId) {
-          const subRes = await fetch('/api/flashcards/subjects', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({ name: 'Caderno de Erros (Simulados)' }),
-          });
-          if (subRes.ok) {
-            const subData = await subRes.json();
-            targetSubId = subData.subject?.id;
-          }
-        }
-        if (targetSubId) {
-          const deckRes = await fetch('/api/flashcards/decks', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({ subjectId: targetSubId, name: 'Questões com Erro' }),
-          });
-          if (deckRes.ok) {
-            const deckData = await deckRes.json();
-            targetDeckId = deckData.deck?.id;
-          }
-        }
-      }
-
-      if (!targetDeckId) {
-        showToast?.('Não foi possível inicializar o baralho de destino.', 'error');
-        return;
-      }
-
-      const res = await fetch('/api/flashcards/cards', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+      const res = await fetch(`/api/exams/${editingPaper.id}`, {
+        method: 'PATCH',
+        headers,
         body: JSON.stringify({
-          deckId: targetDeckId,
-          front: flashcardFront.trim(),
-          back: flashcardBack.trim(),
+          title: editTitle.trim(),
+          institution: editInstitution.trim() || 'Banca',
+          examYear: Number(editYear),
         }),
       });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        showToast?.(err.message || 'Falha ao salvar flashcard.', 'error');
-        return;
+      if (res.ok) {
+        showToast?.('Prova atualizada com sucesso.', 'success');
+        setPapers((prev) =>
+          prev.map((p) =>
+            p.id === editingPaper.id
+              ? { ...p, title: editTitle.trim(), institution: editInstitution.trim(), examYear: Number(editYear) }
+              : p
+          )
+        );
+        setEditingPaper(null);
+      } else {
+        showToast?.('Falha ao atualizar a prova.', 'error');
       }
-
-      showToast?.('Flashcard criado com sucesso a partir da questão!', 'success');
-      setIsFlashcardModalOpen(false);
     } catch {
-      showToast?.('Erro de conexão ao salvar flashcard.', 'error');
+      showToast?.('Erro ao salvar alterações.', 'error');
     } finally {
-      setIsSavingFlashcard(false);
+      setIsSavingEdit(false);
     }
   };
 
-  // Render do Badge de Dificuldade
-  const renderDifficultyBadge = (difficulty: 'Fácil' | 'Médio' | 'Difícil') => {
-    switch (difficulty) {
-      case 'Fácil':
-        return (
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            Fácil
-          </span>
-        );
-      case 'Médio':
-        return (
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-            Médio
-          </span>
-        );
-      case 'Difícil':
-        return (
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-            Difícil
-          </span>
-        );
-    }
-  };
-
-  // Disciplinas Parseadas para a Prova
-  const parsePrimaryDisciplines = (json?: string | null): string[] => {
-    if (!json) return ['Geral'];
+  // Exclusão de Prova
+  const handleDeleteConfirm = async () => {
+    if (!deletingPaper) return;
     try {
-      const parsed = JSON.parse(json);
-      return Array.isArray(parsed) ? parsed : ['Geral'];
+      setIsDeleting(true);
+      const token = getAuthToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/exams/${deletingPaper.id}`, {
+        method: 'DELETE',
+        headers,
+      });
+
+      if (res.ok) {
+        showToast?.('Prova removida do acervo.', 'success');
+        setPapers((prev) => prev.filter((p) => p.id !== deletingPaper.id));
+        setDeletingPaper(null);
+      } else {
+        showToast?.('Não foi possível excluir a prova.', 'error');
+      }
     } catch {
-      return ['Geral'];
+      showToast?.('Erro de conexão ao excluir prova.', 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
+
+  // Visualização e Download do PDF
+  const handleOpenPdf = async (paper: ExamPaper) => {
+    if (!paper.fileId) {
+      showToast?.('Esta prova não possui arquivo PDF anexado.', 'warning');
+      return;
+    }
+    try {
+      setIsLoadingPdf(true);
+      setViewingPaper(paper);
+      const token = getAuthToken();
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/files/${paper.fileId}`, { headers });
+      if (!res.ok) throw new Error('PDF indisponível');
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setPdfBlobUrl(url);
+    } catch {
+      showToast?.('Não foi possível carregar o arquivo PDF.', 'error');
+      setViewingPaper(null);
+    } finally {
+      setIsLoadingPdf(false);
+    }
+  };
+
+  const closePdfViewer = () => {
+    if (pdfBlobUrl) {
+      URL.revokeObjectURL(pdfBlobUrl);
+      setPdfBlobUrl(null);
+    }
+    setViewingPaper(null);
+  };
+
+  const handleDownloadPdf = async (paper: ExamPaper, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!paper.fileId) {
+      showToast?.('Arquivo não disponível para download.', 'warning');
+      return;
+    }
+    try {
+      const token = getAuthToken();
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/files/${paper.fileId}`, { headers });
+      if (!res.ok) throw new Error('Download falhou');
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${paper.title.replace(/[^a-zA-Z0-9_-]/g, '_')}_${paper.examYear}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      showToast?.('Download iniciado.', 'info');
+    } catch {
+      showToast?.('Erro ao baixar arquivo da prova.', 'error');
+    }
+  };
+
+  // Filtragem e Ordenação
+  const availableInstitutions = useMemo(() => {
+    const list = Array.from(new Set(papers.map((p) => p.institution).filter(Boolean)));
+    return ['Todas', ...list.sort()];
+  }, [papers]);
+
+  const availableYears = useMemo(() => {
+    const years = Array.from(new Set(papers.map((p) => p.examYear).filter(Boolean)));
+    return ['Todos', ...years.sort((a, b) => b - a).map(String)];
+  }, [papers]);
+
+  const filteredAndSortedPapers = useMemo(() => {
+    return papers
+      .filter((p) => {
+        // Busca por texto
+        const q = searchQuery.toLowerCase().trim();
+        const matchesQuery =
+          !q ||
+          p.title.toLowerCase().includes(q) ||
+          p.institution.toLowerCase().includes(q) ||
+          String(p.examYear).includes(q);
+
+        // Filtro por Instituição / Banca
+        const matchesInst = selectedInstitution === 'Todas' || p.institution.toLowerCase() === selectedInstitution.toLowerCase();
+
+        // Filtro por Ano
+        const matchesYear = selectedYear === 'Todos' || String(p.examYear) === selectedYear;
+
+        // Filtro por Status
+        const completed = isPaperCompleted(p);
+        const matchesStatus =
+          statusFilter === 'all' ||
+          (statusFilter === 'completed' && completed) ||
+          (statusFilter === 'pending' && !completed);
+
+        return matchesQuery && matchesInst && matchesYear && matchesStatus;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'name_asc') {
+          return a.title.localeCompare(b.title, 'pt-BR', { sensitivity: 'base' });
+        }
+        if (sortBy === 'name_desc') {
+          return b.title.localeCompare(a.title, 'pt-BR', { sensitivity: 'base' });
+        }
+        if (sortBy === 'year_desc') {
+          return (b.examYear || 0) - (a.examYear || 0);
+        }
+        if (sortBy === 'year_asc') {
+          return (a.examYear || 0) - (b.examYear || 0);
+        }
+        // recent
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+  }, [papers, searchQuery, selectedInstitution, selectedYear, statusFilter, sortBy]);
+
+  // Estatísticas do Acervo
+  const stats = useMemo(() => {
+    const total = papers.length;
+    const completedCount = papers.filter(isPaperCompleted).length;
+    const institutionsCount = new Set(papers.map((p) => p.institution)).size;
+    const yearsCount = new Set(papers.map((p) => p.examYear)).size;
+    const percent = total > 0 ? Math.round((completedCount / total) * 100) : 0;
+    return { total, completedCount, institutionsCount, yearsCount, percent };
+  }, [papers]);
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      {/* 1. CABEÇALHO DA PÁGINA */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#0056D2] via-blue-600 to-[#0056D2] text-white flex items-center justify-center shadow-lg shadow-blue-950/40">
-            <FileText className="w-6 h-6" />
-          </div>
-          <div>
-            <h1 className={`text-2xl font-black tracking-tight ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
-              Provas
-            </h1>
-            <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-              Envie provas, separe as questões, classifique por disciplina e corrija com IA.
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={() => {
-            setUploadTitle('');
-            setSelectedFile(null);
-            setIsUploadModalOpen(true);
-          }}
-          className="px-4 py-2.5 rounded-xl bg-[#0056D2] hover:bg-blue-600 text-white font-bold text-xs shadow-md shadow-blue-950/30 flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer self-start sm:self-auto"
-        >
-          <span className="text-base font-black leading-none">+</span>
-          <span>Adicionar prova</span>
-        </button>
-      </div>
-
-      {/* 2. CARDS SUPERIORES DE RESUMO */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
-        {/* Card 1: Provas Enviadas */}
-        <div
-          className={`p-4 rounded-2xl border transition-all shadow-xl flex items-center justify-between ${
-            isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200 shadow-slate-100'
-          }`}
-        >
-          <div>
-            <span className={`text-2xl font-black tracking-tight ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
-              {stats ? stats.totalPapers : 0}
-            </span>
-            <p className={`text-[11px] font-semibold mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-              Provas enviadas
-            </p>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-[#0056D2] dark:text-blue-400 border border-blue-500/20 flex items-center justify-center">
-            <FileText className="w-5 h-5" />
-          </div>
-        </div>
-
-        {/* Card 2: Questões Processadas */}
-        <div
-          className={`p-4 rounded-2xl border transition-all shadow-xl flex items-center justify-between ${
-            isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200 shadow-slate-100'
-          }`}
-        >
-          <div>
-            <span className={`text-2xl font-black tracking-tight ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
-              {stats ? stats.totalQuestions : 0}
-            </span>
-            <p className={`text-[11px] font-semibold mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-              Questões processadas
-            </p>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center justify-center">
-            <Layers className="w-5 h-5" />
-          </div>
-        </div>
-
-        {/* Card 3: Taxa de Sucesso */}
-        <div
-          className={`p-4 rounded-2xl border transition-all shadow-xl flex items-center justify-between ${
-            isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200 shadow-slate-100'
-          }`}
-        >
-          <div>
-            <span className={`text-2xl font-black tracking-tight ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
-              {stats ? `${stats.successRatePercent}%` : '0%'}
-            </span>
-            <p className={`text-[11px] font-semibold mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-              Taxa de sucesso
-            </p>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
-            <CheckCircle2 className="w-5 h-5" />
-          </div>
-        </div>
-
-        {/* Card 4: Tempo Médio */}
-        <div
-          className={`p-4 rounded-2xl border transition-all shadow-xl flex items-center justify-between ${
-            isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200 shadow-slate-100'
-          }`}
-        >
-          <div>
-            <span className={`text-2xl font-black tracking-tight ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
-              {stats && stats.totalPapers > 0 ? `${stats.averageTimeMinutes} min` : '--'}
-            </span>
-            <p className={`text-[11px] font-semibold mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-              Tempo médio
-            </p>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center justify-center">
-            <Clock className="w-5 h-5" />
-          </div>
-        </div>
-
-        {/* Card 5: Segurança & Privacidade */}
-        <div
-          className={`col-span-2 sm:col-span-1 p-4 rounded-2xl border transition-all shadow-xl flex items-center justify-between ${
-            isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200 shadow-slate-100'
-          }`}
-        >
-          <div>
-            <span className="text-sm font-black text-emerald-400 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              Seguro
-            </span>
-            <p className={`text-[11px] font-semibold mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-              Seus dados protegidos
-            </p>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
-            <ShieldCheck className="w-5 h-5" />
-          </div>
-        </div>
-      </div>
-
-      {/* 3. ÁREA DE UPLOAD + DICAS */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Dropzone Principal */}
-        <div
-          onDragEnter={handleDrag}
-          onDragLeave={handleDrag}
-          onDragOver={handleDrag}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          className={`lg:col-span-2 p-6 rounded-2xl border-2 border-dashed transition-all cursor-pointer flex flex-col items-center justify-center text-center group ${
-            dragActive
-              ? 'border-[#0056D2] bg-blue-500/10 scale-[0.99]'
-              : isDark
-              ? 'border-slate-800 hover:border-slate-700 bg-[#0B1528]/60 hover:bg-[#0B1528]'
-              : 'border-slate-300 hover:border-slate-400 bg-slate-50/70 hover:bg-slate-50'
-          }`}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,image/png,image/jpeg,image/webp"
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          <div className="w-12 h-12 rounded-2xl bg-blue-500/10 text-[#0056D2] dark:text-blue-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-            <UploadCloud className="w-6 h-6" />
-          </div>
-          <h3 className={`text-sm font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
-            Arraste e solte sua prova aqui
-          </h3>
-          <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-            ou clique para selecionar
-          </p>
-          <span className={`text-[10px] mt-2 px-2.5 py-0.5 rounded-full border ${isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-200/60 border-slate-300 text-slate-600'}`}>
-            PDF, JPG, PNG, WEBP (máx. 20 MB)
-          </span>
-
-          {/* Botões Rápidos */}
-          <div className="grid grid-cols-3 gap-2 w-full max-w-sm mt-4 pt-3 border-t border-slate-800/40" onClick={(e) => e.stopPropagation()}>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                isDark ? 'bg-[#111218] border-slate-800 hover:bg-slate-800 text-slate-300' : 'bg-white border-slate-200 hover:bg-slate-100 text-slate-700'
-              }`}
-            >
-              <FolderOpen className="w-3.5 h-3.5 text-blue-400" />
-              <span>Arquivo</span>
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                isDark ? 'bg-[#111218] border-slate-800 hover:bg-slate-800 text-slate-300' : 'bg-white border-slate-200 hover:bg-slate-100 text-slate-700'
-              }`}
-            >
-              <ImageIcon className="w-3.5 h-3.5 text-amber-400" />
-              <span>Tirar foto</span>
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                isDark ? 'bg-[#111218] border-slate-800 hover:bg-slate-800 text-slate-300' : 'bg-white border-slate-200 hover:bg-slate-100 text-slate-700'
-              }`}
-            >
-              <Camera className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Usar câmera</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Card de Dicas Pedagógicas */}
-        <div
-          className={`p-5 rounded-2xl border transition-all shadow-xl flex flex-col justify-between ${
-            isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200 shadow-slate-100'
-          }`}
-        >
-          <div>
-            <div className="flex items-center gap-2 text-amber-400 mb-3">
-              <Sparkles className="w-4 h-4" />
-              <h4 className="text-xs font-bold uppercase tracking-wider">Dicas Táticas</h4>
-            </div>
-            <ul className="space-y-2.5 text-xs">
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>
-                  A IA vai identificar e separar as questões automaticamente.
+    <div className={`min-h-screen pb-16 ${isDark ? 'bg-[#0b0f17] text-gray-100' : 'bg-slate-50 text-gray-900'}`}>
+      {/* HERO BANNER REVOLUCIONÁRIO COM GRADIENTE CFO CBMERJ */}
+      <div className="relative overflow-hidden border-b border-rose-500/20 bg-gradient-to-r from-red-950/60 via-amber-950/40 to-slate-950 px-4 py-10 sm:px-8">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-amber-500/10 via-rose-600/5 to-transparent pointer-events-none" />
+        
+        <div className="relative max-w-7xl mx-auto">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold tracking-wider uppercase bg-gradient-to-r from-rose-500/20 to-amber-500/20 border border-rose-500/30 text-rose-300">
+                <Flame className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                <span>Acervo Tático de Provas</span>
+              </div>
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight">
+                <span className="bg-gradient-to-r from-white via-rose-100 to-amber-200 bg-clip-text text-transparent">
+                  Banco de Provas Anteriores
                 </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>
-                  Suporta provas de múltipla escolha e discursivas.
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>
-                  Preserva imagens, tabelas, gráficos e fórmulas em LaTeX.
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>
-                  Você poderá revisar e corrigir <strong>até 10 questões</strong> por vez.
-                </span>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      {/* 4. BARRA DE FILTROS */}
-      <div
-        className={`p-2.5 rounded-2xl border flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-xl ${
-          isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200'
-        }`}
-      >
-        {/* Tabs de Filtro */}
-        <div className="flex items-center gap-1 overflow-x-auto scrollbar-none pb-1 md:pb-0">
-          <button
-            onClick={() => setActiveTabFilter('mine')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-              activeTabFilter === 'mine'
-                ? 'bg-[#0056D2] text-white shadow-sm'
-                : isDark
-                ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            Minhas provas
-          </button>
-          <button
-            onClick={() => setActiveTabFilter('recent')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-              activeTabFilter === 'recent'
-                ? 'bg-[#0056D2] text-white shadow-sm'
-                : isDark
-                ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            Provas recentes
-          </button>
-          <button
-            onClick={() => setActiveTabFilter('popular')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-              activeTabFilter === 'popular'
-                ? 'bg-[#0056D2] text-white shadow-sm'
-                : isDark
-                ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            Mais acessadas
-          </button>
-        </div>
-
-        {/* Busca e Dropdowns */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Input de Busca */}
-          <div className="relative flex-1 sm:w-56">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Buscar provas..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border outline-none transition-all ${
-                isDark
-                  ? 'bg-[#111218] border-slate-800 text-slate-200 placeholder-slate-500 focus:border-[#0056D2]'
-                  : 'bg-slate-50 border-slate-300 text-slate-800 placeholder-slate-400 focus:border-[#0056D2]'
-              }`}
-            />
-          </div>
-
-          {/* Select de Ano */}
-          <select
-            value={selectedYearFilter}
-            onChange={(e) => setSelectedYearFilter(e.target.value)}
-            className={`px-2.5 py-1.5 text-xs rounded-xl border outline-none cursor-pointer ${
-              isDark ? 'bg-[#111218] border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-800'
-            }`}
-          >
-            <option value="all">Todos os anos</option>
-            {availableYears.map((yr) => (
-              <option key={yr} value={String(yr)}>
-                {yr}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* 5. TRÊS ÁREAS PRINCIPAIS (DESKTOP) / DRILL-DOWN (MOBILE) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-        {/* ============================================================== */}
-        {/* COLUNA 1: LISTA DAS PROVAS (lg:col-span-3)                     */}
-        {/* ============================================================== */}
-        <div
-          className={`lg:col-span-3 rounded-2xl border p-3.5 space-y-3 shadow-xl ${
-            isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200'
-          } ${mobileView !== 'papers' ? 'hidden lg:block' : 'block'}`}
-        >
-          <div className="flex items-center justify-between px-1">
-            <h3 className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-              Provas Cadastradas ({filteredPapers.length})
-            </h3>
-          </div>
-
-          {isLoadingPapers ? (
-            <div className="py-12 flex flex-col items-center justify-center gap-2">
-              <Loader2 className="w-6 h-6 animate-spin text-[#0056D2]" />
-              <span className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Carregando provas...</span>
-            </div>
-          ) : filteredPapers.length === 0 ? (
-            <div className="py-12 text-center space-y-2">
-              <FileText className="w-8 h-8 mx-auto text-slate-500/50" />
-              <p className={`text-xs font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Nenhuma prova encontrada.
+              </h1>
+              <p className="text-sm sm:text-base text-gray-400 max-w-2xl">
+                Deposite aqui as provas completas para o CFO CBMERJ e principais vestibulares. Organize por nome, filtre por banca e abra o PDF diretamente para simular o dia da prova.
               </p>
-              <button
-                onClick={() => setIsUploadModalOpen(true)}
-                className="text-xs font-bold text-[#0056D2] hover:underline cursor-pointer"
-              >
-                + Enviar primeira prova
-              </button>
             </div>
-          ) : (
-            <div className="space-y-2.5 max-h-[650px] overflow-y-auto pr-1">
-              {filteredPapers.map((paper) => {
-                const isSelected = paper.id === selectedPaperId;
-                const disciplines = parsePrimaryDisciplines(paper.primaryDisciplinesJson);
-                const displayDisciplines = disciplines.slice(0, 3);
-                const remaining = disciplines.length - 3;
 
-                return (
-                  <div
-                    key={paper.id}
-                    onClick={() => {
-                      setSelectedPaperId(paper.id);
-                      setMobileView('questions');
-                    }}
-                    className={`p-3.5 rounded-xl border transition-all cursor-pointer relative group ${
-                      isSelected
-                        ? isDark
-                          ? 'bg-[#15233e] border-[#0056D2] shadow-md shadow-blue-950/40'
-                          : 'bg-blue-50/80 border-blue-400 shadow-sm'
-                        : isDark
-                        ? 'bg-[#111218] border-slate-800/80 hover:border-slate-700 hover:bg-[#131724]'
-                        : 'bg-slate-50 border-slate-200 hover:border-slate-300 hover:bg-slate-100/80'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      {/* Miniatura do Documento */}
-                      <div className="w-11 h-14 rounded-lg bg-slate-800/80 border border-slate-700 flex flex-col items-center justify-center shrink-0 shadow-inner p-1">
-                        <FileText className="w-5 h-5 text-slate-400 group-hover:text-blue-400 transition-colors" />
-                        <span className="text-[8px] font-black text-slate-500 uppercase mt-1">CFO</span>
-                      </div>
-
-                      {/* Informações da Prova */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-1">
-                          <h4 className={`text-xs font-bold truncate ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
-                            {paper.title}
-                          </h4>
-                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border shrink-0 ${paper.status === 'READY' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
-                            {paper.status === 'READY' ? 'Processada' : 'Revisão necessária'}
-                          </span>
-                        </div>
-
-                        <p className={`text-[11px] mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                          {paper.totalQuestions} questões • {paper.institution} • {paper.examYear}
-                        </p>
-
-                        {/* Badges de Disciplinas */}
-                        <div className="flex items-center gap-1 flex-wrap mt-2">
-                          {displayDisciplines.map((disc, idx) => (
-                            <span
-                              key={idx}
-                              className={`px-2 py-0.5 rounded-md text-[9px] font-semibold border ${
-                                isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
-                              }`}
-                            >
-                              {disc}
-                            </span>
-                          ))}
-                          {remaining > 0 && (
-                            <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-semibold ${isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600'}`}>
-                              +{remaining}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* ============================================================== */}
-        {/* COLUNA 2: QUESTÕES DA PROVA SELECIONADA (lg:col-span-3)         */}
-        {/* ============================================================== */}
-        <div
-          className={`lg:col-span-3 rounded-2xl border p-3.5 space-y-3 shadow-xl ${
-            isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200'
-          } ${mobileView !== 'questions' ? 'hidden lg:block' : 'block'}`}
-        >
-          {/* Topo da Prova Selecionada */}
-          <div className="flex items-center justify-between px-1 gap-2 flex-wrap">
-            <div className="flex items-center gap-2 min-w-0">
+            {/* Ação de Adicionar Prova */}
+            <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => setMobileView('papers')}
-                className="lg:hidden p-1.5 rounded-xl text-blue-400 hover:bg-blue-500/10 cursor-pointer shrink-0 border border-blue-500/20"
-                title="Voltar para Provas"
+                onClick={() => {
+                  setUploadTitle('');
+                  setUploadFile(null);
+                  setIsUploadModalOpen(true);
+                }}
+                className="inline-flex items-center gap-2.5 px-5 py-3 rounded-xl font-bold text-sm text-white shadow-lg shadow-rose-600/20 bg-gradient-to-r from-rose-600 via-red-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
               >
-                <ArrowLeft className="w-3.5 h-3.5" />
+                <Plus className="w-4 h-4" />
+                <span>Adicionar Nova Prova</span>
               </button>
-              <div className="min-w-0">
-                <h3 className={`text-xs font-black truncate ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
-                  {selectedPaper ? selectedPaper.title : 'Selecione uma prova'}
-                </h3>
-                <p className={`text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  {questions.length} questões detectadas
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                onClick={reviewSelectedPaper}
-                className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border transition-all flex items-center gap-1 cursor-pointer ${
-                  isDark ? 'bg-indigo-950/60 border-indigo-800/60 text-indigo-300 hover:bg-indigo-900/60' : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
-                }`}
-              >
-                <Sparkles className="w-3 h-3 text-indigo-400" />
-                <span>Revisar</span>
-              </button>
-              {selectedPaper && selectedPaper.publicationStatus === 'IN_REVIEW' && (
-                <button
-                  onClick={publishSelectedPaper}
-                  className="px-2.5 py-1 rounded-xl text-[10px] font-bold border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-all cursor-pointer"
-                >
-                  Publicar
-                </button>
-              )}
-              {selectedPaper?.fileId && (
-                <button
-                  onClick={handleOpenOriginalPdf}
-                  className={`px-2 py-1 rounded-xl text-[10px] font-bold border transition-all flex items-center gap-1 cursor-pointer ${isDark ? 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
-                  title="Abrir o arquivo original da prova"
-                >
-                  <Eye className="w-3 h-3" />
-                  <span className="hidden min-[400px]:inline">PDF</span>
-                </button>
-              )}
             </div>
           </div>
 
-          {/* Tabs de Disciplinas Dinâmicas */}
-          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none pb-1">
-            {availableDisciplines.map((d) => {
-              const isActive = activeDisciplineFilter === d.name;
-              return (
+          {/* Cards de Métricas em Destaque */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 mt-8">
+            <div className="p-4 rounded-xl border border-white/5 bg-white/[0.03] backdrop-blur-sm">
+              <div className="flex items-center gap-2 text-xs font-semibold text-rose-300">
+                <BookOpen className="w-4 h-4" />
+                <span>Total de Provas</span>
+              </div>
+              <div className="text-2xl sm:text-3xl font-black mt-2 text-white">{stats.total}</div>
+              <span className="text-[11px] text-gray-400">cadastradas no acervo</span>
+            </div>
+
+            <div className="p-4 rounded-xl border border-white/5 bg-white/[0.03] backdrop-blur-sm">
+              <div className="flex items-center gap-2 text-xs font-semibold text-amber-300">
+                <Award className="w-4 h-4" />
+                <span>Bancas Cobertas</span>
+              </div>
+              <div className="text-2xl sm:text-3xl font-black mt-2 text-white">{stats.institutionsCount}</div>
+              <span className="text-[11px] text-gray-400">VUNESP, UERJ, FGV...</span>
+            </div>
+
+            <div className="p-4 rounded-xl border border-white/5 bg-white/[0.03] backdrop-blur-sm">
+              <div className="flex items-center gap-2 text-xs font-semibold text-orange-300">
+                <Calendar className="w-4 h-4" />
+                <span>Anos de Edição</span>
+              </div>
+              <div className="text-2xl sm:text-3xl font-black mt-2 text-white">{stats.yearsCount}</div>
+              <span className="text-[11px] text-gray-400">histórico completo</span>
+            </div>
+
+            <div className="p-4 rounded-xl border border-white/5 bg-white/[0.03] backdrop-blur-sm">
+              <div className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Provas Resolvidas</span>
+              </div>
+              <div className="text-2xl sm:text-3xl font-black mt-2 text-white">
+                {stats.completedCount} <span className="text-xs font-normal text-gray-400">({stats.percent}%)</span>
+              </div>
+              <div className="w-full bg-white/10 h-1.5 rounded-full mt-2 overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-500"
+                  style={{ width: `${stats.percent}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ÁREA DE CONTROLES E LISTA DE PROVAS */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-8 mt-8 space-y-6">
+        {/* BARRA DE PESQUISA, FILTROS E ORDENAÇÃO */}
+        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-[#111722]/80 border-white/10' : 'bg-white border-slate-200 shadow-sm'} backdrop-blur-md`}>
+          <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
+            {/* Campo de Busca por Nome */}
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Pesquisar prova por nome (ex.: CFO CBMERJ 2024, UERJ 2023...)"
+                className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border outline-none transition-all ${
+                  isDark
+                    ? 'bg-[#080d14] border-white/10 text-white placeholder-gray-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
+                    : 'bg-slate-50 border-slate-300 text-gray-900 placeholder-gray-400 focus:border-rose-600 focus:ring-1 focus:ring-rose-600'
+                }`}
+              />
+              {searchQuery && (
                 <button
-                  key={d.name}
-                  onClick={() => setActiveDisciplineFilter(d.name)}
-                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all whitespace-nowrap cursor-pointer ${
-                    isActive
-                      ? 'bg-[#0056D2] text-white shadow-xs'
-                      : isDark
-                      ? 'bg-[#111218] text-slate-400 hover:text-slate-200 border border-slate-800'
-                      : 'bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200'
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Ordenação por Nome / Ano */}
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-400">
+                <ArrowUpDown className="w-3.5 h-3.5 text-rose-400" />
+                <span>Organizar:</span>
+              </div>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortOption)}
+                className={`px-3 py-2 rounded-xl text-xs font-bold border outline-none cursor-pointer ${
+                  isDark ? 'bg-[#080d14] border-white/10 text-gray-200' : 'bg-slate-50 border-slate-300 text-gray-800'
+                }`}
+              >
+                <option value="name_asc">Nome (A → Z)</option>
+                <option value="name_desc">Nome (Z → A)</option>
+                <option value="year_desc">Ano (Mais recente)</option>
+                <option value="year_asc">Ano (Mais antigo)</option>
+                <option value="recent">Recém-adicionadas</option>
+              </select>
+
+              {/* Filtro por Ano */}
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className={`px-3 py-2 rounded-xl text-xs font-bold border outline-none cursor-pointer ${
+                  isDark ? 'bg-[#080d14] border-white/10 text-gray-200' : 'bg-slate-50 border-slate-300 text-gray-800'
+                }`}
+              >
+                {availableYears.map((y) => (
+                  <option key={y} value={y}>
+                    {y === 'Todos' ? 'Todos os Anos' : `Ano ${y}`}
+                  </option>
+                ))}
+              </select>
+
+              {/* Filtro de Conclusão */}
+              <div className="inline-flex rounded-xl p-0.5 border border-white/10 bg-black/20 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('all')}
+                  className={`px-2.5 py-1.5 rounded-lg font-semibold transition-all ${
+                    statusFilter === 'all' ? 'bg-rose-600 text-white' : 'text-gray-400 hover:text-gray-200'
                   }`}
                 >
-                  {d.name} ({d.count})
+                  Todas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('pending')}
+                  className={`px-2.5 py-1.5 rounded-lg font-semibold transition-all ${
+                    statusFilter === 'pending' ? 'bg-rose-600 text-white' : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  Pendentes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('completed')}
+                  className={`px-2.5 py-1.5 rounded-lg font-semibold transition-all ${
+                    statusFilter === 'completed' ? 'bg-emerald-600 text-white' : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  Resolvidas
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Chips de Bancas / Instituições */}
+          <div className="flex items-center gap-2 mt-4 pt-3 border-t border-white/5 overflow-x-auto pb-1 scrollbar-none">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 whitespace-nowrap">
+              Bancas:
+            </span>
+            {availableInstitutions.map((inst) => {
+              const isSelected = selectedInstitution.toLowerCase() === inst.toLowerCase();
+              return (
+                <button
+                  type="button"
+                  key={inst}
+                  onClick={() => setSelectedInstitution(inst)}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                    isSelected
+                      ? 'bg-gradient-to-r from-rose-600 to-amber-600 text-white shadow-sm shadow-rose-500/30'
+                      : isDark
+                      ? 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-200'
+                      : 'bg-slate-100 text-gray-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {inst}
                 </button>
               );
             })}
           </div>
-
-          {/* Lista das Questões */}
-          {isLoadingQuestions ? (
-            <div className="py-12 flex flex-col items-center justify-center gap-2">
-              <Loader2 className="w-5 h-5 animate-spin text-[#0056D2]" />
-              <span className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Carregando questões...</span>
-            </div>
-          ) : filteredQuestions.length === 0 ? (
-            <div className="py-12 text-center space-y-2">
-              <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Nenhuma questão nesta disciplina.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1.5 max-h-[520px] overflow-y-auto pr-1">
-              {filteredQuestions.map((q) => {
-                const isSelected = q.id === selectedQuestionId;
-                const isChecked = selectedQuestionIdsForSolve.includes(q.id);
-
-                return (
-                  <div
-                    key={q.id}
-                    onClick={() => {
-                      setSelectedQuestionId(q.id);
-                      setMobileView('detail');
-                    }}
-                    className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-2.5 ${
-                      isSelected
-                        ? isDark
-                          ? 'bg-[#15233e] border-[#0056D2]'
-                          : 'bg-blue-50/80 border-blue-400'
-                        : isDark
-                        ? 'bg-[#111218] border-slate-800/70 hover:border-slate-700'
-                        : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    {/* Checkbox de Seleção */}
-                    <button
-                      type="button"
-                      onClick={(e) => handleToggleQuestionForSolve(q.id, e)}
-                      className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all shrink-0 cursor-pointer ${
-                        isChecked
-                          ? 'bg-[#0056D2] border-[#0056D2] text-white'
-                          : isDark
-                          ? 'border-slate-700 bg-slate-900/60 hover:border-slate-500'
-                          : 'border-slate-300 bg-white hover:border-slate-400'
-                      }`}
-                    >
-                      {isChecked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                    </button>
-
-                    {/* Dados da Questão */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs font-bold ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
-                          Questão {q.questionNumber}
-                        </span>
-                        {q.aiSolutionJson && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Resolvida com IA" />
-                        )}
-                      </div>
-                      <p className={`text-[10px] truncate mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                        {q.discipline} &gt; {q.topic} &gt; {q.subtopic}
-                      </p>
-                    </div>
-
-                    {/* Badge de Dificuldade */}
-                    <div className="shrink-0">{renderDifficultyBadge(q.difficulty)}</div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Rodapé da Lista: Barra de Ação de Correção com IA */}
-          <div
-            className={`p-3 rounded-xl border flex items-center justify-between gap-2 pt-2.5 mt-2 ${
-              isDark ? 'bg-[#111218] border-slate-800' : 'bg-slate-50 border-slate-200'
-            }`}
-          >
-            <span className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-              {selectedQuestionIdsForSolve.length} questões selecionadas
-            </span>
-
-            <button
-              disabled={selectedQuestionIdsForSolve.length === 0 || isSolvingAI}
-              onClick={() => handleSolveSelectedWithAI()}
-              className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-md ${
-                selectedQuestionIdsForSolve.length > 0 && !isSolvingAI
-                  ? 'bg-gradient-to-r from-blue-600 to-[#0056D2] hover:brightness-110 text-white cursor-pointer active:scale-95'
-                  : 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed'
-              }`}
-            >
-              {isSolvingAI ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Corrigindo...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Corrigir com IA ({selectedQuestionIdsForSolve.length}/10)</span>
-                </>
-              )}
-            </button>
-          </div>
         </div>
 
-        {/* ============================================================== */}
-        {/* COLUNA 3: PAINEL DA QUESTÃO E RESOLUÇÃO IA (lg:col-span-6)       */}
-        {/* ============================================================== */}
-        <div
-          className={`lg:col-span-6 rounded-2xl border p-4 sm:p-5 space-y-5 shadow-xl ${
-            isDark ? 'bg-[#0B1528] border-slate-800/90' : 'bg-white border-slate-200'
-          } ${mobileView !== 'detail' ? 'hidden lg:block' : 'block'}`}
-        >
-          {selectedQuestion ? (
-            <>
-              {/* Topo do Painel */}
-              <div className="flex items-center justify-between gap-2 border-b border-slate-800/60 pb-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMobileView('questions')}
-                    className="lg:hidden p-1.5 rounded-xl text-blue-400 hover:bg-blue-500/10 cursor-pointer shrink-0 border border-blue-500/20"
-                    title="Voltar para Questões"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                  </button>
-                  <span className={`text-xs font-black ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
-                    Questão {selectedQuestion.questionNumber} de {questions.length}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  {renderDifficultyBadge(selectedQuestion.difficulty)}
-                </div>
-              </div>
-
-              {/* Tags de Classificação Canônica & Ações de Recorte */}
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-1 flex-wrap">
-                  <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-[#0056D2]/20 text-blue-300 border border-blue-500/30">
-                    {selectedQuestion.discipline}
-                  </span>
-                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
-                    {selectedQuestion.topic}
-                  </span>
-                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
-                    {selectedQuestion.subtopic}
-                  </span>
-                </div>
-
-                {selectedPaper?.fileId && (
-                  <button
-                    type="button"
-                    onClick={() => setIsCropModalOpen(true)}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
-                      selectedQuestion.status === 'NEEDS_REVIEW'
-                        ? 'bg-amber-500/10 border-amber-500/40 text-amber-300 hover:bg-amber-500/20'
-                        : isDark
-                        ? 'bg-slate-850 border-slate-700 text-blue-400 hover:bg-slate-800'
-                        : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
-                    }`}
-                    title="Ajustar coordenadas e re-recortar a imagem original da questão"
-                  >
-                    <Crop className="w-3.5 h-3.5" />
-                    <span>Ajustar Recorte Original</span>
-                  </button>
-                )}
-              </div>
-
-              {/* Texto de Apoio / Suporte Compartilhado */}
-              {selectedQuestion.supportText && (
-                <div
-                  className={`p-3 rounded-xl border text-xs leading-relaxed ${
-                    isDark ? 'bg-slate-950/60 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
-                  }`}
-                >
-                  <p className="font-bold text-[11px] text-amber-400 mb-1">Texto de Apoio</p>
-                  <p className="whitespace-pre-wrap">{selectedQuestion.supportText}</p>
-                </div>
-              )}
-
-              {/* Enunciado da Questão com KaTeX / LaTeX */}
-              {selectedQuestionImages.length > 0 && (
-                <div className={`rounded-2xl border p-3 space-y-2 ${isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <p className="text-[10px] font-black uppercase tracking-wider text-blue-400">Imagem da prova</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {selectedQuestionImages.map((image, index) => (
-                      <button key={`${image}-${index}`} type="button" onClick={() => setZoomedImage(image)} className="group relative rounded-xl overflow-hidden border border-slate-700/70 bg-black/20 cursor-zoom-in">
-                        <img src={image} alt={`Imagem da questão ${selectedQuestion.questionNumber} ${index + 1}`} className="w-full max-h-80 object-contain group-hover:scale-[1.02] transition-transform" />
-                        <span className="absolute bottom-2 right-2 rounded-lg bg-[#0056D2]/90 px-2 py-1 text-[10px] font-bold text-white"><Maximize2 className="inline w-3 h-3 mr-1" />Ampliar</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className={`text-sm leading-7 font-normal ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
-                <Latex content={selectedQuestion.statement} />
-              </div>
-
-              {/* Lista de Alternativas (A, B, C, D, E) */}
-              <div className="space-y-1.5 pt-1">
-                {selectedQuestionOptions.map((opt) => {
-                  const isCorrect = selectedQuestion.correctOption
-                    ? selectedQuestion.correctOption === opt.letter
-                    : selectedQuestionAISolution?.selectedOption === opt.letter;
-
-                  return (
-                    <button
-                      key={opt.letter}
-                      type="button"
-                      onClick={() => setUserAnswers((prev) => ({ ...prev, [selectedQuestion.id]: opt.letter }))}
-                      className={`p-2.5 rounded-xl border transition-all flex items-start gap-2.5 ${
-                        userAnswers[selectedQuestion.id] === opt.letter
-                          ? selectedQuestion.correctOption === opt.letter ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300 font-medium' : 'bg-rose-500/10 border-rose-500/40 text-rose-300 font-medium'
-                          : isCorrect
-                          ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300 font-medium'
-                          : isDark
-                          ? 'bg-[#111218] border-slate-800/70 text-slate-300 hover:border-slate-700'
-                          : 'bg-slate-50 border-slate-200 text-slate-800 hover:border-slate-300'
-                      }`}
-                    >
-                      <span
-                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${
-                          isCorrect
-                            ? 'bg-emerald-500 text-white'
-                            : isDark
-                            ? 'bg-slate-800 text-slate-400'
-                            : 'bg-slate-200 text-slate-700'
-                        }`}
-                      >
-                        {opt.letter}
-                      </span>
-                      <div className="text-xs leading-tight flex-1 pt-0.5">
-                        <Latex content={(opt.text || '').replace(/\t/g, ' ').trim()} />
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {userAnswers[selectedQuestion.id] && !answeredQuestionIds.includes(selectedQuestion.id) && (
-                <button type="button" onClick={() => setAnsweredQuestionIds((prev) => [...prev, selectedQuestion.id])} className="w-full rounded-xl bg-[#0056D2] hover:bg-blue-600 px-4 py-3 text-sm font-black text-white transition-colors cursor-pointer">Responder</button>
-              )}
-
-              {userAnswers[selectedQuestion.id] && answeredQuestionIds.includes(selectedQuestion.id) && (
-                <div className={`rounded-xl border p-3 text-xs ${selectedQuestion.correctOption && userAnswers[selectedQuestion.id] === selectedQuestion.correctOption ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : selectedQuestion.correctOption ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-300'}`}>
-                  {!selectedQuestion.correctOption ? 'Resposta registrada. O gabarito ainda não foi localizado.' : userAnswers[selectedQuestion.id] === selectedQuestion.correctOption ? 'Você acertou!' : `Você errou. A alternativa correta é ${selectedQuestion.correctOption}.`}
-                </div>
-              )}
-
-              {/* Botão Salvar como Flashcard */}
+        {/* LISTAGEM DE PROVAS EM CARDS DE ALTA DEFINIÇÃO */}
+        {isLoading ? (
+          <div className="py-24 flex flex-col items-center justify-center gap-3">
+            <Loader2 className="w-8 h-8 animate-spin text-rose-500" />
+            <span className="text-sm font-semibold text-gray-400">Carregando acervo de provas...</span>
+          </div>
+        ) : filteredAndSortedPapers.length === 0 ? (
+          <div className={`py-20 px-6 rounded-2xl border text-center ${isDark ? 'border-white/10 bg-[#111722]/50' : 'border-slate-200 bg-white'}`}>
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-rose-500/20 to-amber-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 mb-4">
+              <FileText className="w-7 h-7" />
+            </div>
+            <h3 className="text-lg font-bold text-white mb-1">Nenhuma prova encontrada</h3>
+            <p className="text-sm text-gray-400 max-w-md mx-auto mb-6">
+              {searchQuery || selectedInstitution !== 'Todas' || selectedYear !== 'Todos'
+                ? 'Nenhum resultado corresponde aos filtros selecionados. Tente limpar os filtros de busca.'
+                : 'Seu acervo de provas anteriores ainda está vazio. Adicione sua primeira prova em PDF com 1 clique!'}
+            </p>
+            {searchQuery || selectedInstitution !== 'Todas' || selectedYear !== 'Todos' ? (
               <button
                 type="button"
-                onClick={() => handleOpenFlashcardFromQuestion(selectedQuestion)}
-                className={`w-full py-2.5 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                  isDark
-                    ? 'bg-purple-950/30 hover:bg-purple-900/40 text-purple-300 border-purple-500/40'
-                    : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200'
-                }`}
+                onClick={() => {
+                  setSearchQuery('');
+                  setSelectedInstitution('Todas');
+                  setSelectedYear('Todos');
+                  setStatusFilter('all');
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border border-white/20 hover:bg-white/5 transition-all text-gray-300"
               >
-                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                <span>Salvar Questão como Flashcard</span>
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Limpar Filtros</span>
               </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsUploadModalOpen(true)}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-rose-600 to-amber-600 text-white shadow-lg hover:brightness-110"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Adicionar Primeira Prova</span>
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+            {filteredAndSortedPapers.map((paper) => {
+              const completed = isPaperCompleted(paper);
+              return (
+                <div
+                  key={paper.id}
+                  className={`group relative rounded-2xl border transition-all duration-300 hover:shadow-xl hover:-translate-y-1 overflow-hidden flex flex-col justify-between ${
+                    isDark
+                      ? completed
+                        ? 'bg-[#111c1d]/90 border-emerald-500/30 hover:border-emerald-500/50'
+                        : 'bg-[#111722]/80 border-white/10 hover:border-rose-500/40 hover:shadow-rose-950/20'
+                      : completed
+                      ? 'bg-emerald-50/50 border-emerald-300'
+                      : 'bg-white border-slate-200 shadow-sm hover:border-rose-400'
+                  }`}
+                >
+                  {/* Topo do Card: Badges e Status */}
+                  <div className="p-5 pb-3">
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      {/* Badge do Ano com Gradiente Metálico */}
+                      <span className="px-2.5 py-1 rounded-lg text-xs font-black tracking-wider uppercase bg-gradient-to-r from-amber-500/20 to-rose-500/20 border border-amber-500/30 text-amber-300">
+                        {paper.examYear}
+                      </span>
 
-              {/* Abas Inferiores de Correção */}
-              <div className="border-t border-slate-800/60 pt-3 space-y-3">
-                <div className="flex items-center gap-1 border-b border-slate-800/60 pb-1">
-                  <button
-                    onClick={() => setSelectedResolutionTab('ai')}
-                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                      selectedResolutionTab === 'ai'
-                        ? 'bg-[#0056D2] text-white shadow-xs'
-                        : isDark
-                        ? 'text-slate-400 hover:text-slate-200'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Resolução (IA)
-                  </button>
-                  <button
-                    onClick={() => setSelectedResolutionTab('gabarito')}
-                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                      selectedResolutionTab === 'gabarito'
-                        ? 'bg-[#0056D2] text-white shadow-xs'
-                        : isDark
-                        ? 'text-slate-400 hover:text-slate-200'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Gabarito
-                  </button>
-                  <button
-                    onClick={() => setSelectedResolutionTab('concepts')}
-                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                      selectedResolutionTab === 'concepts'
-                        ? 'bg-[#0056D2] text-white shadow-xs'
-                        : isDark
-                        ? 'text-slate-400 hover:text-slate-200'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Conceitos
-                  </button>
+                      {/* Tag da Banca */}
+                      <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
+                        isDark ? 'bg-white/5 text-gray-300' : 'bg-slate-100 text-gray-700'
+                      }`}>
+                        {paper.institution}
+                      </span>
+
+                      {/* Botão de Concluída / Resolvida */}
+                      <button
+                        type="button"
+                        onClick={(e) => togglePaperCompleted(paper, e)}
+                        title={completed ? 'Prova já resolvida (clique para desmarcar)' : 'Marcar como resolvida'}
+                        className={`ml-auto p-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition-all ${
+                          completed
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
+                        }`}
+                      >
+                        <CheckCircle2 className={`w-4 h-4 ${completed ? 'text-emerald-400' : 'text-gray-500'}`} />
+                        <span className="text-[11px]">{completed ? 'Resolvida' : 'Pendente'}</span>
+                      </button>
+                    </div>
+
+                    {/* Nome da Prova */}
+                    <h3 className="text-base font-extrabold line-clamp-2 leading-snug group-hover:text-rose-400 transition-colors">
+                      {paper.title}
+                    </h3>
+
+                    <div className="flex items-center gap-3 mt-3 text-[11px] text-gray-400">
+                      <span className="inline-flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-gray-500" />
+                        {new Date(paper.createdAt).toLocaleDateString('pt-BR')}
+                      </span>
+                      {paper.fileId && (
+                        <span className="inline-flex items-center gap-1 text-rose-400/90 font-medium">
+                          <FileText className="w-3 h-3" />
+                          PDF Pronto
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Barra de Ações Rápidas no Rodapé do Card */}
+                  <div className={`px-5 py-3.5 border-t flex items-center justify-between gap-2 ${
+                    isDark ? 'border-white/5 bg-black/20' : 'border-slate-100 bg-slate-50'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      {/* Abrir Visualizador de PDF */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPdf(paper)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 shadow-sm transition-all"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Abrir Prova</span>
+                      </button>
+
+                      {/* Download do PDF */}
+                      <button
+                        type="button"
+                        onClick={(e) => handleDownloadPdf(paper, e)}
+                        title="Baixar PDF Original"
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      {/* Renomear / Editar Prova */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingPaper(paper);
+                          setEditTitle(paper.title);
+                          setEditInstitution(paper.institution);
+                          setEditYear(paper.examYear);
+                        }}
+                        title="Editar nome ou ano da prova"
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Excluir Prova */}
+                      <button
+                        type="button"
+                        onClick={() => setDeletingPaper(paper)}
+                        title="Remover prova do acervo"
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-
-                {/* Conteúdo da Aba Resolução IA */}
-                {selectedResolutionTab === 'ai' && (
-                  <div className="space-y-3">
-                    {selectedQuestionAISolution ? (
-                      <>
-                        <div className="space-y-2.5">
-                          <p className="text-[11px] font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1">
-                            <Sparkles className="w-3.5 h-3.5" />
-                            Passo a passo da resolução
-                          </p>
-                          {selectedQuestionAISolution.steps.map((step) => (
-                            <div
-                              key={step.stepNumber}
-                              className={`p-3 rounded-xl border space-y-1.5 ${
-                                isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2">
-                                <span className="w-4 h-4 rounded-full bg-[#0056D2] text-white flex items-center justify-center text-[10px] font-bold shrink-0">
-                                  {step.stepNumber}
-                                </span>
-                                <span className={`text-xs font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
-                                  {step.title}
-                                </span>
-                              </div>
-                              <p className={`text-xs leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                                <Latex content={step.explanation} />
-                              </p>
-                              {step.latex && (
-                                <div className="mt-1">
-                                  <Latex content={step.latex} block />
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* Card Final Verde da IA */}
-                        <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-950/30 text-emerald-300 flex items-center justify-between gap-3 shadow-md shadow-emerald-950/20">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
-                              <Check className="w-5 h-5 stroke-[3]" />
-                            </div>
-                            <div>
-                              <p className="text-[10px] font-semibold text-emerald-400/90 uppercase tracking-wide">
-                                Resposta da IA
-                              </p>
-                              <p className="text-sm font-black text-white">
-                                Alternativa {selectedQuestionAISolution.selectedOption}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="text-right">
-                            <p className="text-[10px] text-emerald-400/90 font-medium">
-                              Confiança: <span className="font-bold text-white">{selectedQuestionAISolution.confidencePercent}%</span>
-                            </p>
-                            <p className="text-[10px] text-emerald-400/90 font-medium">
-                              Nível: <span className="font-bold text-white">{selectedQuestionAISolution.calculatedDifficulty}</span>
-                            </p>
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="py-6 text-center space-y-2">
-                        <Sparkles className="w-6 h-6 mx-auto text-amber-400" />
-                        <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                          Esta questão ainda não foi corrigida pela IA.
-                        </p>
-                        <button
-                          onClick={() => {
-                            handleSolveSelectedWithAI([selectedQuestion.id]);
-                          }}
-                          className="px-3 py-1.5 rounded-xl bg-[#0056D2] hover:bg-blue-600 text-white font-bold text-xs shadow-sm cursor-pointer"
-                        >
-                          Corrigir agora com IA
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Conteúdo da Aba Gabarito */}
-                {selectedResolutionTab === 'gabarito' && (
-                  <div className={`p-3.5 rounded-xl border space-y-2 text-xs ${isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold">Gabarito Oficial:</span>
-                      <span className="font-black text-[#0056D2] text-sm">
-                        {selectedQuestion.correctOption ? `Alternativa ${selectedQuestion.correctOption}` : 'Em processamento'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between border-t border-slate-800/40 pt-2">
-                      <span className="font-bold">Resposta da IA:</span>
-                      <span className="font-black text-emerald-400 text-sm">
-                        {selectedQuestionAISolution ? `Alternativa ${selectedQuestionAISolution.selectedOption}` : 'Pendente'}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Conteúdo da Aba Conceitos */}
-                {selectedResolutionTab === 'concepts' && (
-                  <div className={`p-3.5 rounded-xl border space-y-2 text-xs ${isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                    <p className="font-bold text-blue-400">Conceitos Fundamentais:</p>
-                    {selectedQuestionAISolution?.concepts ? (
-                      <ul className="list-disc list-inside space-y-1 text-slate-300">
-                        {selectedQuestionAISolution.concepts.map((c, idx) => (
-                          <li key={idx}>{c}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-slate-400">Tópico: {selectedQuestion.topic} ({selectedQuestion.subtopic})</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <div className="py-20 text-center space-y-2">
-              <HelpCircle className="w-8 h-8 mx-auto text-slate-500/50" />
-              <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Selecione uma questão ao lado para visualizar a resolução.
-              </p>
-            </div>
-          )}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* 6. MODAL DE UPLOAD / CADASTRO DE PROVA */}
+      {/* MODAL DE UPLOAD DE NOVA PROVA (SIMPLES E DIRETO) */}
       {isUploadModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
           <div
-            className={`w-full max-w-lg rounded-3xl border p-6 space-y-5 shadow-2xl animate-in zoom-in-95 duration-200 ${
-              isDark ? 'bg-[#0B1528] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
+            className={`w-full max-w-lg rounded-3xl border shadow-2xl overflow-hidden ${
+              isDark ? 'bg-[#0e1420] border-white/10 text-white' : 'bg-white border-slate-200 text-gray-900'
             }`}
           >
-            <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[#0056D2] text-white flex items-center justify-center">
+            {/* Cabeçalho do Modal com Gradiente */}
+            <div className="p-6 pb-4 border-b border-white/10 bg-gradient-to-r from-rose-950/40 to-amber-950/20 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-600 to-amber-600 flex items-center justify-center text-white shadow-md">
                   <UploadCloud className="w-5 h-5" />
                 </div>
-                <h3 className="text-base font-bold">Adicionar Prova ao Banco</h3>
+                <div>
+                  <h3 className="text-lg font-bold leading-tight">Adicionar Prova ao Acervo</h3>
+                  <p className="text-xs text-gray-400">Insira o PDF completo e organize por nome e banca</p>
+                </div>
               </div>
               <button
+                type="button"
                 onClick={() => setIsUploadModalOpen(false)}
-                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-800 text-slate-400 hover:text-slate-200 cursor-pointer"
+                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-4">
+            <form onSubmit={handleUploadSubmit} className="p-6 space-y-4">
+              {/* Zona de Arraste de Arquivo PDF */}
               <div>
-                <label className="block text-xs font-semibold mb-1">Título da Prova / Concurso</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
+                  Arquivo PDF da Prova *
+                </label>
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragActive(true);
+                  }}
+                  onDragLeave={() => setDragActive(false)}
+                  onDrop={handleFileDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`p-6 rounded-2xl border-2 border-dashed cursor-pointer text-center transition-all ${
+                    dragActive
+                      ? 'border-rose-500 bg-rose-500/10'
+                      : uploadFile
+                      ? 'border-emerald-500/50 bg-emerald-500/5'
+                      : isDark
+                      ? 'border-white/10 bg-[#080d14] hover:border-white/20'
+                      : 'border-slate-300 bg-slate-50 hover:border-slate-400'
+                  }`}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    onChange={(e) => e.target.files?.[0] && selectUploadFile(e.target.files[0])}
+                    className="hidden"
+                  />
+                  {uploadFile ? (
+                    <div className="flex items-center justify-center gap-3">
+                      <FileText className="w-8 h-8 text-emerald-400" />
+                      <div className="text-left">
+                        <div className="text-sm font-bold text-emerald-400 line-clamp-1">{uploadFile.name}</div>
+                        <div className="text-xs text-gray-400">{(uploadFile.size / (1024 * 1024)).toFixed(2)} MB · PDF pronto</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <UploadCloud className="w-8 h-8 mx-auto text-rose-400 mb-2" />
+                      <div className="text-sm font-bold text-gray-200">Arraste seu PDF aqui ou clique para buscar</div>
+                      <div className="text-xs text-gray-400">PDFs completos de até 50 MB</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Nome da Prova */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                  Nome da Prova *
+                </label>
                 <input
                   type="text"
-                  placeholder="Ex: CFO CBMERJ 2025 - 1º Dia"
+                  required
                   value={uploadTitle}
                   onChange={(e) => setUploadTitle(e.target.value)}
-                  className={`w-full px-3.5 py-2.5 text-xs rounded-xl border outline-none ${
-                    isDark ? 'bg-[#111218] border-slate-800 text-slate-100 focus:border-[#0056D2]' : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-[#0056D2]'
+                  placeholder="Ex.: CFO CBMERJ 2024 - Oficial Bombeiro Militar"
+                  className={`w-full px-4 py-2.5 rounded-xl text-sm border outline-none ${
+                    isDark ? 'bg-[#080d14] border-white/10 text-white focus:border-rose-500' : 'bg-slate-50 border-slate-300 text-gray-900'
                   }`}
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold mb-1">Banca Examinadora</label>
-                  <select
-                    value={uploadInstitution}
-                    onChange={(e) => setUploadInstitution(e.target.value)}
-                    className={`w-full px-3.5 py-2.5 text-xs rounded-xl border outline-none ${
-                      isDark ? 'bg-[#111218] border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
-                  >
-                    <option value="FUNRIO">FUNRIO</option>
-                    <option value="VUNESP">VUNESP</option>
-                    <option value="FGV">FGV</option>
-                    <option value="CESPE / Cebraspe">CESPE / Cebraspe</option>
-                    <option value="IDECAN">IDECAN</option>
-                    <option value="IBADE">IBADE</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold mb-1">Ano da Prova</label>
-                  <input
-                    type="number"
-                    value={uploadYear}
-                    onChange={(e) => setUploadYear(parseInt(e.target.value, 10) || new Date().getFullYear())}
-                    className={`w-full px-3.5 py-2.5 text-xs rounded-xl border outline-none ${
-                      isDark ? 'bg-[#111218] border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
-                  />
+              {/* Banca Organizadora com Chips Rápidos */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                  Banca / Instituição
+                </label>
+                <input
+                  type="text"
+                  value={uploadInstitution}
+                  onChange={(e) => setUploadInstitution(e.target.value)}
+                  placeholder="Ex.: VUNESP, UERJ, FGV, CEPERJ..."
+                  className={`w-full px-4 py-2 rounded-xl text-sm border outline-none mb-2 ${
+                    isDark ? 'bg-[#080d14] border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-gray-900'
+                  }`}
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  {POPULAR_INSTITUTIONS.map((inst) => (
+                    <button
+                      type="button"
+                      key={inst}
+                      onClick={() => setUploadInstitution(inst)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                        uploadInstitution === inst
+                          ? 'bg-rose-600 text-white'
+                          : isDark
+                          ? 'bg-white/5 text-gray-400 hover:bg-white/10'
+                          : 'bg-slate-100 text-gray-700'
+                      }`}
+                    >
+                      {inst}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {selectedFile ? (
-                <div className={`p-3.5 rounded-xl border flex items-center justify-between ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-100 border-slate-300'}`}>
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <FileText className="w-5 h-5 text-blue-400 shrink-0" />
-                    <span className="text-xs font-bold truncate">{selectedFile.name}</span>
-                  </div>
-                  <button
-                    onClick={() => setSelectedFile(null)}
-                    className="text-xs text-rose-400 hover:underline cursor-pointer"
-                  >
-                    Remover
-                  </button>
-                </div>
-              ) : (
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`p-4 rounded-xl border-2 border-dashed text-center cursor-pointer ${
-                    isDark ? 'border-slate-800 hover:border-slate-700 bg-[#111218]' : 'border-slate-300 hover:border-slate-400 bg-slate-50'
+              {/* Ano da Prova */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                  Ano da Prova
+                </label>
+                <input
+                  type="number"
+                  min="1990"
+                  max={new Date().getFullYear() + 1}
+                  value={uploadYear}
+                  onChange={(e) => setUploadYear(Number(e.target.value))}
+                  className={`w-full px-4 py-2 rounded-xl text-sm border outline-none ${
+                    isDark ? 'bg-[#080d14] border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-gray-900'
                   }`}
+                />
+              </div>
+
+              {/* Botões de Ação */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setIsUploadModalOpen(false)}
+                  disabled={isUploading}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-400 hover:text-white"
                 >
-                  <UploadCloud className="w-6 h-6 mx-auto text-slate-400 mb-1" />
-                  <p className="text-xs font-semibold">Selecione o arquivo PDF ou foto da prova</p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">Até 20MB</p>
-                </div>
-              )}
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUploading || !uploadFile}
+                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-rose-600 to-amber-600 hover:brightness-110 shadow-lg disabled:opacity-50"
+                >
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Salvando no Acervo...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Salvar Prova</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE EDIÇÃO DE PROVA (RENOMEAR) */}
+      {editingPaper && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className={`w-full max-w-md rounded-3xl border shadow-2xl p-6 space-y-4 ${
+            isDark ? 'bg-[#0e1420] border-white/10 text-white' : 'bg-white border-slate-200 text-gray-900'
+          }`}>
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <h3 className="text-base font-bold">Editar Dados da Prova</h3>
+              <button
+                type="button"
+                onClick={() => setEditingPaper(null)}
+                className="p-1 text-gray-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800/60">
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Nome da Prova</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className={`w-full px-3 py-2 rounded-xl text-sm border outline-none ${
+                    isDark ? 'bg-[#080d14] border-white/10 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Banca Organizadora</label>
+                <input
+                  type="text"
+                  value={editInstitution}
+                  onChange={(e) => setEditInstitution(e.target.value)}
+                  className={`w-full px-3 py-2 rounded-xl text-sm border outline-none ${
+                    isDark ? 'bg-[#080d14] border-white/10 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Ano</label>
+                <input
+                  type="number"
+                  value={editYear}
+                  onChange={(e) => setEditYear(Number(e.target.value))}
+                  className={`w-full px-3 py-2 rounded-xl text-sm border outline-none ${
+                    isDark ? 'bg-[#080d14] border-white/10 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/10">
               <button
-                onClick={() => setIsUploadModalOpen(false)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                  isDark ? 'border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
-                }`}
+                type="button"
+                onClick={() => setEditingPaper(null)}
+                className="px-3 py-2 text-xs font-bold text-gray-400 hover:text-white"
               >
                 Cancelar
               </button>
               <button
-                disabled={isUploading}
-                onClick={() => handleProcessUpload()}
-                className="px-4 py-2 rounded-xl bg-[#0056D2] hover:bg-blue-600 text-white font-bold text-xs shadow-md shadow-blue-950/30 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={isSavingEdit || !editTitle.trim()}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-500 disabled:opacity-50"
               >
-                {isUploading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Extraindo questões...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    <span>Cadastrar & Extrair com IA</span>
-                  </>
-                )}
+                {isSavingEdit ? 'Salvando...' : 'Salvar Alterações'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {zoomedImage && (
-        <div className="fixed inset-0 z-[70] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setZoomedImage(null)}>
-          <button type="button" onClick={() => setZoomedImage(null)} className="absolute top-4 right-4 w-10 h-10 rounded-full bg-[#0B1528] border border-slate-700 text-slate-200 flex items-center justify-center cursor-pointer" aria-label="Fechar imagem ampliada"><X className="w-5 h-5" /></button>
-          <img src={zoomedImage} alt="Imagem ampliada da prova" className="max-w-full max-h-[92vh] object-contain rounded-xl" onClick={(event) => event.stopPropagation()} />
-        </div>
-      )}
-
-      {/* Modal de Revisão e Ajuste de Recorte Original */}
-      {selectedPaper && (
-        <QuestionCropReviewModal
-          isOpen={isCropModalOpen}
-          onClose={() => setIsCropModalOpen(false)}
-          theme={theme}
-          paperId={selectedPaper.id}
-          question={selectedQuestion}
-          onCropSaved={() => {
-            if (selectedPaperId) {
-              fetchQuestionsForPaper(selectedPaperId, true);
-            }
-          }}
-          showToast={showToast}
-        />
-      )}
-
-      {/* Modal Salvar Questão como Flashcard */}
-      {isFlashcardModalOpen && (
-        <div className="fixed inset-0 z-[80] bg-black/70 flex items-center justify-center p-4">
-          <div
-            className={`w-full max-w-lg p-6 rounded-2xl border space-y-4 shadow-2xl ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-purple-400" />
-                <h3 className="font-bold text-base">Salvar no Anki / Flashcards</h3>
-              </div>
+      {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO */}
+      {deletingPaper && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className={`w-full max-w-sm rounded-3xl border shadow-2xl p-6 text-center space-y-4 ${
+            isDark ? 'bg-[#0e1420] border-white/10 text-white' : 'bg-white border-slate-200 text-gray-900'
+          }`}>
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold">Excluir Prova?</h3>
+              <p className="text-xs text-gray-400 mt-1 line-clamp-2">
+                Tem certeza que deseja remover <strong>"{deletingPaper.title}"</strong> do seu acervo?
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => setIsFlashcardModalOpen(false)}
-                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-mono uppercase text-slate-400 mb-1">Disciplina</label>
-                <select
-                  value={flashcardSubjectId}
-                  onChange={(e) => void handleSubjectChangeInFlashcardModal(e.target.value)}
-                  className={`w-full p-2.5 rounded-xl border text-xs outline-none cursor-pointer ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
-                  }`}
-                >
-                  {flashcardSubjects.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-mono uppercase text-slate-400 mb-1">Baralho de Destino</label>
-                <select
-                  value={flashcardDeckId}
-                  onChange={(e) => setFlashcardDeckId(e.target.value)}
-                  className={`w-full p-2.5 rounded-xl border text-xs outline-none cursor-pointer ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
-                  }`}
-                >
-                  {flashcardDecks.length === 0 ? (
-                    <option value="">Nenhum baralho criado</option>
-                  ) : (
-                    flashcardDecks.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[11px] font-mono uppercase text-slate-400 mb-1">Frente (Pergunta)</label>
-                <textarea
-                  rows={3}
-                  value={flashcardFront}
-                  onChange={(e) => setFlashcardFront(e.target.value)}
-                  className={`w-full p-2.5 rounded-xl border text-xs leading-relaxed ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-900'
-                  }`}
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-mono uppercase text-slate-400 mb-1">Verso (Gabarito e Explicação)</label>
-                <textarea
-                  rows={4}
-                  value={flashcardBack}
-                  onChange={(e) => setFlashcardBack(e.target.value)}
-                  className={`w-full p-2.5 rounded-xl border text-xs leading-relaxed ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-900'
-                  }`}
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/60">
-              <button
-                type="button"
-                onClick={() => setIsFlashcardModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer"
+                onClick={() => setDeletingPaper(null)}
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-gray-400 hover:text-white"
               >
                 Cancelar
               </button>
               <button
                 type="button"
-                disabled={isSavingFlashcard || !flashcardDeckId}
-                onClick={handleSaveFlashcardFromQuestion}
-                className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold text-xs shadow-md transition-colors cursor-pointer"
+                onClick={handleDeleteConfirm}
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
               >
-                {isSavingFlashcard ? 'Salvando...' : 'Salvar Flashcard'}
+                {isDeleting ? 'Excluindo...' : 'Sim, Excluir'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* VISUALIZADOR DE PDF EM TELA CHEIA / MODAL IMERSIVO */}
+      {viewingPaper && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/95 animate-fadeIn">
+          {/* Topbar do Leitor */}
+          <div className="flex items-center justify-between px-6 py-3.5 border-b border-white/10 bg-[#080d14] text-white">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-rose-600/20 text-rose-400 flex items-center justify-center flex-shrink-0">
+                <FileText className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold truncate">{viewingPaper.title}</h3>
+                <span className="text-xs text-gray-400">
+                  {viewingPaper.institution} · Ano {viewingPaper.examYear}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Baixar PDF */}
+              <button
+                type="button"
+                onClick={() => handleDownloadPdf(viewingPaper)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white/10 hover:bg-white/20 transition-all text-gray-200"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Baixar</span>
+              </button>
+
+              {/* Abrir em Nova Aba */}
+              {pdfBlobUrl && (
+                <a
+                  href={pdfBlobUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white/10 hover:bg-white/20 transition-all text-gray-200"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Nova Guia</span>
+                </a>
+              )}
+
+              {/* Fechar Leitor */}
+              <button
+                type="button"
+                onClick={closePdfViewer}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 ml-2"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Área do Documento PDF */}
+          <div className="flex-1 w-full bg-[#111] relative">
+            {isLoadingPdf ? (
+              <div className="h-full flex flex-col items-center justify-center gap-3 text-gray-400">
+                <Loader2 className="w-8 h-8 animate-spin text-rose-500" />
+                <span className="text-sm font-semibold">Carregando PDF da prova...</span>
+              </div>
+            ) : pdfBlobUrl ? (
+              <iframe
+                src={pdfBlobUrl}
+                title={viewingPaper.title}
+                className="w-full h-full border-0"
+              />
+            ) : (
+              <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+                Não foi possível exibir o PDF nesta janela. Use o botão de baixar ou abrir em nova guia.
+              </div>
+            )}
           </div>
         </div>
       )}
