@@ -145,4 +145,36 @@ test('Banco de Provas: armazena provas diretamente com status READY e permite or
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('perfil IFRJ: preserva nome completo composto (ex.: João Pedro) e integridade dos dados', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rumo-estudos-nome-'));
+  const db = getDb(path.join(dir, 'student_nome.sqlite'));
+  const raw = db.getRawDb();
+  const users = new UserRepository(raw);
+  const repo = new StudentStudyRepository(raw);
+  const user = users.create({ username: 'admin', email: 'admin@cbmerj.com', passwordHash: 'hash' });
+
+  // Salva nome composto 'João Pedro' no onboarding
+  const profile = repo.upsertProfile(user.id, {
+    displayName: 'João Pedro',
+    campus: 'Nilópolis',
+    course: 'Química',
+    onboardingCompleted: true,
+  });
+
+  assert.equal(profile.displayName, 'João Pedro');
+  assert.equal(profile.campus, 'Nilópolis');
+  assert.equal(profile.course, 'Química');
+  assert.equal(profile.onboardingCompleted, true);
+
+  // Derivação de nome respeita o displayName e nunca exibe username 'admin'
+  const computedName = profile.displayName.trim() || (user.username !== 'admin' ? user.username : '') || 'Estudante';
+  assert.equal(computedName, 'João Pedro');
+  assert.notEqual(computedName, 'admin');
+  assert.notEqual(computedName, 'João'); // Não deve ser truncado
+
+  db.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+
 

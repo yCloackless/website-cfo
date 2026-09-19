@@ -416,3 +416,273 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
 .rumo-mec-banner-info svg { width: 22px; height: 22px; color: var(--rumo-rose); flex-shrink: 0; }
 .rumo-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: var(--rumo-soft); color: var(--rumo-rose); border: 1px solid var(--rumo-border); margin-left: 6px; }
 
+/* Hub Interativo de Boas-Vindas & Atividades do Dia */
+.rumo-welcome-hero {
+  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.rumo-welcome-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.rumo-welcome-greeting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rumo-welcome-eyebrow {
+  color: var(--rumo-rose);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.rumo-welcome-title {
+  margin: 4px 0 0;
+  font-size: clamp(26px, 3.5vw, 38px);
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+  font-weight: 800;
+  color: var(--rumo-text);
+}
+
+.rumo-name-highlight {
+  background: linear-gradient(135deg, var(--rumo-rose) 0%, #db2777 50%, #be185d 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 850;
+}
+
+.rumo-welcome-question {
+  margin: 4px 0 0;
+  font-size: clamp(16px, 2vw, 20px);
+  font-weight: 650;
+  color: var(--rumo-muted);
+  letter-spacing: -0.02em;
+}
+
+.rumo-welcome-subline {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--rumo-muted);
+  opacity: 0.85;
+}
+
+.rumo-hero-profile-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+.rumo-activities-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid var(--rumo-border);
+  background: color-mix(in srgb, var(--rumo-surface) 80%, var(--rumo-soft));
+  box-shadow: 0 4px 20px rgba(179, 61, 111, 0.04);
+}
+
+.rumo-activities-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rumo-activities-header small {
+  color: var(--rumo-muted);
+  font-size: 11px;
+}
+
+.rumo-activities-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.rumo-activity-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 15px;
+  border-radius: 14px;
+  border: 1px solid var(--rumo-border);
+  background: var(--rumo-surface);
+  color: var(--rumo-text);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+}
+
+.rumo-activity-card:hover {
+  border-color: var(--rumo-rose);
+  background: var(--rumo-soft);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(179, 61, 111, 0.12);
+}
+
+.rumo-activity-card:active {
+  transform: translateY(0) scale(0.99);
+}
+
+.rumo-activity-icon {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--rumo-soft);
+  color: var(--rumo-rose);
+  transition: all 0.2s ease;
+}
+
+.rumo-activity-card:hover .rumo-activity-icon {
+  background: var(--rumo-rose);
+  color: #ffffff;
+}
+
+.rumo-activity-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.rumo-activity-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rumo-activity-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.rumo-activity-top strong {
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--rumo-text);
+  letter-spacing: -0.01em;
+}
+
+.rumo-activity-content p {
+  margin: 0;
+  font-size: 11px;
+  color: var(--rumo-muted);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rumo-activity-pill {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.rumo-pill-accent {
+  background: var(--rumo-soft);
+  color: var(--rumo-rose-dark);
+  border: 1px solid var(--rumo-border);
+}
+
+.rumo-pill-success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.rumo-pill-warning {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.rumo-pill-ai {
+  background: linear-gradient(135deg, #fbcfe8 0%, #f472b6 100%);
+  color: #831843;
+}
+
+.rumo-pill-neutral {
+  background: var(--rumo-bg);
+  color: var(--rumo-muted);
+  border: 1px solid var(--rumo-border);
+}
+
+.rumo-activity-arrow {
+  width: 16px;
+  height: 16px;
+  color: var(--rumo-muted);
+  opacity: 0.45;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.rumo-activity-card:hover .rumo-activity-arrow {
+  opacity: 1;
+  color: var(--rumo-rose);
+  transform: translateX(3px);
+}
+
+.rumo-dark .rumo-activities-container {
+  background: color-mix(in srgb, var(--rumo-surface) 75%, var(--rumo-soft));
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+.rumo-dark .rumo-activity-card {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+.rumo-dark .rumo-activity-card:hover {
+  box-shadow: 0 8px 24px rgba(225, 139, 173, 0.15);
+}
+.rumo-dark .rumo-pill-success {
+  background: #14532d;
+  color: #86efac;
+}
+.rumo-dark .rumo-pill-warning {
+  background: #7f1d1d;
+  color: #fca5a5;
+}
+.rumo-dark .rumo-pill-ai {
+  background: linear-gradient(135deg, #831843 0%, #be185d 100%);
+  color: #fce7f3;
+}
+
+@media (max-width: 680px) {
+  .rumo-activities-grid {
+    grid-template-columns: 1fr;
+  }
+  .rumo-activities-container {
+    padding: 14px;
+    border-radius: 14px;
+  }
+  .rumo-welcome-title {
+    font-size: 24px;
+  }
+  .rumo-welcome-question {
+    font-size: 15px;
+  }
+}
+
+
+

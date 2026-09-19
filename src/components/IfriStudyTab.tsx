@@ -182,7 +182,11 @@ export function IfriStudyTab({ userProfile, onExit, onSignOut }: Props) {
   const exams = dashboard?.exams || [];
   const performance = dashboard?.performance || [];
   const nextExam = exams.find((item: any) => item.status === 'planned' && item.daysRemaining >= 0);
-  const name = profile?.displayName || userProfile?.fullName || userProfile?.username || 'estudante';
+  const name =
+    profile?.displayName?.trim() ||
+    userProfile?.fullName?.trim() ||
+    (userProfile?.username && userProfile.username.toLowerCase() !== 'admin' ? userProfile.username : '') ||
+    'Estudante';
 
   const overallAverage = useMemo(() => {
     const values = grades.map((item: any) => Number(item.score)).filter(Number.isFinite);
@@ -634,18 +638,18 @@ function Empty({ children }: { children: React.ReactNode }) {
 
 function Onboarding({ form, setForm, save, saving }: any) {
   const handleStart = () => {
-    const name = form.displayName?.trim() || 'Estudante IFRJ';
+    const name = form.displayName?.trim() || 'Estudante';
     save(
       '/api/rumo-estudos/profile',
       'PATCH',
       {
         displayName: name,
-        campus: form.campus?.trim() || 'Maracanã',
+        campus: form.campus?.trim() || 'Nilópolis',
         course: form.course?.trim() || '',
         institution: 'IFRJ',
         onboardingCompleted: true,
       },
-      'Seu espaço IFRJ foi configurado com sucesso!'
+      `Perfil configurado com sucesso! Bem-vindo(a), ${name}!`
     );
   };
 
@@ -725,26 +729,126 @@ function Onboarding({ form, setForm, save, saving }: any) {
 function DashboardView({ name, profile, overallAverage, nextExam, performance, analyses, analyze, analysisLoading, setTab }: any) {
   const date = new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
 
+  const timeGreeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return 'Bom dia';
+    if (hour >= 12 && hour < 18) return 'Boa tarde';
+    return 'Boa noite';
+  }, []);
+
   const subline = useMemo(() => {
     const parts = [];
     if (profile?.institution) parts.push(profile.institution);
     if (profile?.campus) parts.push(`Campus ${profile.campus}`);
     if (profile?.course) parts.push(profile.course);
-    return parts.length ? parts.join(' · ') : 'Seu panorama acadêmico em um só lugar.';
+    return parts.length ? parts.join(' · ') : 'Seu panorama acadêmico e vestibulares.';
   }, [profile]);
+
+  const activities = [
+    {
+      id: 'grades' as Tab,
+      title: 'Meu Boletim',
+      desc: overallAverage != null ? `Média geral calculada: ${overallAverage.toFixed(1)}` : 'Lançar notas ou enviar boletim (PDF / Foto)',
+      icon: ListTodo,
+      badge: overallAverage != null ? `${overallAverage.toFixed(1)} pts` : 'Lançar',
+      badgeClass: overallAverage != null && overallAverage >= 7 ? 'rumo-pill-success' : 'rumo-pill-accent',
+    },
+    {
+      id: 'exams' as Tab,
+      title: 'Próximas Provas',
+      desc: nextExam ? `${nextExam.name} (${nextExam.subjectName || 'Geral'}) · ${nextExam.daysRemaining === 0 ? 'Hoje!' : `em ${nextExam.daysRemaining} dias`}` : 'Agende simulados, testes e bimestrais',
+      icon: CalendarDays,
+      badge: nextExam ? (nextExam.daysRemaining === 0 ? 'Hoje' : `${nextExam.daysRemaining}d`) : 'Agendar',
+      badgeClass: nextExam && nextExam.daysRemaining <= 3 ? 'rumo-pill-warning' : 'rumo-pill-accent',
+    },
+    {
+      id: 'assistant' as Tab,
+      title: 'Assistente IA',
+      desc: 'Recomendações táticas, prioridades e planejamento do dia',
+      icon: Sparkles,
+      badge: 'IA',
+      badgeClass: 'rumo-pill-ai',
+    },
+    {
+      id: 'calendar' as Tab,
+      title: 'Calendário Geral',
+      desc: 'Cronograma bimestral, datas de exames e vestibulares',
+      icon: CalendarDays,
+      badge: 'Agenda',
+      badgeClass: 'rumo-pill-neutral',
+    },
+    {
+      id: 'goals' as Tab,
+      title: 'Meu Objetivo',
+      desc: 'Metas para UERJ, UFRJ, IFRJ, vestibulares e SISU',
+      icon: Heart,
+      badge: 'Foco',
+      badgeClass: 'rumo-pill-neutral',
+    },
+    {
+      id: 'universities' as Tab,
+      title: 'Faculdades & MEC',
+      desc: 'Consulte instituições e cursos reconhecidos pelo MEC',
+      icon: University,
+      badge: 'e-MEC',
+      badgeClass: 'rumo-pill-neutral',
+    },
+  ];
 
   return (
     <>
-      <PageTitle
-        eyebrow={date}
-        title={`Olá, ${name.split(' ')[0]}`}
-        text={subline}
-        action={
-          <button className="rumo-secondary" onClick={() => setTab('settings')}>
-            <Settings2 /> Ajustar perfil
+      <div className="rumo-welcome-hero">
+        <div className="rumo-welcome-header">
+          <div className="rumo-welcome-greeting">
+            <span className="rumo-welcome-eyebrow">
+              {timeGreeting} · {date}
+            </span>
+            <h1 className="rumo-welcome-title">
+              Bem-vindo(a), <span className="rumo-name-highlight">{name}</span>!
+            </h1>
+            <p className="rumo-welcome-question">
+              Qual será a atividade de hoje?
+            </p>
+            <span className="rumo-welcome-subline">{subline}</span>
+          </div>
+          <button className="rumo-secondary rumo-hero-profile-btn" onClick={() => setTab('settings')}>
+            <Settings2 className="w-4 h-4" /> Ajustar perfil
           </button>
-        }
-      />
+        </div>
+
+        {/* Grade Interativa de Atividades */}
+        <div className="rumo-activities-container">
+          <div className="rumo-activities-header">
+            <span className="rumo-kicker">⚡ Escolha sua atividade de hoje</span>
+            <small>Clique em qualquer opção para ir direto à ação</small>
+          </div>
+          <div className="rumo-activities-grid">
+            {activities.map((act) => {
+              const Icon = act.icon;
+              return (
+                <button
+                  key={act.id}
+                  type="button"
+                  className="rumo-activity-card"
+                  onClick={() => setTab(act.id)}
+                >
+                  <div className="rumo-activity-icon">
+                    <Icon />
+                  </div>
+                  <div className="rumo-activity-content">
+                    <div className="rumo-activity-top">
+                      <strong>{act.title}</strong>
+                      <span className={`rumo-activity-pill ${act.badgeClass}`}>{act.badge}</span>
+                    </div>
+                    <p>{act.desc}</p>
+                  </div>
+                  <ChevronRight className="rumo-activity-arrow" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
       <div className="rumo-metric-grid">
         <Metric label="Média geral" value={overallAverage == null ? '—' : overallAverage.toFixed(1)} note="notas cadastradas" />

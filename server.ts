@@ -5196,20 +5196,34 @@ app.get('/api/rumo-estudos/profile', (req, res) => {
 });
 const handleStudentProfileUpsert = (req: Request, res: Response) => {
   const userId = studentRouteUser(req, res); if (!userId) return;
-  const body = req.body || {};
-  const payload: any = {};
-  if (body.displayName !== undefined) payload.displayName = studentBodyText(body.displayName, 120);
-  if (body.institution !== undefined) payload.institution = studentBodyText(body.institution, 120, 'IFRJ');
-  if (body.campus !== undefined) payload.campus = studentBodyText(body.campus, 120);
-  if (body.course !== undefined) payload.course = studentBodyText(body.course, 160);
-  if (body.schoolYear !== undefined) payload.schoolYear = studentBodyText(body.schoolYear, 80);
-  if (body.className !== undefined) payload.className = studentBodyText(body.className, 80);
-  if (body.shift !== undefined) payload.shift = studentBodyText(body.shift, 40);
-  if (body.availableTimeJson !== undefined) payload.availableTimeJson = studentBodyText(body.availableTimeJson, 8000);
-  if (body.onboardingCompleted !== undefined) payload.onboardingCompleted = Boolean(body.onboardingCompleted);
+  try {
+    const body = req.body || {};
+    const payload: any = {};
+    if (body.displayName !== undefined) payload.displayName = studentBodyText(body.displayName, 120);
+    if (body.institution !== undefined) payload.institution = studentBodyText(body.institution, 120, 'IFRJ');
+    if (body.campus !== undefined) payload.campus = studentBodyText(body.campus, 120);
+    if (body.course !== undefined) payload.course = studentBodyText(body.course, 160);
+    if (body.schoolYear !== undefined) payload.schoolYear = studentBodyText(body.schoolYear, 80);
+    if (body.className !== undefined) payload.className = studentBodyText(body.className, 80);
+    if (body.shift !== undefined) payload.shift = studentBodyText(body.shift, 40);
+    if (body.availableTimeJson !== undefined) payload.availableTimeJson = studentBodyText(body.availableTimeJson, 8000);
+    if (body.onboardingCompleted !== undefined) payload.onboardingCompleted = Boolean(body.onboardingCompleted);
 
-  const profile = studentStudyRepoInstance.upsertProfile(userId, payload);
-  return res.json({ success: true, profile });
+    const profile = studentStudyRepoInstance.upsertProfile(userId, payload);
+
+    if (payload.displayName) {
+      try {
+        profileRepoInstance.createOrUpdate({ userId, fullName: payload.displayName });
+      } catch (profErr) {
+        console.warn('[Rumo Estudos] Aviso ao sincronizar perfil principal:', profErr);
+      }
+    }
+
+    return res.json({ success: true, profile });
+  } catch (err: any) {
+    logInternalError('Student Profile Upsert Error', err);
+    return res.status(500).json({ error: 'PROFILE_UPDATE_FAILED', message: 'Não foi possível salvar o perfil no momento. Tente novamente.' });
+  }
 };
 app.patch('/api/rumo-estudos/profile', handleStudentProfileUpsert);
 app.put('/api/rumo-estudos/profile', handleStudentProfileUpsert);

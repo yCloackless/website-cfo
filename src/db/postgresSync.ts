@@ -148,7 +148,7 @@ function postgresParams(sql: string, params: unknown[]): { text: string; values:
     columns.forEach((column, position) => { if (/^(is_used|is_read|is_correct|is_active|can_access_notion|can_access_ifrj|onboarding_completed|is_uncertain|is_manual_review)$/.test(column) && placeholders[position] !== undefined) values[placeholders[position]] = Boolean(values[placeholders[position]]); });
     const valueTokens = insert[3].split(',').map((token) => token.trim());
     columns.forEach((column, position) => { if (/^(is_used|is_read|is_correct|is_active|can_access_notion|can_access_ifrj|onboarding_completed|is_uncertain|is_manual_review)$/.test(column) && /^(0|1)$/.test(valueTokens[position])) valueTokens[position] = valueTokens[position] === '1' ? 'TRUE' : 'FALSE'; });
-    text = text.replace(insert[3], valueTokens.join(', '));
+    text = text.replace(insert[3], () => valueTokens.join(', '));
   }
   return { text, values };
 }
