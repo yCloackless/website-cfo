@@ -143,13 +143,17 @@ const trustedProxyEntries = (process.env.TRUSTED_PROXIES || '')
   .split(',').map(value => value.trim()).filter(value => value && value !== '*' && value !== 'true');
 app.set("trust proxy", trustedProxyEntries.length > 0 ? trustedProxyEntries : (isProxyEnvironment ? 1 : false));
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 // Security headers must be registered before public operational/static routes.
 app.use(
   helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com"],
+        scriptSrc: isProduction
+          ? ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com"]
+          : ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://challenges.cloudflare.com", "https://accounts.google.com"],
         styleSrc: ["'self'"],
         styleSrcElem: ["'self'"],
         // KaTeX, Motion and Recharts still require runtime style attributes.
@@ -157,13 +161,25 @@ app.use(
         fontSrc: ["'self'", "data:"],
         imgSrc: ["'self'", "data:", "blob:"],
         frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com"],
-        connectSrc: [
-          "'self'",
-          "https://challenges.cloudflare.com",
-          "https://*.googleapis.com",
-          "https://generativelanguage.googleapis.com",
-          "https://*.google.com",
-        ],
+        connectSrc: isProduction
+          ? [
+              "'self'",
+              "https://challenges.cloudflare.com",
+              "https://*.googleapis.com",
+              "https://generativelanguage.googleapis.com",
+              "https://*.google.com",
+            ]
+          : [
+              "'self'",
+              "ws:",
+              "wss:",
+              "http://localhost:*",
+              "http://127.0.0.1:*",
+              "https://challenges.cloudflare.com",
+              "https://*.googleapis.com",
+              "https://generativelanguage.googleapis.com",
+              "https://*.google.com",
+            ],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
         formAction: ["'self'"],
@@ -171,11 +187,12 @@ app.use(
         workerSrc: ["'self'"],
         manifestSrc: ["'self'"],
         reportTo: ["csp-violations"],
+        upgradeInsecureRequests: isProduction ? [] : null,
       },
     },
-    crossOriginEmbedderPolicy: { policy: 'credentialless' } as any,
+    crossOriginEmbedderPolicy: isProduction ? ({ policy: 'credentialless' } as any) : false,
     crossOriginResourcePolicy: { policy: "cross-origin" },
-    hsts: process.env.NODE_ENV === 'production' ? {
+    hsts: isProduction ? {
       maxAge: 31536000,
       includeSubDomains: true,
       preload: true,
@@ -681,7 +698,7 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   const largePayloadRoute = /^\/(uploads|exams)(\/|$)/.test(req.path)
     || /^\/admin\/board-intelligence(\/|$)/.test(req.path)
     || /\/avatar(\/|$)/.test(req.path);
-  const maxBytes = largePayloadRoute ? 20 * 1024 * 1024 : 2 * 1024 * 1024;
+  const maxBytes = largePayloadRoute ? 75 * 1024 * 1024 : 2 * 1024 * 1024;
   const contentLength = Number(req.headers["content-length"] || 0);
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     return res.status(413).json({
@@ -960,9 +977,9 @@ app.post("/api/telemetry/vitals", telemetryLimiter, express.json({ limit: '16kb'
 });
 
 // Body parser JSON: 2 MiB global. Rotas de upload têm guard pré-parser em /api
-// (linhas acima) que já permite até 20 MiB antes de alocar memória.
+// (linhas acima) que já permite até 75 MiB antes de alocar memória (suporta PDFs de até 50MB em Base64).
 // Parse payloads grandes somente nas rotas que realmente os aceitam. O parser
-// de 20 MiB roda antes do limite global para que o serviço de upload possa
+// de 75 MiB roda antes do limite global para que o serviço de upload possa
 // devolver sua resposta de validação (400) em vez de um erro genérico (413).
 app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   const largePayloadRoute = /^\/(uploads|exams)(\/|$)/.test(req.path)
@@ -970,7 +987,7 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
     || /\/avatar(\/|$)/.test(req.path);
 
   if (!largePayloadRoute) return next();
-  return express.json({ limit: "20mb" })(req, res, next);
+  return express.json({ limit: "85mb" })(req, res, next);
 });
 app.use(express.json({ limit: "2mb" }));
 

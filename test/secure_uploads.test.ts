@@ -304,8 +304,8 @@ test('SEC-UP-10: Deve REJEITAR arquivo vazio ou corrompido', async () => {
 });
 
 test('SEC-UP-11: Deve REJEITAR arquivo que exceda o tamanho limite permitido', async () => {
-  // Cria um buffer maior que 10MB
-  const largeBuffer = Buffer.alloc(11 * 1024 * 1024, 0);
+  // Cria um buffer maior que o limite configurado (50MB)
+  const largeBuffer = Buffer.alloc(51 * 1024 * 1024, 0);
   const res = await request('/api/uploads/file', {
     method: 'POST',
     headers: { Authorization: `Bearer ${cadetToken}` },

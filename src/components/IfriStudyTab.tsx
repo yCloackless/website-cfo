@@ -395,8 +395,8 @@ export function IfriStudyTab({ userProfile, onExit, onSignOut }: Props) {
 
   const uploadReport = async (file: File) => {
     const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
-    if (!allowed.includes(file.type) || file.size > 10 * 1024 * 1024) {
-      setMessage('Envie PDF, PNG, JPG ou WEBP de até 10 MB.');
+    if (!allowed.includes(file.type) || file.size > 50 * 1024 * 1024) {
+      setMessage('Envie PDF, PNG, JPG ou WEBP de até 50 MB.');
       return;
     }
     setUploading(true);

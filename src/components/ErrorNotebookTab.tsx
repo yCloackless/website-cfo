@@ -2,14 +2,12 @@ import { apiFetch } from '../services/apiFetch';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Layers,
-  Layers3,
   Sparkles,
   PlusCircle,
   Play,
   RotateCcw,
   CheckCircle2,
   AlertCircle,
-  HelpCircle,
   Flame,
   Trash2,
   BookOpen,
@@ -17,29 +15,24 @@ import {
   Search,
   Check,
   X,
-  Calendar,
-  Image as ImageIcon,
   Upload,
   Edit3,
-  Maximize2,
   FolderPlus,
   Folder,
-  GraduationCap,
-  Clock,
   Zap,
   ChevronRight,
-  TrendingUp,
   BrainCircuit,
-  Info,
-  SlidersHorizontal,
-  Download,
-  UploadCloud,
-  CalendarDays,
-  AlertTriangle,
+  Settings,
   RefreshCw,
   FileSpreadsheet,
   Shuffle,
   BarChart3,
+  Calendar,
+  Award,
+  BookMarked,
+  Share2,
+  HelpCircle,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { AppTheme } from '../types';
 import { ClozeLatexCard } from './flashcards/ClozeLatexCard';
@@ -95,7 +88,6 @@ export interface Flashcard {
   updatedAt: string;
 }
 
-// Backward compatibility aliases
 export type Deck = DeckWithStats;
 export type Subject = SubjectWithStats;
 
@@ -104,38 +96,16 @@ interface ErrorNotebookTabProps {
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-// Compactador automático de imagens para payloads otimizados
-function compressImage(base64Str: string, maxWidth = 1000, quality = 0.8): Promise<string> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.src = base64Str;
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      let width = img.width;
-      let height = img.height;
-
-      if (width > maxWidth) {
-        height = Math.round((height * maxWidth) / width);
-        width = maxWidth;
-      }
-
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx?.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL('image/jpeg', quality));
-    };
-    img.onerror = () => resolve(base64Str);
-  });
-}
-
-const PALETTE_COLORS = [
-  { name: 'Vermelho CBMERJ', value: 'red' },
-  { name: 'Azul Tático', value: 'blue' },
-  { name: 'Esmeralda', value: 'emerald' },
-  { name: 'Âmbar', value: 'amber' },
-  { name: 'Roxo / Índigo', value: 'indigo' },
-  { name: 'Ciano', value: 'cyan' },
+// Matérias Oficiais do Concurso CFO CBMERJ
+const OFFICIAL_CBMERJ_SUBJECTS = [
+  { name: 'Matemática', topics: ['Análise Combinatória', 'Probabilidade', 'Geometria Espacial', 'Funções e Gráficos', 'Trigonometria'] },
+  { name: 'Física', topics: ['Termodinâmica e Calor', 'Eletrodinâmica', 'Óptica Geométrica', 'Cinemática Vetorial', 'Ondulatória'] },
+  { name: 'Química', topics: ['Estequiometria', 'Termoquímica', 'Equilíbrio Químico', 'Funções Orgânicas', 'Cinética Química'] },
+  { name: 'Biologia', topics: ['Citologia e Membrana', 'Genética Mendeliana', 'Ecologia e Biomas', 'Fisiologia Humana', 'Evolução'] },
+  { name: 'Português', topics: ['Sintaxe de Concordância', 'Crase e Regência', 'Interpretação de Texto', 'Figuras de Linguagem', 'Coesão'] },
+  { name: 'História', topics: ['Brasil Colônia', 'Era Vargas', 'Ditadura Militar', 'Revolução Francesa', 'Primeira República'] },
+  { name: 'Geografia', topics: ['Geopolítica Mundial', 'Urbanização Brasileira', 'Climatologia', 'Cartografia', 'Agronegócio'] },
+  { name: 'Inglês', topics: ['Reading Comprehension', 'Modal Verbs', 'Conditionals', 'Vocabulary & Phrasal Verbs', 'Connectors'] },
 ];
 
 export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
@@ -144,10 +114,11 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 }) => {
   const isDark = theme === 'dark';
 
-  // Navegação Hierárquica: 'subjects' (Nível 1) -> 'decks' (Nível 2) -> 'cards' (Nível 3) -> 'study' (Nível 4)
-  const [viewMode, setViewMode] = useState<'subjects' | 'decks' | 'cards' | 'study'>('subjects');
+  // Navegação: 'anki_main' (Tabela Geral de Baralhos) | 'subject_detail' (Matéria com IA topo + cards baixo) | 'stats' (Estatísticas e Heatmap)
+  const [viewMode, setViewMode] = useState<'anki_main' | 'subject_detail' | 'stats'>('anki_main');
+  const [activeNavTab, setActiveNavTab] = useState<'decks' | 'add' | 'stats' | 'sync'>('decks');
 
-  // Seleções ativas de navegação
+  // Matéria e Baralho selecionados
   const [currentSubject, setCurrentSubject] = useState<SubjectWithStats | null>(null);
   const [currentDeck, setCurrentDeck] = useState<DeckWithStats | null>(null);
 
@@ -168,18 +139,27 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 
   // Estados de Carregamento
   const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [loadingCards, setLoadingCards] = useState(false);
 
   // Busca e Filtros
   const [searchQuery, setSearchQuery] = useState('');
-  const [cardFilter, setCardFilter] = useState<'ALL' | 'DUE' | 'LEECH' | 'new' | 'learning' | 'review' | 'mastered'>('ALL');
+
+  // 🎮 ESTADO DO RESOLVEDOR DE FLASHCARDS (EMBAIXO NA MATÉRIA)
+  const [studyQueue, setStudyQueue] = useState<Flashcard[]>([]);
+  const [currentCardIndex, setCurrentCardIndex] = useState(0);
+  const [isAnswerRevealed, setIsAnswerRevealed] = useState(false);
+  const [randomSeed, setRandomSeed] = useState(1);
+
+  // ⚡ GERADOR DE +20 CARDS POR IA (EM CIMA NA MATÉRIA)
+  const [aiTopicInput, setAiTopicInput] = useState('');
+  const [isAiGenerating, setIsAiGenerating] = useState(false);
 
   // Modais de Criação e Edição
   const [isSubjectModalOpen, setIsSubjectModalOpen] = useState(false);
   const [editingSubject, setEditingSubject] = useState<SubjectWithStats | null>(null);
   const [subjectFormName, setSubjectFormName] = useState('');
   const [subjectFormDesc, setSubjectFormDesc] = useState('');
-  const [subjectFormColor, setSubjectFormColor] = useState('red');
 
   const [isDeckModalOpen, setIsDeckModalOpen] = useState(false);
   const [editingDeck, setEditingDeck] = useState<DeckWithStats | null>(null);
@@ -187,71 +167,39 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   const [deckFormDesc, setDeckFormDesc] = useState('');
   const [deckFormSubjectId, setDeckFormSubjectId] = useState('');
 
-  const [isCardModalOpen, setIsCardModalOpen] = useState(false);
+  // Modal Anki Adicionar Flashcard
+  const [isAddCardModalOpen, setIsAddCardModalOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<Flashcard | null>(null);
+  const [cardFormSubjectId, setCardFormSubjectId] = useState('');
+  const [cardFormDeckId, setCardFormDeckId] = useState('');
   const [cardFormFront, setCardFormFront] = useState('');
   const [cardFormBack, setCardFormBack] = useState('');
-  const [cardFormFrontImage, setCardFormFrontImage] = useState<string | null>(null);
-  const [cardFormBackImage, setCardFormBackImage] = useState<string | null>(null);
+  const [cardFormTags, setCardFormTags] = useState('');
+  const [cardFormNewSubjectName, setCardFormNewSubjectName] = useState('');
+  const [cardFormNewDeckName, setCardFormNewDeckName] = useState('');
+  const [isSavingCard, setIsSavingCard] = useState(false);
 
-  // Modal de Exclusão com Confirmação e Contagem em Cascata
+  // Modal de Exclusão
   const [deleteModal, setDeleteModal] = useState<{
     type: 'subject' | 'deck' | 'card';
     id: string;
     title: string;
-    deckCount?: number;
-    cardCount?: number;
   } | null>(null);
-
-  // Modal Gerador IA
-  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
-  const [aiTopicInput, setAiTopicInput] = useState('');
-  const [aiTargetSubjectId, setAiTargetSubjectId] = useState('');
-  const [aiTargetDeckId, setAiTargetDeckId] = useState('');
-  const [aiNewDeckTitle, setAiNewDeckTitle] = useState('');
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [aiPreviewCards, setAiPreviewCards] = useState<Array<{ question: string; answer: string }>>([]);
 
   // Modal Importação em Lote
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   const [batchInputText, setBatchInputText] = useState('');
   const [batchImporting, setBatchImporting] = useState(false);
 
-  // Modal Visualização de Foto em Tela Cheia
-  const [expandedImage, setExpandedImage] = useState<string | null>(null);
-
   // =========================================================================
-  // 🎮 ESTADO DO MODO DE ESTUDO (ANKI PLAYER / SM-2)
-  // =========================================================================
-  const [studyQueue, setStudyQueue] = useState<Flashcard[]>([]);
-  const [currentCardIndex, setCurrentCardIndex] = useState(0);
-  const [isAnswerRevealed, setIsAnswerRevealed] = useState(false);
-  const [studySessionFinished, setStudySessionFinished] = useState(false);
-  const [studySessionStats, setStudySessionStats] = useState({ again: 0, hard: 0, good: 0, easy: 0, total: 0 });
-  const [cramMode, setCramMode] = useState(false); // Modo Maratona (Treino livre sem alterar SM-2)
-
-  // Refs para inputs de imagem e textarea de cartões
-  const questionFileInputRef = useRef<HTMLInputElement | null>(null);
-  const answerFileInputRef = useRef<HTMLInputElement | null>(null);
-  const cardFrontTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const cardBackTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-
-  // Seleção e criação inline de Disciplina/Baralho para autonomia na criação manual de Flashcards
-  const [cardFormSubjectId, setCardFormSubjectId] = useState<string>('');
-  const [cardFormNewSubjectName, setCardFormNewSubjectName] = useState<string>('');
-  const [cardFormDeckId, setCardFormDeckId] = useState<string>('');
-  const [cardFormNewDeckName, setCardFormNewDeckName] = useState<string>('');
-  const [cardModalDecks, setCardModalDecks] = useState<DeckWithStats[]>([]);
-  const [cardModalLoadingDecks, setCardModalLoadingDecks] = useState<boolean>(false);
-  const [isSavingCard, setIsSavingCard] = useState<boolean>(false);
-
-  // =========================================================================
-  // 📡 CARREGAMENTO INICIAL E SINCRONIZAÇÃO COM O BACKEND
+  // 📡 SINCRONIZAÇÃO DE DADOS COM O BACKEND
   // =========================================================================
 
-  const fetchGlobalData = useCallback(async () => {
+  const fetchGlobalData = useCallback(async (isManualSync = false) => {
     try {
-      setLoading(true);
+      if (isManualSync) setIsSyncing(true);
+      else setLoading(true);
+
       const [subjectsRes, statsRes, forecastRes, heatmapRes] = await Promise.all([
         apiFetch('/api/flashcards/subjects'),
         apiFetch('/api/flashcards/stats'),
@@ -275,10 +223,15 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
         const hData = await heatmapRes.json();
         setHeatmapStats(hData.heatmap || []);
       }
-    } catch (err) {
-      showToast?.('Falha ao sincronizar flashcards com o servidor.', 'error');
+
+      if (isManualSync) {
+        showToast?.('Baralhos e flashcards sincronizados!', 'success');
+      }
+    } catch {
+      showToast?.('Erro ao carregar dados do Anki com o servidor.', 'error');
     } finally {
       setLoading(false);
+      setIsSyncing(false);
     }
   }, [showToast]);
 
@@ -286,389 +239,301 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     void fetchGlobalData();
   }, [fetchGlobalData]);
 
-  // Carrega baralhos da disciplina selecionada
-  const fetchDecksForSubject = useCallback(async (subjectId: string) => {
-    try {
-      const res = await apiFetch(`/api/flashcards/decks?subjectId=${encodeURIComponent(subjectId)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setDecks(data.decks || []);
-      }
-    } catch {
-      showToast?.('Erro ao carregar baralhos da disciplina.', 'error');
-    }
-  }, [showToast]);
-
-  // Carrega flashcards do baralho selecionado
-  const fetchCardsForDeck = useCallback(async (deckId: string) => {
+  // Carrega cartões da matéria e alimenta a fila de resolução aleatória
+  const loadCardsForSubject = useCallback(async (subjectId: string) => {
     try {
       setLoadingCards(true);
-      const res = await apiFetch(`/api/flashcards/decks/${encodeURIComponent(deckId)}/cards`);
+      const res = await apiFetch(`/api/flashcards/cards?subjectId=${encodeURIComponent(subjectId)}&limit=200`);
       if (res.ok) {
         const data = await res.json();
-        setCards(data.cards || []);
+        const loadedCards: Flashcard[] = data.cards || [];
+        setCards(loadedCards);
+
+        // Embaralha aleatoriamente para resolução
+        const shuffled = [...loadedCards].sort(() => 0.5 - Math.random());
+        setStudyQueue(shuffled);
+        setCurrentCardIndex(0);
+        setIsAnswerRevealed(false);
       }
     } catch {
-      showToast?.('Erro ao carregar flashcards deste baralho.', 'error');
+      showToast?.('Erro ao carregar flashcards desta matéria.', 'error');
     } finally {
       setLoadingCards(false);
     }
   }, [showToast]);
 
-  // =========================================================================
-  // 🧭 TRANSIÇÕES DE NAVEGAÇÃO
-  // =========================================================================
-
-  const handleOpenSubject = (subject: SubjectWithStats) => {
-    setCurrentSubject(subject);
-    setCurrentDeck(null);
-    setViewMode('decks');
-    setSearchQuery('');
-    void fetchDecksForSubject(subject.id);
-  };
-
-  const handleOpenDeck = (deck: DeckWithStats) => {
-    setCurrentDeck(deck);
-    setViewMode('cards');
-    setSearchQuery('');
-    setCardFilter('ALL');
-    void fetchCardsForDeck(deck.id);
-  };
-
-  const handleBackToSubjects = () => {
-    setViewMode('subjects');
-    setCurrentSubject(null);
-    setCurrentDeck(null);
-    setSearchQuery('');
-    void fetchGlobalData();
-  };
-
-  const handleBackToDecks = () => {
-    if (!currentSubject) {
-      handleBackToSubjects();
-      return;
-    }
-    setViewMode('decks');
-    setCurrentDeck(null);
-    setSearchQuery('');
-    void fetchDecksForSubject(currentSubject.id);
-    void fetchGlobalData();
-  };
-
-  // =========================================================================
-  // 📚 CRUD DISCIPLINAS (SUBJECTS)
-  // =========================================================================
-
-  const handleOpenCreateSubject = () => {
-    setEditingSubject(null);
-    setSubjectFormName('');
-    setSubjectFormDesc('');
-    setSubjectFormColor('red');
-    setIsSubjectModalOpen(true);
-  };
-
-  const handleOpenEditSubject = (sub: SubjectWithStats, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditingSubject(sub);
-    setSubjectFormName(sub.name);
-    setSubjectFormDesc(sub.description || '');
-    setSubjectFormColor(sub.color || 'red');
-    setIsSubjectModalOpen(true);
-  };
-
-  const handleSaveSubject = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!subjectFormName.trim()) {
-      showToast?.('Informe o nome da disciplina.', 'error');
-      return;
-    }
-
+  // Carrega baralhos de uma matéria
+  const loadDecksForSubject = useCallback(async (subjectId: string) => {
     try {
-      if (editingSubject) {
-        const res = await apiFetch(`/api/flashcards/subjects/${editingSubject.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: subjectFormName.trim(),
-            description: subjectFormDesc.trim() || null,
-            color: subjectFormColor,
-          }),
-        });
-        if (res.ok) {
-          showToast?.('Disciplina atualizada com sucesso!', 'success');
-          setIsSubjectModalOpen(false);
-          void fetchGlobalData();
-          if (currentSubject?.id === editingSubject.id) {
-            setCurrentSubject((prev) => prev ? { ...prev, name: subjectFormName.trim(), description: subjectFormDesc.trim() || null, color: subjectFormColor } : null);
-          }
-        } else {
-          showToast?.('Falha ao atualizar disciplina.', 'error');
-        }
-      } else {
-        const res = await apiFetch('/api/flashcards/subjects', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: subjectFormName.trim(),
-            description: subjectFormDesc.trim() || null,
-            color: subjectFormColor,
-          }),
-        });
-        if (res.ok) {
-          showToast?.('Disciplina criada com sucesso!', 'success');
-          setIsSubjectModalOpen(false);
-          void fetchGlobalData();
-        } else {
-          showToast?.('Falha ao criar disciplina.', 'error');
-        }
-      }
-    } catch {
-      showToast?.('Erro de conexão com o servidor.', 'error');
-    }
-  };
-
-  const handlePromptDeleteSubject = async (sub: SubjectWithStats, e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      const res = await apiFetch(`/api/flashcards/subjects/${sub.id}/cascade-stats`);
-      const data = res.ok ? await res.json() : { stats: { deckCount: sub.deckCount, cardCount: sub.cardCount } };
-      setDeleteModal({
-        type: 'subject',
-        id: sub.id,
-        title: sub.name,
-        deckCount: data.stats?.deckCount ?? sub.deckCount,
-        cardCount: data.stats?.cardCount ?? sub.cardCount,
-      });
-    } catch {
-      setDeleteModal({
-        type: 'subject',
-        id: sub.id,
-        title: sub.name,
-        deckCount: sub.deckCount,
-        cardCount: sub.cardCount,
-      });
-    }
-  };
-
-  // =========================================================================
-  // 🗃️ CRUD BARALHOS (DECKS)
-  // =========================================================================
-
-  const handleOpenCreateDeck = () => {
-    setEditingDeck(null);
-    setDeckFormName('');
-    setDeckFormDesc('');
-    setDeckFormSubjectId(currentSubject ? currentSubject.id : (subjects[0]?.id || ''));
-    setIsDeckModalOpen(true);
-  };
-
-  const handleOpenEditDeck = (deck: DeckWithStats, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditingDeck(deck);
-    setDeckFormName(deck.name);
-    setDeckFormDesc(deck.description || '');
-    setDeckFormSubjectId(deck.subjectId);
-    setIsDeckModalOpen(true);
-  };
-
-  const handleSaveDeck = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!deckFormName.trim()) {
-      showToast?.('Informe o nome do baralho.', 'error');
-      return;
-    }
-    const targetSubId = deckFormSubjectId || currentSubject?.id;
-    if (!targetSubId) {
-      showToast?.('Selecione a disciplina do baralho.', 'error');
-      return;
-    }
-
-    try {
-      if (editingDeck) {
-        const res = await apiFetch(`/api/flashcards/decks/${editingDeck.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: deckFormName.trim(),
-            description: deckFormDesc.trim() || null,
-            subjectId: targetSubId,
-          }),
-        });
-        if (res.ok) {
-          showToast?.('Baralho atualizado com sucesso!', 'success');
-          setIsDeckModalOpen(false);
-          if (currentSubject) void fetchDecksForSubject(currentSubject.id);
-          void fetchGlobalData();
-        } else {
-          showToast?.('Falha ao atualizar baralho.', 'error');
-        }
-      } else {
-        const res = await apiFetch('/api/flashcards/decks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            subjectId: targetSubId,
-            name: deckFormName.trim(),
-            description: deckFormDesc.trim() || null,
-          }),
-        });
-        if (res.ok) {
-          showToast?.('Baralho criado com sucesso!', 'success');
-          setIsDeckModalOpen(false);
-          if (currentSubject) void fetchDecksForSubject(currentSubject.id);
-          void fetchGlobalData();
-        } else {
-          showToast?.('Falha ao criar baralho.', 'error');
-        }
-      }
-    } catch {
-      showToast?.('Erro de conexão ao salvar baralho.', 'error');
-    }
-  };
-
-  const handlePromptDeleteDeck = async (deck: DeckWithStats, e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      const res = await apiFetch(`/api/flashcards/decks/${deck.id}/cascade-stats`);
-      const data = res.ok ? await res.json() : { stats: { cardCount: deck.cardCount } };
-      setDeleteModal({
-        type: 'deck',
-        id: deck.id,
-        title: deck.name,
-        cardCount: data.stats?.cardCount ?? deck.cardCount,
-      });
-    } catch {
-      setDeleteModal({
-        type: 'deck',
-        id: deck.id,
-        title: deck.name,
-        cardCount: deck.cardCount,
-      });
-    }
-  };
-
-  // =========================================================================
-  // 🃏 CRUD FLASHCARDS & AUTONOMIA MANUAL
-  // =========================================================================
-
-  // Carrega baralhos para o modal de criação de card quando a disciplina selecionada muda
-  const loadDecksForCardModal = useCallback(async (subjectId: string, preselectedDeckId?: string) => {
-    if (!subjectId || subjectId === '__new__') {
-      setCardModalDecks([]);
-      setCardFormDeckId('__new__');
-      return;
-    }
-    try {
-      setCardModalLoadingDecks(true);
       const res = await apiFetch(`/api/flashcards/decks?subjectId=${encodeURIComponent(subjectId)}`);
       if (res.ok) {
         const data = await res.json();
-        const dList: DeckWithStats[] = data.decks || [];
-        setCardModalDecks(dList);
-        if (preselectedDeckId && dList.some((d) => d.id === preselectedDeckId)) {
-          setCardFormDeckId(preselectedDeckId);
-        } else if (dList.length > 0) {
-          setCardFormDeckId(dList[0].id);
-        } else {
-          setCardFormDeckId('__new__');
+        setDecks(data.decks || []);
+        if (data.decks && data.decks.length > 0) {
+          setCurrentDeck(data.decks[0]);
         }
-      } else {
-        setCardModalDecks([]);
-        setCardFormDeckId('__new__');
       }
     } catch {
-      setCardModalDecks([]);
-      setCardFormDeckId('__new__');
-    } finally {
-      setCardModalLoadingDecks(false);
+      // Silencioso
     }
   }, []);
+
+  // =========================================================================
+  // 🧭 TRANSIÇÃO AO CLICAR EM UMA MATÉRIA
+  // =========================================================================
+
+  const handleOpenSubject = async (subjectName: string, existingSubject?: SubjectWithStats) => {
+    let targetSubject = existingSubject;
+
+    // Se a matéria ainda não foi criada no banco, provisiona transparentemente
+    if (!targetSubject) {
+      try {
+        const createRes = await apiFetch('/api/flashcards/subjects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: subjectName,
+            description: `Matéria oficial do edital CFO CBMERJ: ${subjectName}`,
+          }),
+        });
+        if (createRes.ok) {
+          const createData = await createRes.json();
+          targetSubject = createData.subject;
+          void fetchGlobalData();
+        }
+      } catch {
+        showToast?.('Erro ao abrir matéria.', 'error');
+        return;
+      }
+    }
+
+    if (!targetSubject) return;
+
+    setCurrentSubject(targetSubject);
+    setViewMode('subject_detail');
+    setSearchQuery('');
+    setAiTopicInput('');
+    void loadDecksForSubject(targetSubject.id);
+    void loadCardsForSubject(targetSubject.id);
+  };
+
+  const handleBackToAnkiMain = () => {
+    setViewMode('anki_main');
+    setCurrentSubject(null);
+    setCurrentDeck(null);
+    setIsAnswerRevealed(false);
+    void fetchGlobalData();
+  };
+
+  // Re-embaralhar cartões aleatórios
+  const handleShuffleQueue = () => {
+    if (cards.length === 0) return;
+    const shuffled = [...cards].sort(() => 0.5 - Math.random());
+    setStudyQueue(shuffled);
+    setCurrentCardIndex(0);
+    setIsAnswerRevealed(false);
+    setRandomSeed(prev => prev + 1);
+    showToast?.('Flashcards embaralhados em ordem aleatória!', 'info');
+  };
+
+  // Revelar resposta do cartão ativo
+  const handleRevealAnswer = () => {
+    setIsAnswerRevealed(true);
+  };
+
+  // Avaliação Anki SM-2 (1: De novo, 2: Difícil, 3: Bom, 4: Fácil)
+  const handleRateCard = async (rating: 1 | 2 | 3 | 4) => {
+    const card = studyQueue[currentCardIndex];
+    if (!card) return;
+
+    try {
+      const res = await apiFetch(`/api/flashcards/cards/${card.id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating }),
+      });
+
+      if (res.ok) {
+        // Se errou (rating 1), reapresenta o cartão no fim da fila
+        if (rating === 1) {
+          setStudyQueue(prev => [...prev, card]);
+        }
+
+        // Avança para o próximo cartão
+        if (currentCardIndex + 1 < studyQueue.length) {
+          setCurrentCardIndex(prev => prev + 1);
+          setIsAnswerRevealed(false);
+        } else {
+          // Concluiu a rodada
+          showToast?.('Todos os flashcards da rodada foram resolvidos!', 'success');
+          // Recarrega cartões para atualizar status e intervalos
+          if (currentSubject) void loadCardsForSubject(currentSubject.id);
+        }
+      }
+    } catch {
+      showToast?.('Erro ao registrar resposta do flashcard.', 'error');
+    }
+  };
+
+  // Atalhos de teclado (Espaço para mostrar resposta, 1-4 para avaliar)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignora se estiver digitando em input ou textarea
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
+
+      if (viewMode === 'subject_detail' && studyQueue.length > 0) {
+        if (e.code === 'Space') {
+          e.preventDefault();
+          if (!isAnswerRevealed) handleRevealAnswer();
+        } else if (isAnswerRevealed) {
+          if (e.key === '1') { e.preventDefault(); void handleRateCard(1); }
+          else if (e.key === '2') { e.preventDefault(); void handleRateCard(2); }
+          else if (e.key === '3') { e.preventDefault(); void handleRateCard(3); }
+          else if (e.key === '4') { e.preventDefault(); void handleRateCard(4); }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [viewMode, studyQueue, currentCardIndex, isAnswerRevealed]);
+
+  // =========================================================================
+  // ⚡ GERAÇÃO DE +20 FLASHCARDS POR IA (TOPO NA MATÉRIA)
+  // =========================================================================
+
+  const handleGenerate20CardsWithAi = async () => {
+    if (!currentSubject) return;
+
+    const topic = aiTopicInput.trim() || currentSubject.name;
+    setIsAiGenerating(true);
+
+    try {
+      const response = await apiFetch('/api/ai/flashcards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subjectOrTopic: `${currentSubject.name}: ${topic}`,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.cards || data.cards.length === 0) {
+        showToast?.(data.message || 'Falha ao gerar flashcards por IA.', 'error');
+        return;
+      }
+
+      // Garante baralho de destino
+      let targetDeck = currentDeck;
+      if (!targetDeck) {
+        const deckRes = await apiFetch('/api/flashcards/decks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subjectId: currentSubject.id,
+            name: topic.length > 40 ? topic.slice(0, 40) : topic,
+            description: `Baralho gerado por IA para ${currentSubject.name}`,
+          }),
+        });
+        if (deckRes.ok) {
+          const deckData = await deckRes.json();
+          targetDeck = deckData.deck;
+          setCurrentDeck(targetDeck);
+        }
+      }
+
+      if (!targetDeck) {
+        showToast?.('Erro ao associar baralho aos cartões gerados.', 'error');
+        return;
+      }
+
+      // Salva os 20 cards em lote no backend via endpoint batch
+      const batchPayload = data.cards.map((c: any) => ({
+        front: c.question,
+        back: c.answer,
+      }));
+
+      const saveRes = await apiFetch(`/api/flashcards/decks/${targetDeck.id}/cards/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cards: batchPayload }),
+      });
+
+      if (saveRes.ok) {
+        showToast?.(`⚡ +20 flashcards gerados com sucesso em ${currentSubject.name}!`, 'success');
+        setAiTopicInput('');
+        void loadCardsForSubject(currentSubject.id);
+        void fetchGlobalData();
+      } else {
+        showToast?.('Erro ao salvar flashcards gerados.', 'error');
+      }
+    } catch {
+      showToast?.('Erro de comunicação ao gerar flashcards com IA.', 'error');
+    } finally {
+      setIsAiGenerating(false);
+    }
+  };
+
+  // =========================================================================
+  // 💾 CRUD DE FLASHCARDS / MATÉRIAS
+  // =========================================================================
 
   const handleOpenAddCardModal = () => {
     setEditingCard(null);
     setCardFormFront('');
     setCardFormBack('');
-    setCardFormFrontImage(null);
-    setCardFormBackImage(null);
-    setCardFormNewSubjectName('');
-    setCardFormNewDeckName('');
-
-    const initialSubjectId = currentSubject?.id || (subjects.length > 0 ? subjects[0].id : '__new__');
-    const initialDeckId = currentDeck?.id || '';
-
-    setCardFormSubjectId(initialSubjectId);
-
-    if (initialSubjectId === '__new__') {
-      setCardModalDecks([]);
-      setCardFormDeckId('__new__');
-    } else {
-      void loadDecksForCardModal(initialSubjectId, initialDeckId);
-    }
-
-    setIsCardModalOpen(true);
+    setCardFormTags('');
+    setCardFormSubjectId(currentSubject?.id || (subjects[0]?.id || ''));
+    setCardFormDeckId(currentDeck?.id || '');
+    setIsAddCardModalOpen(true);
   };
 
-  const handleOpenEditCardModal = (card: Flashcard, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleOpenEditCard = (card: Flashcard) => {
     setEditingCard(card);
     setCardFormFront(card.front);
     setCardFormBack(card.back);
-    setCardFormFrontImage(card.frontImage || null);
-    setCardFormBackImage(card.backImage || null);
-    setCardFormSubjectId(card.subjectId || currentSubject?.id || '');
-    setCardFormDeckId(card.deckId || currentDeck?.id || '');
-    setCardFormNewSubjectName('');
-    setCardFormNewDeckName('');
-    if (card.subjectId) {
-      void loadDecksForCardModal(card.subjectId, card.deckId);
-    }
-    setIsCardModalOpen(true);
-  };
-
-  const insertFormatting = (
-    field: 'front' | 'back',
-    before: string,
-    after: string,
-    placeholder: string
-  ) => {
-    const textarea = field === 'front' ? cardFrontTextareaRef.current : cardBackTextareaRef.current;
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const text = field === 'front' ? cardFormFront : cardFormBack;
-    const selected = text.slice(start, end);
-    const contentToInsert = selected || placeholder;
-    const newText = text.slice(0, start) + before + contentToInsert + after + text.slice(end);
-
-    if (field === 'front') {
-      setCardFormFront(newText);
-    } else {
-      setCardFormBack(newText);
-    }
-
-    setTimeout(() => {
-      textarea.focus();
-      const newCursorPos = start + before.length + contentToInsert.length + after.length;
-      textarea.setSelectionRange(newCursorPos, newCursorPos);
-    }, 0);
+    setCardFormTags('');
+    setCardFormSubjectId(card.subjectId);
+    setCardFormDeckId(card.deckId);
+    setIsAddCardModalOpen(true);
   };
 
   const handleSaveCard = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!cardFormFront.trim() && !cardFormFrontImage) {
-      showToast?.('Informe a pergunta ou cole uma foto na frente.', 'error');
-      return;
-    }
-    if (!cardFormBack.trim() && !cardFormBackImage) {
-      showToast?.('Informe a resposta ou cole uma foto no verso.', 'error');
+    if (!cardFormFront.trim() || !cardFormBack.trim()) {
+      showToast?.('Preencha a Frente e o Verso do flashcard.', 'error');
       return;
     }
 
+    setIsSavingCard(true);
     try {
-      setIsSavingCard(true);
+      let targetSubId = cardFormSubjectId;
+      if (targetSubId === '__new__' && cardFormNewSubjectName.trim()) {
+        const subRes = await apiFetch('/api/flashcards/subjects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: cardFormNewSubjectName.trim() }),
+        });
+        if (subRes.ok) {
+          const subData = await subRes.json();
+          targetSubId = subData.subject.id;
+        }
+      }
 
-      // Edição de cartão existente
+      let targetDeckId = cardFormDeckId;
+      if (!targetDeckId || targetDeckId === '__new__') {
+        const deckName = cardFormNewDeckName.trim() || 'Geral';
+        const deckRes = await apiFetch('/api/flashcards/decks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subjectId: targetSubId, name: deckName }),
+        });
+        if (deckRes.ok) {
+          const deckData = await deckRes.json();
+          targetDeckId = deckData.deck.id;
+        }
+      }
+
       if (editingCard) {
         const res = await apiFetch(`/api/flashcards/cards/${editingCard.id}`, {
           method: 'PATCH',
@@ -676,2358 +541,949 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
           body: JSON.stringify({
             front: cardFormFront.trim(),
             back: cardFormBack.trim(),
-            frontImage: cardFormFrontImage,
-            backImage: cardFormBackImage,
           }),
         });
         if (res.ok) {
           showToast?.('Flashcard atualizado com sucesso!', 'success');
-          setIsCardModalOpen(false);
-          if (currentDeck) void fetchCardsForDeck(currentDeck.id);
-          if (currentSubject) void fetchDecksForSubject(currentSubject.id);
-          void fetchGlobalData();
-        } else {
-          showToast?.('Falha ao atualizar flashcard.', 'error');
+          setIsAddCardModalOpen(false);
+          if (currentSubject) void loadCardsForSubject(currentSubject.id);
         }
-        return;
-      }
-
-      // 1. Resolução ou criação da Disciplina
-      let resolvedSubjectId = cardFormSubjectId;
-      if (!resolvedSubjectId || resolvedSubjectId === '__new__' || subjects.length === 0) {
-        const subName = cardFormNewSubjectName.trim();
-        if (!subName) {
-          showToast?.('Por favor, informe o nome da Disciplina.', 'error');
-          return;
-        }
-        const subRes = await apiFetch('/api/flashcards/subjects', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: subName }),
-        });
-        if (!subRes.ok) {
-          const err = await subRes.json().catch(() => ({}));
-          showToast?.(err.message || 'Falha ao criar disciplina.', 'error');
-          return;
-        }
-        const subData = await subRes.json();
-        resolvedSubjectId = subData.subject.id;
-      }
-
-      // 2. Resolução ou criação do Baralho
-      let resolvedDeckId = cardFormDeckId;
-      if (!resolvedDeckId || resolvedDeckId === '__new__' || cardModalDecks.length === 0) {
-        const deckName = cardFormNewDeckName.trim() || 'Baralho Principal';
-        const deckRes = await apiFetch('/api/flashcards/decks', {
+      } else {
+        const res = await apiFetch('/api/flashcards/cards', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            subjectId: resolvedSubjectId,
-            name: deckName,
-            description: 'Baralho criado manualmente',
+            deckId: targetDeckId,
+            front: cardFormFront.trim(),
+            back: cardFormBack.trim(),
           }),
         });
-        if (!deckRes.ok) {
-          const err = await deckRes.json().catch(() => ({}));
-          showToast?.(err.message || 'Falha ao criar baralho.', 'error');
-          return;
+        if (res.ok) {
+          showToast?.('Flashcard adicionado ao baralho!', 'success');
+          setIsAddCardModalOpen(false);
+          setCardFormFront('');
+          setCardFormBack('');
+          if (currentSubject) void loadCardsForSubject(currentSubject.id);
+          void fetchGlobalData();
         }
-        const deckData = await deckRes.json();
-        resolvedDeckId = deckData.deck.id;
-      }
-
-      // 3. Criação do Flashcard
-      const cardRes = await apiFetch('/api/flashcards/cards', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deckId: resolvedDeckId,
-          front: cardFormFront.trim(),
-          back: cardFormBack.trim(),
-          frontImage: cardFormFrontImage,
-          backImage: cardFormBackImage,
-        }),
-      });
-
-      if (cardRes.ok) {
-        showToast?.('Flashcard criado com sucesso!', 'success');
-        setIsCardModalOpen(false);
-        if (currentDeck && currentDeck.id === resolvedDeckId) {
-          void fetchCardsForDeck(resolvedDeckId);
-        } else if (currentSubject && currentSubject.id === resolvedSubjectId) {
-          void fetchDecksForSubject(resolvedSubjectId);
-        }
-        void fetchGlobalData();
-      } else {
-        const err = await cardRes.json().catch(() => ({}));
-        showToast?.(err.message || 'Falha ao criar flashcard.', 'error');
       }
     } catch {
-      showToast?.('Erro de conexão ao salvar flashcard.', 'error');
+      showToast?.('Erro ao salvar flashcard.', 'error');
     } finally {
       setIsSavingCard(false);
     }
   };
 
-  const handlePromptDeleteCard = (card: Flashcard, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setDeleteModal({
-      type: 'card',
-      id: card.id,
-      title: card.front.slice(0, 40) || 'Flashcard',
+  const handleDeleteCard = async (cardId: string) => {
+    try {
+      const res = await apiFetch(`/api/flashcards/cards/${cardId}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast?.('Flashcard excluído.', 'info');
+        if (currentSubject) void loadCardsForSubject(currentSubject.id);
+        void fetchGlobalData();
+      }
+    } catch {
+      showToast?.('Erro ao excluir cartão.', 'error');
+    }
+  };
+
+  // Lista unificada das Matérias para a Tabela Anki Principal
+  const ankiDeckRows = useMemo(() => {
+    const map = new Map<string, { subject?: SubjectWithStats; name: string; newCount: number; learnCount: number; dueCount: number }>();
+
+    // Insere matérias oficiais com contagens padrão 0
+    OFFICIAL_CBMERJ_SUBJECTS.forEach((off) => {
+      map.set(off.name.toLowerCase(), {
+        name: off.name,
+        newCount: 0,
+        learnCount: 0,
+        dueCount: 0,
+      });
     });
-  };
 
-  const handleConfirmDelete = async () => {
-    if (!deleteModal) return;
-
-    const targetId = deleteModal.id;
-    const targetType = deleteModal.type;
-
-    try {
-      if (targetType === 'subject') {
-        const res = await apiFetch(`/api/flashcards/subjects/${targetId}`, { method: 'DELETE' });
-        if (res.ok) {
-          showToast?.('Disciplina e dependências excluídas.', 'success');
-          setDeleteModal(null);
-          setSubjects((prev) => prev.filter((s) => s.id !== targetId));
-          if (currentSubject?.id === targetId) {
-            handleBackToSubjects();
-          } else {
-            void fetchGlobalData();
-          }
-        } else {
-          const data = await res.json().catch(() => ({}));
-          showToast?.(data.message || 'Falha ao excluir disciplina.', 'error');
-          setDeleteModal(null);
-        }
-      } else if (targetType === 'deck') {
-        const res = await apiFetch(`/api/flashcards/decks/${targetId}`, { method: 'DELETE' });
-        if (res.ok) {
-          showToast?.('Baralho excluído com sucesso.', 'success');
-          setDeleteModal(null);
-          setDecks((prev) => prev.filter((d) => d.id !== targetId));
-          if (currentDeck?.id === targetId) {
-            handleBackToDecks();
-          } else if (currentSubject) {
-            void fetchDecksForSubject(currentSubject.id);
-          }
-          void fetchGlobalData();
-        } else {
-          const data = await res.json().catch(() => ({}));
-          showToast?.(data.message || 'Falha ao excluir baralho.', 'error');
-          setDeleteModal(null);
-        }
-      } else if (targetType === 'card') {
-        const res = await apiFetch(`/api/flashcards/cards/${targetId}`, { method: 'DELETE' });
-        if (res.ok) {
-          showToast?.('Flashcard excluído.', 'success');
-          setDeleteModal(null);
-          setCards((prev) => prev.filter((c) => c.id !== targetId));
-          if (currentDeck) void fetchCardsForDeck(currentDeck.id);
-          if (currentSubject) void fetchDecksForSubject(currentSubject.id);
-          void fetchGlobalData();
-        } else {
-          const data = await res.json().catch(() => ({}));
-          showToast?.(data.message || 'Falha ao excluir flashcard.', 'error');
-          setDeleteModal(null);
-        }
-      }
-    } catch {
-      showToast?.('Erro de conexão ao processar exclusão.', 'error');
-      setDeleteModal(null);
-    }
-  };
-
-  // =========================================================================
-  // 📷 UPLOAD, COLAGEM E TRATAMENTO DE IMAGENS
-  // =========================================================================
-
-  const processImageFile = async (file: File, target: 'front' | 'back') => {
-    if (!file.type.startsWith('image/')) {
-      showToast?.('Apenas arquivos de imagem são aceitos.', 'error');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const rawBase64 = event.target?.result as string;
-      if (rawBase64) {
-        const compressed = await compressImage(rawBase64);
-        if (target === 'front') {
-          setCardFormFrontImage(compressed);
-        } else {
-          setCardFormBackImage(compressed);
-        }
-        showToast?.('Foto anexada com sucesso!', 'success');
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handlePasteImage = (e: React.ClipboardEvent, target: 'front' | 'back') => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        e.preventDefault();
-        const file = items[i].getAsFile();
-        if (file) {
-          void processImageFile(file, target);
-          return;
-        }
-      }
-    }
-  };
-
-  // =========================================================================
-  // ⚡ GERADOR DE 20 FLASHCARDS COM IA
-  // =========================================================================
-
-  const handleOpenAiGenerator = () => {
-    setAiTopicInput(currentDeck ? currentDeck.name : currentSubject ? currentSubject.name : '');
-    setAiTargetSubjectId(currentSubject ? currentSubject.id : (subjects[0]?.id || ''));
-    setAiTargetDeckId(currentDeck ? currentDeck.id : 'new_deck');
-    setAiNewDeckTitle('');
-    setAiPreviewCards([]);
-    setIsAiModalOpen(true);
-  };
-
-  const handleGenerateWithAi = async () => {
-    if (!aiTopicInput.trim()) {
-      showToast?.('Por favor, informe a matéria ou tópico.', 'error');
-      return;
-    }
-
-    setIsAiLoading(true);
-    setAiPreviewCards([]);
-
-    try {
-      const response = await apiFetch('/api/ai/flashcards', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subjectOrTopic: aiTopicInput.trim() }),
-      });
-
-      const data = await response.json();
-      if (response.ok && data.cards && data.cards.length > 0) {
-        setAiPreviewCards(data.cards);
-        showToast?.(`IA gerou ${data.cards.length} flashcards de alta retenção!`, 'success');
+    // Mescla dados reais do banco
+    subjects.forEach((sub) => {
+      const key = sub.name.toLowerCase();
+      const existing = map.get(key);
+      if (existing) {
+        existing.subject = sub;
+        existing.dueCount = sub.dueCount || 0;
+        existing.newCount = sub.cardCount - (sub.dueCount || 0) > 0 ? sub.cardCount - (sub.dueCount || 0) : 0;
       } else {
-        showToast?.(data.message || 'Falha ao gerar flashcards pela IA.', 'error');
-      }
-    } catch {
-      showToast?.('Erro de conexão ao gerar com IA.', 'error');
-    } finally {
-      setIsAiLoading(false);
-    }
-  };
-
-  const handleSaveAiCards = async () => {
-    if (aiPreviewCards.length === 0) return;
-
-    let targetDeckId = aiTargetDeckId;
-    let targetSubId = aiTargetSubjectId || currentSubject?.id || subjects[0]?.id;
-
-    if (!targetSubId) {
-      showToast?.('Selecione ou crie uma disciplina primeiro.', 'error');
-      return;
-    }
-
-    try {
-      // Se optou por criar novo baralho
-      if (targetDeckId === 'new_deck') {
-        const deckTitle = aiNewDeckTitle.trim() || aiTopicInput.trim() || 'Novo Baralho IA';
-        const deckRes = await apiFetch('/api/flashcards/decks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            subjectId: targetSubId,
-            name: deckTitle,
-            description: `Baralho gerado por IA com 20 flashcards bate-pronto.`,
-          }),
+        map.set(key, {
+          subject: sub,
+          name: sub.name,
+          newCount: sub.cardCount - (sub.dueCount || 0) > 0 ? sub.cardCount - (sub.dueCount || 0) : 0,
+          learnCount: 0,
+          dueCount: sub.dueCount || 0,
         });
-
-        if (!deckRes.ok) {
-          showToast?.('Falha ao criar baralho de destino.', 'error');
-          return;
-        }
-        const deckData = await deckRes.json();
-        targetDeckId = deckData.deck.id;
       }
+    });
 
-      // Salva cada cartão no backend
-      let savedCount = 0;
-      for (const c of aiPreviewCards) {
-        const cardRes = await apiFetch('/api/flashcards/cards', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            deckId: targetDeckId,
-            front: c.question,
-            back: c.answer,
-          }),
-        });
-        if (cardRes.ok) savedCount++;
-      }
-
-      showToast?.(`${savedCount} flashcards salvos com sucesso!`, 'success');
-      setIsAiModalOpen(false);
-      setAiPreviewCards([]);
-      setAiTopicInput('');
-
-      if (currentDeck && currentDeck.id === targetDeckId) {
-        void fetchCardsForDeck(targetDeckId);
-      } else if (currentSubject) {
-        void fetchDecksForSubject(currentSubject.id);
-      }
-      void fetchGlobalData();
-    } catch {
-      showToast?.('Erro ao salvar cartões gerados pela IA.', 'error');
-    }
-  };
-
-  // =========================================================================
-  // 🎮 MODO DE ESTUDO FOCADO ESTILO ANKI (SM-2 SRS)
-  // =========================================================================
-
-  const handleStartStudySession = async (deck: DeckWithStats, isCram = false) => {
-    try {
-      setCramMode(isCram);
-      const res = isCram
-        ? await apiFetch(`/api/flashcards/decks/${deck.id}/cards`)
-        : await apiFetch(`/api/flashcards/study-queue/${deck.id}`);
-
-      if (!res.ok) {
-        showToast?.('Falha ao carregar fila de estudo.', 'error');
-        return;
-      }
-      const data = await res.json();
-      const queue: Flashcard[] = isCram ? data.cards || [] : data.queue || [];
-
-      if (queue.length === 0) {
-        showToast?.(
-          isCram
-            ? 'Nenhum flashcard cadastrado neste baralho para praticar.'
-            : 'Nenhum flashcard pendente para hoje neste baralho.',
-          'info'
-        );
-        return;
-      }
-
-      setStudyQueue(queue);
-      setCurrentCardIndex(0);
-      setIsAnswerRevealed(false);
-      setStudySessionFinished(false);
-      setStudySessionStats({ again: 0, hard: 0, good: 0, easy: 0, total: queue.length });
-      setCurrentDeck(deck);
-      setViewMode('study');
-    } catch {
-      showToast?.('Erro de conexão ao iniciar estudo.', 'error');
-    }
-  };
-
-  // Iniciar sessão de estudo de todos os baralhos de uma disciplina
-  const handleStartSubjectStudySession = async (subject: SubjectWithStats) => {
-    try {
-      setCramMode(false);
-      const res = await apiFetch(`/api/flashcards/study-queue/subject/${subject.id}`);
-      if (!res.ok) {
-        showToast?.('Falha ao carregar fila de estudo da disciplina.', 'error');
-        return;
-      }
-      const data = await res.json();
-      const queue: Flashcard[] = data.queue || [];
-
-      if (queue.length === 0) {
-        showToast?.('Nenhum cartão pendente para hoje nesta disciplina.', 'info');
-        return;
-      }
-
-      setStudyQueue(queue);
-      setCurrentCardIndex(0);
-      setIsAnswerRevealed(false);
-      setStudySessionFinished(false);
-      setStudySessionStats({ again: 0, hard: 0, good: 0, easy: 0, total: queue.length });
-      setCurrentSubject(subject);
-      setCurrentDeck(null);
-      setViewMode('study');
-    } catch {
-      showToast?.('Erro ao carregar estudo da disciplina.', 'error');
-    }
-  };
-
-  // Importação em Lote
-  const handleImportBatch = async () => {
-    if (!currentDeck || !batchInputText.trim()) return;
-
-    try {
-      setBatchImporting(true);
-      const lines = batchInputText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-      const parsedCards: Array<{ front: string; back: string }> = [];
-
-      for (const line of lines) {
-        let sep = ';';
-        if (line.includes('\t')) sep = '\t';
-        else if (line.includes('---')) sep = '---';
-        else if (line.includes(';')) sep = ';';
-        else if (line.includes('|')) sep = '|';
-
-        const parts = line.split(sep);
-        if (parts.length >= 2) {
-          const front = parts[0].trim();
-          const back = parts.slice(1).join(sep).trim();
-          if (front && back) {
-            parsedCards.push({ front, back });
-          }
-        }
-      }
-
-      if (parsedCards.length === 0) {
-        showToast?.('Nenhum cartão válido encontrado. Separe a pergunta e a resposta com ";" ou Tabulação.', 'error');
-        return;
-      }
-
-      const res = await apiFetch(`/api/flashcards/decks/${currentDeck.id}/cards/batch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cards: parsedCards }),
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        showToast?.(errData.message || 'Falha ao importar cartões em lote.', 'error');
-        return;
-      }
-
-      const data = await res.json();
-      showToast?.(`${data.count || parsedCards.length} flashcards importados com sucesso!`, 'success');
-      setIsBatchModalOpen(false);
-      setBatchInputText('');
-      void fetchCardsForDeck(currentDeck.id);
-      void fetchGlobalData();
-    } catch {
-      showToast?.('Erro de conexão ao importar cartões.', 'error');
-    } finally {
-      setBatchImporting(false);
-    }
-  };
-
-  // Exportação para CSV
-  const handleExportCsv = (deck: DeckWithStats) => {
-    if (cards.length === 0) {
-      showToast?.('Nenhum cartão para exportar.', 'info');
-      return;
-    }
-
-    const csvRows = ['Pergunta;Resposta;Status;IntervaloDias;Lapsos'];
-    for (const c of cards) {
-      const frontEsc = `"${(c.front || '').replace(/"/g, '""')}"`;
-      const backEsc = `"${(c.back || '').replace(/"/g, '""')}"`;
-      csvRows.push(`${frontEsc};${backEsc};${c.status};${c.intervalDays};${c.lapses}`);
-    }
-
-    const blob = new Blob(['\uFEFF' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `flashcards_${deck.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-    showToast?.('Arquivo CSV exportado com sucesso!', 'success');
-  };
-
-  // Exportação para JSON
-  const handleExportJson = (deck: DeckWithStats) => {
-    if (cards.length === 0) {
-      showToast?.('Nenhum cartão para exportar.', 'info');
-      return;
-    }
-
-    const exportData = {
-      deckName: deck.name,
-      exportedAt: new Date().toISOString(),
-      totalCards: cards.length,
-      cards: cards.map((c) => ({
-        front: c.front,
-        back: c.back,
-        frontImage: c.frontImage,
-        backImage: c.backImage,
-        status: c.status,
-        intervalDays: c.intervalDays,
-        easeFactor: c.easeFactor,
-        lapses: c.lapses,
-      })),
-    };
-
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `flashcards_${deck.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-    showToast?.('Backup JSON gerado!', 'success');
-  };
-
-  const handleRevealAnswer = useCallback(() => {
-    setIsAnswerRevealed(true);
-  }, []);
-
-  const handleRateCard = useCallback(
-    async (rating: 1 | 2 | 3 | 4) => {
-      if (!studyQueue[currentCardIndex]) return;
-
-      const currentCard = studyQueue[currentCardIndex];
-
-      try {
-        // Se NÃO estiver no modo maratona, persiste a revisão SM-2 no backend
-        if (!cramMode) {
-          void apiFetch(`/api/flashcards/cards/${currentCard.id}/review`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ rating }),
-          });
-        }
-
-        setStudySessionStats((prev) => ({
-          ...prev,
-          again: rating === 1 ? prev.again + 1 : prev.again,
-          hard: rating === 2 ? prev.hard + 1 : prev.hard,
-          good: rating === 3 ? prev.good + 1 : prev.good,
-          easy: rating === 4 ? prev.easy + 1 : prev.easy,
-        }));
-
-        // Se errou (rating 1), adiciona o cartão novamente ao final da fila para repetição na mesma sessão
-        let effectiveQueueLength = studyQueue.length;
-        if (rating === 1) {
-          effectiveQueueLength += 1;
-          setStudyQueue((prev) => [...prev, currentCard]);
-        }
-
-        if (currentCardIndex + 1 < effectiveQueueLength) {
-          setCurrentCardIndex((prev) => prev + 1);
-          setIsAnswerRevealed(false);
-        } else {
-          setStudySessionFinished(true);
-        }
-      } catch {
-        showToast?.('Erro ao registrar avaliação de estudo.', 'error');
-      }
-    },
-    [studyQueue, currentCardIndex, cramMode, showToast]
-  );
-
-  // Atalhos de teclado no modo estudo (Anki padrão)
-  useEffect(() => {
-    if (viewMode !== 'study' || studySessionFinished) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
-      if (!isAnswerRevealed) {
-        if (e.code === 'Space' || e.key === 'Enter') {
-          e.preventDefault();
-          handleRevealAnswer();
-        }
-      } else {
-        if (e.key === '1') {
-          e.preventDefault();
-          void handleRateCard(1);
-        } else if (e.key === '2') {
-          e.preventDefault();
-          void handleRateCard(2);
-        } else if (e.key === '3') {
-          e.preventDefault();
-          void handleRateCard(3);
-        } else if (e.key === '4') {
-          e.preventDefault();
-          void handleRateCard(4);
-        }
-      }
-
-      if (e.key === 'Escape') {
-        handleBackToDecks();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [viewMode, isAnswerRevealed, studySessionFinished, handleRevealAnswer, handleRateCard]);
-
-  // =========================================================================
-  // 🔍 FILTRAGEM DE ITENS
-  // =========================================================================
-
-  const filteredSubjects = useMemo(() => {
-    if (!searchQuery.trim()) return subjects;
-    const q = searchQuery.toLowerCase();
-    return subjects.filter((s) => s.name.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q));
+    const rows = Array.from(map.values());
+    if (!searchQuery.trim()) return rows;
+    return rows.filter((r) => r.name.toLowerCase().includes(searchQuery.toLowerCase().trim()));
   }, [subjects, searchQuery]);
 
-  const filteredDecks = useMemo(() => {
-    if (!searchQuery.trim()) return decks;
-    const q = searchQuery.toLowerCase();
-    return decks.filter((d) => d.name.toLowerCase().includes(q) || d.description?.toLowerCase().includes(q));
-  }, [decks, searchQuery]);
-
-  const filteredCards = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
-    return cards.filter((c) => {
-      const matchesSearch =
-        !searchQuery.trim() ||
-        c.front.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.back.toLowerCase().includes(searchQuery.toLowerCase());
-
-      let matchesFilter = true;
-      if (cardFilter === 'DUE') {
-        matchesFilter = c.nextReviewAt <= today;
-      } else if (cardFilter === 'LEECH') {
-        matchesFilter = c.lapses >= 4;
-      } else if (cardFilter !== 'ALL') {
-        matchesFilter = c.status === cardFilter;
-      }
-
-      return matchesSearch && matchesFilter;
-    });
-  }, [cards, searchQuery, cardFilter]);
+  const currentSubjectTopics = useMemo(() => {
+    if (!currentSubject) return [];
+    const found = OFFICIAL_CBMERJ_SUBJECTS.find(s => s.name.toLowerCase() === currentSubject.name.toLowerCase());
+    return found ? found.topics : ['Conceitos Básicos', 'Fórmulas e Leis', 'Questões Clássicas', 'Pegadinhas de Prova'];
+  }, [currentSubject]);
 
   // =========================================================================
-  // 🎨 RENDERIZAÇÃO DA INTERFACE
+  // 🎨 RENDERIZAÇÃO DA INTERFACE (ANKI AUTHENTIC & MINIMALISTA)
   // =========================================================================
 
   return (
-    <div className={`min-h-screen p-4 sm:p-6 lg:p-8 transition-colors duration-200 ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className={`min-h-screen py-4 px-3 sm:px-6 transition-colors font-sans ${isDark ? 'bg-[#18181b] text-zinc-100' : 'bg-[#f4f4f5] text-zinc-900'}`}>
+      <div className="max-w-5xl mx-auto space-y-5">
 
         {/* ------------------------------------------------------------- */}
-        {/* 🧭 BREADCRUMB & NAVEGAÇÃO SUPERIOR                            */}
+        {/* 🧭 NAVEGAÇÃO SUPERIOR ANKI (PRINT 3 & 5)                      */}
         {/* ------------------------------------------------------------- */}
-        {viewMode !== 'study' && (
-          <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-slate-800/60">
-            <nav className="flex items-center space-x-2 text-xs uppercase tracking-wider font-mono">
+        <div className="flex items-center justify-center border-b border-zinc-800/80 pb-3">
+          <nav className="inline-flex items-center gap-1 sm:gap-2 p-1 rounded-xl bg-zinc-900/90 border border-zinc-800 text-xs font-semibold">
+            <button
+              onClick={() => { setActiveNavTab('decks'); handleBackToAnkiMain(); }}
+              className={`px-3.5 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                activeNavTab === 'decks' && viewMode !== 'stats'
+                  ? 'bg-zinc-800 text-white shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+              }`}
+            >
+              Baralhos
+            </button>
+            <button
+              onClick={() => { setActiveNavTab('add'); handleOpenAddCardModal(); }}
+              className="px-3.5 py-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50 transition-colors cursor-pointer"
+            >
+              Adicionar
+            </button>
+            <button
+              onClick={() => { setActiveNavTab('stats'); setViewMode('stats'); }}
+              className={`px-3.5 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                viewMode === 'stats'
+                  ? 'bg-zinc-800 text-white shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+              }`}
+            >
+              Estatísticas
+            </button>
+            <button
+              onClick={() => void fetchGlobalData(true)}
+              disabled={isSyncing}
+              className="px-3.5 py-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Sincronizar com a nuvem"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-sky-400' : ''}`} />
+              <span>Sincronizar</span>
+            </button>
+          </nav>
+        </div>
+
+        {/* ============================================================= */}
+        {/* 📊 PAINEL DE ESTATÍSTICAS E HEATMAP ANKI                       */}
+        {/* ============================================================= */}
+        {viewMode === 'stats' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
+              <h2 className="text-base font-bold flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-sky-400" />
+                <span>Estatísticas de Retenção & Repetição Espaçada</span>
+              </h2>
               <button
-                onClick={handleBackToSubjects}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all ${
-                  viewMode === 'subjects'
-                    ? 'bg-red-500/15 text-red-400 font-bold border border-red-500/30 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 cursor-pointer'
-                }`}
+                onClick={() => setViewMode('anki_main')}
+                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition-colors cursor-pointer"
               >
-                <Layers3 className="w-4 h-4 text-red-500" />
-                <span>Disciplinas</span>
+                ← Voltar aos Baralhos
               </button>
+            </div>
 
-              {currentSubject && (
-                <>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
-                  <button
-                    onClick={handleBackToDecks}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all ${
-                      viewMode === 'decks'
-                        ? 'bg-red-500/15 text-red-400 font-bold border border-red-500/30 shadow-sm'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 cursor-pointer'
-                    }`}
+            {forecastStats && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-center">
+                  <p className="text-xs text-zinc-400">Hoje</p>
+                  <p className="text-xl font-bold text-sky-400 font-mono mt-1">{forecastStats.dueToday}</p>
+                </div>
+                <div className="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-center">
+                  <p className="text-xs text-zinc-400">Amanhã</p>
+                  <p className="text-xl font-bold text-amber-400 font-mono mt-1">{forecastStats.dueTomorrow}</p>
+                </div>
+                <div className="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-center">
+                  <p className="text-xs text-zinc-400">Próximos 7 dias</p>
+                  <p className="text-xl font-bold text-emerald-400 font-mono mt-1">{forecastStats.dueNext7Days}</p>
+                </div>
+                <div className="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-center">
+                  <p className="text-xs text-zinc-400">Próximos 30 dias</p>
+                  <p className="text-xl font-bold text-indigo-400 font-mono mt-1">{forecastStats.dueNext30Days}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Heatmap */}
+            <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800 space-y-2">
+              <div className="flex items-center justify-between text-xs text-zinc-400">
+                <span>Constância de Estudo Diário (Últimos 30 Dias)</span>
+                <span>{heatmapStats.reduce((acc, curr) => acc + curr.count, 0)} revisões registradas</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 p-2 rounded-lg bg-zinc-950 border border-zinc-800/80">
+                {Array.from({ length: 30 }).map((_, i) => {
+                  const d = new Date();
+                  d.setDate(d.getDate() - (29 - i));
+                  const dateStr = d.toISOString().split('T')[0];
+                  const found = heatmapStats.find((h) => h.date === dateStr);
+                  const count = found?.count || 0;
+                  return (
+                    <div
+                      key={dateStr}
+                      title={`${dateStr}: ${count} cartões revisados`}
+                      className={`w-3.5 h-3.5 rounded-sm transition-all ${
+                        count === 0
+                          ? 'bg-zinc-800/60'
+                          : count < 5
+                          ? 'bg-emerald-600/60'
+                          : count < 15
+                          ? 'bg-emerald-500'
+                          : 'bg-emerald-400 shadow-sm shadow-emerald-500/40'
+                      }`}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================= */}
+        {/* 📚 VISÃO 1: TABELA GERAL ANKI DE BARALHOS (PRINT 3)            */}
+        {/* ============================================================= */}
+        {viewMode === 'anki_main' && (
+          <div className="space-y-4">
+            {/* Gamification / Banner Superior Anki */}
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800/90 shadow-sm">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                {/* User Level */}
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-sky-500/10 border border-sky-500/30 flex items-center justify-center font-bold font-mono text-sky-400">
+                    1
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-zinc-100">Anki Starter</p>
+                    <p className="text-[11px] text-zinc-400 font-mono">Cadete CBMERJ</p>
+                  </div>
+                </div>
+
+                {/* Sequência */}
+                <div className="border-t md:border-t-0 md:border-l border-zinc-800 pt-2 md:pt-0 md:pl-4">
+                  <p className="text-[11px] font-semibold text-zinc-400">Sequência</p>
+                  <p className="text-sm font-bold font-mono text-zinc-100 mt-0.5">0 Dias</p>
+                </div>
+
+                {/* Desafio Diário */}
+                <div className="border-t md:border-t-0 md:border-l border-zinc-800 pt-2 md:pt-0 md:pl-4">
+                  <p className="text-[11px] font-semibold text-zinc-400">Desafio diário</p>
+                  <p className="text-xs text-zinc-300 mt-0.5 flex items-center gap-1">
+                    <span>Aprenda 10 cartões novos hoje.</span>
+                  </p>
+                </div>
+
+                {/* Próximo Nível / XP */}
+                <div className="border-t md:border-t-0 md:border-l border-zinc-800 pt-2 md:pt-0 md:pl-4">
+                  <div className="flex justify-between text-[11px] font-mono text-zinc-400 mb-1">
+                    <span>Próximo nível</span>
+                    <span>restantes: 60 XP</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <div className="bg-sky-500 h-full w-[40%] rounded-full" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Informações: Plano de Estudos & Bizu do Dia */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
+                <div className="flex items-center justify-between text-xs font-bold text-zinc-300 mb-1">
+                  <span>Plano de estudos</span>
+                  <span className="text-[11px] font-mono text-zinc-500 font-normal">Dom 20.09.26</span>
+                </div>
+                <p className="text-xs text-zinc-400">
+                  Nenhum plano de estudos configurado ainda.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
+                <div className="flex items-center justify-between text-xs font-bold text-zinc-300 mb-1">
+                  <span>Fato geral do dia</span>
+                  <span className="text-[11px] font-mono text-sky-400 font-normal">💡 Bizu</span>
+                </div>
+                <p className="text-xs text-zinc-400 line-clamp-2">
+                  Os tubarões existiram antes das árvores — cerca de 50 milhões de anos antes.
+                </p>
+              </div>
+            </div>
+
+            {/* TABELA DE BARALHOS / MATÉRIAS ANKI (PRINT 3) */}
+            <div className="rounded-2xl bg-zinc-900/95 border border-zinc-800 overflow-hidden shadow-sm">
+              <div className="grid grid-cols-12 px-4 py-2.5 bg-zinc-950/80 border-b border-zinc-800 text-xs font-bold text-zinc-400 font-mono tracking-wider">
+                <div className="col-span-6 sm:col-span-7">Baralho</div>
+                <div className="col-span-2 sm:col-span-1 text-center text-sky-400">Novo</div>
+                <div className="col-span-2 sm:col-span-2 text-center text-amber-500">Aprender</div>
+                <div className="col-span-2 sm:col-span-2 text-center text-emerald-400">Revisar</div>
+              </div>
+
+              <div className="divide-y divide-zinc-800/60">
+                {ankiDeckRows.map((row) => (
+                  <div
+                    key={row.name}
+                    onClick={() => void handleOpenSubject(row.name, row.subject)}
+                    className="grid grid-cols-12 px-4 py-3 items-center hover:bg-zinc-800/50 transition-colors cursor-pointer group text-sm"
                   >
-                    <span>{currentSubject.name}</span>
-                  </button>
-                </>
-              )}
+                    <div className="col-span-6 sm:col-span-7 font-medium text-zinc-200 group-hover:text-white flex items-center gap-2">
+                      <ChevronRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-zinc-300 transition-transform group-hover:translate-x-0.5" />
+                      <span>{row.name}</span>
+                    </div>
+                    <div className="col-span-2 sm:col-span-1 text-center font-mono text-xs font-bold text-sky-400">
+                      {row.newCount}
+                    </div>
+                    <div className="col-span-2 sm:col-span-2 text-center font-mono text-xs font-bold text-amber-500">
+                      {row.learnCount}
+                    </div>
+                    <div className="col-span-2 sm:col-span-2 text-center font-mono text-xs font-bold text-emerald-400 flex items-center justify-center gap-2">
+                      <span>{row.dueCount}</span>
+                      <Settings className="w-3.5 h-3.5 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
 
-              {currentDeck && (
-                <>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
-                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-500/15 text-red-400 font-bold border border-red-500/30 shadow-sm">
-                    {currentDeck.name}
-                  </span>
-                </>
-              )}
-            </nav>
+            {/* Estatísticas Inferiores Anki */}
+            <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800/80">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                <div>
+                  <p className="text-[11px] text-zinc-400 font-semibold mb-1">Consistência</p>
+                  <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden max-w-[120px] mx-auto">
+                    <div className="bg-sky-500 h-full w-[20%]" />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[11px] text-zinc-400 font-semibold mb-1">Eficiência</p>
+                  <p className="text-xs font-mono text-zinc-300">Normal</p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-zinc-400 font-semibold mb-1">Retenção</p>
+                  <p className="text-sm font-bold font-mono text-zinc-100">0%</p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-zinc-400 font-semibold mb-1">Novos cartões</p>
+                  <p className="text-sm font-bold font-mono text-zinc-100">0%</p>
+                </div>
+              </div>
+              <p className="text-center text-xs font-mono text-zinc-500 mt-3 pt-3 border-t border-zinc-800/60">
+                Estudado(s) 0 cartão em 0 segundo hoje (0s/card)
+              </p>
+            </div>
 
-            {/* Ações Globais Rápidas */}
-            <div className="flex flex-wrap items-center gap-2">
+            {/* Ações na Base (Estilo Anki) */}
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
               <button
                 onClick={handleOpenAddCardModal}
-                className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-100 border border-slate-700/80 hover:border-slate-600 transition-all shadow-md cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                title="Criar um flashcard manualmente a qualquer momento"
+                className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-xs font-semibold text-zinc-200 transition-colors cursor-pointer"
               >
-                <PlusCircle className="w-4 h-4 text-red-400" />
-                <span>+ Novo Flashcard</span>
+                + Adicionar Flashcard
               </button>
+              <button
+                onClick={() => {
+                  setSubjectFormName('');
+                  setSubjectFormDesc('');
+                  setEditingSubject(null);
+                  setIsSubjectModalOpen(true);
+                }}
+                className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-xs font-semibold text-zinc-200 transition-colors cursor-pointer"
+              >
+                Criar Baralho
+              </button>
+              <button
+                onClick={() => setIsBatchModalOpen(true)}
+                className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-xs font-semibold text-zinc-200 transition-colors cursor-pointer"
+              >
+                Importar arquivo
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================= */}
+        {/* 📖 VISÃO 2: MATÉRIA COM IA NO TOPO E RESOLUÇÃO EMBAIXO        */}
+        {/* ============================================================= */}
+        {viewMode === 'subject_detail' && currentSubject && (
+          <div className="space-y-5">
+            {/* Barra de Retorno da Matéria */}
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleBackToAnkiMain}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-zinc-400 hover:text-white px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Baralhos</span>
+                </button>
+                <span className="text-zinc-600 font-mono">/</span>
+                <span className="font-bold text-sm text-zinc-100">{currentSubject.name}</span>
+                <span className="text-xs font-mono text-zinc-500">({cards.length} flashcards)</span>
+              </div>
 
               <button
-                onClick={handleOpenAiGenerator}
-                className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-red-600/20 via-amber-600/20 to-indigo-600/20 border border-red-500/40 text-amber-300 hover:text-white hover:border-red-500/60 transition-all shadow-md backdrop-blur-md cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                onClick={handleOpenAddCardModal}
+                className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-semibold text-zinc-200 transition-colors flex items-center gap-1.5 cursor-pointer"
               >
-                <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
-                <span>Gerar com IA</span>
+                <PlusCircle className="w-3.5 h-3.5 text-sky-400" />
+                <span>+ Novo Card</span>
               </button>
+            </div>
 
-              {viewMode === 'subjects' && (
-                <button
-                  onClick={handleOpenCreateSubject}
-                  className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white transition-all shadow-lg shadow-red-950/40 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                >
-                  <FolderPlus className="w-4 h-4" />
-                  <span>+ Nova Disciplina</span>
-                </button>
-              )}
-
-              {viewMode === 'decks' && (
+            {/* ----------------------------------------------------------- */}
+            {/* ⚡ PARTE DE CIMA: GERADOR DE +20 FLASHCARDS POR IA           */}
+            {/* ----------------------------------------------------------- */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/90 border border-zinc-800 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  {currentSubject && currentSubject.cardCount > 0 && (
-                    <button
-                      onClick={() => handleStartSubjectStudySession(currentSubject)}
-                      className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-md shadow-emerald-950/30 cursor-pointer"
-                      title="Estudar todos os cartões desta matéria agendados para hoje"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      <span>Estudar Toda a Matéria</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={handleOpenCreateDeck}
-                    className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white transition-all shadow-lg shadow-red-950/40 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    <span>+ Novo Baralho</span>
-                  </button>
-                </div>
-              )}
-
-              {viewMode === 'cards' && (
-                <div className="flex flex-wrap items-center gap-2">
-                  {currentDeck && currentDeck.cardCount > 0 && (
-                    <>
-                      <button
-                        onClick={() => handleStartStudySession(currentDeck, false)}
-                        className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-md shadow-emerald-950/30 cursor-pointer"
-                        title="Revisar cartões de hoje com repetição espaçada SM-2"
-                      >
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                        <span>Estudar Hoje</span>
-                      </button>
-                      <button
-                        onClick={() => handleStartStudySession(currentDeck, true)}
-                        className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl bg-amber-600/90 hover:bg-amber-500 text-white transition-all shadow-md cursor-pointer"
-                        title="Modo Maratona: treine todos os cards do baralho sem alterar seus prazos de revisão"
-                      >
-                        <Zap className="w-3.5 h-3.5 fill-current" />
-                        <span>Treino Livre</span>
-                      </button>
-                      <button
-                        onClick={() => handleExportCsv(currentDeck)}
-                        className="p-2 rounded-xl border border-slate-700/80 bg-slate-800/60 hover:bg-slate-700 text-slate-300 hover:text-white transition-all"
-                        title="Exportar baralho para planilha CSV"
-                      >
-                        <Download className="w-4 h-4" />
-                      </button>
-                    </>
-                  )}
-                  <button
-                    onClick={() => setIsBatchModalOpen(true)}
-                    className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all shadow-sm cursor-pointer"
-                    title="Importar múltiplos cartões colando texto"
-                  >
-                    <UploadCloud className="w-4 h-4" />
-                    <span>Importar Lote</span>
-                  </button>
-                  <button
-                    onClick={handleOpenAddCardModal}
-                    className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white transition-all shadow-lg shadow-red-950/40 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    <span>+ Novo Card</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ------------------------------------------------------------- */}
-        {/* 📊 BARRA DE ESTATÍSTICAS E RESUMO                            */}
-        {/* ------------------------------------------------------------- */}
-        {viewMode !== 'study' && globalStats && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-            <div className={`p-4 rounded-2xl border flex items-center gap-3.5 transition-all duration-200 ${isDark ? 'bg-slate-900/60 border-slate-800/80 backdrop-blur-md hover:border-blue-500/30 hover:bg-slate-900/80 shadow-md' : 'bg-white border-slate-200 shadow-sm'}`}>
-              <div className="p-3 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20 shadow-sm">
-                <Folder className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-mono font-medium">Disciplinas</p>
-                <p className="text-2xl font-black font-mono tracking-tight text-slate-100">{globalStats.totalSubjects}</p>
-              </div>
-            </div>
-
-            <div className={`p-4 rounded-2xl border flex items-center gap-3.5 transition-all duration-200 ${isDark ? 'bg-slate-900/60 border-slate-800/80 backdrop-blur-md hover:border-purple-500/30 hover:bg-slate-900/80 shadow-md' : 'bg-white border-slate-200 shadow-sm'}`}>
-              <div className="p-3 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20 shadow-sm">
-                <Layers className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-mono font-medium">Baralhos</p>
-                <p className="text-2xl font-black font-mono tracking-tight text-slate-100">{globalStats.totalDecks}</p>
-              </div>
-            </div>
-
-            <div className={`p-4 rounded-2xl border flex items-center gap-3.5 transition-all duration-200 ${isDark ? 'bg-slate-900/60 border-slate-800/80 backdrop-blur-md hover:border-indigo-500/30 hover:bg-slate-900/80 shadow-md' : 'bg-white border-slate-200 shadow-sm'}`}>
-              <div className="p-3 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-sm">
-                <Layers3 className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-mono font-medium">Flashcards</p>
-                <p className="text-2xl font-black font-mono tracking-tight text-slate-100">{globalStats.totalCards}</p>
-              </div>
-            </div>
-
-            <div className={`p-4 rounded-2xl border flex items-center gap-3.5 transition-all duration-200 ${isDark ? 'bg-gradient-to-br from-red-950/30 via-slate-900/60 to-slate-900/80 border-red-500/35 backdrop-blur-md shadow-lg shadow-red-950/20 hover:border-red-500/50' : 'bg-red-50 border-red-200 shadow-sm'}`}>
-              <div className="p-3 rounded-xl bg-red-500/20 text-red-400 border border-red-500/30 shadow-sm">
-                <Flame className="w-5 h-5 animate-pulse text-red-500" />
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-red-400 font-mono font-medium">Para Revisar Hoje</p>
-                <p className="text-2xl font-black font-mono tracking-tight text-red-500">{globalStats.dueToday}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ------------------------------------------------------------- */}
-        {/* 📈 PREVISÃO DE REVISÕES & HEATMAP DE CONSTÂNCIA               */}
-        {/* ------------------------------------------------------------- */}
-        {viewMode !== 'study' && (forecastStats || heatmapStats.length > 0) && (
-          <div className={`p-4 rounded-2xl border space-y-4 ${isDark ? 'bg-slate-900/40 border-slate-800/80' : 'bg-white border-slate-200'}`}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-red-500" />
-                <span className="text-xs font-bold tracking-wide font-mono uppercase">Previsão de Carga & Constância</span>
-              </div>
-              {forecastStats?.leechCount ? (
-                <button
-                  onClick={() => setCardFilter('LEECH')}
-                  className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 transition-colors cursor-pointer"
-                  title="Clique para filtrar apenas cartões com alto índice de erro"
-                >
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{forecastStats.leechCount} {forecastStats.leechCount === 1 ? 'cartão sanguessuga (erros frequentes)' : 'cartões sanguessugas (erros frequentes)'}</span>
-                </button>
-              ) : null}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-              {/* Previsão de Dias */}
-              {forecastStats && (
-                <div className="space-y-2">
-                  <p className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Vencimento de Revisões</p>
-                  <div className="grid grid-cols-4 gap-2 text-center font-mono">
-                    <div className="p-2 rounded-xl bg-red-500/10 border border-red-500/20">
-                      <p className="text-base font-bold text-red-400">{forecastStats.dueToday}</p>
-                      <p className="text-[10px] text-slate-400">Hoje</p>
-                    </div>
-                    <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                      <p className="text-base font-bold text-amber-400">{forecastStats.dueTomorrow}</p>
-                      <p className="text-[10px] text-slate-400">Amanhã</p>
-                    </div>
-                    <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20">
-                      <p className="text-base font-bold text-blue-400">{forecastStats.dueNext7Days}</p>
-                      <p className="text-[10px] text-slate-400">7 Dias</p>
-                    </div>
-                    <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20">
-                      <p className="text-base font-bold text-purple-400">{forecastStats.dueNext30Days}</p>
-                      <p className="text-[10px] text-slate-400">30 Dias</p>
-                    </div>
+                  <div className="p-1.5 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                    <Sparkles className="w-4 h-4" />
                   </div>
-                </div>
-              )}
-
-              {/* Heatmap de Constância dos Últimos 30 Dias */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 uppercase tracking-wider">
-                  <span>Histórico de Revisões (Últimos 30 Dias)</span>
-                  <span className="text-slate-500 font-normal">
-                    {heatmapStats.reduce((acc, curr) => acc + curr.count, 0)} concluídas
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-slate-950/40 border border-slate-800/60 items-center justify-start min-h-[44px]">
-                  {Array.from({ length: 30 }).map((_, i) => {
-                    const d = new Date();
-                    d.setDate(d.getDate() - (29 - i));
-                    const dateStr = d.toISOString().split('T')[0];
-                    const found = heatmapStats.find((h) => h.date === dateStr);
-                    const count = found?.count || 0;
-                    return (
-                      <div
-                        key={dateStr}
-                        title={`${dateStr}: ${count} ${count === 1 ? 'revisão' : 'revisões'}`}
-                        className={`w-3.5 h-3.5 rounded-sm transition-all cursor-pointer ${
-                          count === 0
-                            ? isDark
-                              ? 'bg-slate-800/60 hover:bg-slate-700'
-                              : 'bg-slate-200 hover:bg-slate-300'
-                            : count < 5
-                            ? 'bg-emerald-600/50 hover:bg-emerald-500/60'
-                            : count < 15
-                            ? 'bg-emerald-500 hover:bg-emerald-400'
-                            : 'bg-emerald-400 shadow-sm shadow-emerald-500/50'
-                        }`}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ------------------------------------------------------------- */}
-        {/* 🔍 BARRA DE PESQUISA                                          */}
-        {/* ------------------------------------------------------------- */}
-        {viewMode !== 'study' && (
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-            <input
-              type="text"
-              placeholder={
-                viewMode === 'subjects'
-                  ? 'Buscar por disciplina...'
-                  : viewMode === 'decks'
-                  ? `Buscar baralho em ${currentSubject?.name || 'tudo'}...`
-                  : 'Buscar flashcards por pergunta ou resposta...'
-              }
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={`w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border transition-all ${
-                isDark
-                  ? 'bg-slate-900/60 border-slate-800 text-slate-100 focus:border-red-500 focus:ring-1 focus:ring-red-500'
-                  : 'bg-white border-slate-200 text-slate-900 focus:border-red-500 focus:ring-1 focus:ring-red-500'
-              }`}
-            />
-          </div>
-        )}
-
-        {/* ============================================================= */}
-        {/* 🏛️ NÍVEL 1: LISTAGEM DE DISCIPLINAS                           */}
-        {/* ============================================================= */}
-        {viewMode === 'subjects' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold flex items-center gap-2">
-                <BookOpen className="w-5 h-5 text-red-500" />
-                <span>Disciplinas de Estudo</span>
-                <span className="text-xs font-mono font-normal text-slate-500">({filteredSubjects.length})</span>
-              </h2>
-            </div>
-
-            {loading ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[1, 2, 3, 4, 5, 6].map((idx) => (
-                  <div key={idx} className={`h-36 rounded-2xl border animate-pulse ${isDark ? 'bg-slate-900/40 border-slate-800/60' : 'bg-slate-100 border-slate-200'}`} />
-                ))}
-              </div>
-            ) : filteredSubjects.length === 0 ? (
-              <div className={`p-10 sm:p-14 text-center rounded-3xl border relative overflow-hidden transition-all duration-300 ${isDark ? 'bg-gradient-to-b from-slate-900/80 via-slate-900/60 to-slate-950/90 border-slate-800/80 shadow-2xl backdrop-blur-md' : 'bg-white border-slate-200 shadow-xl'}`}>
-                {/* Ambient background glow */}
-                <div className="absolute -top-24 -left-24 w-64 h-64 bg-red-600/10 rounded-full blur-3xl pointer-events-none" />
-                <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
-
-                <div className="relative z-10 max-w-lg mx-auto flex flex-col items-center">
-                  <div className="w-20 h-20 mb-5 rounded-2xl bg-gradient-to-br from-red-500/20 via-red-600/10 to-slate-900/80 border border-red-500/30 flex items-center justify-center text-red-400 shadow-xl shadow-red-950/40">
-                    <FolderPlus className="w-10 h-10" />
-                  </div>
-
-                  <h3 className="text-xl font-extrabold tracking-tight mb-2 text-slate-100">
-                    Seu Caderno de Erros & Flashcards está limpo
-                  </h3>
-                  <p className="text-xs sm:text-sm text-slate-400 mb-8 leading-relaxed">
-                    Nenhuma disciplina cadastrada ainda. Crie suas matérias personalizadas do edital CFO CBMERJ para organizar baralhos e praticar repetição espaçada (SM-2).
-                  </p>
-
-                  <div className="flex flex-wrap items-center justify-center gap-3">
-                    <button
-                      onClick={handleOpenAddCardModal}
-                      className="px-5 py-3 text-xs sm:text-sm font-bold rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white shadow-lg shadow-red-950/50 transition-all transform hover:-translate-y-0.5 active:translate-y-0 flex items-center gap-2 cursor-pointer"
-                    >
-                      <PlusCircle className="w-4 h-4" />
-                      <span>+ Criar Primeiro Flashcard</span>
-                    </button>
-
-                    <button
-                      onClick={handleOpenCreateSubject}
-                      className="px-4 py-3 text-xs sm:text-sm font-semibold rounded-xl bg-slate-800/90 hover:bg-slate-800 text-slate-200 border border-slate-700/80 hover:border-slate-600 transition-all flex items-center gap-2 cursor-pointer"
-                    >
-                      <FolderPlus className="w-4 h-4 text-slate-400" />
-                      <span>+ Criar Disciplina</span>
-                    </button>
-
-                    <button
-                      onClick={handleOpenAiGenerator}
-                      className="px-4 py-3 text-xs sm:text-sm font-semibold rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-200 border border-slate-700/80 hover:border-slate-600 transition-all flex items-center gap-2 cursor-pointer"
-                    >
-                      <Sparkles className="w-4 h-4 text-amber-400" />
-                      <span>Gerar com IA</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredSubjects.map((subject) => (
-                  <div
-                    key={subject.id}
-                    onClick={() => handleOpenSubject(subject)}
-                    className={`group relative p-5 rounded-2xl border transition-all duration-200 cursor-pointer flex flex-col justify-between ${
-                      isDark
-                        ? 'bg-slate-900/50 border-slate-800/80 hover:border-red-500/50 hover:bg-slate-900/80 hover:shadow-lg hover:shadow-red-950/20'
-                        : 'bg-white border-slate-200 hover:border-red-400 hover:shadow-md'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-2 mb-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm bg-red-500/10 text-red-400 border border-red-500/20`}>
-                            {subject.name.slice(0, 2).toUpperCase()}
-                          </div>
-                          <div>
-                            <h3 className="font-bold text-sm group-hover:text-red-400 transition-colors line-clamp-1">
-                              {subject.name}
-                            </h3>
-                            <p className="text-[11px] text-slate-400 line-clamp-1">
-                              {subject.description || 'Sem descrição cadastrada'}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Botões de Ação na Disciplina */}
-                        <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={(e) => handleOpenEditSubject(subject, e)}
-                            title="Editar Disciplina"
-                            className="p-1 rounded hover:bg-slate-700/40 text-slate-400 hover:text-slate-200"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={(e) => handlePromptDeleteSubject(subject, e)}
-                            title="Excluir Disciplina"
-                            className="p-1 rounded hover:bg-red-500/20 text-slate-400 hover:text-red-400"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="pt-3 border-t border-slate-800/40 flex items-center justify-between text-xs font-mono">
-                      <div className="flex items-center gap-3 text-slate-400">
-                        <span>{subject.deckCount} {subject.deckCount === 1 ? 'baralho' : 'baralhos'}</span>
-                        <span>•</span>
-                        <span>{subject.cardCount} cards</span>
-                      </div>
-
-                      {subject.dueCount > 0 ? (
-                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">
-                          <Flame className="w-3 h-3" />
-                          {subject.dueCount} para revisar
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-emerald-400 flex items-center gap-1">
-                          <Check className="w-3 h-3" /> Em dia
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ============================================================= */}
-        {/* 🗃️ NÍVEL 2: BARALHOS / TÓPICOS DA DISCIPLINA                  */}
-        {/* ============================================================= */}
-        {viewMode === 'decks' && currentSubject && (
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border bg-slate-900/30 border-slate-800/80">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleBackToSubjects}
-                  className="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 transition-colors"
-                  title="Voltar às Disciplinas"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-                <div>
-                  <h2 className="text-lg font-bold">{currentSubject.name}</h2>
-                  <p className="text-xs text-slate-400">
-                    {currentSubject.description || 'Baralhos e tópicos de memorização ativa'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleOpenCreateDeck}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>Novo Baralho</span>
-                </button>
-              </div>
-            </div>
-
-            {filteredDecks.length === 0 ? (
-              <div className={`p-12 text-center rounded-2xl border ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
-                <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center">
-                  <Layers className="w-7 h-7" />
-                </div>
-                <h3 className="text-sm font-bold mb-1">Nenhum baralho cadastrado em {currentSubject.name}</h3>
-                <p className="text-xs text-slate-400 mb-5 max-w-sm mx-auto">
-                  Crie seu primeiro baralho de tópicos ou gere uma bateria de 20 flashcards com inteligência artificial.
-                </p>
-                <div className="flex flex-wrap justify-center gap-3">
-                  <button
-                    onClick={handleOpenCreateDeck}
-                    className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors"
-                  >
-                    Criar Baralho Manual
-                  </button>
-                  <button
-                    onClick={handleOpenAiGenerator}
-                    className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-indigo-600/30 border border-indigo-500/40 hover:bg-indigo-600/50 text-indigo-300 transition-colors flex items-center gap-1.5"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Gerar 20 Cards com IA
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredDecks.map((deck) => (
-                  <div
-                    key={deck.id}
-                    onClick={() => handleOpenDeck(deck)}
-                    className={`group p-5 rounded-2xl border transition-all duration-200 cursor-pointer flex flex-col justify-between ${
-                      isDark
-                        ? 'bg-slate-900/50 border-slate-800/80 hover:border-red-500/40 hover:bg-slate-900/80 hover:shadow-lg'
-                        : 'bg-white border-slate-200 hover:border-red-400 hover:shadow-md'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <h3 className="font-bold text-sm group-hover:text-red-400 transition-colors line-clamp-1">
-                          {deck.name}
-                        </h3>
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={(e) => handleOpenEditDeck(deck, e)}
-                            title="Editar Baralho"
-                            className="p-1 rounded hover:bg-slate-700/40 text-slate-400 hover:text-slate-200"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={(e) => handlePromptDeleteDeck(deck, e)}
-                            title="Excluir Baralho"
-                            className="p-1 rounded hover:bg-red-500/20 text-slate-400 hover:text-red-400"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                      <p className="text-xs text-slate-400 line-clamp-2 mb-4">
-                        {deck.description || 'Sem descrição específica para este baralho.'}
-                      </p>
-                    </div>
-
-                    <div className="space-y-3 pt-3 border-t border-slate-800/40">
-                      {/* Progresso de retenção */}
-                      <div className="grid grid-cols-4 gap-1 text-center text-[10px] font-mono">
-                        <div className="p-1 rounded bg-blue-500/10 text-blue-400">
-                          <p className="font-bold">{deck.newCount}</p>
-                          <p className="text-[9px] text-slate-500">Novos</p>
-                        </div>
-                        <div className="p-1 rounded bg-amber-500/10 text-amber-400">
-                          <p className="font-bold">{deck.learningCount}</p>
-                          <p className="text-[9px] text-slate-500">Aprender</p>
-                        </div>
-                        <div className="p-1 rounded bg-purple-500/10 text-purple-400">
-                          <p className="font-bold">{deck.reviewCount}</p>
-                          <p className="text-[9px] text-slate-500">Revisão</p>
-                        </div>
-                        <div className="p-1 rounded bg-emerald-500/10 text-emerald-400">
-                          <p className="font-bold">{deck.masteredCount}</p>
-                          <p className="text-[9px] text-slate-500">Fixado</p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between pt-1">
-                        <span className="text-xs font-mono text-slate-400">
-                          {deck.cardCount} cards
-                        </span>
-
-                        {deck.cardCount > 0 ? (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void handleStartStudySession(deck);
-                            }}
-                            className="flex items-center gap-1 px-3 py-1 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
-                          >
-                            <Play className="w-3 h-3 fill-current" />
-                            <span>Estudar {deck.dueCount > 0 ? `(${deck.dueCount})` : ''}</span>
-                          </button>
-                        ) : (
-                          <span className="text-xs text-slate-500 italic">Vazio</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ============================================================= */}
-        {/* 🃏 NÍVEL 3: GERENCIAMENTO DE CARDS DO BARALHO                  */}
-        {/* ============================================================= */}
-        {viewMode === 'cards' && currentDeck && (
-          <div className="space-y-4">
-            {/* Cabeçalho do Baralho */}
-            <div className="p-5 rounded-2xl border bg-slate-900/30 border-slate-800/80 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleBackToDecks}
-                    className="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 transition-colors"
-                    title="Voltar aos Baralhos"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                  </button>
                   <div>
-                    <h2 className="text-lg font-bold flex items-center gap-2">
-                      <span>{currentDeck.name}</span>
-                      <span className="text-xs font-normal text-slate-400 font-mono">({cards.length} cards)</span>
-                    </h2>
-                    <p className="text-xs text-slate-400">
-                      Disciplina: <span className="font-semibold text-slate-300">{currentSubject?.name || currentDeck.subjectName}</span>
+                    <h3 className="text-sm font-bold text-zinc-100">
+                      Gerar +20 Flashcards com IA em {currentSubject.name}
+                    </h3>
+                    <p className="text-[11px] text-zinc-400">
+                      Gere instantaneamente uma bateria com repetição espaçada focada no edital CFO CBMERJ.
                     </p>
                   </div>
                 </div>
-
-                <div className="flex items-center gap-2">
-                  {cards.length > 0 && (
-                    <button
-                      onClick={() => handleStartStudySession(currentDeck)}
-                      className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      <span>Estudar Agora</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={handleOpenAddCardModal}
-                    className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    <span>Novo Card</span>
-                  </button>
-                </div>
               </div>
 
-              {/* Filtro por estado do cartão */}
-              <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-800/40">
+              {/* Tópicos Sugeridos para 1 Clique */}
+              {currentSubjectTopics.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] font-mono uppercase text-zinc-500 mr-1">Tópicos:</span>
+                  {currentSubjectTopics.map((topic) => (
+                    <button
+                      key={topic}
+                      type="button"
+                      onClick={() => setAiTopicInput(topic)}
+                      className={`text-[11px] px-2.5 py-1 rounded-lg border transition-colors cursor-pointer ${
+                        aiTopicInput === topic
+                          ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 font-semibold'
+                          : 'bg-zinc-950/80 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-zinc-200'
+                      }`}
+                    >
+                      {topic}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Input e Disparo do Gerador */}
+              <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                <input
+                  type="text"
+                  placeholder={`Digite o assunto ou tópico específico de ${currentSubject.name}...`}
+                  value={aiTopicInput}
+                  onChange={(e) => setAiTopicInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !isAiGenerating) void handleGenerate20CardsWithAi();
+                  }}
+                  className="flex-1 px-3.5 py-2 text-xs rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-sky-500 transition-colors"
+                />
                 <button
-                  onClick={() => setCardFilter('ALL')}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                    cardFilter === 'ALL'
-                      ? 'bg-slate-700 text-white font-bold'
-                      : 'bg-slate-800/40 text-slate-400 hover:text-slate-200'
-                  }`}
+                  type="button"
+                  onClick={handleGenerate20CardsWithAi}
+                  disabled={isAiGenerating}
+                  className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
-                  Todos ({cards.length})
-                </button>
-                <button
-                  onClick={() => setCardFilter('DUE')}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${
-                    cardFilter === 'DUE'
-                      ? 'bg-red-600 text-white font-bold'
-                      : 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
-                  }`}
-                >
-                  <Flame className="w-3 h-3" />
-                  Para Revisar
-                </button>
-                <button
-                  onClick={() => setCardFilter('new')}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                    cardFilter === 'new'
-                      ? 'bg-blue-600 text-white font-bold'
-                      : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20'
-                  }`}
-                >
-                  Novos
-                </button>
-                <button
-                  onClick={() => setCardFilter('learning')}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                    cardFilter === 'learning'
-                      ? 'bg-amber-600 text-white font-bold'
-                      : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
-                  }`}
-                >
-                  Aprendendo
-                </button>
-                <button
-                  onClick={() => setCardFilter('review')}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                    cardFilter === 'review'
-                      ? 'bg-purple-600 text-white font-bold'
-                      : 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
-                  }`}
-                >
-                  Revisão
-                </button>
-                <button
-                  onClick={() => setCardFilter('mastered')}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                    cardFilter === 'mastered'
-                      ? 'bg-emerald-600 text-white font-bold'
-                      : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
-                  }`}
-                >
-                  Dominados
-                </button>
-                <button
-                  onClick={() => setCardFilter('LEECH')}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${
-                    cardFilter === 'LEECH'
-                      ? 'bg-rose-600 text-white font-bold'
-                      : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20'
-                  }`}
-                  title="Cartões com 4 ou mais erros"
-                >
-                  <AlertTriangle className="w-3 h-3" />
-                  <span>Sanguessugas</span>
+                  <Sparkles className={`w-3.5 h-3.5 ${isAiGenerating ? 'animate-spin' : ''}`} />
+                  <span>{isAiGenerating ? 'Gerando 20 flashcards...' : 'Gerar +20 Flashcards por IA'}</span>
                 </button>
               </div>
             </div>
 
-            {/* Listagem de Cartões */}
-            {loadingCards ? (
-              <div className="space-y-3">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="h-20 rounded-xl bg-slate-800/40 animate-pulse border border-slate-800/60" />
-                ))}
-              </div>
-            ) : filteredCards.length === 0 ? (
-              <div className={`p-12 text-center rounded-2xl border ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'}`}>
-                <p className="text-sm font-bold mb-1">Nenhum flashcard encontrado neste filtro</p>
-                <p className="text-xs text-slate-400 mb-4">Adicione um novo cartão ou gere uma bateria com IA.</p>
-                <button
-                  onClick={handleOpenAddCardModal}
-                  className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white"
-                >
-                  Criar Novo Card
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredCards.map((card, idx) => (
-                  <div
-                    key={card.id}
-                    className={`p-4 rounded-xl border transition-all ${
-                      isDark ? 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700' : 'bg-white border-slate-200'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-2 flex-1">
-                        <div>
-                          <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 block mb-0.5">
-                            Pergunta #{idx + 1}
-                          </span>
-                          <div className="text-sm font-semibold text-slate-200">
-                            <ClozeLatexCard text={card.front} isAnswer={false} />
-                          </div>
-                          {card.frontImage && (
-                            <div className="mt-2 inline-block">
-                              <img
-                                src={card.frontImage}
-                                alt="Pergunta"
-                                onClick={() => setExpandedImage(card.frontImage || null)}
-                                className="h-16 w-auto object-cover rounded-lg border border-slate-700 cursor-pointer hover:opacity-80"
-                              />
-                            </div>
-                          )}
-                        </div>
+            {/* ----------------------------------------------------------- */}
+            {/* 🎯 PARTE DE BAIXO: RESOLVER FLASHCARDS ALEATÓRIOS            */}
+            {/* ----------------------------------------------------------- */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between pb-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-zinc-200">
+                    Flashcards para Resolver
+                  </h3>
+                  {studyQueue.length > 0 && (
+                    <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">
+                      Cartão {currentCardIndex + 1} de {studyQueue.length}
+                    </span>
+                  )}
+                </div>
 
-                        <div className="pt-2 border-t border-slate-800/40">
-                          <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-500 block mb-0.5">
-                            Resposta
-                          </span>
-                          <div className="text-sm text-slate-300">
-                            <ClozeLatexCard text={card.back} isAnswer={true} />
-                          </div>
-                          {card.backImage && (
-                            <div className="mt-2 inline-block">
-                              <img
-                                src={card.backImage}
-                                alt="Resposta"
-                                onClick={() => setExpandedImage(card.backImage || null)}
-                                className="h-16 w-auto object-cover rounded-lg border border-slate-700 cursor-pointer hover:opacity-80"
-                              />
-                            </div>
-                          )}
+                <div className="flex items-center gap-2">
+                  {cards.length > 1 && (
+                    <button
+                      onClick={handleShuffleQueue}
+                      className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 flex items-center gap-1 cursor-pointer transition-colors"
+                      title="Embaralhar flashcards em ordem aleatória"
+                    >
+                      <Shuffle className="w-3 h-3 text-sky-400" />
+                      <span>Embaralhar</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* RESOLVEDOR ATIVO ESTILO ANKI (PRINT 5) */}
+              {loadingCards ? (
+                <div className="p-12 text-center rounded-2xl bg-zinc-900 border border-zinc-800 text-zinc-400 text-xs">
+                  Carregando flashcards da matéria...
+                </div>
+              ) : studyQueue.length > 0 && studyQueue[currentCardIndex] ? (
+                <div className="rounded-2xl bg-zinc-900/95 border border-zinc-800 shadow-md p-5 sm:p-8 flex flex-col justify-between min-h-[360px]">
+                  {/* FRENTE (PERGUNTA) */}
+                  <div className="space-y-5 text-center">
+                    <div className="text-base sm:text-lg font-medium text-zinc-100 leading-relaxed max-w-2xl mx-auto">
+                      <ClozeLatexCard text={studyQueue[currentCardIndex].front} isAnswer={false} />
+                    </div>
+
+                    {/* VERSO (RESPOSTA) QUANDO REVELADO */}
+                    {isAnswerRevealed && (
+                      <div className="pt-6 border-t border-zinc-800/80 animate-in fade-in duration-200 max-w-2xl mx-auto">
+                        <div className="text-sm sm:text-base text-zinc-300 leading-relaxed font-normal">
+                          <ClozeLatexCard text={studyQueue[currentCardIndex].back} isAnswer={true} />
                         </div>
                       </div>
+                    )}
+                  </div>
 
-                      {/* Metadados e Ações */}
-                      <div className="flex flex-col items-end gap-2 shrink-0">
-                        {card.lapses >= 4 && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1">
-                            <AlertTriangle className="w-3 h-3" /> {card.lapses} erros
-                          </span>
-                        )}
+                  {/* CONTROLES / BOTÕES NA BASE (PRINT 5) */}
+                  <div className="pt-6 border-t border-zinc-800/80 mt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+                    {/* Botão Editar no canto esquerdo */}
+                    <div>
+                      <button
+                        onClick={() => handleOpenEditCard(studyQueue[currentCardIndex])}
+                        className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold transition-colors cursor-pointer"
+                      >
+                        Editar
+                      </button>
+                    </div>
 
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider ${
-                            card.status === 'mastered'
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                              : card.status === 'learning'
-                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                              : card.status === 'review'
-                              ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                              : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                          }`}
+                    {/* Centro: Mostrar Resposta ou os 4 Botões Anki SM-2 */}
+                    {!isAnswerRevealed ? (
+                      <button
+                        onClick={handleRevealAnswer}
+                        className="w-full sm:w-auto min-w-[220px] py-2.5 px-6 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white font-bold text-xs tracking-wide transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <span>Mostrar Resposta</span>
+                        <kbd className="text-[10px] bg-zinc-950 px-1.5 py-0.5 rounded text-zinc-400 font-mono">
+                          Espaço
+                        </kbd>
+                      </button>
+                    ) : (
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        {/* < 1min De novo */}
+                        <button
+                          onClick={() => void handleRateCard(1)}
+                          className="px-3.5 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/50 border border-rose-800/60 text-rose-300 flex flex-col items-center gap-0.5 transition-colors cursor-pointer"
                         >
-                          {card.status}
-                        </span>
+                          <span className="text-[10px] font-mono text-rose-400/80">&lt; 1min(s)</span>
+                          <span className="text-xs font-bold">De novo</span>
+                        </button>
 
-                        <span className="text-[10px] font-mono text-slate-400">
-                          Próx: {card.nextReviewAt}
-                        </span>
+                        {/* < 10min Difícil */}
+                        <button
+                          onClick={() => void handleRateCard(2)}
+                          className="px-3.5 py-1.5 rounded-xl bg-amber-950/40 hover:bg-amber-900/50 border border-amber-800/60 text-amber-300 flex flex-col items-center gap-0.5 transition-colors cursor-pointer"
+                        >
+                          <span className="text-[10px] font-mono text-amber-400/80">&lt; 10min(s)</span>
+                          <span className="text-xs font-bold">Difícil</span>
+                        </button>
 
-                        <div className="flex items-center gap-1 mt-1">
+                        {/* 1 dia Bom */}
+                        <button
+                          onClick={() => void handleRateCard(3)}
+                          className="px-3.5 py-1.5 rounded-xl bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-800/60 text-emerald-300 flex flex-col items-center gap-0.5 transition-colors cursor-pointer"
+                        >
+                          <span className="text-[10px] font-mono text-emerald-400/80">1dia(s)</span>
+                          <span className="text-xs font-bold">Bom</span>
+                        </button>
+
+                        {/* 4 dias Fácil */}
+                        <button
+                          onClick={() => void handleRateCard(4)}
+                          className="px-3.5 py-1.5 rounded-xl bg-sky-950/40 hover:bg-sky-900/50 border border-sky-800/60 text-sky-300 flex flex-col items-center gap-0.5 transition-colors cursor-pointer"
+                        >
+                          <span className="text-[10px] font-mono text-sky-400/80">4dia(s)</span>
+                          <span className="text-xs font-bold">Fácil</span>
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="w-[60px] hidden sm:block" />
+                  </div>
+                </div>
+              ) : (
+                <div className="p-8 text-center rounded-2xl bg-zinc-900/80 border border-zinc-800">
+                  <BookOpen className="w-8 h-8 mx-auto text-zinc-600 mb-2" />
+                  <p className="text-sm font-bold text-zinc-200">Nenhum flashcard nesta matéria ainda</p>
+                  <p className="text-xs text-zinc-400 mt-1 max-w-sm mx-auto">
+                    Utilize o gerador acima para criar +20 flashcards por IA ou adicione manualmente seus erros do simulado.
+                  </p>
+                </div>
+              )}
+
+              {/* LISTA TABULAR DE FLASHCARDS DA MATÉRIA */}
+              {cards.length > 0 && (
+                <div className="space-y-2 pt-3">
+                  <div className="flex items-center justify-between text-xs font-semibold text-zinc-400">
+                    <span>Todos os Flashcards Cadastrados ({cards.length})</span>
+                  </div>
+
+                  <div className="rounded-xl bg-zinc-900 border border-zinc-800 overflow-hidden divide-y divide-zinc-800/80">
+                    {cards.map((c, index) => (
+                      <div key={c.id} className="p-3 flex items-start justify-between gap-3 text-xs hover:bg-zinc-800/40 transition-colors">
+                        <div className="space-y-1 min-w-0 flex-1">
+                          <div className="font-semibold text-zinc-200 line-clamp-2">
+                            <span className="text-zinc-500 font-mono mr-1.5">#{index + 1}</span>
+                            {c.front}
+                          </div>
+                          <div className="text-zinc-400 line-clamp-2 text-[11px]">
+                            {c.back}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
                           <button
-                            onClick={(e) => handleOpenEditCardModal(card, e)}
-                            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200"
-                            title="Editar Card"
+                            onClick={() => handleOpenEditCard(c)}
+                            title="Editar"
+                            className="p-1 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={(e) => handlePromptDeleteCard(card, e)}
-                            className="p-1 rounded hover:bg-red-500/20 text-slate-400 hover:text-red-400"
-                            title="Excluir Card"
+                            onClick={() => void handleDeleteCard(c.id)}
+                            title="Excluir"
+                            className="p-1 rounded text-zinc-500 hover:text-rose-400 hover:bg-zinc-800 transition-colors"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
         {/* ============================================================= */}
-        {/* 🎮 NÍVEL 4: PLAYER DE ESTUDO ANKI (REPETIÇÃO ESPAÇADA SM-2)   */}
+        {/* 🪟 MODAL ANKI: ADICIONAR / EDITAR FLASHCARD (PRINT 4)         */}
         {/* ============================================================= */}
-        {viewMode === 'study' && (
-          <div className="max-w-3xl mx-auto space-y-6 pt-4">
-            {studySessionFinished ? (
-              <div className={`p-8 text-center rounded-3xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'} space-y-6`}>
-                <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-                  <CheckCircle2 className="w-8 h-8" />
+        {isAddCardModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+            <div className="w-full max-w-2xl rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              {/* Topo do Modal estilo Anki */}
+              <div className="flex items-center justify-between px-4 py-3 bg-zinc-950 border-b border-zinc-800">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-sky-500/80" />
+                  <span className="text-xs font-bold text-zinc-200">
+                    {editingCard ? 'Editar Flashcard' : 'Adicionar Flashcard'}
+                  </span>
                 </div>
-                <div>
-                  <h2 className="text-xl font-bold mb-1">Sessão de Revisão Concluída!</h2>
-                  <p className="text-xs text-slate-400 max-w-md mx-auto">
-                    Você revisou todos os cartões desta rodada. As novas datas de repetição espaçada foram calculadas e registradas.
-                  </p>
-                </div>
-
-                {/* Resumo da Sessão */}
-                <div className="grid grid-cols-4 gap-2 max-w-sm mx-auto font-mono text-xs">
-                  <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400">
-                    <p className="font-bold text-base">{studySessionStats.again}</p>
-                    <p className="text-[10px]">Errei</p>
-                  </div>
-                  <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                    <p className="font-bold text-base">{studySessionStats.hard}</p>
-                    <p className="text-[10px]">Difícil</p>
-                  </div>
-                  <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
-                    <p className="font-bold text-base">{studySessionStats.good}</p>
-                    <p className="text-[10px]">Bom</p>
-                  </div>
-                  <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                    <p className="font-bold text-base">{studySessionStats.easy}</p>
-                    <p className="text-[10px]">Fácil</p>
-                  </div>
-                </div>
-
-                <div className="flex justify-center gap-3 pt-2">
-                  <button
-                    onClick={handleBackToDecks}
-                    className="px-5 py-2 text-xs font-bold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
-                  >
-                    Voltar ao Baralho
-                  </button>
-                  {currentDeck && (
-                    <button
-                      onClick={() => handleStartStudySession(currentDeck)}
-                      className="px-5 py-2 text-xs font-bold rounded-xl bg-red-600 hover:bg-red-700 text-white transition-colors"
-                    >
-                      Estudar Novamente
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              studyQueue[currentCardIndex] && (
-                <div className="space-y-4">
-                  {/* Barra Superior de Controles e Status do Estudo */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-slate-400">
-                    <button
-                      onClick={handleBackToDecks}
-                      className="flex items-center gap-1 hover:text-slate-200 transition-colors cursor-pointer"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>Sair (Esc)</span>
-                    </button>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setCramMode(!cramMode)}
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors flex items-center gap-1 cursor-pointer ${
-                          cramMode
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                            : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                        }`}
-                        title="Clique para alternar entre repetição espaçada e treino livre"
-                      >
-                        {cramMode ? (
-                          <>
-                            <Zap className="w-3 h-3 text-amber-400 fill-current" />
-                            <span>Modo Maratona (Treino Livre)</span>
-                          </>
-                        ) : (
-                          <>
-                            <BrainCircuit className="w-3 h-3 text-emerald-400" />
-                            <span>Repetição Espaçada SM-2</span>
-                          </>
-                        )}
-                      </button>
-
-                      {studyQueue[currentCardIndex]?.lapses >= 4 && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1 animate-pulse">
-                          <AlertTriangle className="w-3 h-3" /> Sanguessuga ({studyQueue[currentCardIndex].lapses} erros)
-                        </span>
-                      )}
-                    </div>
-
-                    <span>
-                      Cartão {currentCardIndex + 1} de {studyQueue.length}
-                    </span>
-                  </div>
-
-                  {/* Barra de Progresso Visual */}
-                  <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                    <div
-                      className="bg-red-500 h-full transition-all duration-300"
-                      style={{ width: `${((currentCardIndex + 1) / studyQueue.length) * 100}%` }}
-                    />
-                  </div>
-
-                  {/* Cartão Flashcard Anki com Efeito 3D Flip */}
-                  <div className="w-full min-h-[380px]" style={{ perspective: '1200px' }}>
-                    <div
-                      className="relative w-full min-h-[380px] rounded-3xl transition-transform duration-500"
-                      style={{
-                        transformStyle: 'preserve-3d',
-                        transform: isAnswerRevealed ? 'rotateY(180deg)' : 'rotateY(0deg)',
-                      }}
-                    >
-                      {/* LADO FRENTE (PERGUNTA) */}
-                      <div
-                        className={`p-4 sm:p-8 rounded-2xl sm:rounded-3xl border min-h-[340px] sm:min-h-[380px] flex flex-col justify-between shadow-xl transition-all ${
-                          isDark
-                            ? 'bg-slate-900/90 border-slate-800 shadow-slate-950/40'
-                            : 'bg-white border-slate-200 shadow-slate-200/50'
-                        } ${isAnswerRevealed ? 'pointer-events-none' : ''}`}
-                        style={{ backfaceVisibility: 'hidden' }}
-                      >
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-widest text-slate-500">
-                            <span>Frente // Pergunta</span>
-                            <span className="text-slate-400 font-bold">{currentDeck?.name || currentSubject?.name || 'Geral'}</span>
-                          </div>
-
-                          <div className="text-base sm:text-xl font-semibold text-slate-100 leading-relaxed">
-                            <ClozeLatexCard text={studyQueue[currentCardIndex].front} isAnswer={false} />
-                          </div>
-
-                          {studyQueue[currentCardIndex].frontImage && (
-                            <div className="mt-3">
-                              <img
-                                src={studyQueue[currentCardIndex].frontImage!}
-                                alt="Imagem da Pergunta"
-                                onClick={() => setExpandedImage(studyQueue[currentCardIndex].frontImage || null)}
-                                className="max-h-52 rounded-xl border border-slate-700 object-contain cursor-pointer hover:opacity-90 transition-opacity"
-                              />
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="pt-6 border-t border-slate-800/60 mt-6">
-                          <button
-                            type="button"
-                            onClick={handleRevealAnswer}
-                            className="w-full py-4 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm tracking-wide transition-all shadow-lg shadow-red-950/30 flex items-center justify-center gap-2 cursor-pointer"
-                          >
-                            <span>Mostrar Resposta</span>
-                            <kbd className="text-[10px] bg-red-800/60 px-1.5 py-0.5 rounded text-red-200 font-mono">
-                              Espaço
-                            </kbd>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* LADO VERSO (RESPOSTA - GIRADO 180 DEG) */}
-                      <div
-                        className={`p-4 sm:p-8 rounded-2xl sm:rounded-3xl border min-h-[340px] sm:min-h-[380px] flex flex-col justify-between shadow-xl transition-all absolute inset-0 ${
-                          isDark
-                            ? 'bg-slate-900/95 border-emerald-900/40 shadow-slate-950/50'
-                            : 'bg-white border-emerald-200 shadow-slate-200/60'
-                        } ${!isAnswerRevealed ? 'pointer-events-none' : ''}`}
-                        style={{
-                          backfaceVisibility: 'hidden',
-                          transform: 'rotateY(180deg)',
-                        }}
-                      >
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-widest text-emerald-400">
-                            <span>Verso // Resposta</span>
-                            <span className="text-slate-400 font-mono text-[10px]">
-                              {cramMode
-                                ? '⚡ Treino Livre (Sem alterar SM-2)'
-                                : `Intervalo atual: ${studyQueue[currentCardIndex].intervalDays}d`}
-                            </span>
-                          </div>
-
-                          <div className="text-base sm:text-lg text-slate-200 leading-relaxed">
-                            <ClozeLatexCard text={studyQueue[currentCardIndex].back} isAnswer={true} />
-                          </div>
-
-                          {studyQueue[currentCardIndex].backImage && (
-                            <div className="mt-3">
-                              <img
-                                src={studyQueue[currentCardIndex].backImage!}
-                                alt="Imagem da Resposta"
-                                onClick={() => setExpandedImage(studyQueue[currentCardIndex].backImage || null)}
-                                className="max-h-52 rounded-xl border border-slate-700 object-contain cursor-pointer hover:opacity-90 transition-opacity"
-                              />
-                            </div>
-                          )}
-                        </div>
-
-                        {/* 4 Botões Anki SM-2 */}
-                        <div className="pt-6 border-t border-slate-800/60 mt-6">
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => void handleRateCard(1)}
-                              className="p-3 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 flex flex-col items-center gap-1 transition-all cursor-pointer"
-                            >
-                              <span className="text-xs font-bold">Errei</span>
-                              <span className="text-[10px] font-mono opacity-80">{cramMode ? 'Rever' : '< 10m'}</span>
-                              <kbd className="text-[9px] bg-rose-950/60 px-1.5 py-0.5 rounded mt-0.5">1</kbd>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => void handleRateCard(2)}
-                              className="p-3 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-300 flex flex-col items-center gap-1 transition-all cursor-pointer"
-                            >
-                              <span className="text-xs font-bold">Difícil</span>
-                              <span className="text-[10px] font-mono opacity-80">{cramMode ? 'Praticar' : '1 dia'}</span>
-                              <kbd className="text-[9px] bg-amber-950/60 px-1.5 py-0.5 rounded mt-0.5">2</kbd>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => void handleRateCard(3)}
-                              className="p-3 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 flex flex-col items-center gap-1 transition-all cursor-pointer"
-                            >
-                              <span className="text-xs font-bold">Bom</span>
-                              <span className="text-[10px] font-mono opacity-80">{cramMode ? 'Acertei' : '3 dias'}</span>
-                              <kbd className="text-[9px] bg-blue-950/60 px-1.5 py-0.5 rounded mt-0.5">3</kbd>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => void handleRateCard(4)}
-                              className="p-3 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 flex flex-col items-center gap-1 transition-all cursor-pointer"
-                            >
-                              <span className="text-xs font-bold">Fácil</span>
-                              <span className="text-[10px] font-mono opacity-80">{cramMode ? 'Dominado' : '6 dias'}</span>
-                              <kbd className="text-[9px] bg-emerald-950/60 px-1.5 py-0.5 rounded mt-0.5">4</kbd>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )
-            )}
-          </div>
-        )}
-
-        {/* ============================================================= */}
-        {/* 🪟 MODAIS DE CRIAÇÃO, EDIÇÃO E EXCLUSÃO                       */}
-        {/* ============================================================= */}
-
-        {/* Modal Disciplina */}
-        {isSubjectModalOpen && (
-          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-            <div className={`w-full max-w-md p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} space-y-4`}>
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-base">
-                  {editingSubject ? 'Editar Disciplina' : 'Nova Disciplina'}
-                </h3>
-                <button onClick={() => setIsSubjectModalOpen(false)} className="text-slate-400 hover:text-white">
-                  <X className="w-5 h-5" />
+                <button
+                  type="button"
+                  onClick={() => setIsAddCardModalOpen(false)}
+                  className="text-zinc-400 hover:text-white transition-colors"
+                >
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <form onSubmit={handleSaveSubject} className="space-y-4">
+              <form onSubmit={handleSaveCard} className="p-4 sm:p-5 space-y-4">
+                {/* Seletores Tipo e Matéria */}
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block text-zinc-400 font-semibold mb-1">Tipo</label>
+                    <select
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs outline-none"
+                    >
+                      <option value="basic">Básico</option>
+                      <option value="cloze">Omissão de Palavras (Cloze)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 font-semibold mb-1">Baralho / Matéria</label>
+                    <select
+                      value={cardFormSubjectId}
+                      onChange={(e) => setCardFormSubjectId(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs outline-none"
+                    >
+                      {OFFICIAL_CBMERJ_SUBJECTS.map((s) => (
+                        <option key={s.name} value={subjects.find(sub => sub.name.toLowerCase() === s.name.toLowerCase())?.id || s.name}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Toolbar de Formatação Rápida */}
+                <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-950 border border-zinc-800/80 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setCardFormFront(prev => prev + ' **texto**')}
+                    className="px-2 py-0.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 font-bold"
+                    title="Negrito"
+                  >
+                    B
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCardFormFront(prev => prev + ' *texto*')}
+                    className="px-2 py-0.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 italic font-serif"
+                    title="Itálico"
+                  >
+                    I
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCardFormFront(prev => prev + ' {{c1::termo}}')}
+                    className="px-2 py-0.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 font-mono text-[11px]"
+                    title="Cloze Deletion"
+                  >
+                    [...c1]
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCardFormFront(prev => prev + ' $fórmula$')}
+                    className="px-2 py-0.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 font-mono text-[11px]"
+                    title="Fórmula KaTeX"
+                  >
+                    $fx$
+                  </button>
+                </div>
+
+                {/* Frente (Pergunta) */}
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-zinc-300">Frente</label>
+                  <textarea
+                    rows={3}
+                    placeholder="O que é um Conto? / Enunciado da questão com erro..."
+                    value={cardFormFront}
+                    onChange={(e) => setCardFormFront(e.target.value)}
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-100 text-xs placeholder-zinc-500 focus:outline-none focus:border-sky-500 transition-colors resize-y"
+                  />
+                </div>
+
+                {/* Verso (Resposta) */}
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-zinc-300">Verso</label>
+                  <textarea
+                    rows={4}
+                    placeholder="Narrativa curta, concisa, com pouquíssimos personagens... / Gabarito e explicação comentada..."
+                    value={cardFormBack}
+                    onChange={(e) => setCardFormBack(e.target.value)}
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-100 text-xs placeholder-zinc-500 focus:outline-none focus:border-sky-500 transition-colors resize-y"
+                  />
+                </div>
+
+                {/* Etiquetas (Tags) */}
+                <div className="space-y-1">
+                  <label className="block text-xs text-zinc-400">Etiquetas (Tags opcionais)</label>
+                  <input
+                    type="text"
+                    placeholder="ex: uerj2024 cinematica formula"
+                    value={cardFormTags}
+                    onChange={(e) => setCardFormTags(e.target.value)}
+                    className="w-full p-2 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs placeholder-zinc-600 focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                {/* Botões na Base (Print 4) */}
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800/80">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddCardModalOpen(false)}
+                    className="px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    Fechar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingCard}
+                    className="px-4 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingCard ? 'Salvando...' : editingCard ? 'Salvar Cartão' : 'Adicionar'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Criação Manual de Disciplina */}
+        {isSubjectModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl bg-zinc-900 border border-zinc-700 p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-sm text-zinc-100">Criar Novo Baralho / Matéria</h3>
+                <button onClick={() => setIsSubjectModalOpen(false)} className="text-zinc-400 hover:text-white">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
                 <div>
-                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
-                    Nome da Disciplina *
-                  </label>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">Nome da Matéria</label>
                   <input
                     type="text"
                     required
-                    placeholder="Ex: Matemática, Física, Português..."
+                    placeholder="Ex: Legislação Militar, Química Orgânica..."
                     value={subjectFormName}
                     onChange={(e) => setSubjectFormName(e.target.value)}
-                    className={`w-full p-2.5 rounded-xl border text-sm ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
+                    className="w-full p-2 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-100 text-xs focus:outline-none focus:border-sky-500"
                   />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
-                    Descrição (Opcional)
-                  </label>
-                  <textarea
-                    placeholder="Ex: Foco no edital do CFO CBMERJ..."
-                    rows={3}
-                    value={subjectFormDesc}
-                    onChange={(e) => setSubjectFormDesc(e.target.value)}
-                    className={`w-full p-2.5 rounded-xl border text-sm resize-none ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
-                    Identidade Visual // Cor
-                  </label>
-                  <div className="flex gap-2">
-                    {PALETTE_COLORS.map((c) => (
-                      <button
-                        key={c.value}
-                        type="button"
-                        onClick={() => setSubjectFormColor(c.value)}
-                        className={`w-8 h-8 rounded-full border-2 transition-all ${
-                          subjectFormColor === c.value ? 'scale-110 border-white' : 'border-transparent opacity-70 hover:opacity-100'
-                        }`}
-                        style={{
-                          backgroundColor:
-                            c.value === 'red' ? '#ef4444' :
-                            c.value === 'blue' ? '#3b82f6' :
-                            c.value === 'emerald' ? '#10b981' :
-                            c.value === 'amber' ? '#f59e0b' :
-                            c.value === 'indigo' ? '#6366f1' : '#06b6d4'
-                        }}
-                      />
-                    ))}
-                  </div>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
                     onClick={() => setIsSubjectModalOpen(false)}
-                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+                    className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs"
                   >
                     Cancelar
                   </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white"
-                  >
-                    {editingSubject ? 'Salvar Alterações' : 'Criar Disciplina'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Modal Baralho */}
-        {isDeckModalOpen && (
-          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-            <div className={`w-full max-w-md p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} space-y-4`}>
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-base">
-                  {editingDeck ? 'Editar Baralho' : 'Novo Baralho / Tópico'}
-                </h3>
-                <button onClick={() => setIsDeckModalOpen(false)} className="text-slate-400 hover:text-white">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <form onSubmit={handleSaveDeck} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
-                    Disciplina Pertencente *
-                  </label>
-                  <select
-                    value={deckFormSubjectId}
-                    onChange={(e) => setDeckFormSubjectId(e.target.value)}
-                    className={`w-full p-2.5 rounded-xl border text-sm ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
-                  >
-                    {subjects.map((sub) => (
-                      <option key={sub.id} value={sub.id}>
-                        {sub.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
-                    Nome do Baralho // Tópico *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ex: Logaritmos, Citologia, Lei de Lavoisier..."
-                    value={deckFormName}
-                    onChange={(e) => setDeckFormName(e.target.value)}
-                    className={`w-full p-2.5 rounded-xl border text-sm ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
-                    Descrição (Opcional)
-                  </label>
-                  <textarea
-                    placeholder="Ex: Conceitos mais cobrados em prova..."
-                    rows={3}
-                    value={deckFormDesc}
-                    onChange={(e) => setDeckFormDesc(e.target.value)}
-                    className={`w-full p-2.5 rounded-xl border text-sm resize-none ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
-                  />
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
-                    onClick={() => setIsDeckModalOpen(false)}
-                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+                    onClick={async () => {
+                      if (!subjectFormName.trim()) return;
+                      try {
+                        const res = await apiFetch('/api/flashcards/subjects', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ name: subjectFormName.trim() }),
+                        });
+                        if (res.ok) {
+                          showToast?.('Baralho criado!', 'success');
+                          setIsSubjectModalOpen(false);
+                          void fetchGlobalData();
+                        }
+                      } catch {
+                        showToast?.('Erro ao criar baralho.', 'error');
+                      }
+                    }}
+                    className="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold"
                   >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white"
-                  >
-                    {editingDeck ? 'Salvar Baralho' : 'Criar Baralho'}
+                    Criar
                   </button>
                 </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Modal Flashcard (Frente / Verso / Fotos) */}
-        {isCardModalOpen && (
-          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
-            <div className={`w-full max-w-6xl max-h-[94vh] overflow-y-auto rounded-2xl border shadow-2xl ${isDark ? 'bg-[#171717] border-slate-700' : 'bg-white border-slate-200'}`}>
-              <div className="sticky top-0 z-10 flex items-center justify-between gap-4 px-5 py-4 border-b bg-inherit border-slate-800/80">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-mono uppercase tracking-[0.18em] text-red-400">Editor de cartões</p>
-                  <h3 className="font-semibold text-lg text-slate-100">
-                    {editingCard ? 'Editar flashcard' : 'Criar Flashcard Manual'}
-                    {currentDeck && !editingCard && <span className="font-normal text-sm text-slate-400"> · {currentDeck.name}</span>}
-                  </h3>
-                </div>
-                <button type="button" onClick={() => setIsCardModalOpen(false)} className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer" aria-label="Fechar editor">
-                  <X className="w-5 h-5" />
-                </button>
               </div>
-
-              <form onSubmit={handleSaveCard} className="grid lg:grid-cols-[1.05fr_.95fr]">
-                <section className="p-5 sm:p-6 space-y-5 border-b lg:border-b-0 lg:border-r border-slate-800/80">
-                  {/* Destino do Flashcard (Disciplina & Baralho) */}
-                  {!editingCard && (
-                    <div className={`p-4 rounded-xl border space-y-3 ${isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-100/80 border-slate-200'}`}>
-                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-red-400">
-                        <Folder className="w-4 h-4" />
-                        <span>Destino do Flashcard</span>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {/* Seletor de Disciplina */}
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-semibold text-slate-300">
-                            Disciplina (Matéria)
-                          </label>
-                          <select
-                            value={cardFormSubjectId}
-                            onChange={(e) => {
-                              const newSubId = e.target.value;
-                              setCardFormSubjectId(newSubId);
-                              void loadDecksForCardModal(newSubId);
-                            }}
-                            className={`w-full p-2.5 rounded-lg border text-xs font-medium outline-none transition-colors ${
-                              isDark
-                                ? 'bg-slate-950 border-slate-700 text-white focus:border-red-500'
-                                : 'bg-white border-slate-300 focus:border-red-500'
-                            }`}
-                          >
-                            {subjects.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.name}
-                              </option>
-                            ))}
-                            <option value="__new__">+ Criar Nova Disciplina...</option>
-                          </select>
-
-                          {(cardFormSubjectId === '__new__' || subjects.length === 0) && (
-                            <input
-                              type="text"
-                              placeholder="Ex: Direito Constitucional, Física..."
-                              value={cardFormNewSubjectName}
-                              onChange={(e) => setCardFormNewSubjectName(e.target.value)}
-                              className={`w-full mt-1.5 p-2 rounded-lg border text-xs outline-none ${
-                                isDark
-                                  ? 'bg-slate-950 border-red-500/60 text-white focus:ring-1 focus:ring-red-500'
-                                  : 'bg-white border-red-400 focus:ring-1 focus:ring-red-400'
-                              }`}
-                            />
-                          )}
-                        </div>
-
-                        {/* Seletor de Baralho */}
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-semibold text-slate-300">
-                            Baralho (Tópico)
-                          </label>
-                          <select
-                            value={cardFormDeckId}
-                            onChange={(e) => setCardFormDeckId(e.target.value)}
-                            disabled={cardModalLoadingDecks}
-                            className={`w-full p-2.5 rounded-lg border text-xs font-medium outline-none transition-colors ${
-                              isDark
-                                ? 'bg-slate-950 border-slate-700 text-white focus:border-red-500'
-                                : 'bg-white border-slate-300 focus:border-red-500'
-                            }`}
-                          >
-                            {cardModalDecks.map((d) => (
-                              <option key={d.id} value={d.id}>
-                                {d.name}
-                              </option>
-                            ))}
-                            <option value="__new__">+ Criar Novo Baralho...</option>
-                          </select>
-
-                          {(cardFormDeckId === '__new__' || cardModalDecks.length === 0) && (
-                            <input
-                              type="text"
-                              placeholder="Ex: Artigo 5º da CF, Termodinâmica..."
-                              value={cardFormNewDeckName}
-                              onChange={(e) => setCardFormNewDeckName(e.target.value)}
-                              className={`w-full mt-1.5 p-2 rounded-lg border text-xs outline-none ${
-                                isDark
-                                  ? 'bg-slate-950 border-red-500/60 text-white focus:ring-1 focus:ring-red-500'
-                                  : 'bg-white border-red-400 focus:ring-1 focus:ring-red-400'
-                              }`}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Barra de Formatação Rápida (Cloze, KaTeX, Bizu) */}
-                  <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <span className="text-[11px] font-mono text-slate-400 pl-1">Atalhos:</span>
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting('front', '{{c1::', '}}', 'termo')}
-                      className="px-2.5 py-1 text-xs font-mono rounded-lg bg-red-500/15 border border-red-500/30 text-red-300 hover:bg-red-500/25 transition-colors cursor-pointer"
-                      title="Envolve a seleção ou insere omissão para lacuna Anki"
-                    >
-                      [..] Cloze / Lacuna
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting('front', '$', '$', 'fórmula')}
-                      className="px-2.5 py-1 text-xs font-mono rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/25 transition-colors cursor-pointer"
-                      title="Envolve a seleção em delimitador KaTeX $"
-                    >
-                      $ KaTeX $
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting('back', '🎯 Bizu: ', '', 'Palavra-chave')}
-                      className="px-2.5 py-1 text-xs font-mono rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/25 transition-colors cursor-pointer"
-                      title="Insere prefixo de Bizu no verso"
-                    >
-                      💡 Bizu
-                    </button>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <label htmlFor="flashcard-front" className="text-sm font-semibold text-slate-200">Frente <span className="font-normal text-slate-500">· pergunta / enunciado</span></label>
-                      <button type="button" onClick={() => questionFileInputRef.current?.click()} className="text-xs font-medium text-red-400 hover:text-red-300 flex items-center gap-1.5 cursor-pointer">
-                        <ImageIcon className="w-3.5 h-3.5" /> Anexar imagem
-                      </button>
-                    </div>
-                    <textarea ref={cardFrontTextareaRef} id="flashcard-front" rows={6} placeholder="Ex.: Qual é a unidade de força no SI?" value={cardFormFront} onChange={(e) => setCardFormFront(e.target.value)} onPaste={(e) => handlePasteImage(e, 'front')} className={`w-full p-3.5 rounded-xl border text-sm leading-6 resize-y outline-none transition-colors ${isDark ? 'bg-slate-950 border-slate-700 text-white placeholder:text-slate-600 focus:border-red-500/80 focus:ring-2 focus:ring-red-500/15' : 'bg-slate-50 border-slate-300 focus:border-red-500'}`} />
-                    <input ref={questionFileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void processImageFile(file, 'front'); e.target.value = ''; }} />
-                    {cardFormFrontImage && <div className="relative inline-block"><img src={cardFormFrontImage} alt="Imagem da frente" className="h-20 rounded-lg border border-slate-700 object-cover" /><button type="button" onClick={() => setCardFormFrontImage(null)} className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white cursor-pointer"><X className="w-3 h-3" /></button></div>}
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <label htmlFor="flashcard-back" className="text-sm font-semibold text-slate-200">Verso <span className="font-normal text-slate-500">· resposta / bizu</span></label>
-                      <button type="button" onClick={() => answerFileInputRef.current?.click()} className="text-xs font-medium text-red-400 hover:text-red-300 flex items-center gap-1.5 cursor-pointer">
-                        <ImageIcon className="w-3.5 h-3.5" /> Anexar imagem
-                      </button>
-                    </div>
-                    <textarea ref={cardBackTextareaRef} id="flashcard-back" rows={6} placeholder="Ex.: Newton (N) = kg·m/s²" value={cardFormBack} onChange={(e) => setCardFormBack(e.target.value)} onPaste={(e) => handlePasteImage(e, 'back')} className={`w-full p-3.5 rounded-xl border text-sm leading-6 resize-y outline-none transition-colors ${isDark ? 'bg-slate-950 border-slate-700 text-white placeholder:text-slate-600 focus:border-red-500/80 focus:ring-2 focus:ring-red-500/15' : 'bg-slate-50 border-slate-300 focus:border-red-500'}`} />
-                    <input ref={answerFileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void processImageFile(file, 'back'); e.target.value = ''; }} />
-                    {cardFormBackImage && <div className="relative inline-block"><img src={cardFormBackImage} alt="Imagem do verso" className="h-20 rounded-lg border border-slate-700 object-cover" /><button type="button" onClick={() => setCardFormBackImage(null)} className="absolute -top-2 -right-2 p-1 rounded-full bg-red-600 text-white cursor-pointer"><X className="w-3 h-3" /></button></div>}
-                  </div>
-
-                  <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
-                    <button type="button" onClick={() => setIsCardModalOpen(false)} className="px-4 py-2.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer">Cancelar</button>
-                    <button type="submit" disabled={isSavingCard} className="px-5 py-2.5 text-sm font-semibold rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white shadow-lg shadow-red-950/40 cursor-pointer flex items-center gap-2">
-                      {isSavingCard ? 'Salvando...' : editingCard ? 'Salvar alterações' : 'Salvar Flashcard'}
-                    </button>
-                  </div>
-                </section>
-
-                <aside className="p-5 sm:p-6 bg-slate-950/45 space-y-4">
-                  <div className="flex items-center justify-between"><div><p className="text-sm font-semibold text-slate-200">Pré-visualização</p><p className="text-xs text-slate-500">Assim o cartão aparecerá na revisão.</p></div><span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded border border-slate-700 text-slate-400">Anki</span></div>
-                  <div className="min-h-[310px] rounded-xl border border-slate-700 bg-[#1f1f1f] shadow-[0_18px_45px_rgba(0,0,0,.3)] overflow-hidden flex flex-col">
-                    <div className="flex justify-between px-4 py-3 border-b border-slate-700/80 text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                      <span>
-                        {cardFormDeckId === '__new__'
-                          ? (cardFormNewDeckName || 'Novo Baralho')
-                          : (cardModalDecks.find((d) => d.id === cardFormDeckId)?.name || currentDeck?.name || 'Baralho')}
-                      </span>
-                      <span>Frente</span>
-                    </div>
-                    <div className="flex-1 flex flex-col justify-center p-7 text-center">
-                      {cardFormFrontImage && <img src={cardFormFrontImage} alt="Prévia da frente" className="max-h-32 max-w-full mx-auto mb-5 rounded-lg object-contain" />}
-                      <div className="text-lg leading-8 text-slate-100 break-words"><ClozeLatexCard text={cardFormFront || 'Sua pergunta aparecerá aqui'} isAnswer={false} /></div>
-                    </div>
-                    <div className="px-4 py-3 border-t border-slate-700/80 text-center text-xs text-slate-500">Toque para revelar a resposta</div>
-                  </div>
-                  <div className="rounded-xl border border-dashed border-slate-700 p-4 text-xs leading-5 text-slate-400"><strong className="text-slate-200">Atalho de estudo:</strong> prefira uma pergunta direta por cartão. Respostas curtas tornam a revisão mais rápida e precisa.</div>
-                </aside>
-              </form>
             </div>
           </div>
         )}
 
         {/* Modal Importação em Lote */}
         {isBatchModalOpen && (
-          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-            <div className={`w-full max-w-xl p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} space-y-4 shadow-2xl`}>
+          <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+            <div className="w-full max-w-xl rounded-2xl bg-zinc-900 border border-zinc-700 p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <UploadCloud className="w-5 h-5 text-red-500" />
-                  <h3 className="font-bold text-base">Importação em Lote para {currentDeck?.name}</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsBatchModalOpen(false)}
-                  className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 cursor-pointer"
-                >
+                <h3 className="font-bold text-sm text-zinc-100">Importar Flashcards (Arquivo / Texto)</h3>
+                <button onClick={() => setIsBatchModalOpen(false)} className="text-zinc-400 hover:text-white">
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <p className="text-xs text-slate-400">
-                Cole suas perguntas e respostas linha por linha. O sistema aceita como separador <strong>ponto-e-vírgula (;)</strong>, <strong>tabulação</strong> ou <strong>três traços (---)</strong>.
-              </p>
+              <div className="space-y-3">
+                <p className="text-xs text-zinc-400">
+                  Cole seus flashcards separados por ponto-e-vírgula (<code className="text-sky-400">Pergunta;Resposta</code>) ou tabulação, um por linha:
+                </p>
 
-              <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 font-mono text-[11px] text-slate-400 leading-relaxed">
-                <span className="text-slate-500 font-bold block mb-1">// Exemplo de formato:</span>
-                Ano de criação do CBMERJ? ; 1856<br />
-                Equação de Torricelli? ; v² = v0² + 2aΔs<br />
-                Capital do Estado do RJ? ; Rio de Janeiro
-              </div>
+                <textarea
+                  rows={6}
+                  placeholder={`O que é termodinâmica?;Estudo das transformações de calor em trabalho\nQual a fórmula da velocidade média?;Vm = ΔS / Δt`}
+                  value={batchInputText}
+                  onChange={(e) => setBatchInputText(e.target.value)}
+                  className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-100 text-xs font-mono resize-y"
+                />
 
-              <textarea
-                rows={8}
-                placeholder="Cole suas linhas aqui..."
-                value={batchInputText}
-                onChange={(e) => setBatchInputText(e.target.value)}
-                className={`w-full p-3 rounded-xl border text-xs font-mono transition-all ${
-                  isDark
-                    ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-red-500 focus:ring-1 focus:ring-red-500'
-                    : 'bg-white border-slate-200 text-slate-900 focus:border-red-500 focus:ring-1 focus:ring-red-500'
-                }`}
-              />
-
-              <div className="flex items-center justify-between pt-2">
-                <span className="text-xs font-mono text-slate-400">
-                  {batchInputText.split(/\r?\n/).filter((l) => l.trim().includes(';') || l.trim().includes('\t') || l.trim().includes('---')).length} cartões identificados
-                </span>
-                <div className="flex items-center gap-2">
+                <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
                     onClick={() => setIsBatchModalOpen(false)}
-                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 text-xs"
                   >
                     Cancelar
                   </button>
                   <button
                     type="button"
                     disabled={batchImporting || !batchInputText.trim()}
-                    onClick={handleImportBatch}
-                    className="px-4 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white transition-colors cursor-pointer"
+                    onClick={async () => {
+                      const lines = batchInputText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+                      if (lines.length === 0) return;
+                      setBatchImporting(true);
+                      try {
+                        let targetSubId = subjects[0]?.id;
+                        if (!targetSubId) {
+                          const subRes = await apiFetch('/api/flashcards/subjects', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name: 'Importados' }),
+                          });
+                          const subData = await subRes.json();
+                          targetSubId = subData.subject.id;
+                        }
+
+                        let targetDeckId = decks[0]?.id;
+                        if (!targetDeckId) {
+                          const deckRes = await apiFetch('/api/flashcards/decks', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ subjectId: targetSubId, name: 'Geral' }),
+                          });
+                          const deckData = await deckRes.json();
+                          targetDeckId = deckData.deck.id;
+                        }
+
+                        const parsedCards = lines.map(line => {
+                          const parts = line.split(/[;\t]/);
+                          return {
+                            front: parts[0]?.trim() || '',
+                            back: parts.slice(1).join(';')?.trim() || '',
+                          };
+                        }).filter(c => c.front && c.back);
+
+                        const res = await apiFetch(`/api/flashcards/decks/${targetDeckId}/cards/batch`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ cards: parsedCards }),
+                        });
+
+                        if (res.ok) {
+                          showToast?.(`${parsedCards.length} flashcards importados com sucesso!`, 'success');
+                          setIsBatchModalOpen(false);
+                          setBatchInputText('');
+                          void fetchGlobalData();
+                        }
+                      } catch {
+                        showToast?.('Erro ao importar flashcards.', 'error');
+                      } finally {
+                        setBatchImporting(false);
+                      }
+                    }}
+                    className="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold disabled:opacity-50"
                   >
-                    {batchImporting ? 'Importando...' : 'Importar Cartões'}
+                    {batchImporting ? 'Importando...' : 'Importar'}
                   </button>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Modal de Exclusão com Confirmação e Aviso em Cascata */}
-        {deleteModal && (
-          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-            <div className={`w-full max-w-md p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-red-500/40' : 'bg-white border-red-300'} space-y-4 shadow-2xl`}>
-              <div className="flex items-center gap-3 text-red-500">
-                <AlertCircle className="w-6 h-6 shrink-0" />
-                <h3 className="font-bold text-base text-slate-100">
-                  Excluir &quot;{deleteModal.title}&quot;?
-                </h3>
-              </div>
-
-              <div className="text-xs text-slate-300 space-y-2">
-                {deleteModal.type === 'subject' && (
-                  <p className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 font-mono leading-relaxed">
-                    <strong>{deleteModal.deckCount || 0} baralhos</strong> e <strong>{deleteModal.cardCount || 0} flashcards</strong> serão permanentemente removidos.
-                  </p>
-                )}
-                {deleteModal.type === 'deck' && (
-                  <p className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 font-mono leading-relaxed">
-                    <strong>{deleteModal.cardCount || 0} flashcards</strong> contidos neste baralho serão permanentemente removidos.
-                  </p>
-                )}
-                {deleteModal.type === 'card' && (
-                  <p className="text-slate-400">
-                    Este flashcard e seu histórico de revisões serão removidos do baralho.
-                  </p>
-                )}
-                <p className="text-slate-400 text-[11px]">
-                  Esta ação é irreversível e não poderá ser desfeita.
-                </p>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  onClick={() => setDeleteModal(null)}
-                  className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleConfirmDelete}
-                  className="px-4 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white"
-                >
-                  Excluir Definitivamente
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Modal Gerador de Flashcards com IA */}
-        {isAiModalOpen && (
-          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-            <div className={`w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} space-y-4`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-amber-400" />
-                  <h3 className="font-bold text-base">Gerador Tático de 20 Flashcards IA</h3>
-                </div>
-                <button onClick={() => setIsAiModalOpen(false)} className="text-slate-400 hover:text-white">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
-                    Matéria ou Tópico de Estudo
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ex: Leis Ponderais, Torricelli, Regência Verbal..."
-                    value={aiTopicInput}
-                    onChange={(e) => setAiTopicInput(e.target.value)}
-                    className={`w-full p-2.5 rounded-xl border text-sm ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
-                      Disciplina de Destino
-                    </label>
-                    <select
-                      value={aiTargetSubjectId}
-                      onChange={(e) => {
-                        setAiTargetSubjectId(e.target.value);
-                        void fetchDecksForSubject(e.target.value);
-                      }}
-                      className={`w-full p-2.5 rounded-xl border text-sm ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
-                    >
-                      {subjects.map((sub) => (
-                        <option key={sub.id} value={sub.id}>
-                          {sub.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
-                      Baralho de Destino
-                    </label>
-                    <select
-                      value={aiTargetDeckId}
-                      onChange={(e) => setAiTargetDeckId(e.target.value)}
-                      className={`w-full p-2.5 rounded-xl border text-sm ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
-                    >
-                      <option value="new_deck">+ Criar Novo Baralho com Este Tema</option>
-                      {decks.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {aiTargetDeckId === 'new_deck' && (
-                  <div>
-                    <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1">
-                      Título do Novo Baralho
-                    </label>
-                    <input
-                      type="text"
-                      placeholder={aiTopicInput.trim() || 'Nome do Baralho'}
-                      value={aiNewDeckTitle}
-                      onChange={(e) => setAiNewDeckTitle(e.target.value)}
-                      className={`w-full p-2.5 rounded-xl border text-sm ${isDark ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-slate-50 border-slate-300'}`}
-                    />
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  disabled={isAiLoading}
-                  onClick={handleGenerateWithAi}
-                  className="w-full py-2.5 text-xs font-bold rounded-xl bg-gradient-to-r from-red-600 via-red-700 to-amber-600 hover:opacity-95 text-white transition-opacity flex items-center justify-center gap-2"
-                >
-                  {isAiLoading ? (
-                    <>
-                      <Sparkles className="w-4 h-4 animate-spin" />
-                      <span>Gerando 20 Flashcards Bate-Pronto...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      <span>Gerar Bateria com IA Agora</span>
-                    </>
-                  )}
-                </button>
-
-                {aiPreviewCards.length > 0 && (
-                  <div className="space-y-3 pt-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono uppercase tracking-wider text-emerald-400">
-                        {aiPreviewCards.length} cards gerados com sucesso
-                      </span>
-                    </div>
-
-                    <div className="max-h-60 overflow-y-auto space-y-2 p-2 rounded-xl bg-slate-800/40 border border-slate-700/60">
-                      {aiPreviewCards.map((c, i) => (
-                        <div key={i} className="p-2.5 rounded-lg bg-slate-900/80 text-xs space-y-1">
-                          <p className="font-bold text-slate-200">P: {c.question}</p>
-                          <p className="text-emerald-400 font-mono">R: {c.answer}</p>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="flex justify-end gap-2 pt-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsAiModalOpen(false)}
-                        className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300"
-                      >
-                        Descartar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSaveAiCards}
-                        className="px-4 py-2 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
-                      >
-                        Salvar Todos no Baralho
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Modal de Foto Expandida em Tela Cheia */}
-        {expandedImage && (
-          <div
-            className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 cursor-pointer"
-            onClick={() => setExpandedImage(null)}
-          >
-            <div className="relative max-w-4xl max-h-[90vh]">
-              <img
-                src={expandedImage}
-                alt="Expandida"
-                className="max-h-[85vh] max-w-full object-contain rounded-xl border border-slate-700"
-              />
-              <button
-                onClick={() => setExpandedImage(null)}
-                className="absolute top-2 right-2 p-2 rounded-full bg-black/60 text-white hover:bg-black"
-              >
-                <X className="w-5 h-5" />
-              </button>
             </div>
           </div>
         )}
