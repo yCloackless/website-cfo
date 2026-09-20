@@ -81,6 +81,89 @@ export class AnkiRepository {
     };
   }
 
+  public getDeckConfig(userId: string, configId?: string): AnkiDeckConfig {
+    if (configId) {
+      const existing = this.db.prepare(`
+        SELECT * FROM anki_deck_configs WHERE user_id = ? AND id = ?
+      `).get(userId, configId) as any;
+      if (existing) {
+        return {
+          id: existing.id,
+          userId: existing.user_id,
+          name: existing.name,
+          config: JSON.parse(existing.config_json),
+          createdAt: existing.created_at,
+          updatedAt: existing.updated_at,
+        };
+      }
+    }
+    return this.ensureDefaultDeckConfig(userId);
+  }
+
+  public updateDeckConfig(
+    userId: string,
+    configId: string,
+    options: Partial<DeckConfigOptions>,
+    name?: string
+  ): AnkiDeckConfig {
+    const existing = this.getDeckConfig(userId, configId);
+    const updatedOptions: DeckConfigOptions = {
+      ...existing.config,
+      ...options,
+    };
+
+    // Strict numerical & logic sanitation
+    if (typeof updatedOptions.desiredRetention === 'number') {
+      updatedOptions.desiredRetention = Math.max(0.70, Math.min(0.99, Number(updatedOptions.desiredRetention) || 0.90));
+    }
+    if (typeof updatedOptions.newPerDay === 'number') {
+      updatedOptions.newPerDay = Math.max(0, Math.min(2000, Math.round(Number(updatedOptions.newPerDay) || 20)));
+    }
+    if (typeof updatedOptions.maxReviewsPerDay === 'number') {
+      updatedOptions.maxReviewsPerDay = Math.max(0, Math.min(5000, Math.round(Number(updatedOptions.maxReviewsPerDay) || 200)));
+    }
+    if (Array.isArray(updatedOptions.learningSteps)) {
+      const cleanSteps = updatedOptions.learningSteps
+        .map(Number)
+        .filter((n) => !isNaN(n) && n > 0);
+      updatedOptions.learningSteps = cleanSteps.length > 0 ? cleanSteps : [1, 10];
+    }
+    if (Array.isArray(updatedOptions.relearningSteps)) {
+      const cleanSteps = updatedOptions.relearningSteps
+        .map(Number)
+        .filter((n) => !isNaN(n) && n > 0);
+      updatedOptions.relearningSteps = cleanSteps.length > 0 ? cleanSteps : [10];
+    }
+    if (updatedOptions.buryNewSiblings !== undefined) {
+      updatedOptions.buryNewSiblings = Boolean(updatedOptions.buryNewSiblings);
+    }
+    if (updatedOptions.buryReviewSiblings !== undefined) {
+      updatedOptions.buryReviewSiblings = Boolean(updatedOptions.buryReviewSiblings);
+    }
+    if (updatedOptions.enableFSRS !== undefined) {
+      updatedOptions.enableFSRS = Boolean(updatedOptions.enableFSRS);
+    }
+
+    const now = new Date().toISOString();
+    const configJson = JSON.stringify(updatedOptions);
+    const configName = name && typeof name === 'string' && name.trim() ? name.trim() : existing.name;
+
+    this.db.prepare(`
+      UPDATE anki_deck_configs
+      SET name = ?, config_json = ?, updated_at = ?
+      WHERE user_id = ? AND id = ?
+    `).run(configName, configJson, now, userId, existing.id);
+
+    return {
+      id: existing.id,
+      userId,
+      name: configName,
+      config: updatedOptions,
+      createdAt: existing.createdAt,
+      updatedAt: now,
+    };
+  }
+
   public ensureDefaultNoteTypes(userId: string): AnkiNoteType[] {
     const existing = this.listNoteTypes(userId);
     if (existing.length > 0) {
@@ -504,8 +587,23 @@ export class AnkiRepository {
     const params: any[] = [userId, nowSeconds, todayEpochDays];
 
     if (deckId) {
-      query += ` AND c.deck_id = ?`;
-      params.push(deckId);
+      let targetDeckName: string | null = null;
+      if (deckId.startsWith('virtual_')) {
+        targetDeckName = deckId.replace(/^virtual_/, '');
+      } else {
+        const d = this.getDeck(userId, deckId);
+        if (d) {
+          targetDeckName = d.name;
+        }
+      }
+
+      if (targetDeckName) {
+        query += ` AND (c.deck_id = ? OR d.name = ? OR d.name LIKE ?)`;
+        params.push(deckId, targetDeckName, `${targetDeckName}::%`);
+      } else {
+        query += ` AND c.deck_id = ?`;
+        params.push(deckId);
+      }
     }
 
     // Prioritize learning cards, then reviews, then new cards

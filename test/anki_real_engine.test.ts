@@ -324,3 +324,79 @@ test('Real Anki: Renderização de fórmulas matemáticas com KaTeX', () => {
   }
 });
 
+test('Real Anki: Persistência e atualização de Configurações FSRS do Baralho', () => {
+  const { userRepo, ankiRepo, cleanup } = createTempDb();
+
+  try {
+    const user = userRepo.create({ username: 'aluno_cfg', email: 'cfg@cfo.test', passwordHash: 'hash' });
+    const initialConfig = ankiRepo.ensureDefaultDeckConfig(user.id);
+    assert.equal(initialConfig.config.desiredRetention, 0.90);
+    assert.equal(initialConfig.config.newPerDay, 20);
+
+    // Update config with custom FSRS settings
+    const updated = ankiRepo.updateDeckConfig(user.id, initialConfig.id, {
+      desiredRetention: 0.95,
+      newPerDay: 35,
+      maxReviewsPerDay: 300,
+      learningSteps: [2, 15],
+      relearningSteps: [15],
+      buryNewSiblings: false,
+    });
+
+    assert.equal(updated.config.desiredRetention, 0.95);
+    assert.equal(updated.config.newPerDay, 35);
+    assert.equal(updated.config.maxReviewsPerDay, 300);
+    assert.deepEqual(updated.config.learningSteps, [2, 15]);
+    assert.equal(updated.config.buryNewSiblings, false);
+
+    // Reload from database and confirm persistence
+    const reloaded = ankiRepo.getDeckConfig(user.id, initialConfig.id);
+    assert.equal(reloaded.config.desiredRetention, 0.95);
+    assert.equal(reloaded.config.newPerDay, 35);
+    assert.equal(reloaded.config.maxReviewsPerDay, 300);
+    assert.deepEqual(reloaded.config.learningSteps, [2, 15]);
+    assert.equal(reloaded.config.buryNewSiblings, false);
+  } finally {
+    cleanup();
+  }
+});
+
+test('Real Anki: Study Queue carrega cartões de baralhos pais e sub-baralhos ::', () => {
+  const { userRepo, ankiRepo, cleanup } = createTempDb();
+
+  try {
+    const user = userRepo.create({ username: 'aluno_queue', email: 'queue@cfo.test', passwordHash: 'hash' });
+    const notetypes = ankiRepo.ensureDefaultNoteTypes(user.id);
+    const basicNt = notetypes[0];
+
+    // Parent deck
+    const parentDeck = ankiRepo.createDeck(user.id, { name: 'Física' });
+    // Subdeck
+    const subdeck = ankiRepo.createDeck(user.id, { name: 'Física::Mecânica::Cinemática' });
+
+    // Note in subdeck
+    ankiRepo.createNote(user.id, {
+      deckId: subdeck.id,
+      notetypeId: basicNt.id,
+      fields: ['O que é velocidade média?', 'Razão entre o deslocamento e o tempo.'],
+      tags: ['cinematica'],
+    });
+
+    // 1. Study from subdeck directly
+    const queueSub = ankiRepo.getStudyQueue(user.id, subdeck.id);
+    assert.equal(queueSub.length, 1);
+    assert.equal(queueSub[0].deckId, subdeck.id);
+
+    // 2. Study from parent deck (hierarchical roll-up)
+    const queueParent = ankiRepo.getStudyQueue(user.id, parentDeck.id);
+    assert.equal(queueParent.length, 1, 'Fila do baralho pai deve incluir cartões dos sub-baralhos');
+
+    // 3. Study from virtual node id
+    const queueVirtual = ankiRepo.getStudyQueue(user.id, 'virtual_Física');
+    assert.equal(queueVirtual.length, 1, 'Nó virtual deve encontrar cartões com prefixo do baralho');
+  } finally {
+    cleanup();
+  }
+});
+
+

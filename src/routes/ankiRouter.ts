@@ -126,10 +126,70 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
     try {
       const user = (req as any).user;
       const repo = getRepo();
-      const config = repo.ensureDefaultDeckConfig(user.userId);
+      const configId = req.query.configId ? String(req.query.configId) : undefined;
+      const deckId = req.query.deckId ? String(req.query.deckId) : undefined;
+
+      let targetConfigId = configId;
+      if (!targetConfigId && deckId && !deckId.startsWith('virtual_')) {
+        const deck = repo.getDeck(user.userId, deckId);
+        if (deck?.configId) {
+          targetConfigId = deck.configId;
+        }
+      }
+
+      const config = repo.getDeckConfig(user.userId, targetConfigId);
       return res.json({ success: true, config });
     } catch (err: any) {
       return res.status(500).json({ error: 'GET_CONFIG_FAILED', message: err.message });
+    }
+  });
+
+  router.put('/deck-configs/:id', requireAuthMiddleware, (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const repo = getRepo();
+      const configId = req.params.id;
+      const { config, name, deckId } = req.body || {};
+
+      if (!config || typeof config !== 'object') {
+        return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'Opções de configuração inválidas.' });
+      }
+
+      const updated = repo.updateDeckConfig(user.userId, configId, config, name);
+
+      // If deckId is provided and deck does not have configId set, attach it
+      if (deckId && typeof deckId === 'string' && !deckId.startsWith('virtual_')) {
+        const deck = repo.getDeck(user.userId, deckId);
+        if (deck && !deck.configId) {
+          repo.updateDeck(user.userId, deckId, { configId: updated.id });
+        }
+      }
+
+      return res.json({ success: true, config: updated });
+    } catch (err: any) {
+      return res.status(500).json({ error: 'UPDATE_CONFIG_FAILED', message: err.message });
+    }
+  });
+
+  router.patch('/deck-configs/:id', requireAuthMiddleware, (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const repo = getRepo();
+      const configId = req.params.id;
+      const { config, name, deckId } = req.body || {};
+
+      const updated = repo.updateDeckConfig(user.userId, configId, config || {}, name);
+
+      if (deckId && typeof deckId === 'string' && !deckId.startsWith('virtual_')) {
+        const deck = repo.getDeck(user.userId, deckId);
+        if (deck && !deck.configId) {
+          repo.updateDeck(user.userId, deckId, { configId: updated.id });
+        }
+      }
+
+      return res.json({ success: true, config: updated });
+    } catch (err: any) {
+      return res.status(500).json({ error: 'UPDATE_CONFIG_FAILED', message: err.message });
     }
   });
 

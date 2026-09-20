@@ -497,6 +497,12 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
           deck={optionsDeck}
           isOpen={Boolean(optionsDeck)}
           onClose={() => setOptionsDeck(null)}
+          onDeckUpdated={() => void fetchDecks()}
+          onDeleteDeck={(d) => void handleDeleteDeck(d)}
+          onExportDeck={(d) => {
+            window.open(`/api/anki/export-apkg?deckId=${encodeURIComponent(d.id)}`, '_blank');
+            showToast?.(`Exportação do baralho "${d.name}" iniciada!`, 'success');
+          }}
           showToast={showToast}
         />
       )}
@@ -518,8 +524,14 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 
       {/* ➕ Modal Criar Baralho */}
       {isCreateDeckModalOpen && (
-        <div className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-md flex items-center justify-center p-3">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-md shadow-2xl space-y-4">
+        <div
+          className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-md flex items-center justify-center p-3 animate-in fade-in duration-150"
+          onClick={() => setIsCreateDeckModalOpen(false)}
+        >
+          <div
+            className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-md shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="text-sm font-bold text-zinc-100">Criar Novo Baralho</h3>
             <form onSubmit={handleCreateDeck} className="space-y-3">
               <div>
@@ -570,8 +582,14 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 
       {/* ✏️ Modal Renomear Baralho */}
       {renamingDeck && (
-        <div className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-md flex items-center justify-center p-3">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-md shadow-2xl space-y-4">
+        <div
+          className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-md flex items-center justify-center p-3 animate-in fade-in duration-150"
+          onClick={() => setRenamingDeck(null)}
+        >
+          <div
+            className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-md shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="text-sm font-bold text-zinc-100">Renomear Baralho</h3>
             <form onSubmit={handleRenameDeck} className="space-y-3">
               <div>

@@ -234,6 +234,12 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
 
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         void handleUndo();
@@ -269,8 +275,14 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAnswerRevealed, currentCard, isSubmitting]);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isAnswerRevealed, currentCard, isSubmitting, onClose]);
 
   // Dynamic preview intervals map
   const getIntervalLabel = (rating: Rating): string => {

@@ -109,6 +109,13 @@ export default function App() {
     navigate(targetRoute);
   }, [navigate]);
 
+  // Redirecionamento transparente de rota legada /caderno-de-erros -> /flashcards
+  useEffect(() => {
+    if (location.pathname === '/caderno-de-erros') {
+      navigate('/flashcards', { replace: true });
+    }
+  }, [location.pathname, navigate]);
+
   // 🛡️ Security Gate (2FA TOTP Terminal) State
   const [isTerminalUnlocked, setIsTerminalUnlocked] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
@@ -1682,6 +1689,7 @@ export default function App() {
     '/equilibrio-ia',
     '/simulados',
     '/nivelamento',
+    '/flashcards',
     '/caderno-de-erros',
     '/agenda-notion',
     '/ifrj',

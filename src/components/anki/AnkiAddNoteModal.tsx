@@ -64,7 +64,6 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
     void fetchNotetypes();
   }, [isOpen]);
 
-  // Set default deck
   useEffect(() => {
     if (defaultDeckId) {
       setSelectedDeckId(defaultDeckId);
@@ -72,6 +71,23 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
       setSelectedDeckId(decks[0].id);
     }
   }, [defaultDeckId, decks]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen, onClose]);
 
   const activeNotetype = notetypes.find((n) => n.id === selectedNotetypeId) || notetypes[0];
 
@@ -169,8 +185,14 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150">
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-2xl flex flex-col shadow-2xl overflow-hidden max-h-[90vh]">
+    <div
+      className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150"
+      onClick={onClose}
+    >
+      <div
+        className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-2xl flex flex-col shadow-2xl overflow-hidden max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Modal Header */}
         <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/60">
           <div className="flex items-center gap-2">

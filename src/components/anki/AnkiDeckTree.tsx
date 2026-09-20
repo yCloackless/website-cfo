@@ -46,7 +46,6 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
   onCreateSubdeck,
 }) => {
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
-  const [activeMenuDeckId, setActiveMenuDeckId] = useState<string | null>(null);
 
   // Build hierarchical tree from deck names with "::"
   const tree = useMemo(() => {
@@ -149,165 +148,117 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
     return (
       <React.Fragment key={node.fullName}>
         <div
-          className={`flex items-center justify-between py-2.5 px-3 border-b border-zinc-800/60 hover:bg-zinc-800/40 transition-colors group ${
+          className={`grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_75px_85px_85px_130px] md:grid-cols-[1fr_80px_90px_90px_140px] items-center py-2.5 px-3 sm:px-4 border-b border-zinc-800/60 hover:bg-zinc-800/40 transition-colors group ${
             depth > 0 ? 'bg-zinc-950/20' : ''
           }`}
-          style={{ paddingLeft: `${Math.max(12, depth * 22 + 12)}px` }}
         >
-          {/* Deck title and expand arrow */}
-          <div className="flex items-center gap-2 flex-1 min-w-0">
+          {/* Coluna 1: Nome do Baralho + Hierarquia */}
+          <div
+            className="flex items-center gap-2 min-w-0 pr-2"
+            style={{ paddingLeft: `${Math.max(0, depth * 18)}px` }}
+          >
             {hasChildren ? (
               <button
                 type="button"
                 onClick={() => toggleCollapse(node.fullName)}
-                className="p-1 hover:bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200 transition-colors"
+                className="p-1 hover:bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200 transition-colors shrink-0"
+                title={isCollapsed ? 'Expandir sub-baralhos' : 'Recolher sub-baralhos'}
               >
-                {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
               </button>
             ) : (
-              <span className="w-6" />
+              <span className="w-5 shrink-0" />
             )}
 
             {hasChildren && isCollapsed ? (
-              <Folder className="w-4 h-4 text-amber-500/80 shrink-0" />
+              <Folder className="w-4 h-4 text-amber-500/90 shrink-0" />
             ) : hasChildren ? (
-              <FolderOpen className="w-4 h-4 text-amber-500/80 shrink-0" />
+              <FolderOpen className="w-4 h-4 text-amber-500/90 shrink-0" />
             ) : (
-              <Layers className="w-4 h-4 text-sky-400/80 shrink-0" />
+              <Layers className="w-4 h-4 text-sky-400/90 shrink-0" />
             )}
 
-            <button
-              type="button"
-              onClick={() => onSelectDeck(targetDeck)}
-              className="text-left font-medium text-zinc-200 hover:text-sky-400 transition-colors truncate text-sm"
-              title={node.fullName}
-            >
-              {node.displayName}
-            </button>
+            <div className="min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={() => onSelectDeck(targetDeck)}
+                className="text-left font-medium text-zinc-200 hover:text-sky-400 transition-colors truncate block text-xs sm:text-sm w-full"
+                title={node.fullName}
+              >
+                {node.displayName}
+              </button>
+
+              {/* Mobile count indicators */}
+              <div className="flex sm:hidden items-center gap-2 text-[10px] font-mono mt-0.5 text-zinc-500">
+                <span className={node.newCount > 0 ? 'text-sky-400 font-semibold' : 'text-zinc-600'}>
+                  {node.newCount}N
+                </span>
+                <span>·</span>
+                <span className={node.learnCount > 0 ? 'text-amber-500 font-semibold' : 'text-zinc-600'}>
+                  {node.learnCount}A
+                </span>
+                <span>·</span>
+                <span className={node.reviewCount > 0 ? 'text-emerald-400 font-semibold' : 'text-zinc-600'}>
+                  {node.reviewCount}R
+                </span>
+              </div>
+            </div>
           </div>
 
-          {/* Counts & Actions */}
-          <div className="flex items-center gap-4 sm:gap-6 shrink-0">
-            {/* Anki classic counts: New (blue), Learn (orange), Review (green) */}
-            <div className="flex items-center gap-3 text-xs font-mono tabular-nums">
-              <span
-                className={`w-8 text-right font-semibold ${
-                  node.newCount > 0 ? 'text-sky-400' : 'text-zinc-600'
-                }`}
-                title="Cards Novos"
-              >
-                {node.newCount}
-              </span>
-              <span
-                className={`w-8 text-right font-semibold ${
-                  node.learnCount > 0 ? 'text-amber-500' : 'text-zinc-600'
-                }`}
-                title="Cards em Aprendizagem"
-              >
-                {node.learnCount}
-              </span>
-              <span
-                className={`w-8 text-right font-semibold ${
-                  node.reviewCount > 0 ? 'text-emerald-400' : 'text-zinc-600'
-                }`}
-                title="Cards para Revisar"
-              >
-                {node.reviewCount}
-              </span>
-            </div>
+          {/* Coluna 2: Novo (Desktop) */}
+          <div className="hidden sm:block text-right pr-4 font-mono text-xs tabular-nums">
+            <span
+              className={`font-semibold ${node.newCount > 0 ? 'text-sky-400' : 'text-zinc-600'}`}
+              title="Cartões Novos"
+            >
+              {node.newCount}
+            </span>
+          </div>
 
-            {/* Quick action: Play */}
+          {/* Coluna 3: Aprender (Desktop) */}
+          <div className="hidden sm:block text-right pr-4 font-mono text-xs tabular-nums">
+            <span
+              className={`font-semibold ${node.learnCount > 0 ? 'text-amber-500' : 'text-zinc-600'}`}
+              title="Cartões em Aprendizagem"
+            >
+              {node.learnCount}
+            </span>
+          </div>
+
+          {/* Coluna 4: Revisar (Desktop) */}
+          <div className="hidden sm:block text-right pr-4 font-mono text-xs tabular-nums">
+            <span
+              className={`font-semibold ${node.reviewCount > 0 ? 'text-emerald-400' : 'text-zinc-600'}`}
+              title="Cartões para Revisão"
+            >
+              {node.reviewCount}
+            </span>
+          </div>
+
+          {/* Coluna 5: Ações */}
+          <div className="flex items-center justify-end gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={() => onSelectDeck(targetDeck)}
-              className="px-2.5 py-1 text-xs font-medium rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 flex items-center gap-1.5 transition-all active:scale-95"
+              className="px-2 sm:px-2.5 py-1 text-xs font-medium rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 flex items-center gap-1 transition-all active:scale-95 shadow-sm"
+              title="Iniciar sessão de estudo"
             >
               <Play className="w-3 h-3 fill-current text-sky-400" />
               <span className="hidden sm:inline">Estudar</span>
             </button>
 
-            {/* Deck Context Menu */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setActiveMenuDeckId(activeMenuDeckId === node.id ? null : node.id)}
-                className="p-1.5 hover:bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200 transition-colors"
-                title="Opções do Baralho"
-              >
-                <Settings className="w-3.5 h-3.5" />
-              </button>
-
-              {activeMenuDeckId === node.id && (
-                <>
-                  <div
-                    className="fixed inset-0 z-20"
-                    onClick={() => setActiveMenuDeckId(null)}
-                  />
-                  <div className="absolute right-0 mt-1 w-44 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1 z-30 text-xs text-zinc-300">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveMenuDeckId(null);
-                        onCreateSubdeck(node.fullName);
-                      }}
-                      className="w-full text-left px-3 py-2 hover:bg-zinc-800 flex items-center gap-2 text-zinc-200"
-                    >
-                      <Plus className="w-3.5 h-3.5 text-sky-400" />
-                      Criar Sub-baralho
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveMenuDeckId(null);
-                        onOpenDeckOptions(targetDeck);
-                      }}
-                      className="w-full text-left px-3 py-2 hover:bg-zinc-800 flex items-center gap-2 text-zinc-200"
-                    >
-                      <Settings className="w-3.5 h-3.5 text-amber-400" />
-                      Configurações / FSRS
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveMenuDeckId(null);
-                        onRenameDeck(targetDeck);
-                      }}
-                      className="w-full text-left px-3 py-2 hover:bg-zinc-800 flex items-center gap-2 text-zinc-200"
-                    >
-                      <Edit2 className="w-3.5 h-3.5 text-zinc-400" />
-                      Renomear
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveMenuDeckId(null);
-                        onExportDeck(targetDeck);
-                      }}
-                      className="w-full text-left px-3 py-2 hover:bg-zinc-800 flex items-center gap-2 text-zinc-200"
-                    >
-                      <Download className="w-3.5 h-3.5 text-emerald-400" />
-                      Exportar .apkg
-                    </button>
-                    <div className="my-1 border-t border-zinc-800" />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveMenuDeckId(null);
-                        onDeleteDeck(targetDeck);
-                      }}
-                      className="w-full text-left px-3 py-2 hover:bg-red-500/10 text-red-400 flex items-center gap-2"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Excluir Baralho
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={() => onOpenDeckOptions(targetDeck)}
+              className="p-1.5 hover:bg-zinc-800 rounded-md text-zinc-400 hover:text-amber-400 border border-transparent hover:border-zinc-700 transition-colors"
+              title="Configurações do Baralho / FSRS"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
 
-        {/* Children */}
+        {/* Filhos Hierárquicos */}
         {hasChildren && !isCollapsed && (
           <div>{node.children.map((child) => renderNode(child, depth + 1))}</div>
         )}
@@ -316,18 +267,20 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
   };
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-lg">
-      {/* Table Header */}
-      <div className="flex items-center justify-between py-2.5 px-4 bg-zinc-950/80 border-b border-zinc-800 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg">
+      {/* Table Header com CSS Grid Perfeitamente Alinhado */}
+      <div className="hidden sm:grid sm:grid-cols-[1fr_75px_85px_85px_130px] md:grid-cols-[1fr_80px_90px_90px_140px] items-center py-2.5 px-4 bg-zinc-950/80 border-b border-zinc-800 text-xs font-semibold uppercase tracking-wider text-zinc-400">
         <div>Baralho</div>
-        <div className="flex items-center gap-4 sm:gap-6">
-          <div className="flex items-center gap-3">
-            <span className="w-8 text-right text-sky-400">Novo</span>
-            <span className="w-8 text-right text-amber-500">Aprender</span>
-            <span className="w-8 text-right text-emerald-400">Revisar</span>
-          </div>
-          <span className="w-20 sm:w-28 text-center">Ações</span>
-        </div>
+        <div className="text-right pr-4 text-sky-400">Novo</div>
+        <div className="text-right pr-4 text-amber-500">Aprender</div>
+        <div className="text-right pr-4 text-emerald-400">Revisar</div>
+        <div className="text-right pr-2">Ações</div>
+      </div>
+
+      {/* Mobile Table Header */}
+      <div className="flex sm:hidden items-center justify-between py-2 px-3 bg-zinc-950/80 border-b border-zinc-800 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+        <div>Baralho</div>
+        <div>Ações</div>
       </div>
 
       {/* Tree Content */}
