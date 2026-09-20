@@ -97,6 +97,8 @@ import { createRateLimitRedisStore, isRedisAvailable } from "./src/services/redi
 import { telemetryService } from "./src/services/telemetryService";
 import { StudentStudyRepository } from "./src/db/studentStudyRepository";
 import { calculatePriorityScore, classifyPriority, weightedAverage } from "./src/services/studentStudyPriority";
+import { createAnkiRouter } from "./src/routes/ankiRouter";
+import { AnkiRepository } from "./src/db/ankiRepository";
 
 const app = express();
 app.disable("x-powered-by");
@@ -7709,6 +7711,11 @@ app.post('/api/flashcards/decks/:deckId/cards/batch', requireUserAuth, (req: Req
   }
 });
 
+// =========================================================================
+// 🧠 REAL ANKI ENGINE ROUTER (Decks, Notes, Cards, FSRS, APKG, Browser)
+// =========================================================================
+app.use('/api/anki', createAnkiRouter(requireUserAuth));
+
 // --- ROTA DE COMPATIBILIDADE LEGADA COM SINCRONIZAÇÃO AUTOMÁTICA ---
 app.get('/api/student/flashcards', requireUserAuth, (req: Request, res: Response) => {
   const user = (req as any).user;
@@ -8563,6 +8570,13 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
 async function startServer() {
   // Inicializa e assegura contas no banco de dados
   await authServiceInstance.ensureDefaultAccounts();
+
+  // Migra dados legados de flashcards para o motor oficial Anki se existirem
+  try {
+    AnkiRepository.migrateLegacyData(getDb().getRawDb());
+  } catch (ankiMigrateErr) {
+    console.warn('[Anki] Migração de dados legados:', ankiMigrateErr);
+  }
 
   // Inicializa o agendador automático diário de backup às 03:00 com retenção de 30 dias
   initBackupScheduler();

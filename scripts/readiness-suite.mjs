@@ -17,6 +17,7 @@ const files = ['models', 'auth', 'profile', 'audit_security', 'admin_panel',
 files.push('student_release45');
 files.push('emergency_lockdown');
 files.push('flashcards_anki');
+files.push('anki_real_engine');
 files.push('student_study');
 files.push('leveling');
 files.push('extension_integration');

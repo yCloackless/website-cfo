@@ -1363,6 +1363,164 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_users_ifrj_access ON users(can_access_ifrj);
     `,
   },
+  {
+    id: 32,
+    name: '032_real_anki_engine',
+    sql: `
+      -- 1. ANKI DECK CONFIGS
+      CREATE TABLE IF NOT EXISTS anki_deck_configs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        config_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_anki_deck_configs_user ON anki_deck_configs(user_id);
+
+      -- 2. ANKI DECKS (Hierarchical, e.g. "Matemática::Álgebra::Logaritmos")
+      CREATE TABLE IF NOT EXISTS anki_decks (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        config_id TEXT,
+        is_collapsed INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (config_id) REFERENCES anki_deck_configs(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_anki_decks_user ON anki_decks(user_id);
+      CREATE INDEX IF NOT EXISTS idx_anki_decks_user_name ON anki_decks(user_id, name);
+
+      -- 3. ANKI NOTE TYPES
+      CREATE TABLE IF NOT EXISTS anki_notetypes (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'standard' CHECK (kind IN ('standard', 'cloze')),
+        css TEXT NOT NULL,
+        is_system INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_anki_notetypes_user ON anki_notetypes(user_id);
+
+      -- 4. ANKI FIELDS
+      CREATE TABLE IF NOT EXISTS anki_fields (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        notetype_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        ordinal INTEGER NOT NULL,
+        font_size INTEGER DEFAULT 20,
+        font_name TEXT DEFAULT 'Arial',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (notetype_id) REFERENCES anki_notetypes(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_anki_fields_notetype ON anki_fields(notetype_id, ordinal);
+
+      -- 5. ANKI TEMPLATES
+      CREATE TABLE IF NOT EXISTS anki_templates (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        notetype_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        ordinal INTEGER NOT NULL,
+        qfmt TEXT NOT NULL,
+        afmt TEXT NOT NULL,
+        bqfmt TEXT,
+        bafmt TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (notetype_id) REFERENCES anki_notetypes(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_anki_templates_notetype ON anki_templates(notetype_id, ordinal);
+
+      -- 6. ANKI NOTES
+      CREATE TABLE IF NOT EXISTS anki_notes (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        notetype_id TEXT NOT NULL,
+        guid TEXT NOT NULL,
+        fields_json TEXT NOT NULL,
+        tags TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (notetype_id) REFERENCES anki_notetypes(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_anki_notes_user ON anki_notes(user_id);
+      CREATE INDEX IF NOT EXISTS idx_anki_notes_notetype ON anki_notes(notetype_id);
+
+      -- 7. ANKI CARDS
+      CREATE TABLE IF NOT EXISTS anki_cards (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        note_id TEXT NOT NULL,
+        deck_id TEXT NOT NULL,
+        template_ord INTEGER NOT NULL DEFAULT 0,
+        queue INTEGER NOT NULL DEFAULT 0,
+        card_type INTEGER NOT NULL DEFAULT 0,
+        due INTEGER NOT NULL DEFAULT 0,
+        interval_days INTEGER NOT NULL DEFAULT 0,
+        ease_factor REAL NOT NULL DEFAULT 2.5,
+        reps INTEGER NOT NULL DEFAULT 0,
+        lapses INTEGER NOT NULL DEFAULT 0,
+        difficulty REAL NOT NULL DEFAULT 0.0,
+        stability REAL NOT NULL DEFAULT 0.0,
+        last_review_at TEXT,
+        flags INTEGER NOT NULL DEFAULT 0,
+        is_marked INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (note_id) REFERENCES anki_notes(id) ON DELETE CASCADE,
+        FOREIGN KEY (deck_id) REFERENCES anki_decks(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_anki_cards_user_deck ON anki_cards(user_id, deck_id);
+      CREATE INDEX IF NOT EXISTS idx_anki_cards_user_queue ON anki_cards(user_id, queue);
+      CREATE INDEX IF NOT EXISTS idx_anki_cards_user_due ON anki_cards(user_id, due);
+      CREATE INDEX IF NOT EXISTS idx_anki_cards_note ON anki_cards(note_id);
+
+      -- 8. ANKI REVLOG
+      CREATE TABLE IF NOT EXISTS anki_revlog (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        card_id TEXT NOT NULL,
+        rating INTEGER NOT NULL CHECK (rating IN (1, 2, 3, 4)),
+        reviewed_at TEXT NOT NULL,
+        elapsed_time_ms INTEGER NOT NULL DEFAULT 0,
+        previous_interval INTEGER NOT NULL,
+        new_interval INTEGER NOT NULL,
+        previous_state TEXT NOT NULL,
+        review_type INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (card_id) REFERENCES anki_cards(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_anki_revlog_user_card ON anki_revlog(user_id, card_id);
+      CREATE INDEX IF NOT EXISTS idx_anki_revlog_user_date ON anki_revlog(user_id, reviewed_at);
+
+      -- 9. ANKI MEDIA
+      CREATE TABLE IF NOT EXISTS anki_media (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        file_size INTEGER NOT NULL,
+        storage_path TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_anki_media_user_filename ON anki_media(user_id, filename);
+      CREATE INDEX IF NOT EXISTS idx_anki_media_user_hash ON anki_media(user_id, hash);
+    `,
+  },
 ];
 
 
