@@ -375,7 +375,7 @@ export function IfriStudyTab({ userProfile, onExit, onSignOut }: Props) {
     const ok = await save(
       '/api/rumo-estudos/profile',
       'PATCH',
-      { ...profileForm, campus: cleanName },
+      { campus: cleanName },
       `Campus "${cleanName}" definido no seu perfil!`
     );
     if (ok) {
@@ -387,7 +387,7 @@ export function IfriStudyTab({ userProfile, onExit, onSignOut }: Props) {
     const ok = await save(
       '/api/rumo-estudos/profile',
       'PATCH',
-      { ...profileForm, course: courseName },
+      { course: courseName },
       `Curso "${courseName}" definido no seu perfil!`
     );
     if (ok) {
@@ -1707,11 +1707,14 @@ function SettingsView({ form, setForm, save, saving }: any) {
       '/api/rumo-estudos/profile',
       'PATCH',
       {
-        ...form,
         displayName: form.displayName?.trim() || '',
+        institution: form.institution?.trim() || 'IFRJ',
         campus: form.campus?.trim() || '',
         course: form.course?.trim() || '',
-        institution: form.institution?.trim() || 'IFRJ',
+        schoolYear: form.schoolYear?.trim() || '',
+        className: form.className?.trim() || '',
+        shift: form.shift?.trim() || 'integral',
+        availableTimeJson: form.availableTimeJson?.trim() || '',
         onboardingCompleted: true,
       },
       'Perfil atualizado com sucesso!'

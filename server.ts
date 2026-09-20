@@ -5227,7 +5227,7 @@ const handleStudentProfileUpsert = (req: Request, res: Response) => {
   if (!textFields.some((field) => body[field] !== undefined)) {
     return res.status(400).json({ error: 'INVALID_PROFILE_PAYLOAD', message: 'Informe ao menos um campo do perfil.' });
   }
-  if (textFields.some((field) => body[field] !== undefined && typeof body[field] !== 'string')) {
+  if (textFields.some((field) => body[field] !== undefined && body[field] !== null && typeof body[field] !== 'string')) {
     return res.status(400).json({ error: 'INVALID_PROFILE_FIELD', message: 'Os campos do perfil devem ser textos válidos.' });
   }
   if (body.onboardingCompleted !== undefined && typeof body.onboardingCompleted !== 'boolean') {
