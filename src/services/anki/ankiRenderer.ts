@@ -12,9 +12,39 @@
  *     [latex]...[/latex], [$]...[/$], \(...\), \[...\], $$...$$, $...$
  */
 
+import katex from 'katex';
 import { AnkiField, AnkiNote, AnkiNoteType, RenderedCardContent } from './ankiTypes';
 
 export class AnkiRenderer {
+  /**
+   * Renders LaTeX / MathJax formulas into HTML strings via KaTeX.
+   */
+  public static renderMath(html: string): string {
+    if (!html) return '';
+
+    // Block math: $$...$$ or \[...\]
+    let rendered = html.replace(/\$\$([\s\S]*?)\$\$|\\\[([\s\S]*?)\\\]/g, (_m, g1, g2) => {
+      const math = g1 || g2 || '';
+      try {
+        return katex.renderToString(math.trim(), { displayMode: true, throwOnError: false });
+      } catch {
+        return _m;
+      }
+    });
+
+    // Inline math: [latex]...[/latex], [$]...[/$], \(...\), and $...$
+    rendered = rendered.replace(/(?:\[latex\]|\[\$\])([\s\S]*?)(?:\[\/latex\]|\[\/\$\])|\\\(([\s\S]*?)\\\)|(?<!\\)\$([^\$\n\r]+?)\$/g, (_m, g1, g2, g3) => {
+      const math = g1 || g2 || g3 || '';
+      try {
+        return katex.renderToString(math.trim(), { displayMode: false, throwOnError: false });
+      } catch {
+        return _m;
+      }
+    });
+
+    return rendered;
+  }
+
   /**
    * Discovers all unique cloze ordinals (1-based) in a note's fields.
    * Example: "O {{c1::coração}} bombeia {{c2::sangue}} para os {{c1::tecidos}}." -> [1, 2]
@@ -131,14 +161,15 @@ export class AnkiRenderer {
     };
 
     // Render Question
-    const questionHtml = replaceFields(template.qfmt, false);
+    const rawQuestionHtml = replaceFields(template.qfmt, false);
+    const questionHtml = this.renderMath(rawQuestionHtml);
 
     // Render Answer (substituting {{FrontSide}} with questionHtml without audio if applicable)
     let rawAnswerTpl = template.afmt;
     if (rawAnswerTpl.includes('{{FrontSide}}')) {
-      rawAnswerTpl = rawAnswerTpl.replace(/\{\{FrontSide\}\}/gi, questionHtml);
+      rawAnswerTpl = rawAnswerTpl.replace(/\{\{FrontSide\}\}/gi, rawQuestionHtml);
     }
-    const answerHtml = replaceFields(rawAnswerTpl, true);
+    const answerHtml = this.renderMath(replaceFields(rawAnswerTpl, true));
 
     return {
       questionHtml,

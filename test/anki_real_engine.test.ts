@@ -296,3 +296,31 @@ test('Real Anki: Exportação e Importação de pacote .apkg (ZIP + collection.a
     cleanup();
   }
 });
+
+test('Real Anki: Renderização de fórmulas matemáticas com KaTeX', () => {
+  const { userRepo, ankiRepo, cleanup } = createTempDb();
+
+  try {
+    const user = userRepo.create({ username: 'aluno_math', email: 'math@cfo.test', passwordHash: 'hash' });
+    const notetypes = ankiRepo.ensureDefaultNoteTypes(user.id);
+    const basicNt = notetypes[0];
+    const deck = ankiRepo.createDeck(user.id, { name: 'Física::Eletrostática' });
+
+    const note = ankiRepo.createNote(user.id, {
+      deckId: deck.id,
+      notetypeId: basicNt.id,
+      fields: [
+        'Qual é a lei de Coulomb? $F = k \\frac{|q_1 q_2|}{r^2}$',
+        'A força eletrostática entre duas cargas pontiformes: $$F = \\frac{1}{4\\pi\\varepsilon_0} \\frac{q_1 q_2}{r^2}$$',
+      ],
+      tags: ['fisica', 'cfo'],
+    });
+
+    const rendered = AnkiRenderer.renderCard(note.note, basicNt, 0, deck.name);
+    assert.ok(rendered.questionHtml.includes('katex'), 'Pergunta deve conter HTML renderizado do KaTeX');
+    assert.ok(rendered.answerHtml.includes('katex-display'), 'Resposta deve conter bloco math KaTeX displayMode');
+  } finally {
+    cleanup();
+  }
+});
+

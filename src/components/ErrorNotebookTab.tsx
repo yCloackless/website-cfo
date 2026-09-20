@@ -33,61 +33,6 @@ import { AnkiDeckOptionsModal } from './anki/AnkiDeckOptionsModal';
 import { AnkiStatsModal } from './anki/AnkiStatsModal';
 import { AnkiApkgModal } from './anki/AnkiApkgModal';
 
-// Backwards-compatible exported types
-export interface SubjectWithStats {
-  id: string;
-  userId: string;
-  name: string;
-  description?: string | null;
-  icon?: string | null;
-  color?: string | null;
-  createdAt: string;
-  updatedAt: string;
-  deckCount: number;
-  cardCount: number;
-  dueCount: number;
-}
-
-export interface DeckWithStats {
-  id: string;
-  userId: string;
-  subjectId: string;
-  subjectName?: string;
-  name: string;
-  description?: string | null;
-  createdAt: string;
-  updatedAt: string;
-  cardCount: number;
-  dueCount: number;
-  newCount: number;
-  learningCount: number;
-  reviewCount: number;
-  masteredCount: number;
-}
-
-export interface Flashcard {
-  id: string;
-  userId: string;
-  subjectId: string;
-  deckId: string;
-  front: string;
-  back: string;
-  frontImage?: string | null;
-  backImage?: string | null;
-  lastReviewedAt?: string | null;
-  nextReviewAt: string;
-  intervalDays: number;
-  easeFactor: number;
-  reviewCount: number;
-  lapses: number;
-  status: 'new' | 'learning' | 'review' | 'mastered';
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type Deck = DeckWithStats;
-export type Subject = SubjectWithStats;
-
 interface ErrorNotebookTabProps {
   theme?: AppTheme;
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
