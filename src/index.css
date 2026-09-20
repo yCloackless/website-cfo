@@ -670,7 +670,7 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
 
 @media (max-width: 680px) {
   .rumo-activities-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .rumo-activities-container {
     padding: 14px;
@@ -682,6 +682,33 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
   .rumo-welcome-question {
     font-size: 15px;
   }
+}
+
+/* IFRJ: mobile layout contracts */
+.rumo-main,.rumo-card,.rumo-content-grid,.rumo-dashboard-grid,.rumo-form-grid,.rumo-activities-container,.rumo-activities-grid,.rumo-activity-card { min-width:0; }
+.rumo-actions,.rumo-subtabs { flex-wrap:wrap; }
+.rumo-table-row b,.rumo-table-row small,.rumo-subject-list b,.rumo-subject-list small,.rumo-exam-body b,.rumo-exam-body span,.rumo-exam-body small,.rumo-event-list b,.rumo-event-list small,.rumo-history b,.rumo-history small,.rumo-goal b,.rumo-goal span,.rumo-goal small,.rumo-university-list b,.rumo-university-list span { overflow-wrap:anywhere; }
+.rumo-activities-grid { grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr)); }
+.rumo-mobile-nav-toggle,.rumo-nav-scrim { display:none; }
+
+@media (max-width: 680px) {
+  .rumo-topbar { position:sticky; top:0; z-index:30; }
+  .rumo-mobile-nav-toggle { display:inline-flex; align-items:center; justify-content:center; min-width:38px; min-height:38px; padding:9px; border:0; border-radius:10px; background:var(--rumo-soft); color:var(--rumo-rose); cursor:pointer; }
+  .rumo-mobile-nav-toggle svg { width:18px; height:18px; }
+  .rumo-nav-scrim { display:block; position:fixed; inset:62px 0 0; z-index:39; border:0; background:rgba(52,38,46,.28); }
+  .rumo-sidebar { position:fixed; z-index:40; top:62px; bottom:0; left:0; width:min(280px,calc(100vw - 48px)); height:auto; padding:18px 14px; border-right:1px solid var(--rumo-border); border-bottom:0; box-shadow:18px 0 42px rgba(52,38,46,.14); transform:translateX(-105%); transition:transform .18s ease; overflow-y:auto; }
+  .rumo-sidebar.is-open { transform:translateX(0); }
+  .rumo-back { display:flex; justify-content:flex-start; font-size:12px; }
+  .rumo-sidebar nav { display:grid; gap:4px; margin-top:20px; overflow:visible; padding:0; }
+  .rumo-sidebar nav button { width:100%; min-width:0; min-height:42px; justify-content:flex-start; padding:10px 12px; font-size:12px; }
+  .rumo-sidebar nav button span { display:inline; font-size:12px; }
+  .rumo-sidebar-footer { display:grid; }
+  .rumo-sidebar-footer button { justify-content:flex-start; font-size:12px; }
+  .rumo-inline-form,.rumo-question,.rumo-mec-banner,.rumo-card-heading { align-items:stretch; flex-direction:column; }
+  .rumo-inline-form .rumo-primary,.rumo-question button,.rumo-card-heading > .rumo-primary,.rumo-card-heading > .rumo-secondary { width:100%; }
+  .rumo-activities-grid { grid-template-columns:minmax(0,1fr); }
+  .rumo-activity-card { width:100%; }
+  .rumo-activity-content p { white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; }
 }
 
 

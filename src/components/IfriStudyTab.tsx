@@ -11,6 +11,7 @@ import {
   Home,
   ListTodo,
   Loader2,
+  Menu,
   Moon,
   Pencil,
   Plus,
@@ -114,6 +115,7 @@ export function IfriStudyTab({ userProfile, onExit, onSignOut }: Props) {
   const [dashboard, setDashboard] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [dark, setDark] = useState(() => localStorage.getItem('rumo_estudos_theme') === 'dark');
 
@@ -456,6 +458,14 @@ export function IfriStudyTab({ userProfile, onExit, onSignOut }: Props) {
           </div>
         </div>
         <div className="rumo-top-actions">
+          <button
+            className="rumo-mobile-nav-toggle"
+            onClick={() => setMobileNavOpen((value) => !value)}
+            aria-label={mobileNavOpen ? 'Fechar navegação' : 'Abrir navegação'}
+            aria-expanded={mobileNavOpen}
+          >
+            <Menu />
+          </button>
           <button className="rumo-top-exit" onClick={onExit} title="Voltar ao Cronograma CFO">
             <ArrowLeft className="w-3.5 h-3.5" /> <span>CFO</span>
           </button>
@@ -469,23 +479,24 @@ export function IfriStudyTab({ userProfile, onExit, onSignOut }: Props) {
         </div>
       </header>
 
+      {mobileNavOpen && <button className="rumo-nav-scrim" aria-label="Fechar navegação" onClick={() => setMobileNavOpen(false)} />}
       <div className="rumo-layout">
-        <aside className="rumo-sidebar">
+        <aside className={`rumo-sidebar ${mobileNavOpen ? 'is-open' : ''}`}>
           <button className="rumo-back" onClick={onExit}>
             <ArrowLeft /> Rumo ao CFO
           </button>
           <nav aria-label="Navegação Rumo Estudos">
             {tabs.map(({ id, label, icon: Icon }) => (
-              <button key={id} onClick={() => setTab(id)} className={tab === id ? 'active' : ''}>
+              <button key={id} onClick={() => { setTab(id); setMobileNavOpen(false); }} className={tab === id ? 'active' : ''}>
                 <Icon /> <span>{label}</span>
               </button>
             ))}
           </nav>
           <div className="rumo-sidebar-footer">
-            <button onClick={() => setTab('settings')}>
+            <button onClick={() => { setTab('settings'); setMobileNavOpen(false); }}>
               <Settings2 /> Configurações
             </button>
-            <button onClick={onSignOut}>
+            <button onClick={() => { setMobileNavOpen(false); onSignOut(); }}>
               <X /> Sair
             </button>
           </div>
@@ -499,7 +510,7 @@ export function IfriStudyTab({ userProfile, onExit, onSignOut }: Props) {
           )}
 
           {!profile?.onboardingCompleted && (
-            <Onboarding form={profileForm} setForm={setProfileForm} save={save} saving={saving} />
+            <Onboarding form={profileForm} setForm={setProfileForm} save={save} saving={saving} setMessage={setMessage} />
           )}
 
           {tab === 'dashboard' && (
@@ -689,16 +700,22 @@ function Empty({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Onboarding({ form, setForm, save, saving }: any) {
+function Onboarding({ form, setForm, save, saving, setMessage }: any) {
   const handleStart = () => {
-    const name = form.displayName?.trim() || 'Estudante';
+    const name = form.displayName?.trim();
+    const campus = form.campus?.trim();
+    const course = form.course?.trim();
+    if (!name || !campus || !course) {
+      setMessage('Informe nome, campus e curso para continuar.');
+      return;
+    }
     save(
       '/api/rumo-estudos/profile',
       'PATCH',
       {
         displayName: name,
-        campus: form.campus?.trim() || 'Nilópolis',
-        course: form.course?.trim() || '',
+        campus,
+        course,
         institution: 'IFRJ',
         onboardingCompleted: true,
       },

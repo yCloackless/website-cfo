@@ -5219,8 +5219,21 @@ app.get('/api/rumo-estudos/profile', (req, res) => {
 });
 const handleStudentProfileUpsert = (req: Request, res: Response) => {
   const userId = studentRouteUser(req, res); if (!userId) return;
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return res.status(400).json({ error: 'INVALID_PROFILE_PAYLOAD', message: 'Dados de perfil inválidos.' });
+  }
+  const textFields = ['displayName', 'institution', 'campus', 'course', 'schoolYear', 'className', 'shift', 'availableTimeJson'];
+  if (!textFields.some((field) => body[field] !== undefined)) {
+    return res.status(400).json({ error: 'INVALID_PROFILE_PAYLOAD', message: 'Informe ao menos um campo do perfil.' });
+  }
+  if (textFields.some((field) => body[field] !== undefined && typeof body[field] !== 'string')) {
+    return res.status(400).json({ error: 'INVALID_PROFILE_FIELD', message: 'Os campos do perfil devem ser textos válidos.' });
+  }
+  if (body.onboardingCompleted !== undefined && typeof body.onboardingCompleted !== 'boolean') {
+    return res.status(400).json({ error: 'INVALID_PROFILE_FIELD', message: 'Status de onboarding inválido.' });
+  }
   try {
-    const body = req.body || {};
     const payload: any = {};
     if (body.displayName !== undefined) payload.displayName = studentBodyText(body.displayName, 120);
     if (body.institution !== undefined) payload.institution = studentBodyText(body.institution, 120, 'IFRJ');
@@ -5230,21 +5243,23 @@ const handleStudentProfileUpsert = (req: Request, res: Response) => {
     if (body.className !== undefined) payload.className = studentBodyText(body.className, 80);
     if (body.shift !== undefined) payload.shift = studentBodyText(body.shift, 40);
     if (body.availableTimeJson !== undefined) payload.availableTimeJson = studentBodyText(body.availableTimeJson, 8000);
-    if (body.onboardingCompleted !== undefined) payload.onboardingCompleted = Boolean(body.onboardingCompleted);
+    if (body.onboardingCompleted !== undefined) payload.onboardingCompleted = body.onboardingCompleted;
 
-    const profile = studentStudyRepoInstance.upsertProfile(userId, payload);
-
-    if (payload.displayName) {
-      try {
-        profileRepoInstance.createOrUpdate({ userId, fullName: payload.displayName });
-      } catch (profErr) {
-        console.warn('[Rumo Estudos] Aviso ao sincronizar perfil principal:', profErr);
-      }
+    const current = studentStudyRepoInstance.getProfile(userId);
+    if (payload.onboardingCompleted && ![payload.displayName ?? current?.displayName, payload.campus ?? current?.campus, payload.course ?? current?.course].every((value) => value?.trim())) {
+      return res.status(400).json({ error: 'INCOMPLETE_PROFILE', message: 'Informe nome, campus e curso antes de concluir o perfil.' });
     }
 
+    databaseService.getRawDb().exec('BEGIN TRANSACTION;');
+    const profile = studentStudyRepoInstance.upsertProfile(userId, payload);
+    if (payload.displayName) {
+      profileRepoInstance.createOrUpdate({ userId, fullName: payload.displayName });
+    }
+    databaseService.getRawDb().exec('COMMIT;');
     return res.json({ success: true, profile });
   } catch (err: any) {
-    logInternalError('Student Profile Upsert Error', err);
+    try { databaseService.getRawDb().exec('ROLLBACK;'); } catch {}
+    logInternalError(`Student Profile Upsert Error userId=${userId}`, err);
     return res.status(500).json({ error: 'PROFILE_UPDATE_FAILED', message: 'Não foi possível salvar o perfil no momento. Tente novamente.' });
   }
 };

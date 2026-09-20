@@ -184,19 +184,16 @@ export class StudentStudyRepository {
       availableTimeJson: input.availableTimeJson !== undefined ? (input.availableTimeJson == null ? null : String(input.availableTimeJson).trim().slice(0, 8000)) : (current?.availableTimeJson ?? null),
       onboardingCompleted: input.onboardingCompleted !== undefined ? Boolean(input.onboardingCompleted) : Boolean(current?.onboardingCompleted),
     };
-    if (current) {
-      this.db.prepare(
-        'UPDATE student_profiles SET display_name=?, institution=?, campus=?, course=?, school_year=?, class_name=?, shift=?, available_time_json=?, onboarding_completed=?, updated_at=? WHERE user_id=?'
-      ).run(
-        values.displayName, values.institution, values.campus, values.course, values.schoolYear, values.className, values.shift, values.availableTimeJson, values.onboardingCompleted ? 1 : 0, now, userId
-      );
-    } else {
-      this.db.prepare(
-        'INSERT INTO student_profiles (id,user_id,display_name,institution,campus,course,school_year,class_name,shift,available_time_json,onboarding_completed,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
-      ).run(
-        crypto.randomUUID(), userId, values.displayName, values.institution, values.campus, values.course, values.schoolYear, values.className, values.shift, values.availableTimeJson, values.onboardingCompleted ? 1 : 0, now, now
-      );
-    }
+    this.db.prepare(
+      `INSERT INTO student_profiles (id,user_id,display_name,institution,campus,course,school_year,class_name,shift,available_time_json,onboarding_completed,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         display_name=excluded.display_name, institution=excluded.institution, campus=excluded.campus, course=excluded.course,
+         school_year=excluded.school_year, class_name=excluded.class_name, shift=excluded.shift,
+         available_time_json=excluded.available_time_json, onboarding_completed=excluded.onboarding_completed, updated_at=excluded.updated_at`
+    ).run(
+      crypto.randomUUID(), userId, values.displayName, values.institution, values.campus, values.course, values.schoolYear, values.className, values.shift, values.availableTimeJson, values.onboardingCompleted ? 1 : 0, now, now
+    );
     return this.getProfile(userId);
   }
 

@@ -15,6 +15,7 @@ const files = ['models', 'auth', 'profile', 'audit_security', 'admin_panel',
   'security_hardening', 'csrf_cookie', 'secure_uploads', 'exam_bank', 'exam_phase1_workflow', 'student_learning', 'database_resilience', 'calendar_persistence', 'maintenance_mode', 'study_session_range',
   'lgpd_privacy_compliance', 'zap_remediation', 'honeypot_deception', 'not_found_routing', 'bizuario_enhancements'];
 files.push('student_release45');
+files.push('ifrj_profile_persistence');
 files.push('emergency_lockdown');
 files.push('flashcards_anki');
 files.push('anki_real_engine');

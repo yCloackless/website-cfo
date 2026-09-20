@@ -135,7 +135,7 @@ parentPort.on('message', (message) => {
 });
 `;
 
-function postgresParams(sql: string, params: unknown[]): { text: string; values: unknown[] } {
+export function postgresParams(sql: string, params: unknown[]): { text: string; values: unknown[] } {
   let index = 0;
   let text = sql.replace(/\?/g, () => `$${++index}`);
   const values = [...params];
