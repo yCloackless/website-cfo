@@ -108,7 +108,8 @@
   }
 
   // Sincroniza sessão ativa do site com a extensão (suporte tanto a localStorage quanto a cookie)
-  function syncAuthToken() {
+  let lastTokenSyncTime = 0;
+  function syncAuthToken(force = false) {
     try {
       const session = window.localStorage.getItem('cfo_terminal_session');
       if (session && session !== 'cookie') {
@@ -122,11 +123,18 @@
         return;
       }
 
+      // Evita requisições repetidas ao endpoint caso tenha sincronizado há menos de 30 segundos
+      const now = Date.now();
+      if (!force && now - lastTokenSyncTime < 30000) {
+        return;
+      }
+
       // Se for sessão via cookie, obtém a chave de extensão através da rota autenticada
       fetch('/api/user/extension-token', { credentials: 'include' })
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (data && data.token) {
+            lastTokenSyncTime = Date.now();
             sendToBackground({
               type: 'AUTH_SESSION_UPDATE',
               payload: {

@@ -228,10 +228,14 @@ function applyAuthSessionUpdate(payload) {
   if (token && typeof token === 'string' && token !== 'cookie') {
     chrome.storage.local.get([STORAGE_KEYS.SETTINGS], (res) => {
       const prevSettings = res[STORAGE_KEYS.SETTINGS] || {};
+      const targetServerUrl = serverUrl || prevSettings.serverUrl || 'https://cfo-oficial-agorasim.onrender.com';
+      if (prevSettings.token === token && prevSettings.serverUrl === targetServerUrl) {
+        return; // Token e servidor já atualizados e sincronizados
+      }
       const newSettings = {
         ...prevSettings,
         token: token,
-        serverUrl: serverUrl || prevSettings.serverUrl || 'https://cfo-oficial-agorasim.onrender.com',
+        serverUrl: targetServerUrl,
       };
       chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: newSettings }, () => {
         pollServerStatus();

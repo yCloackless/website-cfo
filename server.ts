@@ -6391,8 +6391,73 @@ app.post("/api/leveling/session", requireUserAuth, (req: Request, res: Response)
   }
 });
 
-// Endpoint para emissão segura de token de vinculação para a extensão do navegador
+// Endpoint para emissão e consulta segura de token de vinculação para a extensão do navegador (idempotente e persistente)
 app.get("/api/user/extension-token", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const userId = String(user?.userId || '');
+    if (!userId) {
+      return res.status(401).json({ error: "UNAUTHORIZED", message: "Usuário não autenticado." });
+    }
+
+    const forceRegenerate = req.query.regenerate === 'true' || req.query.regenerate === '1';
+
+    // 1. Reutiliza token persistente ativo caso ainda seja válido
+    if (!forceRegenerate) {
+      const saved = userStateRepoInstance.get(userId);
+      const storedTokenRaw = saved?.payload?.['cfo_extension_token_v1'];
+      if (storedTokenRaw) {
+        try {
+          const parsed = JSON.parse(storedTokenRaw);
+          if (parsed && typeof parsed.token === 'string' && parsed.token.length >= 32) {
+            const validation = sessionRepoInstance.validateSession(parsed.token);
+            if (validation.valid) {
+              return res.json({
+                success: true,
+                token: parsed.token,
+                expiresAt: Number(parsed.expiresAt) || (validation.session ? Date.parse(validation.session.expiresAt) : Date.now() + 90 * 86400000),
+              });
+            }
+          }
+        } catch {
+          // Token salvo corrompido, emite novo abaixo
+        }
+      }
+    }
+
+    // 2. Cria nova sessão persistente de 90 dias
+    const created = sessionRepoInstance.createSession({
+      userId,
+      role: user.role || 'cadet',
+      expiresInDays: 90,
+      userAgent: 'cfo-browser-extension',
+    });
+
+    const tokenData = {
+      token: created.rawToken,
+      expiresAt: Date.parse(created.session.expiresAt),
+    };
+
+    const currentSaved = userStateRepoInstance.get(userId);
+    const updatedPayload = {
+      ...(currentSaved?.payload || {}),
+      cfo_extension_token_v1: JSON.stringify(tokenData),
+    };
+    userStateRepoInstance.upsert(userId, updatedPayload);
+
+    return res.json({
+      success: true,
+      token: tokenData.token,
+      expiresAt: tokenData.expiresAt,
+    });
+  } catch (err) {
+    console.error("[Extension Token Error]:", err);
+    return res.status(500).json({ error: "FAILED_TO_GENERATE_TOKEN" });
+  }
+});
+
+// Endpoint opcional para regeneração explícita do token da extensão
+app.post("/api/user/extension-token/regenerate", requireUserAuth, (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     const userId = String(user?.userId || '');
@@ -6407,14 +6472,26 @@ app.get("/api/user/extension-token", requireUserAuth, (req: Request, res: Respon
       userAgent: 'cfo-browser-extension',
     });
 
-    return res.json({
-      success: true,
+    const tokenData = {
       token: created.rawToken,
       expiresAt: Date.parse(created.session.expiresAt),
+    };
+
+    const currentSaved = userStateRepoInstance.get(userId);
+    const updatedPayload = {
+      ...(currentSaved?.payload || {}),
+      cfo_extension_token_v1: JSON.stringify(tokenData),
+    };
+    userStateRepoInstance.upsert(userId, updatedPayload);
+
+    return res.json({
+      success: true,
+      token: tokenData.token,
+      expiresAt: tokenData.expiresAt,
     });
   } catch (err) {
-    console.error("[Extension Token Error]:", err);
-    return res.status(500).json({ error: "FAILED_TO_GENERATE_TOKEN" });
+    console.error("[Extension Token Regenerate Error]:", err);
+    return res.status(500).json({ error: "FAILED_TO_REGENERATE_TOKEN" });
   }
 });
 

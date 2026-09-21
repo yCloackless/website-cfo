@@ -346,3 +346,18 @@ test('EXT-17: calibração de clock skew (serverOffset) e otimização de build/
   const pkgJson = readSource('package.json');
   assert.doesNotMatch(pkgJson, /esbuild server\.ts .*--sourcemap/, 'package.json build não deve gerar sourcemap de esbuild por padrão');
 });
+
+test('EXT-18: endpoint /api/user/extension-token é idempotente, persistente e suporta regeneração explícita', () => {
+  const serverCode = readSource('server.ts');
+  assert.match(serverCode, /cfo_extension_token_v1/, 'server.ts deve gerenciar chave persistente cfo_extension_token_v1');
+  assert.match(serverCode, /sessionRepoInstance\.validateSession/, 'server.ts deve validar se o token salvo permanece válido');
+  assert.match(serverCode, /userStateRepoInstance\.upsert/, 'server.ts deve persistir o token gerado no repositório de estado');
+  assert.match(serverCode, /app\.post\(["']\/api\/user\/extension-token\/regenerate["']/, 'server.ts deve expor endpoint de regeneração explícita');
+
+  const bgJs = readSource('extension/background.js');
+  assert.match(bgJs, /prevSettings\.token === token/, 'background.js deve evitar regravações espúrias quando o token já estiver atualizado');
+
+  const contentJs = readSource('extension/content.js');
+  assert.match(contentJs, /lastTokenSyncTime/, 'content.js deve conter controle de intervalo para sincronização de token');
+});
+
