@@ -23,6 +23,7 @@ test('EXT-01: arquivos da extensão Manifest V3 existem e são válidos', () => 
     'extension/popup.css',
     'extension/popup.js',
     'extension/background.js',
+    'extension/content.js',
     'extension/icon16.png',
     'extension/icon48.png',
     'extension/icon128.png',
@@ -288,6 +289,37 @@ test('EXT-15: retoma foco sem exibir NaN : NaN : NaN e mantém resiliência num�
   assert.doesNotMatch(display, /NaN/, 'Display nunca pode conter NaN');
 });
 
+test('EXT-16: sincronização bidirecional em tempo real (< 5ms) entre extensão e plataforma web', () => {
+  const manifest = JSON.parse(readSource('extension/manifest.json'));
+  assert.ok(Array.isArray(manifest.content_scripts), 'manifest.json deve conter content_scripts');
+  assert.equal(manifest.content_scripts[0].js[0], 'content.js', 'content_scripts deve carregar content.js');
+  assert.ok(
+    manifest.content_scripts[0].matches.some((m: string) => m.includes('localhost')),
+    'content_scripts deve incluir localhost'
+  );
+  assert.ok(
+    manifest.content_scripts[0].matches.some((m: string) => m.includes('cfo-oficial-agorasim.onrender.com')),
+    'content_scripts deve incluir o domínio oficial do Render'
+  );
 
+  const contentJs = readSource('extension/content.js');
+  assert.match(contentJs, /cfo-web-bridge/, 'content.js deve conectar na porta cfo-web-bridge');
+  assert.match(contentJs, /EXTENSION_TIMER_SYNC/, 'content.js deve repassar sync da extensão para a janela web');
+  assert.match(contentJs, /TIMER_SYNC_FROM_WEB/, 'content.js deve ouvir eventos do cronômetro web');
+  assert.match(contentJs, /AUTH_SESSION_UPDATE/, 'content.js deve auto-sincronizar sessão autenticada');
 
+  const bgJs = readSource('extension/background.js');
+  assert.match(bgJs, /cfo-web-bridge/, 'background.js deve escutar a porta cfo-web-bridge');
+  assert.match(bgJs, /broadcastToWeb/, 'background.js deve conter rotina de broadcast para a web');
+  assert.match(bgJs, /WEB_TIMER_UPDATE/, 'background.js deve receber atualizações do cronômetro web');
 
+  const timerTab = readSource('src/components/TimerTab.tsx');
+  assert.match(timerTab, /cfo-extension/, 'TimerTab deve ouvir mensagens da extensão');
+  assert.match(timerTab, /TIMER_SYNC_FROM_WEB/, 'TimerTab deve emitir sync para a extensão');
+  assert.match(timerTab, /setInterval\(fetchTimerStatus,\s*3000\)/, 'Polling do TimerTab deve ser calibrado para 3s');
+
+  const cloudTimer = readSource('src/components/CloudTimer.tsx');
+  assert.match(cloudTimer, /cfo-extension/, 'CloudTimer deve ouvir mensagens da extensão');
+  assert.match(cloudTimer, /TIMER_SYNC_FROM_WEB/, 'CloudTimer deve emitir sync para a extensão');
+  assert.match(cloudTimer, /setInterval\(fetchTimerStatus,\s*3000\)/, 'Polling do CloudTimer deve ser calibrado para 3s');
+});

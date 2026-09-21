@@ -67,11 +67,69 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
       } else {
         setRestDisplayMs(baseRest);
       }
+
+      // Sincroniza estado com a extensão Chrome via ponte instantânea
+      if (typeof window !== 'undefined') {
+        window.postMessage(
+          {
+            source: 'cfo-web',
+            type: 'TIMER_SYNC_FROM_WEB',
+            payload: data,
+          },
+          '*'
+        );
+      }
     } catch (err) {
       setIsOnline(false);
     } finally {
       setIsSyncing(false);
     }
+  }, []);
+
+  // Ouve eventos instantâneos disparados pela extensão Chrome (< 5ms)
+  useEffect(() => {
+    const handleExtensionMessage = (event: MessageEvent) => {
+      if (event.data?.source === 'cfo-extension' && event.data?.type === 'TIMER_SYNC_FROM_EXTENSION') {
+        const ext = event.data.payload;
+        if (!ext) return;
+
+        setTimerState((prev) => {
+          const nextStatus = ext.status || prev.status;
+          const nextAcc = typeof ext.accumulatedTime === 'number'
+            ? ext.accumulatedTime
+            : (typeof ext.accumulatedMs === 'number' ? ext.accumulatedMs : prev.accumulatedTime);
+          const nextRestAcc = typeof ext.restAccumulatedMs === 'number'
+            ? ext.restAccumulatedMs
+            : (typeof ext.totalRestMs === 'number' ? ext.totalRestMs : prev.restAccumulatedMs || 0);
+
+          const now = Date.now();
+          if (nextStatus === 'RUNNING' && ext.startTime) {
+            const estimatedServerNow = now + serverOffsetRef.current;
+            setDisplayMs(nextAcc + Math.max(0, estimatedServerNow - ext.startTime));
+          } else {
+            setDisplayMs(nextAcc);
+          }
+
+          if (nextStatus === 'PAUSED' && ext.restStartTime) {
+            const estimatedServerNow = now + serverOffsetRef.current;
+            setRestDisplayMs(nextRestAcc + Math.max(0, estimatedServerNow - ext.restStartTime));
+          } else {
+            setRestDisplayMs(nextRestAcc);
+          }
+
+          return {
+            status: nextStatus,
+            accumulatedTime: nextAcc,
+            startTime: ext.startTime || null,
+            restAccumulatedMs: nextRestAcc,
+            restStartTime: ext.restStartTime || null,
+          };
+        });
+      }
+    };
+
+    window.addEventListener('message', handleExtensionMessage);
+    return () => window.removeEventListener('message', handleExtensionMessage);
   }, []);
 
   // Sincronização inicial e ao trocar/focar na aba
@@ -91,8 +149,8 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Polling de sincronização com o servidor a cada 15 segundos
-    const syncInterval = setInterval(fetchTimerStatus, 15000);
+    // Polling minimizado de 3s para sincronização cross-device / fallback
+    const syncInterval = setInterval(fetchTimerStatus, 3000);
 
     return () => {
       window.removeEventListener('focus', handleFocus);
@@ -157,6 +215,21 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
       };
     });
 
+    if (typeof window !== 'undefined') {
+      window.postMessage(
+        {
+          source: 'cfo-web',
+          type: 'TIMER_SYNC_FROM_WEB',
+          payload: {
+            status: 'RUNNING',
+            startTime: estimatedServerNow,
+            restStartTime: null,
+          },
+        },
+        '*'
+      );
+    }
+
     try {
       setIsSyncing(true);
       const res = await apiFetch('/api/timer/start', {
@@ -168,6 +241,9 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
         serverOffsetRef.current = data.serverTime - Date.now();
       }
       setTimerState(data);
+      if (typeof window !== 'undefined') {
+        window.postMessage({ source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload: data }, '*');
+      }
       if (typeof data.totalElapsedMs === 'number') {
         setDisplayMs(data.totalElapsedMs);
       } else {
@@ -204,6 +280,21 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
       };
     });
 
+    if (typeof window !== 'undefined') {
+      window.postMessage(
+        {
+          source: 'cfo-web',
+          type: 'TIMER_SYNC_FROM_WEB',
+          payload: {
+            status: 'PAUSED',
+            startTime: null,
+            restStartTime: currentRestStart,
+          },
+        },
+        '*'
+      );
+    }
+
     try {
       setIsSyncing(true);
       const res = await apiFetch('/api/timer/pause', {
@@ -215,6 +306,9 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
         serverOffsetRef.current = data.serverTime - Date.now();
       }
       setTimerState(data);
+      if (typeof window !== 'undefined') {
+        window.postMessage({ source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload: data }, '*');
+      }
       setDisplayMs(typeof data.totalElapsedMs === 'number' ? data.totalElapsedMs : (data.accumulatedTime || 0));
       if (typeof data.totalRestMs === 'number') {
         setRestDisplayMs(data.totalRestMs);
@@ -249,6 +343,24 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
     }
     setResetModal(null);
 
+    if (typeof window !== 'undefined') {
+      window.postMessage(
+        {
+          source: 'cfo-web',
+          type: 'TIMER_SYNC_FROM_WEB',
+          payload: {
+            status: 'STOPPED',
+            accumulatedTime: 0,
+            accumulatedMs: 0,
+            startTime: null,
+            restAccumulatedMs: 0,
+            restStartTime: null,
+          },
+        },
+        '*'
+      );
+    }
+
     try {
       setIsSyncing(true);
       const res = await apiFetch('/api/timer/reset', {
@@ -260,6 +372,9 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
         serverOffsetRef.current = data.serverTime - Date.now();
       }
       setTimerState(data);
+      if (typeof window !== 'undefined') {
+        window.postMessage({ source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload: data }, '*');
+      }
       setDisplayMs(0);
       setRestDisplayMs(0);
     } catch (err) {

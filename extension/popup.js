@@ -42,14 +42,16 @@ const sendRuntimeMessage = (message, callback) => {
   } else if (callback) {
     if (message.type === 'TIMER_START') {
       const now = Date.now();
-      const prev = state.timer;
+      const prev = state.timer || {};
       const prevAcc = Number(prev.accumulatedMs ?? prev.accumulatedTime) || 0;
+      const prevRestAcc = Number(prev.restAccumulatedMs) || 0;
+      const restDelta = prev.status === 'PAUSED' && prev.restStartTime ? Math.max(0, now - prev.restStartTime) : 0;
       const newTimer = {
         status: 'RUNNING',
         accumulatedMs: prevAcc,
         accumulatedTime: prevAcc,
         startTime: now,
-        restAccumulatedMs: 0,
+        restAccumulatedMs: prevRestAcc + restDelta,
         restStartTime: null,
         subjectId: message.payload?.subjectId || prev.subjectId || 'geral',
         subjectName: message.payload?.subjectName || prev.subjectName || 'Estudo Geral',
@@ -57,11 +59,12 @@ const sendRuntimeMessage = (message, callback) => {
       storage.set({ cfo_ext_timer: newTimer });
       callback({ success: true, timer: newTimer });
     } else if (message.type === 'TIMER_PAUSE') {
-      const prev = state.timer;
+      const prev = state.timer || {};
       const now = Date.now();
       const elapsed = prev.status === 'RUNNING' && prev.startTime ? Math.max(0, now - prev.startTime) : 0;
       const prevAcc = Number(prev.accumulatedMs ?? prev.accumulatedTime) || 0;
       const newAcc = prevAcc + elapsed;
+      const prevRestAcc = Number(prev.restAccumulatedMs) || 0;
       const newTimer = {
         ...prev,
         status: 'PAUSED',
@@ -69,7 +72,7 @@ const sendRuntimeMessage = (message, callback) => {
         accumulatedTime: newAcc,
         startTime: null,
         restStartTime: now,
-        restAccumulatedMs: 0,
+        restAccumulatedMs: prevRestAcc,
       };
       storage.set({ cfo_ext_timer: newTimer });
       callback({ success: true, timer: newTimer });
@@ -824,6 +827,30 @@ async function initPopup() {
       .catch(() => setConnectionStatus('error'));
   } else {
     setConnectionStatus('disconnected');
+  }
+
+  // Listener para sincronização instantânea caso o cronômetro mude via página web
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes['cfo_ext_timer']) {
+        const next = changes['cfo_ext_timer'].newValue;
+        if (next) {
+          state.timer = {
+            ...state.timer,
+            ...next,
+            accumulatedMs: Number(next.accumulatedMs ?? next.accumulatedTime) || 0,
+            accumulatedTime: Number(next.accumulatedMs ?? next.accumulatedTime) || 0,
+          };
+          updateTimerDisplay();
+          updateRatioDisplay();
+          if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') {
+            startTimerTicker();
+          } else {
+            stopTimerTicker();
+          }
+        }
+      }
+    });
   }
 }
 

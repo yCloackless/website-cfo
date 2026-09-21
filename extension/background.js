@@ -137,11 +137,113 @@ chrome.runtime.onStartup.addListener(() => {
   updateBadge();
 });
 
+// Web bridge - Conexões persistentes em tempo real via content.js
+const webBridgePorts = new Set();
+
+function broadcastToWeb(timerState) {
+  if (!timerState) return;
+  for (const port of webBridgePorts) {
+    try {
+      port.postMessage({
+        type: 'EXTENSION_TIMER_SYNC',
+        payload: timerState,
+      });
+    } catch {
+      webBridgePorts.delete(port);
+    }
+  }
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === 'cfo-web-bridge') {
+    webBridgePorts.add(port);
+
+    port.onDisconnect.addListener(() => {
+      webBridgePorts.delete(port);
+    });
+
+    port.onMessage.addListener((msg) => {
+      if (!msg || !msg.type) return;
+
+      if (msg.type === 'REQUEST_INITIAL_TIMER_STATE') {
+        chrome.storage.local.get([STORAGE_KEYS.TIMER], (res) => {
+          if (res[STORAGE_KEYS.TIMER]) {
+            try {
+              port.postMessage({
+                type: 'EXTENSION_TIMER_SYNC',
+                payload: res[STORAGE_KEYS.TIMER],
+              });
+            } catch {
+              webBridgePorts.delete(port);
+            }
+          }
+        });
+      } else if (msg.type === 'WEB_TIMER_UPDATE') {
+        const web = msg.payload;
+        if (!web) return;
+
+        chrome.storage.local.get([STORAGE_KEYS.TIMER], (res) => {
+          const prev = res[STORAGE_KEYS.TIMER] || {};
+          const nextAcc = typeof web.accumulatedTime === 'number'
+            ? web.accumulatedTime
+            : (typeof web.accumulatedMs === 'number' ? web.accumulatedMs : prev.accumulatedMs || 0);
+          const nextRestAcc = typeof web.restAccumulatedMs === 'number'
+            ? web.restAccumulatedMs
+            : (typeof web.totalRestMs === 'number' ? web.totalRestMs : prev.restAccumulatedMs || 0);
+
+          const updatedTimer = {
+            status: web.status || prev.status || 'STOPPED',
+            accumulatedMs: nextAcc,
+            accumulatedTime: nextAcc,
+            startTime: web.startTime !== undefined ? web.startTime : prev.startTime,
+            restAccumulatedMs: nextRestAcc,
+            restStartTime: web.restStartTime !== undefined ? web.restStartTime : prev.restStartTime,
+            subjectId: web.activeSubjectId || web.subjectId || prev.subjectId || 'geral',
+            subjectName: web.activeSubjectName || web.subjectName || prev.subjectName || 'Estudo Geral',
+          };
+
+          const isIdentical =
+            prev.status === updatedTimer.status &&
+            prev.startTime === updatedTimer.startTime &&
+            prev.restStartTime === updatedTimer.restStartTime &&
+            Math.abs((prev.accumulatedMs || 0) - updatedTimer.accumulatedMs) < 100 &&
+            Math.abs((prev.restAccumulatedMs || 0) - updatedTimer.restAccumulatedMs) < 100 &&
+            prev.subjectId === updatedTimer.subjectId;
+
+          if (!isIdentical) {
+            chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: updatedTimer }, () => {
+              updateBadge(updatedTimer);
+              ensureTicker(updatedTimer.status);
+            });
+          }
+        });
+      } else if (msg.type === 'AUTH_SESSION_UPDATE') {
+        const { token, serverUrl } = msg.payload || {};
+        if (token && typeof token === 'string' && token !== 'cookie') {
+          chrome.storage.local.get([STORAGE_KEYS.SETTINGS], (res) => {
+            const prevSettings = res[STORAGE_KEYS.SETTINGS] || {};
+            if (prevSettings.token !== token || (serverUrl && prevSettings.serverUrl !== serverUrl)) {
+              chrome.storage.local.set({
+                [STORAGE_KEYS.SETTINGS]: {
+                  ...prevSettings,
+                  token,
+                  serverUrl: serverUrl || prevSettings.serverUrl || 'https://cfo-oficial-agorasim.onrender.com',
+                },
+              });
+            }
+          });
+        }
+      }
+    });
+  }
+});
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[STORAGE_KEYS.TIMER]) {
     const next = changes[STORAGE_KEYS.TIMER].newValue;
     updateBadge(next);
     ensureTicker(next?.status);
+    broadcastToWeb(next);
   }
 });
 
