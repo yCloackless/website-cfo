@@ -151,7 +151,7 @@ test('EXT-14: pausas acumulam continuamente entre ciclos e totalizam o tempo rea
   const bgJs = readSource('extension/background.js');
 
   // getElapsedRestMs deve somar restAccumulatedMs na pausa
-  assert.match(popupJs, /accumulated\s*\+\s*Math\.max\(0,\s*Date\.now\(\)\s*-\s*state\.timer\.restStartTime\)/);
+  assert.match(popupJs, /accumulated\s*\+\s*Math\.max\(0,\s*(?:getServerNow\(\)|Date\.now\(\))\s*-\s*state\.timer\.restStartTime\)/);
 
   // background.js badge deve somar restAccumulatedMs na pausa
   assert.match(bgJs, /const restElapsed = prevRest \+ Math\.max\(0,\s*now\s*-\s*restStart\);/);
@@ -322,4 +322,27 @@ test('EXT-16: sincronização bidirecional em tempo real (< 5ms) entre extensão
   assert.match(cloudTimer, /cfo-extension/, 'CloudTimer deve ouvir mensagens da extensão');
   assert.match(cloudTimer, /TIMER_SYNC_FROM_WEB/, 'CloudTimer deve emitir sync para a extensão');
   assert.match(cloudTimer, /setInterval\(fetchTimerStatus,\s*3000\)/, 'Polling do CloudTimer deve ser calibrado para 3s');
+});
+
+test('EXT-17: calibração de clock skew (serverOffset) e otimização de build/deploy', () => {
+  const popupJs = readSource('extension/popup.js');
+  assert.match(popupJs, /getServerNow\(\)/, 'popup.js deve conter função getServerNow');
+  assert.match(popupJs, /serverOffset/, 'popup.js deve gerenciar serverOffset');
+  assert.match(popupJs, /cfo_ext_server_offset/, 'popup.js deve persistir cfo_ext_server_offset no storage');
+  assert.match(popupJs, /Math\.max\(0,\s*getServerNow\(\)\s*-\s*start\)/, 'popup.js deve calcular tempo com getServerNow');
+
+  const bgJs = readSource('extension/background.js');
+  assert.match(bgJs, /SERVER_OFFSET:\s*['"]cfo_ext_server_offset['"]/, 'background.js deve definir chave SERVER_OFFSET');
+  assert.match(bgJs, /getServerNow\(\)/, 'background.js deve conter getServerNow');
+  assert.match(bgJs, /serverOffset = cloud\.serverTime - Date\.now\(\)/, 'background.js deve calibrar serverOffset com a nuvem');
+
+  const serverCode = readSource('server.ts');
+  assert.match(serverCode, /resetAccumulated === true/, 'server.ts deve aceitar resetAccumulated no /api/timer/start');
+  assert.match(serverCode, /typeof accumulatedTime === 'number'/, 'server.ts deve aceitar accumulatedTime no /api/timer/start');
+
+  const viteConfig = readSource('vite.config.ts');
+  assert.match(viteConfig, /sourcemap:\s*process\.env\.VITE_SOURCEMAP === 'true' \? 'hidden' : false/, 'vite.config.ts deve desativar sourcemaps pesados por padrão');
+
+  const pkgJson = readSource('package.json');
+  assert.doesNotMatch(pkgJson, /esbuild server\.ts .*--sourcemap/, 'package.json build não deve gerar sourcemap de esbuild por padrão');
 });

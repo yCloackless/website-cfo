@@ -27,9 +27,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Copiar arquivos necessários do build
+# Copiar dependências instaladas do builder e podar dependências dev (sem download redundante na rede)
+COPY --from=builder /app/node_modules ./node_modules
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm prune --omit=dev
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public ./public

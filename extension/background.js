@@ -8,7 +8,19 @@ const STORAGE_KEYS = {
   TIMER: 'cfo_ext_timer',
   SETTINGS: 'cfo_ext_settings',
   LEVELING: 'cfo_ext_leveling',
+  SERVER_OFFSET: 'cfo_ext_server_offset',
 };
+
+let serverOffset = 0;
+chrome.storage.local.get([STORAGE_KEYS.SERVER_OFFSET], (result) => {
+  if (typeof result[STORAGE_KEYS.SERVER_OFFSET] === 'number') {
+    serverOffset = result[STORAGE_KEYS.SERVER_OFFSET];
+  }
+});
+
+function getServerNow() {
+  return Date.now() + (Number(serverOffset) || 0);
+}
 
 // Inicialização
 chrome.runtime.onInstalled.addListener(() => {
@@ -56,7 +68,10 @@ function formatBadgeTime(ms) {
 
 // Atualiza o badge do ícone do navegador com contagem em tempo real fora da extensão
 function updateBadge(timerOrStatus) {
-  chrome.storage.local.get([STORAGE_KEYS.TIMER], (res) => {
+  chrome.storage.local.get([STORAGE_KEYS.TIMER, STORAGE_KEYS.SERVER_OFFSET], (res) => {
+    if (typeof res[STORAGE_KEYS.SERVER_OFFSET] === 'number') {
+      serverOffset = res[STORAGE_KEYS.SERVER_OFFSET];
+    }
     let timer = res[STORAGE_KEYS.TIMER];
     if (typeof timerOrStatus === 'object' && timerOrStatus !== null) {
       timer = timerOrStatus;
@@ -68,7 +83,7 @@ function updateBadge(timerOrStatus) {
       return;
     }
 
-    const now = Date.now();
+    const now = getServerNow();
 
     if (timer.status === 'RUNNING') {
       const acc = Number(timer.accumulatedMs ?? timer.accumulatedTime) || 0;
@@ -178,6 +193,11 @@ function applyWebTimerUpdate(web) {
       return;
     }
 
+    if (typeof web.serverTime === 'number') {
+      serverOffset = web.serverTime - Date.now();
+      chrome.storage.local.set({ [STORAGE_KEYS.SERVER_OFFSET]: serverOffset });
+    }
+
     const nextAcc = typeof web.accumulatedTime === 'number'
       ? web.accumulatedTime
       : (typeof web.accumulatedMs === 'number' ? web.accumulatedMs : prev.accumulatedMs || 0);
@@ -189,9 +209,9 @@ function applyWebTimerUpdate(web) {
       status: web.status || prev.status || 'STOPPED',
       accumulatedMs: nextAcc,
       accumulatedTime: nextAcc,
-      startTime: web.startTime !== undefined ? web.startTime : (web.status === 'RUNNING' ? Date.now() : null),
+      startTime: web.startTime !== undefined ? web.startTime : (web.status === 'RUNNING' ? getServerNow() : null),
       restAccumulatedMs: nextRestAcc,
-      restStartTime: web.restStartTime !== undefined ? web.restStartTime : (web.status === 'PAUSED' ? Date.now() : null),
+      restStartTime: web.restStartTime !== undefined ? web.restStartTime : (web.status === 'PAUSED' ? getServerNow() : null),
       subjectId: web.activeSubjectId || web.subjectId || prev.subjectId || 'geral',
       subjectName: web.activeSubjectName || web.subjectName || prev.subjectName || 'Estudo Geral',
     };
@@ -221,9 +241,13 @@ function applyAuthSessionUpdate(payload) {
 }
 
 function pollServerStatus() {
-  chrome.storage.local.get([STORAGE_KEYS.SETTINGS, STORAGE_KEYS.TIMER], (res) => {
+  chrome.storage.local.get([STORAGE_KEYS.SETTINGS, STORAGE_KEYS.TIMER, STORAGE_KEYS.SERVER_OFFSET], (res) => {
     const settings = res[STORAGE_KEYS.SETTINGS] || {};
     if (!settings.serverUrl || !settings.token) return;
+
+    if (typeof res[STORAGE_KEYS.SERVER_OFFSET] === 'number') {
+      serverOffset = res[STORAGE_KEYS.SERVER_OFFSET];
+    }
 
     fetch(`${settings.serverUrl}/api/timer/status`, {
       headers: { Authorization: `Bearer ${settings.token}` },
@@ -232,8 +256,13 @@ function pollServerStatus() {
       .then((cloud) => {
         if (!cloud || !cloud.status) return;
 
+        if (typeof cloud.serverTime === 'number') {
+          serverOffset = cloud.serverTime - Date.now();
+          chrome.storage.local.set({ [STORAGE_KEYS.SERVER_OFFSET]: serverOffset });
+        }
+
         const current = res[STORAGE_KEYS.TIMER] || {};
-        const cloudAcc = Number(cloud.accumulatedTime ?? cloud.accumulatedMs ?? cloud.totalElapsedMs) || 0;
+        const cloudAcc = Number(cloud.accumulatedTime ?? cloud.accumulatedMs ?? 0);
         const cloudRestAcc = Number(cloud.restAccumulatedMs ?? cloud.totalRestMs) || 0;
 
         const nextTimer = {
@@ -326,18 +355,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (type === 'GET_TIMER_STATE') {
-    chrome.storage.local.get([STORAGE_KEYS.TIMER], (res) => {
-      sendResponse({ timer: res[STORAGE_KEYS.TIMER] });
+    chrome.storage.local.get([STORAGE_KEYS.TIMER, STORAGE_KEYS.SERVER_OFFSET], (res) => {
+      if (typeof res[STORAGE_KEYS.SERVER_OFFSET] === 'number') {
+        serverOffset = res[STORAGE_KEYS.SERVER_OFFSET];
+      }
+      sendResponse({ timer: res[STORAGE_KEYS.TIMER], serverOffset });
     });
     return true; // async
   }
 
   if (type === 'TIMER_START') {
-    chrome.storage.local.get([STORAGE_KEYS.TIMER, STORAGE_KEYS.SETTINGS], (res) => {
+    chrome.storage.local.get([STORAGE_KEYS.TIMER, STORAGE_KEYS.SETTINGS, STORAGE_KEYS.SERVER_OFFSET], (res) => {
+      if (typeof res[STORAGE_KEYS.SERVER_OFFSET] === 'number') {
+        serverOffset = res[STORAGE_KEYS.SERVER_OFFSET];
+      }
       const prev = res[STORAGE_KEYS.TIMER] || { accumulatedMs: 0 };
       const settings = res[STORAGE_KEYS.SETTINGS] || {};
-      const now = Date.now();
-      const prevAcc = Number(prev.accumulatedMs ?? prev.accumulatedTime) || 0;
+      const now = getServerNow();
+      const prevAcc = typeof payload?.accumulatedTime === 'number'
+        ? payload.accumulatedTime
+        : (Number(prev.accumulatedMs ?? prev.accumulatedTime) || 0);
       const prevRestAcc = Number(prev.restAccumulatedMs) || 0;
       const restDelta = prev.status === 'PAUSED' && prev.restStartTime ? Math.max(0, now - prev.restStartTime) : 0;
       const newRestAcc = prevRestAcc + restDelta;
@@ -356,7 +393,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {
         updateBadge(newTimer);
         ensureTicker('RUNNING');
-        sendResponse({ success: true, timer: newTimer });
+        sendResponse({ success: true, timer: newTimer, serverOffset });
 
         // Sincroniza com o backend se houver token
         if (settings.serverUrl && settings.token) {
@@ -369,8 +406,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             body: JSON.stringify({
               subjectId: newTimer.subjectId,
               subjectName: newTimer.subjectName,
+              accumulatedTime: newTimer.accumulatedMs,
+              resetAccumulated: newTimer.accumulatedMs === 0,
             }),
-          }).catch((err) => console.warn('[CFO Ext] Falha sync start:', err));
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((cloud) => {
+              if (!cloud) return;
+              if (typeof cloud.serverTime === 'number') {
+                serverOffset = cloud.serverTime - Date.now();
+                chrome.storage.local.set({ [STORAGE_KEYS.SERVER_OFFSET]: serverOffset });
+              }
+              if (cloud.startTime) {
+                newTimer.startTime = cloud.startTime;
+                newTimer.accumulatedMs = Number(cloud.accumulatedTime ?? newTimer.accumulatedMs);
+                newTimer.accumulatedTime = newTimer.accumulatedMs;
+                chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {
+                  broadcastToWeb(newTimer);
+                });
+              }
+            })
+            .catch((err) => console.warn('[CFO Ext] Falha sync start:', err));
         }
       });
     });
@@ -378,11 +434,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (type === 'TIMER_PAUSE') {
-    chrome.storage.local.get([STORAGE_KEYS.TIMER, STORAGE_KEYS.SETTINGS], (res) => {
+    chrome.storage.local.get([STORAGE_KEYS.TIMER, STORAGE_KEYS.SETTINGS, STORAGE_KEYS.SERVER_OFFSET], (res) => {
+      if (typeof res[STORAGE_KEYS.SERVER_OFFSET] === 'number') {
+        serverOffset = res[STORAGE_KEYS.SERVER_OFFSET];
+      }
       const prev = res[STORAGE_KEYS.TIMER] || { accumulatedMs: 0 };
       const settings = res[STORAGE_KEYS.SETTINGS] || {};
 
-      const now = Date.now();
+      const now = getServerNow();
       const elapsed = prev.status === 'RUNNING' && prev.startTime ? Math.max(0, now - prev.startTime) : 0;
       const prevAcc = Number(prev.accumulatedMs ?? prev.accumulatedTime) || 0;
       const newAcc = prevAcc + elapsed;
@@ -401,7 +460,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {
         updateBadge(newTimer);
         ensureTicker('PAUSED');
-        sendResponse({ success: true, timer: newTimer });
+        sendResponse({ success: true, timer: newTimer, serverOffset });
 
         if (settings.serverUrl && settings.token) {
           fetch(`${settings.serverUrl}/api/timer/pause`, {
@@ -410,7 +469,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${settings.token}`,
             },
-          }).catch((err) => console.warn('[CFO Ext] Falha sync pause:', err));
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((cloud) => {
+              if (cloud && typeof cloud.serverTime === 'number') {
+                serverOffset = cloud.serverTime - Date.now();
+                chrome.storage.local.set({ [STORAGE_KEYS.SERVER_OFFSET]: serverOffset });
+              }
+            })
+            .catch((err) => console.warn('[CFO Ext] Falha sync pause:', err));
         }
       });
     });
@@ -443,7 +510,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${settings.token}`,
             },
-          }).catch((err) => console.warn('[CFO Ext] Falha sync reset:', err));
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((cloud) => {
+              if (cloud && typeof cloud.serverTime === 'number') {
+                serverOffset = cloud.serverTime - Date.now();
+                chrome.storage.local.set({ [STORAGE_KEYS.SERVER_OFFSET]: serverOffset });
+              }
+            })
+            .catch((err) => console.warn('[CFO Ext] Falha sync reset:', err));
         }
       });
     });

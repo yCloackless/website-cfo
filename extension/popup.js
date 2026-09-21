@@ -104,6 +104,7 @@ const sendRuntimeMessage = (message, callback) => {
 
 const state = {
   activeTab: 'timer',
+  serverOffset: 0,
   settings: {
     serverUrl: 'https://cfo-oficial-agorasim.onrender.com',
     token: '',
@@ -124,6 +125,10 @@ const state = {
   },
   isConnected: false,
 };
+
+function getServerNow() {
+  return Date.now() + (Number(state.serverOffset) || 0);
+}
 
 let timerInterval = null;
 
@@ -245,7 +250,7 @@ function getElapsedTimerMs() {
   const accumulated = Number(state.timer.accumulatedMs ?? state.timer.accumulatedTime) || 0;
   if (state.timer.status === 'RUNNING' && state.timer.startTime) {
     const start = Number(state.timer.startTime);
-    return accumulated + (Number.isFinite(start) && start > 0 ? Math.max(0, Date.now() - start) : 0);
+    return accumulated + (Number.isFinite(start) && start > 0 ? Math.max(0, getServerNow() - start) : 0);
   }
   return accumulated;
 }
@@ -254,9 +259,9 @@ function getElapsedRestMs() {
   const accumulated = Number(state.timer.restAccumulatedMs) || 0;
   if (state.timer.status === 'PAUSED') {
     if (!state.timer.restStartTime) {
-      state.timer.restStartTime = Date.now();
+      state.timer.restStartTime = getServerNow();
     }
-    return accumulated + Math.max(0, Date.now() - state.timer.restStartTime);
+    return accumulated + Math.max(0, getServerNow() - state.timer.restStartTime);
   }
   return accumulated;
 }
@@ -503,7 +508,7 @@ els.btnTimerToggle.addEventListener('click', async () => {
   const subjectId = els.timerSubject.value;
   const subjectName = els.timerSubject.options[els.timerSubject.selectedIndex].text;
   const isCurrentlyRunning = state.timer.status === 'RUNNING';
-  const now = Date.now();
+  const now = getServerNow();
   const currentAccumulated = Number(state.timer.accumulatedMs ?? state.timer.accumulatedTime) || 0;
   const currentRestAccumulated = Number(state.timer.restAccumulatedMs) || 0;
 
@@ -545,9 +550,20 @@ els.btnTimerToggle.addEventListener('click', async () => {
   sendRuntimeMessage(
     isCurrentlyRunning
       ? { type: 'TIMER_PAUSE' }
-      : { type: 'TIMER_START', payload: { subjectId, subjectName } },
+      : {
+          type: 'TIMER_START',
+          payload: {
+            subjectId,
+            subjectName,
+            accumulatedTime: currentAccumulated,
+            resetAccumulated: currentAccumulated === 0,
+          },
+        },
     (response) => {
       if (!response?.timer) return;
+      if (typeof response.serverOffset === 'number') {
+        state.serverOffset = response.serverOffset;
+      }
       const respAcc = Number(response.timer.accumulatedMs ?? response.timer.accumulatedTime) || 0;
       const respRestAcc = Number(response.timer.restAccumulatedMs) || 0;
       state.timer = {
@@ -556,7 +572,7 @@ els.btnTimerToggle.addEventListener('click', async () => {
         accumulatedTime: respAcc,
         restAccumulatedMs: respRestAcc,
       };
-      storage.set({ cfo_ext_timer: state.timer });
+      storage.set({ cfo_ext_timer: state.timer, cfo_ext_server_offset: state.serverOffset });
       updateTimerDisplay();
       startTimerTicker();
     }
@@ -722,7 +738,12 @@ async function initPopup() {
     'cfo_ext_timer',
     'cfo_ext_leveling',
     'cfo_ext_theme',
+    'cfo_ext_server_offset',
   ]);
+
+  if (typeof saved.cfo_ext_server_offset === 'number') {
+    state.serverOffset = saved.cfo_ext_server_offset;
+  }
 
   if (saved.cfo_ext_settings) {
     state.settings = saved.cfo_ext_settings;
@@ -757,6 +778,9 @@ async function initPopup() {
 
   sendRuntimeMessage({ type: 'GET_TIMER_STATE' }, (response) => {
     if (!response?.timer) return;
+    if (typeof response.serverOffset === 'number') {
+      state.serverOffset = response.serverOffset;
+    }
     const respAcc = Number(response.timer.accumulatedMs ?? response.timer.accumulatedTime) || 0;
     state.timer = {
       ...response.timer,
@@ -778,7 +802,11 @@ async function initPopup() {
         setConnectionStatus('connected');
         const cloud = await response.json();
         if (cloud && cloud.status) {
-          const cloudAcc = Number(cloud.accumulatedTime ?? cloud.accumulatedMs ?? cloud.totalElapsedMs) || 0;
+          if (typeof cloud.serverTime === 'number') {
+            state.serverOffset = cloud.serverTime - Date.now();
+            storage.set({ cfo_ext_server_offset: state.serverOffset });
+          }
+          const cloudAcc = Number(cloud.accumulatedTime ?? cloud.accumulatedMs ?? 0);
           const cloudRestAcc = Number(cloud.restAccumulatedMs ?? cloud.totalRestMs) || 0;
 
           if (cloud.status === 'STOPPED') {
@@ -800,7 +828,7 @@ async function initPopup() {
               status: 'RUNNING',
               accumulatedMs: cloudAcc,
               accumulatedTime: cloudAcc,
-              startTime: cloud.startTime || Date.now(),
+              startTime: cloud.startTime || getServerNow(),
               restAccumulatedMs: cloudRestAcc,
               restStartTime: null,
               subjectId: cloud.activeSubjectId || state.timer.subjectId || 'geral',
@@ -816,7 +844,7 @@ async function initPopup() {
               accumulatedTime: cloudAcc,
               startTime: null,
               restAccumulatedMs: cloudRestAcc,
-              restStartTime: cloud.restStartTime || Date.now(),
+              restStartTime: cloud.restStartTime || getServerNow(),
               subjectId: cloud.activeSubjectId || state.timer.subjectId || 'geral',
               subjectName: cloud.activeSubjectName || state.timer.subjectName || 'Estudo Geral',
             };

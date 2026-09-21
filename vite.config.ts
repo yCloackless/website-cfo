@@ -10,7 +10,7 @@ export default defineConfig(() => {
     },
     build: {
       outDir: 'dist/public',
-      sourcemap: 'hidden',
+      sourcemap: process.env.VITE_SOURCEMAP === 'true' ? 'hidden' : false,
       chunkSizeWarningLimit: 600,
       rollupOptions: {
         output: {

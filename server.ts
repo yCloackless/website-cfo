@@ -1884,9 +1884,18 @@ app.get("/api/timer/status", (req: Request, res: Response) => {
 
 // 2. Iniciar / Retomar Cronômetro
 app.post("/api/timer/start", (req: Request, res: Response) => {
-  const { subjectId, subjectName } = req.body || {};
+  const { subjectId, subjectName, accumulatedTime, resetAccumulated } = req.body || {};
   const state = readTimerState((req as any).user.userId);
   const now = Date.now();
+
+  // Sincronização explícita de tempo acumulado enviada pelo cliente (evita ressuscitar tempos residuais)
+  if (resetAccumulated === true) {
+    state.accumulatedTime = 0;
+    state.restAccumulatedMs = 0;
+    state.intervals = [];
+  } else if (typeof accumulatedTime === 'number' && Number.isFinite(accumulatedTime) && accumulatedTime >= 0) {
+    state.accumulatedTime = accumulatedTime;
+  }
 
   // Se estava em pausa/descanso, encerra o ciclo de descanso e acumula no tempo total de pausas da sessão
   if (state.status === "PAUSED" && state.restStartTime) {
@@ -1902,10 +1911,10 @@ app.post("/api/timer/start", (req: Request, res: Response) => {
     state.restStartTime = null;
   }
 
-  if (state.status !== "RUNNING") {
-    state.status = "RUNNING";
-    state.startTime = now;
-  }
+  // Ao iniciar ou retomar, registra status RUNNING e o timestamp de início deste ciclo
+  state.status = "RUNNING";
+  state.startTime = now;
+
   if (subjectId) state.activeSubjectId = subjectId;
   if (subjectName) state.activeSubjectName = subjectName;
   state.updatedAt = new Date().toISOString();
