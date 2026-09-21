@@ -248,13 +248,14 @@ function getElapsedTimerMs() {
 }
 
 function getElapsedRestMs() {
+  const accumulated = Number(state.timer.restAccumulatedMs) || 0;
   if (state.timer.status === 'PAUSED') {
     if (!state.timer.restStartTime) {
       state.timer.restStartTime = Date.now();
     }
-    return Math.max(0, Date.now() - state.timer.restStartTime);
+    return accumulated + Math.max(0, Date.now() - state.timer.restStartTime);
   }
-  return 0;
+  return accumulated;
 }
 
 function updateTimerDisplay() {
@@ -495,14 +496,14 @@ els.toggleToken.addEventListener('click', () => {
 });
 
 // Timer Listeners
-els.btnTimerToggle.addEventListener('click', () => {
+els.btnTimerToggle.addEventListener('click', async () => {
   const subjectId = els.timerSubject.value;
   const subjectName = els.timerSubject.options[els.timerSubject.selectedIndex].text;
   const isCurrentlyRunning = state.timer.status === 'RUNNING';
   const now = Date.now();
   const currentAccumulated = Number(state.timer.accumulatedMs ?? state.timer.accumulatedTime) || 0;
+  const currentRestAccumulated = Number(state.timer.restAccumulatedMs) || 0;
 
-  // Transição otimista imediata para início imediato da contagem de descanso no clique
   if (isCurrentlyRunning) {
     const elapsed = Math.max(0, now - (state.timer.startTime || now));
     const newAccumulated = currentAccumulated + elapsed;
@@ -513,9 +514,13 @@ els.btnTimerToggle.addEventListener('click', () => {
       accumulatedTime: newAccumulated,
       startTime: null,
       restStartTime: now,
-      restAccumulatedMs: 0,
+      restAccumulatedMs: currentRestAccumulated,
     };
   } else {
+    const restElapsed = state.timer.status === 'PAUSED' && state.timer.restStartTime
+      ? Math.max(0, now - state.timer.restStartTime)
+      : 0;
+    const newRestAccumulated = currentRestAccumulated + restElapsed;
     state.timer = {
       ...state.timer,
       status: 'RUNNING',
@@ -523,11 +528,14 @@ els.btnTimerToggle.addEventListener('click', () => {
       accumulatedTime: currentAccumulated,
       startTime: now,
       restStartTime: null,
-      restAccumulatedMs: 0,
+      restAccumulatedMs: newRestAccumulated,
       subjectId,
       subjectName,
     };
   }
+
+  // Grava imediatamente no storage local para garantir contagem mesmo se o popup for fechado no milissegundo seguinte
+  await storage.set({ cfo_ext_timer: state.timer });
   updateTimerDisplay();
   startTimerTicker();
 
@@ -538,11 +546,14 @@ els.btnTimerToggle.addEventListener('click', () => {
     (response) => {
       if (!response?.timer) return;
       const respAcc = Number(response.timer.accumulatedMs ?? response.timer.accumulatedTime) || 0;
+      const respRestAcc = Number(response.timer.restAccumulatedMs) || 0;
       state.timer = {
         ...response.timer,
         accumulatedMs: respAcc,
         accumulatedTime: respAcc,
+        restAccumulatedMs: respRestAcc,
       };
+      storage.set({ cfo_ext_timer: state.timer });
       updateTimerDisplay();
       startTimerTicker();
     }
@@ -592,9 +603,13 @@ els.btnTimerSave.addEventListener('click', async () => {
 
     sendRuntimeMessage({ type: 'TIMER_RESET' }, (result) => {
       if (result?.timer) state.timer = result.timer;
+      storage.set({ cfo_ext_timer: state.timer });
       updateTimerDisplay();
     });
-    showToast(`Sessão de ${Math.round(seconds / 60)} min salva no site.`, 'success');
+    const saveMsg = seconds < 60
+      ? `Sessão de ${seconds}s salva no site.`
+      : `Sessão de ${Math.round(seconds / 60)} min salva no site.`;
+    showToast(saveMsg, 'success');
   } catch {
     showToast('Erro ao salvar no servidor. Verifique a conexão.', 'error');
   } finally {
@@ -760,36 +775,49 @@ async function initPopup() {
         setConnectionStatus('connected');
         const cloud = await response.json();
         if (cloud && cloud.status) {
-          // Preserva restStartTime local se já estamos em pausa (não sobrescreve com null do servidor)
+          const cloudAcc = Number(cloud.accumulatedTime ?? cloud.accumulatedMs ?? cloud.totalElapsedMs) || 0;
+          const cloudRestAcc = Number(cloud.restAccumulatedMs ?? cloud.totalRestMs) || 0;
+
+          // Se a extensão estiver RUNNING localmente e o servidor disser STOPPED,
+          // NÃO mata o cronômetro local! O usuário iniciou na extensão e fechou o popup.
+          if (state.timer.status === 'RUNNING') {
+            if (cloud.status === 'STOPPED') {
+              fetch(`${state.settings.serverUrl}/api/timer/start`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${state.settings.token}`,
+                },
+                body: JSON.stringify({
+                  subjectId: state.timer.subjectId || 'geral',
+                  subjectName: state.timer.subjectName || 'Estudo Geral',
+                }),
+              }).catch(() => {});
+            }
+            return;
+          }
+
+          // Se estiver PAUSED localmente e o servidor estiver STOPPED, preserva o pause local
+          if (state.timer.status === 'PAUSED' && cloud.status === 'STOPPED') {
+            return;
+          }
+
           const localRestStart = state.timer.restStartTime;
           const isLocalPaused = state.timer.status === 'PAUSED' && localRestStart;
-          const cloudAcc = Number(cloud.accumulatedTime ?? cloud.accumulatedMs ?? cloud.totalElapsedMs) || 0;
 
-          // Se o servidor diz RUNNING mas o startTime do servidor é anterior ao nosso startTime local,
-          // usa o estado local para não perder o tempo já contabilizado no popup
-          const localIsMoreRecent =
-            state.timer.status === 'RUNNING' &&
-            state.timer.startTime &&
-            cloud.startTime &&
-            state.timer.startTime >= cloud.startTime;
-
-          if (!localIsMoreRecent) {
-            state.timer = {
-              status: cloud.status,
-              accumulatedMs: cloudAcc,
-              accumulatedTime: cloudAcc,
-              startTime: cloud.startTime || null,
-              restAccumulatedMs: 0,
-              // Mantém restStartTime local se já está pausado localmente,
-              // caso contrário usa o do servidor
-              restStartTime: isLocalPaused ? localRestStart : (cloud.restStartTime || null),
-              subjectId: cloud.activeSubjectId || state.timer.subjectId || 'geral',
-              subjectName: cloud.activeSubjectName || state.timer.subjectName || 'Estudo Geral',
-            };
-            await storage.set({ cfo_ext_timer: state.timer });
-            updateTimerDisplay();
-            if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') startTimerTicker();
-          }
+          state.timer = {
+            status: cloud.status,
+            accumulatedMs: cloudAcc,
+            accumulatedTime: cloudAcc,
+            startTime: cloud.startTime || null,
+            restAccumulatedMs: cloudRestAcc,
+            restStartTime: isLocalPaused ? localRestStart : (cloud.restStartTime || null),
+            subjectId: cloud.activeSubjectId || state.timer.subjectId || 'geral',
+            subjectName: cloud.activeSubjectName || state.timer.subjectName || 'Estudo Geral',
+          };
+          await storage.set({ cfo_ext_timer: state.timer });
+          updateTimerDisplay();
+          if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') startTimerTicker();
         }
         fetchLevelingFromCloud();
       })

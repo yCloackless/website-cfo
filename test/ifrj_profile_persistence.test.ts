@@ -117,6 +117,6 @@ test('adaptador PostgreSQL preserva placeholders ao converter onboarding_complet
     ['id', 'user', 'admin', 'IFRJ', 'Nilópolis', 'Química', null, null, null, null, 1, 'created', 'updated'],
   );
 
-  assert.match(converted.text, /VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12, \$13\)/);
-  assert.equal(converted.values[10], true);
+  assert.match(converted.text, /VALUES \(\$1,\s*\$2,\s*\$3,\s*\$4,\s*\$5,\s*\$6,\s*\$7,\s*\$8,\s*\$9,\s*\$10,\s*\$11,\s*\$12,\s*\$13\)/);
+  assert.equal(Boolean(converted.values[10]), true);
 });

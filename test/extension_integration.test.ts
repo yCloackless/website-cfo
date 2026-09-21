@@ -145,17 +145,15 @@ test('EXT-13: cronômetro suporta ciclos de descanso (Recovery Pill) e razão de
   assert.match(serverCode, /restAccumulatedMs/);
 });
 
-test('EXT-14: pausas não acumulam entre ciclos e iniciam sempre zeradas para um novo descanso', () => {
+test('EXT-14: pausas acumulam continuamente entre ciclos e totalizam o tempo real de descanso da sessão', () => {
   const popupJs = readSource('extension/popup.js');
   const bgJs = readSource('extension/background.js');
 
-  // getElapsedRestMs não deve somar restAccumulatedMs na pausa
-  assert.match(popupJs, /Math\.max\(0,\s*Date\.now\(\)\s*-\s*state\.timer\.restStartTime\)/);
-  assert.doesNotMatch(popupJs, /state\.timer\.restAccumulatedMs\s*\+\s*Math\.max/);
+  // getElapsedRestMs deve somar restAccumulatedMs na pausa
+  assert.match(popupJs, /accumulated\s*\+\s*Math\.max\(0,\s*Date\.now\(\)\s*-\s*state\.timer\.restStartTime\)/);
 
-  // background.js badge não deve somar restAccumulatedMs na pausa
-  assert.match(bgJs, /const restElapsed = Math\.max\(0,\s*now\s*-\s*restStart\);/);
-  assert.doesNotMatch(bgJs, /timer\.restAccumulatedMs.*Math\.max\(0,\s*now\s*-\s*restStart\)/);
+  // background.js badge deve somar restAccumulatedMs na pausa
+  assert.match(bgJs, /const restElapsed = prevRest \+ Math\.max\(0,\s*now\s*-\s*restStart\);/);
 
   // Simulação de transição: Pausa 1 (5s) -> Retoma Foco -> Pausa 2 (1s)
   const now1 = 1000000;
@@ -182,18 +180,20 @@ test('EXT-14: pausas não acumulam entre ciclos e iniciam sempre zeradas para um
 
   // Descanso da primeira pausa após 5s
   const duringPause1Time = pause1Time + 5000;
-  const restDuration1 = Math.max(0, duringPause1Time - timer.restStartTime);
+  const restDuration1 = timer.restAccumulatedMs + Math.max(0, duringPause1Time - timer.restStartTime);
   assert.equal(restDuration1, 5000, 'Primeira pausa após 5s deve medir 5000ms');
 
-  // 2. Cadete retoma foco em pause1Time + 5s
+  // 2. Cadete retoma foco em pause1Time + 5s (acumula 5000ms de descanso)
   const resumeTime = duringPause1Time;
+  const restDelta1 = resumeTime - pause1Time;
   timer = {
     ...timer,
     status: 'RUNNING',
     startTime: resumeTime,
     restStartTime: null,
-    restAccumulatedMs: 0,
+    restAccumulatedMs: timer.restAccumulatedMs + restDelta1,
   };
+  assert.equal(timer.restAccumulatedMs, 5000, 'Tempo acumulado de descanso deve ser 5000ms ao retomar o foco');
 
   // 3. Cadete estuda por 20s e pausa novamente (Pausa 2)
   const pause2Time = resumeTime + 20000;
@@ -204,15 +204,15 @@ test('EXT-14: pausas não acumulam entre ciclos e iniciam sempre zeradas para um
     accumulatedMs: timer.accumulatedMs + elapsed2,
     startTime: null,
     restStartTime: pause2Time,
-    restAccumulatedMs: 0,
+    restAccumulatedMs: timer.restAccumulatedMs, // Preserva descanso acumulado
   };
 
-  // Descanso da segunda pausa após 1s
+  // Descanso total da sessão após 1s na segunda pausa
   const duringPause2Time = pause2Time + 1000;
-  const restDuration2 = Math.max(0, duringPause2Time - timer.restStartTime);
+  const totalRestDuration = timer.restAccumulatedMs + Math.max(0, duringPause2Time - timer.restStartTime);
 
-  // Deve medir estritamente 1000ms, e NÃO acumular os 5000ms da pausa anterior
-  assert.equal(restDuration2, 1000, 'Segunda pausa após 1s deve medir exatamente 1000ms (tempo novo), sem acumular pausa anterior');
+  // Deve medir exatamente 6000ms (5000ms da 1ª pausa + 1000ms da 2ª pausa)
+  assert.equal(totalRestDuration, 6000, 'Total de pausas da sessão deve acumular 6000ms (5s + 1s) sem resetar');
 });
 
 test('EXT-15: retoma foco sem exibir NaN : NaN : NaN e mantém resiliência numérica entre accumulatedTime e accumulatedMs', () => {

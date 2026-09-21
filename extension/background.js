@@ -57,9 +57,10 @@ function formatBadgeTime(ms) {
 // Atualiza o badge do ícone do navegador com contagem em tempo real fora da extensão
 function updateBadge(timerOrStatus) {
   chrome.storage.local.get([STORAGE_KEYS.TIMER], (res) => {
-    const timer = (typeof timerOrStatus === 'object' && timerOrStatus !== null)
-      ? timerOrStatus
-      : res[STORAGE_KEYS.TIMER];
+    let timer = res[STORAGE_KEYS.TIMER];
+    if (typeof timerOrStatus === 'object' && timerOrStatus !== null) {
+      timer = timerOrStatus;
+    }
 
     if (!timer || timer.status === 'STOPPED') {
       chrome.action.setBadgeText({ text: '' });
@@ -79,8 +80,9 @@ function updateBadge(timerOrStatus) {
         title: `CFO CBMERJ: Em foco (${text}) — ${timer.subjectName || 'Estudos'}`,
       });
     } else if (timer.status === 'PAUSED') {
+      const prevRest = Number(timer.restAccumulatedMs) || 0;
       const restStart = timer.restStartTime || now;
-      const restElapsed = Math.max(0, now - restStart);
+      const restElapsed = prevRest + Math.max(0, now - restStart);
       const text = formatBadgeTime(restElapsed);
       chrome.action.setBadgeText({ text });
 
@@ -100,13 +102,25 @@ function updateBadge(timerOrStatus) {
   });
 }
 
-// Usa chrome.alarms para atualizar o badge — único mecanismo que sobrevive à suspensão do service worker MV3
-// setInterval NÃO sobrevive à suspensão; alarms são a solução correta para MV3.
+let activeTicker = null;
+function ensureTicker(status) {
+  if (status === 'RUNNING' || status === 'PAUSED') {
+    if (!activeTicker) {
+      activeTicker = setInterval(() => updateBadge(), 1000);
+    }
+  } else {
+    if (activeTicker) {
+      clearInterval(activeTicker);
+      activeTicker = null;
+    }
+  }
+}
+
+// Alarme para manter o badge atualizado caso o service worker seja suspenso e reativado
 function setupAlarms() {
-  // Alarme a cada 30s para atualização frequente do badge
   chrome.alarms.get('cfo_timer_tick', (existing) => {
     if (!existing) {
-      chrome.alarms.create('cfo_timer_tick', { periodInMinutes: 0.5 });
+      chrome.alarms.create('cfo_timer_tick', { periodInMinutes: 1 });
     }
   });
 }
@@ -121,6 +135,14 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.runtime.onStartup.addListener(() => {
   setupAlarms();
   updateBadge();
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes[STORAGE_KEYS.TIMER]) {
+    const next = changes[STORAGE_KEYS.TIMER].newValue;
+    updateBadge(next);
+    ensureTicker(next?.status);
+  }
 });
 
 // Comunicação com o popup
@@ -140,20 +162,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const settings = res[STORAGE_KEYS.SETTINGS] || {};
       const now = Date.now();
       const prevAcc = Number(prev.accumulatedMs ?? prev.accumulatedTime) || 0;
+      const prevRestAcc = Number(prev.restAccumulatedMs) || 0;
+      const restDelta = prev.status === 'PAUSED' && prev.restStartTime ? Math.max(0, now - prev.restStartTime) : 0;
+      const newRestAcc = prevRestAcc + restDelta;
 
       const newTimer = {
         status: 'RUNNING',
         accumulatedMs: prevAcc,
         accumulatedTime: prevAcc,
         startTime: now,
-        restAccumulatedMs: 0,
+        restAccumulatedMs: newRestAcc,
         restStartTime: null,
         subjectId: payload?.subjectId || prev.subjectId || 'geral',
         subjectName: payload?.subjectName || prev.subjectName || 'Estudo Geral',
       };
 
       chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {
-        updateBadge('RUNNING');
+        updateBadge(newTimer);
+        ensureTicker('RUNNING');
         sendResponse({ success: true, timer: newTimer });
 
         // Sincroniza com o backend se houver token
@@ -184,6 +210,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const elapsed = prev.status === 'RUNNING' && prev.startTime ? Math.max(0, now - prev.startTime) : 0;
       const prevAcc = Number(prev.accumulatedMs ?? prev.accumulatedTime) || 0;
       const newAcc = prevAcc + elapsed;
+      const prevRestAcc = Number(prev.restAccumulatedMs) || 0;
+
       const newTimer = {
         ...prev,
         status: 'PAUSED',
@@ -191,11 +219,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         accumulatedTime: newAcc,
         startTime: null,
         restStartTime: now,
-        restAccumulatedMs: 0,
+        restAccumulatedMs: prevRestAcc,
       };
 
       chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {
-        updateBadge('PAUSED');
+        updateBadge(newTimer);
+        ensureTicker('PAUSED');
         sendResponse({ success: true, timer: newTimer });
 
         if (settings.serverUrl && settings.token) {
@@ -227,7 +256,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       };
 
       chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {
-        updateBadge('STOPPED');
+        updateBadge(newTimer);
+        ensureTicker('STOPPED');
         sendResponse({ success: true, timer: newTimer });
 
         if (settings.serverUrl && settings.token) {

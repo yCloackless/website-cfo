@@ -1357,7 +1357,11 @@ export default function App() {
 
       setCurrentCycle(updatedCycle);
       saveActiveCycle(updatedCycle);
-      showToast(`Sessão de ${minutes} min registrada no cronograma de hoje!`, 'success');
+      const secs = Math.round(minutes * 60);
+      const toastMsg = minutes < 1 && secs < 60
+        ? `Sessão de ${secs}s registrada no cronograma de hoje!`
+        : `Sessão de ${Math.round(minutes)} min registrada no cronograma de hoje!`;
+      showToast(toastMsg, 'success');
     },
     [currentCycle, weekDays, showToast]
   );

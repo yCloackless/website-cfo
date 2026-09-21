@@ -59,12 +59,13 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
         setDisplayMs(data.accumulatedTime || 0);
       }
 
+      const baseRest = typeof data.restAccumulatedMs === 'number' ? data.restAccumulatedMs : (typeof data.totalRestMs === 'number' ? data.totalRestMs : 0);
       if (data.status === 'PAUSED' && data.restStartTime) {
         const estimatedServerNow = Date.now() + serverOffsetRef.current;
         const currentRest = Math.max(0, estimatedServerNow - data.restStartTime);
-        setRestDisplayMs(currentRest);
+        setRestDisplayMs(baseRest + currentRest);
       } else {
-        setRestDisplayMs(0);
+        setRestDisplayMs(baseRest);
       }
     } catch (err) {
       setIsOnline(false);
@@ -129,12 +130,12 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
     const interval = setInterval(() => {
       const estimatedServerNow = Date.now() + serverOffsetRef.current;
       const start = timerState.restStartTime || estimatedServerNow;
-      const currentRest = Math.max(0, estimatedServerNow - start);
+      const currentRest = (timerState.restAccumulatedMs || 0) + Math.max(0, estimatedServerNow - start);
       setRestDisplayMs(currentRest);
     }, 100);
 
     return () => clearInterval(interval);
-  }, [timerState.status, timerState.restStartTime]);
+  }, [timerState.status, timerState.restStartTime, timerState.restAccumulatedMs]);
 
   // Iniciar contagem no servidor
   const handleStart = async () => {
@@ -143,12 +144,16 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
 
     // Transição otimista imediata
     setTimerState((prev) => {
+      const prevRestAcc = prev.restAccumulatedMs || 0;
+      const restDelta = prev.status === 'PAUSED' && prev.restStartTime ? Math.max(0, estimatedServerNow - prev.restStartTime) : 0;
+      const totalRest = prevRestAcc + restDelta;
+      setRestDisplayMs(totalRest);
       return {
         ...prev,
         status: 'RUNNING',
         startTime: estimatedServerNow,
         restStartTime: null,
-        restAccumulatedMs: 0,
+        restAccumulatedMs: totalRest,
       };
     });
 
@@ -195,6 +200,7 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
         startTime: null,
         restStartTime: currentRestStart,
         accumulatedTime: (prev.accumulatedTime || 0) + elapsed,
+        restAccumulatedMs: prev.restAccumulatedMs || 0,
       };
     });
 
@@ -214,9 +220,9 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
         setRestDisplayMs(data.totalRestMs);
       } else if (data.status === 'PAUSED' && data.restStartTime) {
         const estNow = Date.now() + serverOffsetRef.current;
-        setRestDisplayMs(Math.max(0, estNow - data.restStartTime));
+        setRestDisplayMs((data.restAccumulatedMs || 0) + Math.max(0, estNow - data.restStartTime));
       } else {
-        setRestDisplayMs(0);
+        setRestDisplayMs(data.restAccumulatedMs || 0);
       }
     } catch (err) {
       setIsOnline(false);
@@ -314,7 +320,7 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/30 text-amber-400 font-mono text-xs font-bold animate-pulse"
             title="Pausa em andamento"
           >
-            <span>☕</span>
+            <Pause className="w-3 h-3" />
             <span>{formatTime(restDisplayMs)}</span>
           </span>
         )}

@@ -150,12 +150,13 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         setDisplayMs(data.accumulatedTime || 0);
       }
 
+      const baseRest = typeof data.restAccumulatedMs === 'number' ? data.restAccumulatedMs : (typeof data.totalRestMs === 'number' ? data.totalRestMs : 0);
       if (data.status === 'PAUSED' && data.restStartTime) {
         const estimatedServerNow = Date.now() + serverOffsetRef.current;
         const currentRest = Math.max(0, estimatedServerNow - data.restStartTime);
-        setRestDisplayMs(currentRest);
+        setRestDisplayMs(baseRest + currentRest);
       } else {
-        setRestDisplayMs(0);
+        setRestDisplayMs(baseRest);
       }
     } catch (err) {
       setIsOnline(false);
@@ -210,12 +211,12 @@ export const TimerTab: React.FC<TimerTabProps> = ({
     const interval = setInterval(() => {
       const estimatedServerNow = Date.now() + serverOffsetRef.current;
       const start = timerState.restStartTime || estimatedServerNow;
-      const currentRest = Math.max(0, estimatedServerNow - start);
+      const currentRest = (timerState.restAccumulatedMs || 0) + Math.max(0, estimatedServerNow - start);
       setRestDisplayMs(currentRest);
     }, 100);
 
     return () => clearInterval(interval);
-  }, [timerState.status, timerState.restStartTime]);
+  }, [timerState.status, timerState.restStartTime, timerState.restAccumulatedMs]);
 
   const activeSubject = useMemo(() => {
     return subjects.find((s) => s.id === selectedSubjectId) || subjects[0];
@@ -228,12 +229,16 @@ export const TimerTab: React.FC<TimerTabProps> = ({
 
     // Transição otimista imediata para feedback instantâneo no clique
     setTimerState((prev) => {
+      const prevRestAcc = prev.restAccumulatedMs || 0;
+      const restDelta = prev.status === 'PAUSED' && prev.restStartTime ? Math.max(0, estimatedServerNow - prev.restStartTime) : 0;
+      const totalRest = prevRestAcc + restDelta;
+      setRestDisplayMs(totalRest);
       return {
         ...prev,
         status: 'RUNNING',
         startTime: estimatedServerNow,
         restStartTime: null,
-        restAccumulatedMs: 0,
+        restAccumulatedMs: totalRest,
         activeSubjectId: activeSubject?.id,
         activeSubjectName: activeSubject?.name,
       };
@@ -286,6 +291,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         startTime: null,
         restStartTime: currentRestStart,
         accumulatedTime: (prev.accumulatedTime || 0) + elapsed,
+        restAccumulatedMs: prev.restAccumulatedMs || 0,
       };
     });
 
@@ -355,7 +361,8 @@ export const TimerTab: React.FC<TimerTabProps> = ({
 
   const handleSaveToDatabase = async () => {
     const durationSeconds = Math.max(1, Math.round(displayMs / 1000));
-    const mins = Math.max(1, Math.round(durationSeconds / 60));
+    const mins = Math.round(durationSeconds / 60);
+    const preciseMinutes = Number((durationSeconds / 60).toFixed(2));
 
     try {
       setIsSavingDb(true);
@@ -386,13 +393,15 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       setDisplayMs(0);
       setRestDisplayMs(0);
 
-      // Notifica cronograma se handler existir
+      // Notifica cronograma com precisão proporcional
       if (onLogStudySession && activeSubject) {
-        onLogStudySession(activeSubject.id, mins, `Estudo registrado via Cronômetro de Foco`);
+        onLogStudySession(activeSubject.id, preciseMinutes, `Estudo registrado via Cronômetro de Foco`);
       }
 
       setSessionSuccessMsg(
-        `✅ Sessão de ${mins} min salva com sucesso no Banco de Dados e contabilizada na sua Agenda!`
+        durationSeconds < 60
+          ? `Sessão de ${durationSeconds}s salva com sucesso no Banco de Dados e contabilizada na sua Agenda!`
+          : `Sessão de ${mins} min salva com sucesso no Banco de Dados e contabilizada na sua Agenda!`
       );
       setTimeout(() => setSessionSuccessMsg(null), 6000);
     } catch (err: any) {
@@ -505,7 +514,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
               title="Clique para retomar o foco"
               aria-label="Retomar foco"
             >
-              <span>☕</span>
+              <Pause className="w-3 h-3" />
               <span>{formattedRestTime}</span>
             </button>
             <span className="font-mono text-xs text-slate-400 tabular-nums">
@@ -767,20 +776,23 @@ export const TimerTab: React.FC<TimerTabProps> = ({
                   </div>
                   <div className="flex items-center gap-1.5 overflow-x-auto py-1 scrollbar-none">
                     {timerState.intervals.map((int, idx) => {
-                      const durationMins = Math.max(1, Math.round(int.durationMs / 60000));
+                      const durationSecs = Math.round(int.durationMs / 1000);
+                      const durationLabel = durationSecs < 60
+                        ? `${durationSecs}s`
+                        : `${Math.floor(durationSecs / 60)}m${durationSecs % 60 > 0 ? ` ${durationSecs % 60}s` : ''}`;
                       const isStudy = int.type === 'study';
                       return (
                         <div
                           key={idx}
-                          title={`${isStudy ? 'Estudo' : 'Descanso'}: ${durationMins}m`}
+                          title={`${isStudy ? 'Estudo' : 'Descanso'}: ${durationLabel}`}
                           className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold shrink-0 flex items-center gap-1 border ${
                             isStudy
                               ? 'bg-blue-950/70 border-blue-600/40 text-blue-300'
                               : 'bg-amber-950/70 border-amber-600/40 text-amber-300'
                           }`}
                         >
-                          <span>{isStudy ? '📖' : '☕'}</span>
-                          <span>{durationMins}m</span>
+                          {isStudy ? <BookOpen className="w-2.5 h-2.5" /> : <Clock className="w-2.5 h-2.5" />}
+                          <span>{durationLabel}</span>
                         </div>
                       );
                     })}
@@ -856,7 +868,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         isOpen={!!resetModal?.isOpen}
         title="Deseja zerar o cronômetro?"
         description="Esta ação irá reiniciar o tempo de foco da sua sessão atual para 00:00:00."
-        badgeText={resetModal ? `⏱️ ${resetModal.minutes} minutos contabilizados nesta sessão` : undefined}
+        badgeText={resetModal ? `${resetModal.minutes} minutos contabilizados nesta sessão` : undefined}
         confirmLabel="Zerar Cronômetro"
         cancelLabel="Cancelar"
         variant="warning"
