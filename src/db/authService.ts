@@ -114,7 +114,7 @@ export class AuthService {
       const emergencyCode = crypto.randomBytes(16).toString('hex').toUpperCase().slice(0, 16);
       this.dbService.getRawDb().prepare(
         `INSERT INTO admin_recovery_codes (id, user_id, code_hash, is_used, created_at)
-         VALUES (?, ?, ?, 0, ?)`
+         VALUES (?, ?, ?, FALSE, ?)`
       ).run(crypto.randomUUID(), admin.id, RecoveryCodeRepository.hashCode(emergencyCode), new Date().toISOString());
       console.warn('[SEGURANÇA] Novo código de emergência admin gerado; entregue-o por canal seguro ao administrador autorizado.');
     }
