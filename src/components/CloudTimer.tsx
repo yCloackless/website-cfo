@@ -177,7 +177,7 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Polling minimizado de 3s para sincronização cross-device / fallback
+    // Polling calibrado de 3s para sincronização cross-device / fallback
     const syncInterval = setInterval(fetchTimerStatus, 3000);
 
     return () => {

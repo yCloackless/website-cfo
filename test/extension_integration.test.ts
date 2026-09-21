@@ -361,3 +361,22 @@ test('EXT-18: endpoint /api/user/extension-token é idempotente, persistente e s
   assert.match(contentJs, /lastTokenSyncTime/, 'content.js deve conter controle de intervalo para sincronização de token');
 });
 
+test('EXT-19: estabilidade de execução, tickers seguros e proteção contra HTTP 429', () => {
+  const popupJs = readSource('extension/popup.js');
+  assert.match(popupJs, /function stopTimerTicker\(\)/, 'popup.js deve definir stopTimerTicker');
+  assert.match(popupJs, /function updateRatioDisplay\(/, 'popup.js deve definir updateRatioDisplay');
+  assert.match(popupJs, /cfo_ext_settings/, 'popup.js deve reagir a alterações em cfo_ext_settings');
+  assert.doesNotMatch(popupJs, /confirm\(/, 'popup.js não deve usar window.confirm para não fechar o popup');
+
+  const bgJs = readSource('extension/background.js');
+  assert.match(bgJs, /STORAGE_KEYS\.SETTINGS/, 'background.js deve ouvir mudanças em STORAGE_KEYS.SETTINGS');
+  assert.match(bgJs, /isPolling/, 'background.js deve proteger contra polling simultâneo concorrente');
+
+  const serverCode = readSource('server.ts');
+  assert.match(serverCode, /timerStatusLimiter/, 'server.ts deve prover limitador dedicado para timer status');
+  assert.match(serverCode, /skip:\s*\(req:\s*Request\)\s*=>/, 'server.ts deve excluir status do cronômetro da cota restrita de 350 req/15min');
+
+  const packager = readSource('scripts/package-extension.mjs');
+  assert.match(packager, /packageExtension/, 'scripts/package-extension.mjs deve existir');
+});
+

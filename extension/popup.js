@@ -325,21 +325,26 @@ function updateTimerDisplay() {
   }
 
   // Atualiza Balanço Foco vs Descanso
-  if (els.timerRatioCard) {
-    const totalCycleMs = studyMs + restMs;
-    if (totalCycleMs > 0) {
-      els.timerRatioCard.classList.remove('hidden');
-      const studyPct = Math.max(0, Math.min(100, Math.round((studyMs / totalCycleMs) * 100)));
-      const restPct = 100 - studyPct;
+  updateRatioDisplay(studyMs, restMs);
+}
 
-      if (els.ratioPercentage) els.ratioPercentage.textContent = `${studyPct}% Foco · ${restPct}% Pausa`;
-      if (els.ratioFillStudy) els.ratioFillStudy.style.width = `${studyPct}%`;
-      if (els.ratioFillRest) els.ratioFillRest.style.width = `${restPct}%`;
-      if (els.ratioStudyTime) els.ratioStudyTime.textContent = `Estudo: ${formatTime(studyMs)}`;
-      if (els.ratioRestTime) els.ratioRestTime.textContent = `Pausa: ${formatTime(restMs)}`;
-    } else {
-      els.timerRatioCard.classList.add('hidden');
-    }
+function updateRatioDisplay(studyMs, restMs) {
+  if (!els.timerRatioCard) return;
+  const currentStudyMs = typeof studyMs === 'number' ? studyMs : getElapsedTimerMs();
+  const currentRestMs = typeof restMs === 'number' ? restMs : getElapsedRestMs();
+  const totalCycleMs = currentStudyMs + currentRestMs;
+  if (totalCycleMs > 0) {
+    els.timerRatioCard.classList.remove('hidden');
+    const studyPct = Math.max(0, Math.min(100, Math.round((currentStudyMs / totalCycleMs) * 100)));
+    const restPct = 100 - studyPct;
+
+    if (els.ratioPercentage) els.ratioPercentage.textContent = `${studyPct}% Foco · ${restPct}% Pausa`;
+    if (els.ratioFillStudy) els.ratioFillStudy.style.width = `${studyPct}%`;
+    if (els.ratioFillRest) els.ratioFillRest.style.width = `${restPct}%`;
+    if (els.ratioStudyTime) els.ratioStudyTime.textContent = `Estudo: ${formatTime(currentStudyMs)}`;
+    if (els.ratioRestTime) els.ratioRestTime.textContent = `Pausa: ${formatTime(currentRestMs)}`;
+  } else {
+    els.timerRatioCard.classList.add('hidden');
   }
 }
 
@@ -349,11 +354,16 @@ function startTimerTicker() {
     if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') {
       updateTimerDisplay();
     } else {
-      // Para de contar se o timer parou
-      clearInterval(timerInterval);
-      timerInterval = null;
+      stopTimerTicker();
     }
   }, 200);
+}
+
+function stopTimerTicker() {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
 }
 
 // Reinicia o ticker quando a extensão volta a ficar visível (reopen do popup)
@@ -505,8 +515,9 @@ els.toggleToken.addEventListener('click', () => {
 
 // Timer Listeners
 els.btnTimerToggle.addEventListener('click', async () => {
-  const subjectId = els.timerSubject.value;
-  const subjectName = els.timerSubject.options[els.timerSubject.selectedIndex].text;
+  const selectedOption = els.timerSubject?.options?.[els.timerSubject.selectedIndex];
+  const subjectId = els.timerSubject?.value || 'geral';
+  const subjectName = selectedOption?.text || 'Estudo Geral / Questões';
   const isCurrentlyRunning = state.timer.status === 'RUNNING';
   const now = getServerNow();
   const currentAccumulated = Number(state.timer.accumulatedMs ?? state.timer.accumulatedTime) || 0;
@@ -580,11 +591,11 @@ els.btnTimerToggle.addEventListener('click', async () => {
 });
 
 els.btnTimerReset.addEventListener('click', () => {
-  if (state.timer.status === 'RUNNING' && !confirm('Deseja realmente zerar o cronômetro?')) return;
   sendRuntimeMessage({ type: 'TIMER_RESET' }, (response) => {
     if (!response?.timer) return;
     state.timer = response.timer;
     updateTimerDisplay();
+    stopTimerTicker();
     showToast('Cronômetro zerado.');
   });
 });
@@ -599,8 +610,9 @@ els.btnTimerSave.addEventListener('click', async () => {
     return switchTab('settings');
   }
 
-  const subjectId = els.timerSubject.value;
-  const subjectName = els.timerSubject.options[els.timerSubject.selectedIndex].text;
+  const selectedOption = els.timerSubject?.options?.[els.timerSubject.selectedIndex];
+  const subjectId = els.timerSubject?.value || 'geral';
+  const subjectName = selectedOption?.text || 'Estudo Geral / Questões';
   els.btnTimerSave.disabled = true;
 
   try {
@@ -649,7 +661,6 @@ els.btnLevelingUndo.addEventListener('click', () => {
 });
 
 els.btnLevelingReset.addEventListener('click', () => {
-  if (state.leveling.answers.length && !confirm('Deseja iniciar uma nova bateria de nivelamento?')) return;
   state.leveling.answers = [];
   els.result.hidden = true;
   updateLevelingUI();
@@ -860,10 +871,12 @@ async function initPopup() {
     setConnectionStatus('disconnected');
   }
 
-  // Listener para sincronização instantânea caso o cronômetro mude via página web
+  // Listener para sincronização instantânea caso o cronômetro ou configurações mudem
   if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && changes['cfo_ext_timer']) {
+      if (area !== 'local') return;
+
+      if (changes['cfo_ext_timer']) {
         const next = changes['cfo_ext_timer'].newValue;
         if (next) {
           state.timer = {
@@ -873,12 +886,31 @@ async function initPopup() {
             accumulatedTime: Number(next.accumulatedMs ?? next.accumulatedTime) || 0,
           };
           updateTimerDisplay();
-          updateRatioDisplay();
           if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') {
             startTimerTicker();
           } else {
             stopTimerTicker();
           }
+        }
+      }
+
+      if (changes['cfo_ext_settings']) {
+        const nextSettings = changes['cfo_ext_settings'].newValue;
+        if (nextSettings) {
+          state.settings = nextSettings;
+          if (els.serverUrl) els.serverUrl.value = nextSettings.serverUrl || 'https://cfo-oficial-agorasim.onrender.com';
+          if (els.authToken) els.authToken.value = nextSettings.token || '';
+          if (nextSettings.token) {
+            setConnectionStatus('connected');
+          } else {
+            setConnectionStatus('disconnected');
+          }
+        }
+      }
+
+      if (changes['cfo_ext_server_offset']) {
+        if (typeof changes['cfo_ext_server_offset'].newValue === 'number') {
+          state.serverOffset = changes['cfo_ext_server_offset'].newValue;
         }
       }
     });

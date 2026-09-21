@@ -244,7 +244,9 @@ function applyAuthSessionUpdate(payload) {
   }
 }
 
+let isPolling = false;
 function pollServerStatus() {
+  if (isPolling) return;
   chrome.storage.local.get([STORAGE_KEYS.SETTINGS, STORAGE_KEYS.TIMER, STORAGE_KEYS.SERVER_OFFSET], (res) => {
     const settings = res[STORAGE_KEYS.SETTINGS] || {};
     if (!settings.serverUrl || !settings.token) return;
@@ -253,6 +255,7 @@ function pollServerStatus() {
       serverOffset = res[STORAGE_KEYS.SERVER_OFFSET];
     }
 
+    isPolling = true;
     fetch(`${settings.serverUrl}/api/timer/status`, {
       headers: { Authorization: `Bearer ${settings.token}` },
     })
@@ -280,10 +283,17 @@ function pollServerStatus() {
           subjectName: cloud.activeSubjectName || current.subjectName || 'Estudo Geral',
         };
 
-        const changed =
-          current.status !== nextTimer.status ||
-          (nextTimer.status === 'RUNNING' && !current.startTime) ||
-          (nextTimer.status === 'STOPPED' && current.status !== 'STOPPED');
+        const statusChanged = current.status !== nextTimer.status;
+        const startTimeChanged =
+          nextTimer.status === 'RUNNING' &&
+          nextTimer.startTime &&
+          Math.abs((current.startTime || 0) - nextTimer.startTime) > 1000;
+        const accChanged =
+          (nextTimer.status === 'PAUSED' || nextTimer.status === 'STOPPED') &&
+          Math.abs((current.accumulatedMs || 0) - nextTimer.accumulatedMs) > 1000;
+        const subjectChanged = nextTimer.subjectId && current.subjectId !== nextTimer.subjectId;
+
+        const changed = statusChanged || startTimeChanged || accChanged || subjectChanged;
 
         if (changed) {
           chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: nextTimer }, () => {
@@ -293,12 +303,15 @@ function pollServerStatus() {
           });
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        isPolling = false;
+      });
   });
 }
 
-// Inicia polling periódico de servidor
-setInterval(pollServerStatus, 2500);
+// Inicia polling periódico de servidor com cadência balanceada (evita HTTP 429)
+setInterval(pollServerStatus, 12000);
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === 'cfo-web-bridge') {
@@ -334,11 +347,21 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes[STORAGE_KEYS.TIMER]) {
-    const next = changes[STORAGE_KEYS.TIMER].newValue;
-    updateBadge(next);
-    ensureTicker(next?.status);
-    broadcastToWeb(next);
+  if (area === 'local') {
+    if (changes[STORAGE_KEYS.TIMER]) {
+      const next = changes[STORAGE_KEYS.TIMER].newValue;
+      updateBadge(next);
+      ensureTicker(next?.status);
+      broadcastToWeb(next);
+    }
+    if (changes[STORAGE_KEYS.SERVER_OFFSET]) {
+      if (typeof changes[STORAGE_KEYS.SERVER_OFFSET].newValue === 'number') {
+        serverOffset = changes[STORAGE_KEYS.SERVER_OFFSET].newValue;
+      }
+    }
+    if (changes[STORAGE_KEYS.SETTINGS]) {
+      pollServerStatus();
+    }
   }
 });
 

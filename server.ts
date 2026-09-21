@@ -811,6 +811,17 @@ app.use(
 );
 
 // 6. Rate Limiters
+// Heartbeat e status do cronômetro possuem limite dedicado (2000 req / 15 min) para não esgotar a cota de estudos
+const timerStatusLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 2000,
+  store: createRateLimitRedisStore('timer_status'),
+  validate: { xForwardedForHeader: false },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(['/api/timer/status', '/timer/status'], timerStatusLimiter);
+
 // ── Global: 350 req / 15 min por IP (alinhado com SECURITY.md)
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -819,6 +830,10 @@ const apiLimiter = rateLimit({
   validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req: Request) => {
+    const p = String(req.originalUrl || req.path || req.url).split('?')[0];
+    return p === '/api/timer/status' || req.path === '/timer/status' || req.path === '/api/timer/status';
+  },
   handler: (req: Request, res: Response) => {
     const ip = getClientIp(req);
     console.warn(`[RATE_LIMIT_TRIGGERED] Limiter: api_global | Method: ${req.method} | Path: ${req.path} | Status: 429 | IP: ${ip}`);
