@@ -186,13 +186,13 @@ export class UserRepository {
 
   public updateRole(userId: string, role: UserRole): void {
     const now = new Date().toISOString();
-    this.db.prepare('UPDATE users SET role = ?, can_access_notion = CASE WHEN ? = ? THEN 1 ELSE can_access_notion END, updated_at = ? WHERE id = ?')
+    this.db.prepare('UPDATE users SET role = ?, can_access_notion = CASE WHEN ? = ? THEN TRUE ELSE can_access_notion END, updated_at = ? WHERE id = ?')
       .run(role, role, 'admin', now, userId);
   }
 
   public updateNotionAccess(userId: string, canAccessNotion: boolean): void {
     const now = new Date().toISOString();
-    this.db.prepare('UPDATE users SET can_access_notion = ?, updated_at = ? WHERE id = ?').run(canAccessNotion ? 1 : 0, now, userId);
+    this.db.prepare('UPDATE users SET can_access_notion = ?, updated_at = ? WHERE id = ?').run(canAccessNotion ? '1' : '0', now, userId);
   }
 
   public updateIfrjAccess(userId: string, canAccessIfrj: boolean): void {
@@ -223,7 +223,7 @@ export class UserRepository {
     // 1. Anonymize user record
     this.db.prepare(
       `UPDATE users
-       SET email = ?, username = ?, password_hash = ?, status = 'suspended', can_access_notion = 0, updated_at = ?
+       SET email = ?, username = ?, password_hash = ?, status = 'suspended', can_access_notion = FALSE, updated_at = ?
        WHERE id = ?`
     ).run(anonEmail, anonUsername, unmatchableHash, now, userId);
 
@@ -736,8 +736,8 @@ export class ActivationTokenRepository {
     const result = this.db
       .prepare(
         `UPDATE activation_tokens
-         SET is_used = 1, used_at = ?, used_by_user_id = ?
-         WHERE token_hash = ? AND is_used = 0 AND expires_at > ?`
+         SET is_used = TRUE, used_at = ?, used_by_user_id = ?
+         WHERE token_hash = ? AND is_used = FALSE AND expires_at > ?`
       )
       .run(now, userId, tokenHash, now);
 
@@ -1255,8 +1255,8 @@ export class PasswordResetRepository {
     this.db
       .prepare(
         `UPDATE password_resets
-         SET is_used = 1, used_at = ?
-         WHERE user_id = ? AND is_used = 0`
+         SET is_used = TRUE, used_at = ?
+         WHERE user_id = ? AND is_used = FALSE`
       )
       .run(createdAt, userId);
 
@@ -1292,7 +1292,7 @@ export class PasswordResetRepository {
       .prepare(
         `SELECT id, code_hash, failed_attempts
          FROM password_resets
-         WHERE user_id = ? AND is_used = 0 AND expires_at > ?
+         WHERE user_id = ? AND is_used = FALSE AND expires_at > ?
          ORDER BY created_at DESC LIMIT 1`
       )
       .get(userId, now) as { id: string; code_hash: string; failed_attempts: number } | undefined;
@@ -1306,7 +1306,7 @@ export class PasswordResetRepository {
 
     if (isMatch) {
       this.db
-        .prepare('UPDATE password_resets SET is_used = 1, used_at = ? WHERE id = ?')
+        .prepare('UPDATE password_resets SET is_used = TRUE, used_at = ? WHERE id = ?')
         .run(now, active.id);
       return true;
     }
@@ -1316,7 +1316,7 @@ export class PasswordResetRepository {
     const newAttempts = (active.failed_attempts || 0) + 1;
     if (newAttempts >= 5) {
       this.db
-        .prepare('UPDATE password_resets SET failed_attempts = ?, is_used = 1, used_at = ? WHERE id = ?')
+        .prepare('UPDATE password_resets SET failed_attempts = ?, is_used = TRUE, used_at = ? WHERE id = ?')
         .run(newAttempts, now, active.id);
     } else {
       this.db
@@ -1561,7 +1561,7 @@ export class RecoveryCodeRepository {
     }
 
     // Invalida/deleta códigos não usados anteriores do usuário
-    this.db.prepare('DELETE FROM admin_recovery_codes WHERE user_id = ? AND is_used = 0').run(userId);
+    this.db.prepare('DELETE FROM admin_recovery_codes WHERE user_id = ? AND is_used = FALSE').run(userId);
 
     const insertStmt = this.db.prepare(
       `INSERT INTO admin_recovery_codes (id, user_id, code_hash, is_used, created_at)
@@ -1589,8 +1589,8 @@ export class RecoveryCodeRepository {
     const result = this.db
       .prepare(
         `UPDATE admin_recovery_codes
-         SET is_used = 1, used_at = ?
-         WHERE user_id = ? AND code_hash = ? AND is_used = 0`
+         SET is_used = TRUE, used_at = ?
+         WHERE user_id = ? AND code_hash = ? AND is_used = FALSE`
       )
       .run(now, userId, codeHash);
 
@@ -1605,7 +1605,7 @@ export class RecoveryCodeRepository {
       .prepare(
         `SELECT COUNT(*) as count
          FROM admin_recovery_codes
-         WHERE user_id = ? AND is_used = 0`
+         WHERE user_id = ? AND is_used = FALSE`
       )
       .get(userId) as { count: number } | undefined;
 
@@ -1820,7 +1820,7 @@ export class SecurityNotificationRepository {
     }
 
     if (options.filter === 'UNREAD') {
-      clauses.push('is_read = 0');
+      clauses.push('is_read = FALSE');
     } else if (options.filter === 'SECURITY') {
       clauses.push("type = 'CADET_SECURITY_ALERT'");
     }
@@ -1835,7 +1835,7 @@ export class SecurityNotificationRepository {
       LIMIT ?
     `).all(...params, limit) as any[];
 
-    let unreadCountSql = 'SELECT COUNT(*) as count FROM security_notifications WHERE is_read = 0';
+    let unreadCountSql = 'SELECT COUNT(*) as count FROM security_notifications WHERE is_read = FALSE';
     const unreadParams: any[] = [];
     if (options.userId !== undefined) {
       if (options.userId) {
@@ -1867,8 +1867,8 @@ export class SecurityNotificationRepository {
     const now = new Date().toISOString();
     const res = this.db.prepare(`
       UPDATE security_notifications
-      SET is_read = 1, read_at = ?
-      WHERE id = ? AND is_read = 0
+      SET is_read = TRUE, read_at = ?
+      WHERE id = ? AND is_read = FALSE
     `).run(now, id);
 
     return Number(res.changes) > 0;
@@ -1878,8 +1878,8 @@ export class SecurityNotificationRepository {
     const now = new Date().toISOString();
     this.db.prepare(`
       UPDATE security_notifications
-      SET is_read = 1, read_at = ?
-      WHERE is_read = 0
+      SET is_read = TRUE, read_at = ?
+      WHERE is_read = FALSE
     `).run(now);
   }
 }
