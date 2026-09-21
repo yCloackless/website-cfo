@@ -513,6 +513,37 @@ els.toggleToken.addEventListener('click', () => {
   }
 });
 
+// Transmissão direta e síncrona do popup para abas web abertas (< 1ms)
+function broadcastToWebTabs(timerState) {
+  if (!timerState || typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.query) return;
+  try {
+    chrome.tabs.query({}, (tabs) => {
+      if (chrome.runtime.lastError || !tabs) return;
+      for (const tab of tabs) {
+        if (!tab.id) continue;
+        try {
+          chrome.tabs.sendMessage(
+            tab.id,
+            {
+              type: 'EXTENSION_TIMER_SYNC',
+              payload: timerState,
+            },
+            () => {
+              if (chrome.runtime.lastError) {
+                /* Ignora abas que não executam o content script do CFO */
+              }
+            }
+          );
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
 // Timer Listeners
 els.btnTimerToggle.addEventListener('click', async () => {
   const selectedOption = els.timerSubject?.options?.[els.timerSubject.selectedIndex];
@@ -557,6 +588,7 @@ els.btnTimerToggle.addEventListener('click', async () => {
   await storage.set({ cfo_ext_timer: state.timer });
   updateTimerDisplay();
   startTimerTicker();
+  broadcastToWebTabs(state.timer);
 
   sendRuntimeMessage(
     isCurrentlyRunning
@@ -586,6 +618,7 @@ els.btnTimerToggle.addEventListener('click', async () => {
       storage.set({ cfo_ext_timer: state.timer, cfo_ext_server_offset: state.serverOffset });
       updateTimerDisplay();
       startTimerTicker();
+      broadcastToWebTabs(state.timer);
     }
   );
 });
@@ -596,6 +629,7 @@ els.btnTimerReset.addEventListener('click', () => {
     state.timer = response.timer;
     updateTimerDisplay();
     stopTimerTicker();
+    broadcastToWebTabs(state.timer);
     showToast('Cronômetro zerado.');
   });
 });

@@ -15,7 +15,7 @@ test('EXT-01: arquivos da extensão Manifest V3 existem e são válidos', () => 
   assert.equal(manifest.manifest_version, 3, 'Deve ser Manifest V3');
   assert.equal(manifest.action.default_popup, 'popup.html');
   assert.equal(manifest.background.service_worker, 'background.js');
-  assert.deepEqual(manifest.permissions, ['storage', 'alarms']);
+  assert.deepEqual(manifest.permissions, ['storage', 'alarms', 'tabs']);
 
   // Verifica existência dos arquivos essenciais
   for (const file of [
@@ -379,4 +379,63 @@ test('EXT-19: estabilidade de execução, tickers seguros e proteção contra HT
   const packager = readSource('scripts/package-extension.mjs');
   assert.match(packager, /packageExtension/, 'scripts/package-extension.mjs deve existir');
 });
+
+test('EXT-20: propagação imediata e resiliência de pausa da extensão para abas web', () => {
+  const manifest = JSON.parse(readSource('extension/manifest.json'));
+  assert.ok(manifest.permissions.includes('tabs'), 'manifest.json deve possuir permissão tabs');
+
+  const bgJs = readSource('extension/background.js');
+  // broadcastToWeb deve utilizar tabs.sendMessage além de portas
+  assert.match(bgJs, /chrome\.tabs\.sendMessage/, 'broadcastToWeb deve utilizar chrome.tabs.sendMessage');
+  assert.match(bgJs, /chrome\.tabs\.query/, 'broadcastToWeb deve varrer abas abertas');
+
+  // TIMER_PAUSE deve chamar broadcastToWeb imediatamente
+  const pauseBlockMatch = bgJs.match(/if\s*\(type\s*===\s*['"]TIMER_PAUSE['"]\)[\s\S]*?return true;/);
+  assert.ok(pauseBlockMatch, 'Bloco TIMER_PAUSE deve existir');
+  assert.match(pauseBlockMatch[0], /broadcastToWeb\(newTimer\)/, 'TIMER_PAUSE deve chamar broadcastToWeb(newTimer)');
+
+  // TIMER_RESET deve chamar broadcastToWeb imediatamente
+  const resetBlockMatch = bgJs.match(/if\s*\(type\s*===\s*['"]TIMER_RESET['"]\)[\s\S]*?return true;/);
+  assert.ok(resetBlockMatch, 'Bloco TIMER_RESET deve existir');
+  assert.match(resetBlockMatch[0], /broadcastToWeb\(newTimer\)/, 'TIMER_RESET deve chamar broadcastToWeb(newTimer)');
+
+  // popup.js deve conter broadcastToWebTabs e disparar na pausa
+  const popupJs = readSource('extension/popup.js');
+  assert.match(popupJs, /function broadcastToWebTabs\(/, 'popup.js deve definir broadcastToWebTabs');
+  assert.match(popupJs, /broadcastToWebTabs\(state\.timer\)/, 'popup.js deve chamar broadcastToWebTabs');
+
+  // content.js deve ter escuta reativa em storage.onChanged
+  const contentJs = readSource('extension/content.js');
+  assert.match(contentJs, /chrome\.storage\.onChanged\.addListener/, 'content.js deve escutar chrome.storage.onChanged');
+  assert.match(contentJs, /changes\.cfo_ext_timer/, 'content.js deve reagir a alterações de cfo_ext_timer');
+  assert.match(contentJs, /dispatchToWeb\(changes\.cfo_ext_timer\.newValue\)/, 'content.js deve despachar alterações para a web');
+
+  // Simulação de transição: estado RUNNING pausando na extensão
+  const now = 2000000;
+  const startState = {
+    status: 'RUNNING',
+    accumulatedMs: 120000,
+    startTime: now - 30000, // 30s de estudo
+    restStartTime: null,
+    restAccumulatedMs: 5000,
+  };
+
+  const elapsed = Math.max(0, now - startState.startTime);
+  const pausedState = {
+    ...startState,
+    status: 'PAUSED',
+    accumulatedMs: startState.accumulatedMs + elapsed,
+    accumulatedTime: startState.accumulatedMs + elapsed,
+    startTime: null,
+    restStartTime: now,
+    restAccumulatedMs: startState.restAccumulatedMs,
+  };
+
+  assert.equal(pausedState.status, 'PAUSED', 'Estado resultante deve ser PAUSED');
+  assert.equal(pausedState.startTime, null, 'startTime deve ser null ao pausar');
+  assert.equal(pausedState.accumulatedMs, 150000, 'accumulatedMs deve somar o tempo corrido (120s + 30s)');
+  assert.equal(pausedState.restStartTime, now, 'restStartTime deve ser inicializado com o momento da pausa');
+  assert.equal(pausedState.restAccumulatedMs, 5000, 'restAccumulatedMs prévio deve ser preservado');
+});
+
 

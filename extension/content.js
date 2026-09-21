@@ -100,9 +100,21 @@
 
   // Escuta mensagens recebidas via chrome.runtime.onMessage (caso enviadas fora do port)
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
-    chrome.runtime.onMessage.addListener((message) => {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message && message.type === 'EXTENSION_TIMER_SYNC') {
         dispatchToWeb(message.payload);
+        if (typeof sendResponse === 'function') {
+          sendResponse({ received: true });
+        }
+      }
+    });
+  }
+
+  // Escuta mudanças no storage local (tripla redundância com garantia nativa do navegador)
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.cfo_ext_timer && changes.cfo_ext_timer.newValue) {
+        dispatchToWeb(changes.cfo_ext_timer.newValue);
       }
     });
   }

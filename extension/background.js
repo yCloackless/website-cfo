@@ -157,6 +157,8 @@ const webBridgePorts = new Set();
 
 function broadcastToWeb(timerState) {
   if (!timerState) return;
+
+  // 1. Envia para portas abertas na conexão persistente (webBridgePorts)
   for (const port of webBridgePorts) {
     try {
       port.postMessage({
@@ -165,6 +167,36 @@ function broadcastToWeb(timerState) {
       });
     } catch {
       webBridgePorts.delete(port);
+    }
+  }
+
+  // 2. Envia diretamente para todas as abas ativas via tabs.sendMessage (resiliente contra quedas de porta)
+  if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
+    try {
+      chrome.tabs.query({}, (tabs) => {
+        if (chrome.runtime.lastError || !tabs) return;
+        for (const tab of tabs) {
+          if (!tab.id) continue;
+          try {
+            chrome.tabs.sendMessage(
+              tab.id,
+              {
+                type: 'EXTENSION_TIMER_SYNC',
+                payload: timerState,
+              },
+              () => {
+                if (chrome.runtime.lastError) {
+                  /* Ignora abas sem content script da extensão */
+                }
+              }
+            );
+          } catch {
+            /* ignore */
+          }
+        }
+      });
+    } catch {
+      /* ignore */
     }
   }
 }
@@ -420,6 +452,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {
         updateBadge(newTimer);
         ensureTicker('RUNNING');
+        broadcastToWeb(newTimer);
         sendResponse({ success: true, timer: newTimer, serverOffset });
 
         // Sincroniza com o backend se houver token
@@ -487,6 +520,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {
         updateBadge(newTimer);
         ensureTicker('PAUSED');
+        broadcastToWeb(newTimer);
         sendResponse({ success: true, timer: newTimer, serverOffset });
 
         if (settings.serverUrl && settings.token) {
@@ -502,6 +536,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               if (cloud && typeof cloud.serverTime === 'number') {
                 serverOffset = cloud.serverTime - Date.now();
                 chrome.storage.local.set({ [STORAGE_KEYS.SERVER_OFFSET]: serverOffset });
+              }
+              if (cloud && cloud.status === 'PAUSED') {
+                const cloudAcc = Number(cloud.accumulatedTime ?? cloud.accumulatedMs ?? newTimer.accumulatedMs);
+                const cloudRestAcc = Number(cloud.restAccumulatedMs ?? cloud.totalRestMs ?? newTimer.restAccumulatedMs);
+                const cloudTimer = {
+                  ...newTimer,
+                  accumulatedMs: cloudAcc,
+                  accumulatedTime: cloudAcc,
+                  startTime: null,
+                  restStartTime: cloud.restStartTime || newTimer.restStartTime,
+                  restAccumulatedMs: cloudRestAcc,
+                };
+                chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: cloudTimer }, () => {
+                  broadcastToWeb(cloudTimer);
+                });
               }
             })
             .catch((err) => console.warn('[CFO Ext] Falha sync pause:', err));
@@ -528,6 +577,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {
         updateBadge(newTimer);
         ensureTicker('STOPPED');
+        broadcastToWeb(newTimer);
         sendResponse({ success: true, timer: newTimer });
 
         if (settings.serverUrl && settings.token) {
@@ -544,6 +594,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 serverOffset = cloud.serverTime - Date.now();
                 chrome.storage.local.set({ [STORAGE_KEYS.SERVER_OFFSET]: serverOffset });
               }
+              broadcastToWeb(newTimer);
             })
             .catch((err) => console.warn('[CFO Ext] Falha sync reset:', err));
         }
