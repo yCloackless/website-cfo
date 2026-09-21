@@ -154,6 +154,119 @@ function broadcastToWeb(timerState) {
   }
 }
 
+function applyWebTimerUpdate(web) {
+  if (!web) return;
+
+  chrome.storage.local.get([STORAGE_KEYS.TIMER], (res) => {
+    const prev = res[STORAGE_KEYS.TIMER] || {};
+
+    if (web.status === 'STOPPED') {
+      const resetTimer = {
+        status: 'STOPPED',
+        accumulatedMs: 0,
+        accumulatedTime: 0,
+        startTime: null,
+        restAccumulatedMs: 0,
+        restStartTime: null,
+        subjectId: 'geral',
+        subjectName: 'Estudo Geral',
+      };
+      chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: resetTimer }, () => {
+        updateBadge(resetTimer);
+        ensureTicker('STOPPED');
+      });
+      return;
+    }
+
+    const nextAcc = typeof web.accumulatedTime === 'number'
+      ? web.accumulatedTime
+      : (typeof web.accumulatedMs === 'number' ? web.accumulatedMs : prev.accumulatedMs || 0);
+    const nextRestAcc = typeof web.restAccumulatedMs === 'number'
+      ? web.restAccumulatedMs
+      : (typeof web.totalRestMs === 'number' ? web.totalRestMs : prev.restAccumulatedMs || 0);
+
+    const updatedTimer = {
+      status: web.status || prev.status || 'STOPPED',
+      accumulatedMs: nextAcc,
+      accumulatedTime: nextAcc,
+      startTime: web.startTime !== undefined ? web.startTime : (web.status === 'RUNNING' ? Date.now() : null),
+      restAccumulatedMs: nextRestAcc,
+      restStartTime: web.restStartTime !== undefined ? web.restStartTime : (web.status === 'PAUSED' ? Date.now() : null),
+      subjectId: web.activeSubjectId || web.subjectId || prev.subjectId || 'geral',
+      subjectName: web.activeSubjectName || web.subjectName || prev.subjectName || 'Estudo Geral',
+    };
+
+    chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: updatedTimer }, () => {
+      updateBadge(updatedTimer);
+      ensureTicker(updatedTimer.status);
+    });
+  });
+}
+
+function applyAuthSessionUpdate(payload) {
+  const { token, serverUrl } = payload || {};
+  if (token && typeof token === 'string' && token !== 'cookie') {
+    chrome.storage.local.get([STORAGE_KEYS.SETTINGS], (res) => {
+      const prevSettings = res[STORAGE_KEYS.SETTINGS] || {};
+      const newSettings = {
+        ...prevSettings,
+        token: token,
+        serverUrl: serverUrl || prevSettings.serverUrl || 'https://cfo-oficial-agorasim.onrender.com',
+      };
+      chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: newSettings }, () => {
+        pollServerStatus();
+      });
+    });
+  }
+}
+
+function pollServerStatus() {
+  chrome.storage.local.get([STORAGE_KEYS.SETTINGS, STORAGE_KEYS.TIMER], (res) => {
+    const settings = res[STORAGE_KEYS.SETTINGS] || {};
+    if (!settings.serverUrl || !settings.token) return;
+
+    fetch(`${settings.serverUrl}/api/timer/status`, {
+      headers: { Authorization: `Bearer ${settings.token}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cloud) => {
+        if (!cloud || !cloud.status) return;
+
+        const current = res[STORAGE_KEYS.TIMER] || {};
+        const cloudAcc = Number(cloud.accumulatedTime ?? cloud.accumulatedMs ?? cloud.totalElapsedMs) || 0;
+        const cloudRestAcc = Number(cloud.restAccumulatedMs ?? cloud.totalRestMs) || 0;
+
+        const nextTimer = {
+          status: cloud.status,
+          accumulatedMs: cloudAcc,
+          accumulatedTime: cloudAcc,
+          startTime: cloud.startTime || null,
+          restAccumulatedMs: cloudRestAcc,
+          restStartTime: cloud.restStartTime || null,
+          subjectId: cloud.activeSubjectId || current.subjectId || 'geral',
+          subjectName: cloud.activeSubjectName || current.subjectName || 'Estudo Geral',
+        };
+
+        const changed =
+          current.status !== nextTimer.status ||
+          (nextTimer.status === 'RUNNING' && !current.startTime) ||
+          (nextTimer.status === 'STOPPED' && current.status !== 'STOPPED');
+
+        if (changed) {
+          chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: nextTimer }, () => {
+            updateBadge(nextTimer);
+            ensureTicker(nextTimer.status);
+            broadcastToWeb(nextTimer);
+          });
+        }
+      })
+      .catch(() => {});
+  });
+}
+
+// Inicia polling periódico de servidor
+setInterval(pollServerStatus, 2500);
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === 'cfo-web-bridge') {
     webBridgePorts.add(port);
@@ -179,60 +292,9 @@ chrome.runtime.onConnect.addListener((port) => {
           }
         });
       } else if (msg.type === 'WEB_TIMER_UPDATE') {
-        const web = msg.payload;
-        if (!web) return;
-
-        chrome.storage.local.get([STORAGE_KEYS.TIMER], (res) => {
-          const prev = res[STORAGE_KEYS.TIMER] || {};
-          const nextAcc = typeof web.accumulatedTime === 'number'
-            ? web.accumulatedTime
-            : (typeof web.accumulatedMs === 'number' ? web.accumulatedMs : prev.accumulatedMs || 0);
-          const nextRestAcc = typeof web.restAccumulatedMs === 'number'
-            ? web.restAccumulatedMs
-            : (typeof web.totalRestMs === 'number' ? web.totalRestMs : prev.restAccumulatedMs || 0);
-
-          const updatedTimer = {
-            status: web.status || prev.status || 'STOPPED',
-            accumulatedMs: nextAcc,
-            accumulatedTime: nextAcc,
-            startTime: web.startTime !== undefined ? web.startTime : prev.startTime,
-            restAccumulatedMs: nextRestAcc,
-            restStartTime: web.restStartTime !== undefined ? web.restStartTime : prev.restStartTime,
-            subjectId: web.activeSubjectId || web.subjectId || prev.subjectId || 'geral',
-            subjectName: web.activeSubjectName || web.subjectName || prev.subjectName || 'Estudo Geral',
-          };
-
-          const isIdentical =
-            prev.status === updatedTimer.status &&
-            prev.startTime === updatedTimer.startTime &&
-            prev.restStartTime === updatedTimer.restStartTime &&
-            Math.abs((prev.accumulatedMs || 0) - updatedTimer.accumulatedMs) < 100 &&
-            Math.abs((prev.restAccumulatedMs || 0) - updatedTimer.restAccumulatedMs) < 100 &&
-            prev.subjectId === updatedTimer.subjectId;
-
-          if (!isIdentical) {
-            chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: updatedTimer }, () => {
-              updateBadge(updatedTimer);
-              ensureTicker(updatedTimer.status);
-            });
-          }
-        });
+        applyWebTimerUpdate(msg.payload);
       } else if (msg.type === 'AUTH_SESSION_UPDATE') {
-        const { token, serverUrl } = msg.payload || {};
-        if (token && typeof token === 'string' && token !== 'cookie') {
-          chrome.storage.local.get([STORAGE_KEYS.SETTINGS], (res) => {
-            const prevSettings = res[STORAGE_KEYS.SETTINGS] || {};
-            if (prevSettings.token !== token || (serverUrl && prevSettings.serverUrl !== serverUrl)) {
-              chrome.storage.local.set({
-                [STORAGE_KEYS.SETTINGS]: {
-                  ...prevSettings,
-                  token,
-                  serverUrl: serverUrl || prevSettings.serverUrl || 'https://cfo-oficial-agorasim.onrender.com',
-                },
-              });
-            }
-          });
-        }
+        applyAuthSessionUpdate(msg.payload);
       }
     });
   }
@@ -247,9 +309,21 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-// Comunicação com o popup
+// Comunicação com o popup e content script via runtime message
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const { type, payload } = message;
+
+  if (type === 'WEB_TIMER_UPDATE') {
+    applyWebTimerUpdate(payload);
+    sendResponse({ success: true });
+    return true;
+  }
+
+  if (type === 'AUTH_SESSION_UPDATE') {
+    applyAuthSessionUpdate(payload);
+    sendResponse({ success: true });
+    return true;
+  }
 
   if (type === 'GET_TIMER_STATE') {
     chrome.storage.local.get([STORAGE_KEYS.TIMER], (res) => {

@@ -781,46 +781,49 @@ async function initPopup() {
           const cloudAcc = Number(cloud.accumulatedTime ?? cloud.accumulatedMs ?? cloud.totalElapsedMs) || 0;
           const cloudRestAcc = Number(cloud.restAccumulatedMs ?? cloud.totalRestMs) || 0;
 
-          // Se a extensão estiver RUNNING localmente e o servidor disser STOPPED,
-          // NÃO mata o cronômetro local! O usuário iniciou na extensão e fechou o popup.
-          if (state.timer.status === 'RUNNING') {
-            if (cloud.status === 'STOPPED') {
-              fetch(`${state.settings.serverUrl}/api/timer/start`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${state.settings.token}`,
-                },
-                body: JSON.stringify({
-                  subjectId: state.timer.subjectId || 'geral',
-                  subjectName: state.timer.subjectName || 'Estudo Geral',
-                }),
-              }).catch(() => {});
-            }
-            return;
+          if (cloud.status === 'STOPPED') {
+            state.timer = {
+              status: 'STOPPED',
+              accumulatedMs: 0,
+              accumulatedTime: 0,
+              startTime: null,
+              restAccumulatedMs: 0,
+              restStartTime: null,
+              subjectId: 'geral',
+              subjectName: 'Estudo Geral',
+            };
+            await storage.set({ cfo_ext_timer: state.timer });
+            updateTimerDisplay();
+            stopTimerTicker();
+          } else if (cloud.status === 'RUNNING') {
+            state.timer = {
+              status: 'RUNNING',
+              accumulatedMs: cloudAcc,
+              accumulatedTime: cloudAcc,
+              startTime: cloud.startTime || Date.now(),
+              restAccumulatedMs: cloudRestAcc,
+              restStartTime: null,
+              subjectId: cloud.activeSubjectId || state.timer.subjectId || 'geral',
+              subjectName: cloud.activeSubjectName || state.timer.subjectName || 'Estudo Geral',
+            };
+            await storage.set({ cfo_ext_timer: state.timer });
+            updateTimerDisplay();
+            startTimerTicker();
+          } else if (cloud.status === 'PAUSED') {
+            state.timer = {
+              status: 'PAUSED',
+              accumulatedMs: cloudAcc,
+              accumulatedTime: cloudAcc,
+              startTime: null,
+              restAccumulatedMs: cloudRestAcc,
+              restStartTime: cloud.restStartTime || Date.now(),
+              subjectId: cloud.activeSubjectId || state.timer.subjectId || 'geral',
+              subjectName: cloud.activeSubjectName || state.timer.subjectName || 'Estudo Geral',
+            };
+            await storage.set({ cfo_ext_timer: state.timer });
+            updateTimerDisplay();
+            startTimerTicker();
           }
-
-          // Se estiver PAUSED localmente e o servidor estiver STOPPED, preserva o pause local
-          if (state.timer.status === 'PAUSED' && cloud.status === 'STOPPED') {
-            return;
-          }
-
-          const localRestStart = state.timer.restStartTime;
-          const isLocalPaused = state.timer.status === 'PAUSED' && localRestStart;
-
-          state.timer = {
-            status: cloud.status,
-            accumulatedMs: cloudAcc,
-            accumulatedTime: cloudAcc,
-            startTime: cloud.startTime || null,
-            restAccumulatedMs: cloudRestAcc,
-            restStartTime: isLocalPaused ? localRestStart : (cloud.restStartTime || null),
-            subjectId: cloud.activeSubjectId || state.timer.subjectId || 'geral',
-            subjectName: cloud.activeSubjectName || state.timer.subjectName || 'Estudo Geral',
-          };
-          await storage.set({ cfo_ext_timer: state.timer });
-          updateTimerDisplay();
-          if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') startTimerTicker();
         }
         fetchLevelingFromCloud();
       })

@@ -159,7 +159,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         setRestDisplayMs(baseRest);
       }
 
-      // Sincroniza estado com a extensão Chrome via ponte instantânea
+      // Sincroniza estado com a extensão Chrome via ponte instantânea (window + document)
       if (typeof window !== 'undefined') {
         window.postMessage(
           {
@@ -169,6 +169,19 @@ export const TimerTab: React.FC<TimerTabProps> = ({
           },
           '*'
         );
+        try {
+          document.dispatchEvent(
+            new CustomEvent('cfo-timer-web-event', {
+              detail: {
+                source: 'cfo-web',
+                type: 'TIMER_SYNC_FROM_WEB',
+                payload: data,
+              },
+            })
+          );
+        } catch {
+          /* ignore */
+        }
       }
     } catch (err) {
       setIsOnline(false);
@@ -177,55 +190,66 @@ export const TimerTab: React.FC<TimerTabProps> = ({
     }
   }, []);
 
-  // Ouve eventos instantâneos disparados pela extensão Chrome (< 5ms)
+  // Ouve eventos instantâneos disparados pela extensão Chrome (< 5ms) via postMessage e CustomEvent
   useEffect(() => {
+    const handleExtensionData = (ext: any) => {
+      if (!ext) return;
+
+      setTimerState((prev) => {
+        const nextStatus = ext.status || prev.status;
+        const nextAcc = typeof ext.accumulatedTime === 'number'
+          ? ext.accumulatedTime
+          : (typeof ext.accumulatedMs === 'number' ? ext.accumulatedMs : prev.accumulatedTime);
+        const nextRestAcc = typeof ext.restAccumulatedMs === 'number'
+          ? ext.restAccumulatedMs
+          : (typeof ext.totalRestMs === 'number' ? ext.totalRestMs : prev.restAccumulatedMs || 0);
+
+        const now = Date.now();
+        if (nextStatus === 'RUNNING' && ext.startTime) {
+          const estimatedServerNow = now + serverOffsetRef.current;
+          setDisplayMs(nextAcc + Math.max(0, estimatedServerNow - ext.startTime));
+        } else {
+          setDisplayMs(nextAcc);
+        }
+
+        if (nextStatus === 'PAUSED' && ext.restStartTime) {
+          const estimatedServerNow = now + serverOffsetRef.current;
+          setRestDisplayMs(nextRestAcc + Math.max(0, estimatedServerNow - ext.restStartTime));
+        } else {
+          setRestDisplayMs(nextRestAcc);
+        }
+
+        if (ext.subjectId || ext.activeSubjectId) {
+          setSelectedSubjectId(ext.subjectId || ext.activeSubjectId);
+        }
+
+        return {
+          status: nextStatus,
+          accumulatedTime: nextAcc,
+          startTime: ext.startTime || null,
+          restAccumulatedMs: nextRestAcc,
+          restStartTime: ext.restStartTime || null,
+          activeSubjectId: ext.activeSubjectId || ext.subjectId || prev.activeSubjectId,
+          activeSubjectName: ext.activeSubjectName || ext.subjectName || prev.activeSubjectName,
+        };
+      });
+    };
+
     const handleExtensionMessage = (event: MessageEvent) => {
       if (event.data?.source === 'cfo-extension' && event.data?.type === 'TIMER_SYNC_FROM_EXTENSION') {
-        const ext = event.data.payload;
-        if (!ext) return;
+        handleExtensionData(event.data.payload);
+      }
+    };
 
-        setTimerState((prev) => {
-          const nextStatus = ext.status || prev.status;
-          const nextAcc = typeof ext.accumulatedTime === 'number'
-            ? ext.accumulatedTime
-            : (typeof ext.accumulatedMs === 'number' ? ext.accumulatedMs : prev.accumulatedTime);
-          const nextRestAcc = typeof ext.restAccumulatedMs === 'number'
-            ? ext.restAccumulatedMs
-            : (typeof ext.totalRestMs === 'number' ? ext.totalRestMs : prev.restAccumulatedMs || 0);
-
-          const now = Date.now();
-          if (nextStatus === 'RUNNING' && ext.startTime) {
-            const estimatedServerNow = now + serverOffsetRef.current;
-            setDisplayMs(nextAcc + Math.max(0, estimatedServerNow - ext.startTime));
-          } else {
-            setDisplayMs(nextAcc);
-          }
-
-          if (nextStatus === 'PAUSED' && ext.restStartTime) {
-            const estimatedServerNow = now + serverOffsetRef.current;
-            setRestDisplayMs(nextRestAcc + Math.max(0, estimatedServerNow - ext.restStartTime));
-          } else {
-            setRestDisplayMs(nextRestAcc);
-          }
-
-          if (ext.subjectId || ext.activeSubjectId) {
-            setSelectedSubjectId(ext.subjectId || ext.activeSubjectId);
-          }
-
-          return {
-            status: nextStatus,
-            accumulatedTime: nextAcc,
-            startTime: ext.startTime || null,
-            restAccumulatedMs: nextRestAcc,
-            restStartTime: ext.restStartTime || null,
-            activeSubjectId: ext.activeSubjectId || ext.subjectId || prev.activeSubjectId,
-            activeSubjectName: ext.activeSubjectName || ext.subjectName || prev.activeSubjectName,
-          };
-        });
+    const handleCustomExtEvent = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail;
+      if (detail && detail.source === 'cfo-extension' && detail.type === 'TIMER_SYNC_FROM_EXTENSION') {
+        handleExtensionData(detail.payload);
       }
     };
 
     window.addEventListener('message', handleExtensionMessage);
+    document.addEventListener('cfo-timer-ext-event', handleCustomExtEvent);
 
     // Auto-pareia token com a extensão se autenticado
     try {
@@ -244,7 +268,10 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       /* ignore */
     }
 
-    return () => window.removeEventListener('message', handleExtensionMessage);
+    return () => {
+      window.removeEventListener('message', handleExtensionMessage);
+      document.removeEventListener('cfo-timer-ext-event', handleCustomExtEvent);
+    };
   }, []);
 
   useEffect(() => {
