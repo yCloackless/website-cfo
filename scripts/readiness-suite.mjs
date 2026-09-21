@@ -20,6 +20,7 @@ files.push('emergency_lockdown');
 files.push('flashcards_anki');
 files.push('anki_real_engine');
 files.push('anki_hierarchy');
+files.push('anki_security_and_bugs');
 files.push('student_study');
 files.push('leveling');
 files.push('extension_integration');

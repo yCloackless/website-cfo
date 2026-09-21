@@ -430,7 +430,13 @@ export class AnkiRepository {
       throw err;
     }
 
-    const trimmedName = (data.name || '').trim();
+    if (typeof data.name !== 'string') {
+      const err = new Error('Nome do baralho deve ser uma string.');
+      (err as any).code = 'INVALID_NAME';
+      throw err;
+    }
+
+    const trimmedName = data.name.trim();
     if (!trimmedName) {
       const err = new Error('Nome do baralho é obrigatório.');
       (err as any).code = 'INVALID_NAME';
@@ -439,6 +445,18 @@ export class AnkiRepository {
     if (trimmedName.length > AnkiRepository.MAX_DECK_NAME_LENGTH) {
       const err = new Error(`Nome do baralho não pode ultrapassar ${AnkiRepository.MAX_DECK_NAME_LENGTH} caracteres.`);
       (err as any).code = 'NAME_TOO_LONG';
+      throw err;
+    }
+
+    if (/[<>]/.test(trimmedName)) {
+      const err = new Error('Nome do baralho não pode conter tags ou caracteres HTML.');
+      (err as any).code = 'INVALID_NAME';
+      throw err;
+    }
+
+    if (data.parentDeckId !== undefined && data.parentDeckId !== null && typeof data.parentDeckId !== 'string') {
+      const err = new Error('ID do baralho pai inválido.');
+      (err as any).code = 'INVALID_PAYLOAD';
       throw err;
     }
 
@@ -483,6 +501,11 @@ export class AnkiRepository {
 
     let name = deck.name;
     if (data.name !== undefined) {
+      if (typeof data.name !== 'string') {
+        const err = new Error('Nome do baralho deve ser uma string.');
+        (err as any).code = 'INVALID_NAME';
+        throw err;
+      }
       const trimmed = data.name.trim();
       if (!trimmed) {
         const err = new Error('Nome do baralho é obrigatório.');
@@ -494,11 +517,21 @@ export class AnkiRepository {
         (err as any).code = 'NAME_TOO_LONG';
         throw err;
       }
+      if (/[<>]/.test(trimmed)) {
+        const err = new Error('Nome do baralho não pode conter tags ou caracteres HTML.');
+        (err as any).code = 'INVALID_NAME';
+        throw err;
+      }
       name = trimmed;
     }
 
     let parentDeckId = deck.parentDeckId ?? null;
     if (data.parentDeckId !== undefined) {
+      if (data.parentDeckId !== null && typeof data.parentDeckId !== 'string') {
+        const err = new Error('ID do baralho pai inválido.');
+        (err as any).code = 'INVALID_PAYLOAD';
+        throw err;
+      }
       if (data.parentDeckId === null || data.parentDeckId === '') {
         // Move to root
         parentDeckId = null;
@@ -562,6 +595,13 @@ export class AnkiRepository {
     for (const dId of descendantIds.reverse()) {
       this.db.prepare(`DELETE FROM anki_decks WHERE user_id = ? AND id = ?`).run(userId, dId);
     }
+
+    // Purge orphaned notes whose cards were deleted with the decks
+    this.db.prepare(`
+      DELETE FROM anki_notes
+      WHERE user_id = ? AND id NOT IN (SELECT DISTINCT note_id FROM anki_cards WHERE user_id = ?)
+    `).run(userId, userId);
+
     return true;
   }
 
@@ -741,6 +781,21 @@ export class AnkiRepository {
     return this.mapCard(row);
   }
 
+  public getCardsByDeckIds(userId: string, deckIds: string[]): AnkiCard[] {
+    if (!deckIds || deckIds.length === 0) return [];
+    const placeholders = deckIds.map(() => '?').join(', ');
+    const rows = this.db.prepare(`
+      SELECT c.*, n.fields_json, n.tags, n.notetype_id, d.name as deck_name
+      FROM anki_cards c
+      JOIN anki_notes n ON n.id = c.note_id AND n.user_id = c.user_id
+      JOIN anki_decks d ON d.id = c.deck_id AND d.user_id = c.user_id
+      WHERE c.user_id = ? AND c.deck_id IN (${placeholders})
+      ORDER BY c.created_at ASC
+    `).all(userId, ...deckIds) as any[];
+
+    return rows.map(r => this.mapCard(r));
+  }
+
   private mapCard(row: any): AnkiCard {
     let fields: string[] = [];
     try { fields = JSON.parse(row.fields_json); } catch {}
@@ -827,8 +882,9 @@ export class AnkiRepository {
 
       const idPlaceholders = targetIds.map(() => '?').join(', ');
       if (targetDeckName) {
-        query += ` AND (c.deck_id IN (${idPlaceholders}) OR d.name = ? OR d.name LIKE ?)`;
-        params.push(...targetIds, targetDeckName, `${targetDeckName}::%`);
+        const escapedLike = targetDeckName.replace(/[%_\\]/g, '\\$&');
+        query += ` AND (c.deck_id IN (${idPlaceholders}) OR d.name = ? OR d.name LIKE ? ESCAPE '\\')`;
+        params.push(...targetIds, targetDeckName, `${escapedLike}::%`);
       } else {
         query += ` AND c.deck_id IN (${idPlaceholders})`;
         params.push(...targetIds);
@@ -1087,6 +1143,12 @@ export class AnkiRepository {
     for (const cid of cardIds) {
       const res = this.db.prepare(`DELETE FROM anki_cards WHERE user_id = ? AND id = ?`).run(userId, cid) as any;
       if (res.changes) deleted += 1;
+    }
+    if (deleted > 0) {
+      this.db.prepare(`
+        DELETE FROM anki_notes
+        WHERE user_id = ? AND id NOT IN (SELECT DISTINCT note_id FROM anki_cards WHERE user_id = ?)
+      `).run(userId, userId);
     }
     return deleted;
   }

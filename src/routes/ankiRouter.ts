@@ -41,6 +41,20 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
     },
   });
 
+  const noteMutationLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 150, // 150 note creations/batches per 15 min
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: () => process.env.NODE_ENV === 'test',
+    handler: (_req: Request, res: Response) => {
+      res.status(429).json({
+        error: 'TOO_MANY_REQUESTS',
+        message: 'Muitas operações de criação de notas. Aguarde alguns instantes.',
+      });
+    },
+  });
+
   // =========================================================================
   // 1. DECKS
   // =========================================================================
@@ -80,7 +94,8 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
         err.code === 'MAX_DECKS_EXCEEDED' ||
         err.code === 'MAX_DEPTH_EXCEEDED' ||
         err.code === 'INVALID_NAME' ||
-        err.code === 'NAME_TOO_LONG'
+        err.code === 'NAME_TOO_LONG' ||
+        err.code === 'INVALID_PAYLOAD'
       ) {
         return res.status(400).json({ error: err.code, message: err.message });
       }
@@ -116,7 +131,8 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
         err.code === 'MAX_DEPTH_EXCEEDED' ||
         err.code === 'CYCLIC_RELATIONSHIP' ||
         err.code === 'INVALID_NAME' ||
-        err.code === 'NAME_TOO_LONG'
+        err.code === 'NAME_TOO_LONG' ||
+        err.code === 'INVALID_PAYLOAD'
       ) {
         return res.status(400).json({ error: err.code, message: err.message });
       }
@@ -233,7 +249,7 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
   // 3. NOTES & CARDS CREATION
   // =========================================================================
 
-  router.post('/notes', requireAuthMiddleware, (req: Request, res: Response) => {
+  router.post('/notes', requireAuthMiddleware, noteMutationLimiter, (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const { deckId, notetypeId, fields, tags } = req.body || {};
@@ -266,13 +282,20 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
     }
   });
 
-  router.post('/notes/batch', requireAuthMiddleware, (req: Request, res: Response) => {
+  router.post('/notes/batch', requireAuthMiddleware, noteMutationLimiter, (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const { deckId, notetypeId, notes } = req.body || {};
 
       if (!deckId || !Array.isArray(notes) || notes.length === 0) {
         return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'deckId e lista de notas são obrigatórios.' });
+      }
+
+      if (notes.length > 200) {
+        return res.status(400).json({
+          error: 'BATCH_TOO_LARGE',
+          message: 'O lote de notas não pode ultrapassar 200 itens por requisição.',
+        });
       }
 
       const repo = getRepo();
@@ -566,33 +589,58 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
       const deckId = req.query.deckId ? String(req.query.deckId) : undefined;
       const repo = getRepo();
 
-      let decks = repo.listDecks(user.userId);
+      const allDecks = repo.listDecks(user.userId);
+      const deckMap = new Map<string, any>(allDecks.map(d => [d.id, d]));
+
+      const getFullPath = (d: any): string => {
+        if (d.name.includes('::') || !d.parentDeckId) return d.name;
+        const parent = deckMap.get(d.parentDeckId);
+        if (!parent) return d.name;
+        return `${getFullPath(parent)}::${d.name}`;
+      };
+
+      let exportDeckIds: string[] = [];
+      let exportDecks: any[] = [];
+
       if (deckId) {
-        decks = decks.filter(d => d.id === deckId);
+        const rootTarget = allDecks.find(d => d.id === deckId);
+        if (!rootTarget) {
+          return res.status(404).json({ error: 'NO_DECKS_TO_EXPORT' });
+        }
+        const descendantIds = repo.getDescendantDeckIds(user.userId, deckId);
+        exportDeckIds = descendantIds;
+        exportDecks = allDecks
+          .filter(d => descendantIds.includes(d.id))
+          .map(d => ({ ...d, name: getFullPath(d) }));
+      } else {
+        exportDeckIds = allDecks.map(d => d.id);
+        exportDecks = allDecks.map(d => ({ ...d, name: getFullPath(d) }));
       }
-      if (decks.length === 0) {
+
+      if (exportDecks.length === 0) {
         return res.status(404).json({ error: 'NO_DECKS_TO_EXPORT' });
       }
 
       const notetypes = repo.listNoteTypes(user.userId);
-      const browserCards = repo.listBrowserCards(user.userId, deckId ? `deck:"${decks[0].name}"` : '', 10000, 0);
+      const cards = repo.getCardsByDeckIds(user.userId, exportDeckIds);
 
       const notesMap = new Map<string, any>();
-      for (const card of browserCards.cards) {
+      for (const card of cards) {
         if (card.note) {
           notesMap.set(card.note.id, card.note);
         }
       }
 
       const apkgBuffer = await AnkiApkgService.exportApkg({
-        decks,
+        decks: exportDecks,
         notetypes,
         notes: Array.from(notesMap.values()),
-        cards: browserCards.cards,
+        cards,
       });
 
-      const exportFilename = deckId && decks[0]
-        ? `${decks[0].name.replace(/[^a-zA-Z0-9_-]/g, '_')}.apkg`
+      const rootExportDeck = deckId ? allDecks.find(d => d.id === deckId) : null;
+      const exportFilename = rootExportDeck
+        ? `${rootExportDeck.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.apkg`
         : 'Colecao_Anki_CFO.apkg';
 
       res.setHeader('Content-Type', 'application/octet-stream');
@@ -706,6 +754,8 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
 
       res.setHeader('Content-Type', asset.media.mimeType);
       res.setHeader('Cache-Control', 'private, max-age=86400');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
       return res.send(asset.buffer);
     } catch (err: any) {
       return res.status(500).json({ error: 'GET_MEDIA_FAILED', message: err.message });

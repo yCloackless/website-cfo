@@ -93,6 +93,16 @@ export class AnkiRenderer {
     });
   }
 
+  public static escapeHtml(str: string): string {
+    if (!str) return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   /**
    * Renders a card's Question and Answer HTML based on note fields and card template.
    */
@@ -145,8 +155,8 @@ export class AnkiRenderer {
       out = out.replace(/\{\{([^}#^/]+)\}\}/g, (m, key) => {
         const cleanKey = key.trim().toLowerCase();
         if (cleanKey === 'tags') return (note.tags || []).join(' ');
-        if (cleanKey === 'deck') return deckName;
-        if (cleanKey === 'subdeck') return deckName.split('::').pop() || deckName;
+        if (cleanKey === 'deck') return AnkiRenderer.escapeHtml(deckName);
+        if (cleanKey === 'subdeck') return AnkiRenderer.escapeHtml(deckName.split('::').pop() || deckName);
         if (cleanKey === 'frontside') return ''; // Handled separately for afmt
         if (cleanKey === 'cardflag') return '';
 
