@@ -15,7 +15,7 @@ test('EXT-01: arquivos da extensão Manifest V3 existem e são válidos', () => 
   assert.equal(manifest.manifest_version, 3, 'Deve ser Manifest V3');
   assert.equal(manifest.action.default_popup, 'popup.html');
   assert.equal(manifest.background.service_worker, 'background.js');
-  assert.deepEqual(manifest.permissions, ['storage', 'alarms', 'tabs']);
+  assert.deepEqual(manifest.permissions, ['storage', 'alarms', 'tabs', 'scripting']);
 
   // Verifica existência dos arquivos essenciais
   for (const file of [
@@ -383,11 +383,13 @@ test('EXT-19: estabilidade de execução, tickers seguros e proteção contra HT
 test('EXT-20: propagação imediata e resiliência de pausa da extensão para abas web', () => {
   const manifest = JSON.parse(readSource('extension/manifest.json'));
   assert.ok(manifest.permissions.includes('tabs'), 'manifest.json deve possuir permissão tabs');
+  assert.ok(manifest.permissions.includes('scripting'), 'manifest.json deve possuir permissão scripting');
 
   const bgJs = readSource('extension/background.js');
-  // broadcastToWeb deve utilizar tabs.sendMessage além de portas
+  // broadcastToWeb deve utilizar tabs.sendMessage além de portas e scripting fallback
   assert.match(bgJs, /chrome\.tabs\.sendMessage/, 'broadcastToWeb deve utilizar chrome.tabs.sendMessage');
   assert.match(bgJs, /chrome\.tabs\.query/, 'broadcastToWeb deve varrer abas abertas');
+  assert.match(bgJs, /chrome\.scripting\.executeScript/, 'broadcastToWeb deve ter fallback para scripting');
 
   // TIMER_PAUSE deve chamar broadcastToWeb imediatamente
   const pauseBlockMatch = bgJs.match(/if\s*\(type\s*===\s*['"]TIMER_PAUSE['"]\)[\s\S]*?return true;/);
@@ -399,16 +401,22 @@ test('EXT-20: propagação imediata e resiliência de pausa da extensão para ab
   assert.ok(resetBlockMatch, 'Bloco TIMER_RESET deve existir');
   assert.match(resetBlockMatch[0], /broadcastToWeb\(newTimer\)/, 'TIMER_RESET deve chamar broadcastToWeb(newTimer)');
 
-  // popup.js deve conter broadcastToWebTabs e disparar na pausa
+  // popup.js deve conter broadcastToWebTabs e disparar na pausa com fallback para scripting
   const popupJs = readSource('extension/popup.js');
   assert.match(popupJs, /function broadcastToWebTabs\(/, 'popup.js deve definir broadcastToWebTabs');
   assert.match(popupJs, /broadcastToWebTabs\(state\.timer\)/, 'popup.js deve chamar broadcastToWebTabs');
+  assert.match(popupJs, /chrome\.scripting\.executeScript/, 'popup.js deve ter fallback para scripting');
 
   // content.js deve ter escuta reativa em storage.onChanged
   const contentJs = readSource('extension/content.js');
   assert.match(contentJs, /chrome\.storage\.onChanged\.addListener/, 'content.js deve escutar chrome.storage.onChanged');
   assert.match(contentJs, /changes\.cfo_ext_timer/, 'content.js deve reagir a alterações de cfo_ext_timer');
   assert.match(contentJs, /dispatchToWeb\(changes\.cfo_ext_timer\.newValue\)/, 'content.js deve despachar alterações para a web');
+
+  // TimerTab.tsx deve persistir /api/timer/pause ao receber pausa da extensão e possuir guarda de foco
+  const timerTab = readSource('src/components/TimerTab.tsx');
+  assert.match(timerTab, /lastPauseActionTimeRef/, 'TimerTab deve ter lastPauseActionTimeRef para proteger contra corrida de foco');
+  assert.match(timerTab, /apiFetch\(['"]\/api\/timer\/pause['"]/, 'TimerTab deve persistir pausa no backend com a sessão ativa');
 
   // Simulação de transição: estado RUNNING pausando na extensão
   const now = 2000000;

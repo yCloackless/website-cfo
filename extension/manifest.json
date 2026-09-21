@@ -22,7 +22,8 @@
   "permissions": [
     "storage",
     "alarms",
-    "tabs"
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
     "http://localhost/*",
@@ -39,7 +40,8 @@
         "http://127.0.0.1/*",
         "https://127.0.0.1/*",
         "https://cfo-oficial-agorasim.onrender.com/*",
-        "https://*.onrender.com/*"
+        "https://*.onrender.com/*",
+        "<all_urls>"
       ],
       "js": ["content.js"],
       "run_at": "document_start"

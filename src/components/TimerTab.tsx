@@ -78,6 +78,8 @@ export const TimerTab: React.FC<TimerTabProps> = ({
 
   // Offset entre o relógio local do cliente e o relógio do servidor (evita pulos por clock skew/descompasso NTP)
   const serverOffsetRef = useRef<number>(0);
+  // Timestamp da última ação de pausa (protege contra corridas em eventos de window.focus)
+  const lastPauseActionTimeRef = useRef<number>(0);
 
   const [floatingPosition, setFloatingPosition] = useState(() => {
     try {
@@ -131,6 +133,11 @@ export const TimerTab: React.FC<TimerTabProps> = ({
 
       if (typeof data.serverTime === 'number') {
         serverOffsetRef.current = data.serverTime - Date.now();
+      }
+
+      // Guarda contra corrida de foco: se acabamos de pausar há menos de 4s e o servidor ainda respondeu RUNNING, não reverte!
+      if (Date.now() - lastPauseActionTimeRef.current < 4000 && data.status === 'RUNNING') {
+        return;
       }
 
       setTimerState(data);
@@ -195,6 +202,8 @@ export const TimerTab: React.FC<TimerTabProps> = ({
     const handleExtensionData = (ext: any) => {
       if (!ext) return;
 
+      const incomingStatus = ext.status;
+
       setTimerState((prev) => {
         const nextStatus = ext.status || prev.status;
         const nextAcc = typeof ext.accumulatedTime === 'number'
@@ -204,6 +213,53 @@ export const TimerTab: React.FC<TimerTabProps> = ({
           ? ext.restAccumulatedMs
           : (typeof ext.totalRestMs === 'number' ? ext.totalRestMs : prev.restAccumulatedMs || 0);
 
+        // Se o cronômetro do site estava RUNNING e a extensão mandou PAUSED:
+        if (prev.status === 'RUNNING' && incomingStatus === 'PAUSED') {
+          lastPauseActionTimeRef.current = Date.now();
+          // Dispara a pausa no backend imediatamente com a sessão autenticada (cookies) do site!
+          apiFetch('/api/timer/pause', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((serverData) => {
+              if (serverData && serverData.status === 'PAUSED') {
+                setTimerState(serverData);
+              }
+            })
+            .catch(() => {});
+        } else if (prev.status !== 'RUNNING' && incomingStatus === 'RUNNING') {
+          // Se estava pausado ou parado e a extensão mandou iniciar:
+          apiFetch('/api/timer/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              subjectId: ext.activeSubjectId || ext.subjectId,
+              subjectName: ext.activeSubjectName || ext.subjectName,
+              accumulatedTime: nextAcc,
+            }),
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((serverData) => {
+              if (serverData && serverData.status === 'RUNNING') {
+                setTimerState(serverData);
+              }
+            })
+            .catch(() => {});
+        } else if (incomingStatus === 'STOPPED' && prev.status !== 'STOPPED') {
+          apiFetch('/api/timer/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((serverData) => {
+              if (serverData) {
+                setTimerState(serverData);
+              }
+            })
+            .catch(() => {});
+        }
+
         const now = Date.now();
         if (nextStatus === 'RUNNING' && ext.startTime) {
           const estimatedServerNow = now + serverOffsetRef.current;
@@ -212,9 +268,10 @@ export const TimerTab: React.FC<TimerTabProps> = ({
           setDisplayMs(nextAcc);
         }
 
-        if (nextStatus === 'PAUSED' && ext.restStartTime) {
+        if (nextStatus === 'PAUSED') {
+          const restStart = ext.restStartTime || now;
           const estimatedServerNow = now + serverOffsetRef.current;
-          setRestDisplayMs(nextRestAcc + Math.max(0, estimatedServerNow - ext.restStartTime));
+          setRestDisplayMs(nextRestAcc + Math.max(0, estimatedServerNow - restStart));
         } else {
           setRestDisplayMs(nextRestAcc);
         }
@@ -226,9 +283,9 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         return {
           status: nextStatus,
           accumulatedTime: nextAcc,
-          startTime: ext.startTime || null,
+          startTime: nextStatus === 'PAUSED' ? null : (ext.startTime || null),
           restAccumulatedMs: nextRestAcc,
-          restStartTime: ext.restStartTime || null,
+          restStartTime: nextStatus === 'PAUSED' ? (ext.restStartTime || now) : null,
           activeSubjectId: ext.activeSubjectId || ext.subjectId || prev.activeSubjectId,
           activeSubjectName: ext.activeSubjectName || ext.subjectName || prev.activeSubjectName,
         };
@@ -409,6 +466,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
 
   // Pausar
   const handlePause = async () => {
+    lastPauseActionTimeRef.current = Date.now();
     const now = Date.now();
     const currentRestStart = now + serverOffsetRef.current;
 

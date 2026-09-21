@@ -530,7 +530,26 @@ function broadcastToWebTabs(timerState) {
             },
             () => {
               if (chrome.runtime.lastError) {
-                /* Ignora abas que não executam o content script do CFO */
+                // Contingência: se a aba perdeu a conexão com o content script (ex.: recarregamento da extensão),
+                // injeta e dispara diretamente via chrome.scripting no DOM da aba!
+                if (chrome.scripting && chrome.scripting.executeScript) {
+                  chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    func: (payload) => {
+                      window.postMessage({
+                        source: 'cfo-extension',
+                        type: 'TIMER_SYNC_FROM_EXTENSION',
+                        payload: payload,
+                      }, '*');
+                      try {
+                        document.dispatchEvent(new CustomEvent('cfo-timer-ext-event', {
+                          detail: { source: 'cfo-extension', type: 'TIMER_SYNC_FROM_EXTENSION', payload }
+                        }));
+                      } catch {}
+                    },
+                    args: [timerState],
+                  }).catch(() => {});
+                }
               }
             }
           );
