@@ -911,6 +911,23 @@ const calendarLimiter = rateLimit({
   message: { error: 'CALENDAR_RATE_LIMITED', message: 'Limite de sincronizações atingido. Tente novamente mais tarde.' },
 });
 
+// Rate Limiter Dedicado para Uploads (Anti-DoS / Anti-Flooding)
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30, // 30 uploads por 15 min por IP/usuário
+  validate: { xForwardedForHeader: false },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => {
+    const userId = String((req as any).user?.userId || '').trim();
+    return userId ? `user:${userId}` : `ip:${ipKeyGenerator(req.ip || getClientIp(req))}`;
+  },
+  message: {
+    error: "UPLOAD_RATE_LIMITED",
+    message: "Limite de uploads atingido para esta janela de tempo. Tente novamente mais tarde.",
+  },
+});
+
 const studentAiMaxRequestsPerDay = Math.max(1, Number(process.env.AI_MAX_REQUESTS_PER_DAY || 10));
 const studentAiMaxReportAnalysesPerDay = Math.max(1, Number(process.env.AI_MAX_REPORT_ANALYSES_PER_DAY || 2));
 const studentAiMaxOutputTokens = Math.min(1200, Math.max(80, Number(process.env.AI_MAX_OUTPUT_TOKENS || 400)));
@@ -2687,7 +2704,7 @@ app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Res
 });
 
 // 4. Rota de Ativação Permanente do 2FA (Ao confirmar o primeiro código dentro do site)
-app.post("/api/auth/activate-2fa", async (req: Request, res: Response) => {
+app.post("/api/auth/activate-2fa", twoFactorLimiter, async (req: Request, res: Response) => {
   try {
     const sessionToken = requestSessionToken(req);
     const sessionResult = verifyTerminalSession(sessionToken);
@@ -4496,7 +4513,7 @@ app.patch("/api/user/profile", requireUserAuth, (req: Request, res: Response) =>
 });
 
 // 3. Upload e Atualização Segura de Foto de Perfil (Validação Real de Magic Bytes e Ownership)
-app.post("/api/user/avatar", requireUserAuth, (req: Request, res: Response) => {
+app.post("/api/user/avatar", requireUserAuth, uploadLimiter, (req: Request, res: Response) => {
   try {
     const sessionUser = (req as any).user;
     const user = userRepoInstance.findById(sessionUser.userId) || userRepoInstance.findByUsername(sessionUser.username);
@@ -6440,6 +6457,9 @@ app.get("/api/user/extension-token", requireUserAuth, (req: Request, res: Respon
       }
     }
 
+    // Revoga sessões anteriores ativas da extensão para impedir reuso de tokens comprometidos
+    sessionRepoInstance.revokeExtensionSessions(userId);
+
     // 2. Cria nova sessão persistente de 90 dias
     const created = sessionRepoInstance.createSession({
       userId,
@@ -6479,6 +6499,10 @@ app.post("/api/user/extension-token/regenerate", requireUserAuth, (req: Request,
     if (!userId) {
       return res.status(401).json({ error: "UNAUTHORIZED", message: "Usuário não autenticado." });
     }
+
+
+    // Revoga sessões anteriores ativas da extensão antes de emitir nova
+    sessionRepoInstance.revokeExtensionSessions(userId);
 
     const created = sessionRepoInstance.createSession({
       userId,
@@ -6794,22 +6818,7 @@ app.get("/api/admin/audit-logs", requireAdminOnlyAuth, (req: Request, res: Respo
 // 🔒 CAMADA OBRIGATÓRIA DE SEGURANÇA PARA UPLOADS (DEFENSE-IN-DEPTH)
 // ============================================================================
 
-// 1. Rate Limiter Dedicado para Uploads (Anti-DoS / Anti-Flooding)
-const uploadLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30, // 30 uploads por 15 min por IP/usuário
-  validate: { xForwardedForHeader: false },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req: Request) => {
-    const userId = String((req as any).user?.userId || '').trim();
-    return userId ? `user:${userId}` : `ip:${ipKeyGenerator(req.ip || getClientIp(req))}`;
-  },
-  message: {
-    error: "UPLOAD_RATE_LIMITED",
-    message: "Limite de uploads atingido para esta janela de tempo. Tente novamente mais tarde.",
-  },
-});
+// 1. Rate Limiter Dedicado para Uploads (definido no topo do servidor)
 
 // 2. Endpoint de Upload Seguro: POST /api/uploads/file
 app.post("/api/uploads/file", requireUserAuth, uploadLimiter, async (req: Request, res: Response) => {

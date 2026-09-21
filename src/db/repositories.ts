@@ -1432,6 +1432,14 @@ export class SessionRepository {
     this.db.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ?').run(now, userId);
   }
 
+  public revokeExtensionSessions(userId: string): number {
+    const now = new Date().toISOString();
+    const result = this.db.prepare(
+      "UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND user_agent = 'cfo-browser-extension' AND revoked_at IS NULL"
+    ).run(now, userId);
+    return Number(result.changes || 0);
+  }
+
   public revokeAllNonAdminSessions(): number {
     const now = new Date().toISOString();
     const result = this.db.prepare("UPDATE sessions SET revoked_at = ? WHERE role NOT IN ('admin') AND revoked_at IS NULL").run(now);

@@ -55,6 +55,20 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
     },
   });
 
+  const apkgImportLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10, // 10 APKG imports per 15 min
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: () => process.env.NODE_ENV === 'test',
+    handler: (_req: Request, res: Response) => {
+      res.status(429).json({
+        error: 'TOO_MANY_REQUESTS',
+        message: 'Limite de importações .apkg atingido. Aguarde alguns minutos antes de tentar novamente.',
+      });
+    },
+  });
+
   // =========================================================================
   // 1. DECKS
   // =========================================================================
@@ -196,7 +210,7 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
     }
   });
 
-  router.put('/deck-configs/:id', requireAuthMiddleware, (req: Request, res: Response) => {
+  router.put('/deck-configs/:id', requireAuthMiddleware, deckMutationLimiter, (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const repo = getRepo();
@@ -223,7 +237,7 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
     }
   });
 
-  router.patch('/deck-configs/:id', requireAuthMiddleware, (req: Request, res: Response) => {
+  router.patch('/deck-configs/:id', requireAuthMiddleware, deckMutationLimiter, (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const repo = getRepo();
@@ -535,20 +549,39 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
     }
   });
 
-  router.post('/browser/bulk', requireAuthMiddleware, (req: Request, res: Response) => {
+  router.post('/browser/bulk', requireAuthMiddleware, noteMutationLimiter, (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const { action, cardIds, targetDeckId, suspend } = req.body || {};
 
-      if (!action || !Array.isArray(cardIds) || cardIds.length === 0) {
-        return res.status(400).json({ error: 'INVALID_BULK_REQUEST' });
+      const validActions = ['move', 'suspend', 'delete'];
+      if (!action || !validActions.includes(action)) {
+        return res.status(400).json({ error: 'INVALID_ACTION', message: 'Ação deve ser move, suspend ou delete.' });
+      }
+
+      if (!Array.isArray(cardIds) || cardIds.length === 0) {
+        return res.status(400).json({ error: 'INVALID_BULK_REQUEST', message: 'cardIds deve ser um array não vazio.' });
+      }
+
+      if (cardIds.length > 500) {
+        return res.status(400).json({ error: 'TOO_MANY_CARDS', message: 'Máximo de 500 cards por operação em lote.' });
+      }
+
+      if (!cardIds.every(id => typeof id === 'string' && id.trim().length > 0)) {
+        return res.status(400).json({ error: 'INVALID_CARD_IDS', message: 'Todos os cardIds devem ser identificadores válidos.' });
       }
 
       const repo = getRepo();
       let affectedCount = 0;
 
       if (action === 'move') {
-        if (!targetDeckId) return res.status(400).json({ error: 'TARGET_DECK_REQUIRED' });
+        if (!targetDeckId || typeof targetDeckId !== 'string') {
+          return res.status(400).json({ error: 'TARGET_DECK_REQUIRED', message: 'Baralho de destino é obrigatório para mover.' });
+        }
+        const targetDeck = repo.getDeck(user.userId, targetDeckId);
+        if (!targetDeck) {
+          return res.status(404).json({ error: 'TARGET_DECK_NOT_FOUND', message: 'Baralho de destino não encontrado ou não pertence a você.' });
+        }
         affectedCount = repo.bulkMoveCards(user.userId, cardIds, targetDeckId);
       } else if (action === 'suspend') {
         affectedCount = repo.bulkSuspendCards(user.userId, cardIds, suspend !== false);
@@ -558,6 +591,9 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
 
       return res.json({ success: true, affectedCount });
     } catch (err: any) {
+      if (err.message === 'TARGET_DECK_NOT_FOUND') {
+        return res.status(404).json({ error: 'TARGET_DECK_NOT_FOUND', message: 'Baralho de destino não encontrado.' });
+      }
       return res.status(500).json({ error: 'BULK_ACTION_FAILED', message: err.message });
     }
   });
@@ -651,7 +687,7 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
     }
   });
 
-  router.post('/import-apkg', requireAuthMiddleware, async (req: Request, res: Response) => {
+  router.post('/import-apkg', requireAuthMiddleware, apkgImportLimiter, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const { base64Data } = req.body || {};
@@ -660,9 +696,25 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
         return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'base64Data do arquivo .apkg é obrigatório.' });
       }
 
+      // Limite de segurança de 25MB para o payload base64
+      if (base64Data.length > 25 * 1024 * 1024) {
+        return res.status(413).json({ error: 'PAYLOAD_TOO_LARGE', message: 'O arquivo .apkg excede o limite máximo permitido de 25MB.' });
+      }
+
       const apkgBuffer = Buffer.from(base64Data, 'base64');
       const parsed = await AnkiApkgService.parseApkg(apkgBuffer);
       const repo = getRepo();
+
+      const existingDecks = repo.listDecks(user.userId);
+      const currentDeckCount = repo.countDecks(user.userId);
+      const newDecksNeeded = parsed.decks.filter(d => !existingDecks.some(ed => ed.name.toLowerCase() === d.name.toLowerCase())).length;
+
+      if (currentDeckCount + newDecksNeeded > AnkiRepository.MAX_DECKS_PER_USER) {
+        return res.status(400).json({
+          error: 'MAX_DECKS_EXCEEDED',
+          message: `A importação excederia o limite máximo de ${AnkiRepository.MAX_DECKS_PER_USER} baralhos. Você possui ${currentDeckCount} baralhos.`,
+        });
+      }
 
       // Ensure default config
       const config = repo.ensureDefaultDeckConfig(user.userId);
@@ -675,7 +727,6 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
 
       // Map deck name -> deckId
       const deckNameToId = new Map<string, string>();
-      const existingDecks = repo.listDecks(user.userId);
       existingDecks.forEach(d => deckNameToId.set(d.name, d.id));
 
       for (const pd of parsed.decks) {

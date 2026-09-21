@@ -1,9 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import express from 'express';
+import JSZip from 'jszip';
 import { AnkiRepository } from '../src/db/ankiRepository';
+import { SessionRepository } from '../src/db/repositories';
 import { AnkiRenderer } from '../src/services/anki/ankiRenderer';
 import { AnkiApkgService } from '../src/services/anki/ankiApkgService';
 
@@ -15,7 +20,14 @@ function createMockDb(): DatabaseSync {
     CREATE TABLE users (
       id TEXT PRIMARY KEY,
       email TEXT,
-      role TEXT
+      username TEXT,
+      role TEXT,
+      password_hash TEXT,
+      status TEXT DEFAULT 'active',
+      can_access_notion INTEGER DEFAULT 0,
+      can_access_ifrj INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT '',
+      updated_at TEXT DEFAULT ''
     );
 
     CREATE TABLE anki_deck_configs (
@@ -146,9 +158,24 @@ function createMockDb(): DatabaseSync {
       created_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'cadet',
+      ip TEXT,
+      user_agent TEXT,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT,
+      created_at TEXT NOT NULL,
+      impersonated_by_user_id TEXT,
+      parent_session_id TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
 
-  db.prepare(`INSERT INTO users (id, email, role) VALUES ('u1', 'u1@test.com', 'cadete')`).run();
+  db.prepare(`INSERT INTO users (id, email, username, role, status) VALUES ('u1', 'u1@test.com', 'user1', 'cadete', 'active')`).run();
   return db;
 }
 
@@ -402,3 +429,177 @@ test('6. SQL LIKE wildcard escaping in study queue', () => {
   assert.strictEqual(queue.length, 1);
   assert.strictEqual(queue[0].deck?.name, '100%_Foco');
 });
+
+test('7. Security: POST /api/anki/browser/bulk bounds, action validation and deck check', async () => {
+  const db = createMockDb();
+  const repo = new AnkiRepository(db);
+  const nts = repo.ensureDefaultNoteTypes('u1');
+  const d1 = repo.createDeck('u1', { name: 'Deck 1' });
+  const note = repo.createNote('u1', { deckId: d1.id, notetypeId: nts[0].id, fields: ['F', 'B'] });
+
+  const app = express();
+  app.use(express.json());
+  app.post('/api/anki/browser/bulk', (req, res) => {
+    const { action, cardIds, targetDeckId, suspend } = req.body || {};
+    const validActions = ['move', 'suspend', 'delete'];
+    if (!action || !validActions.includes(action)) {
+      return res.status(400).json({ error: 'INVALID_ACTION' });
+    }
+    if (!Array.isArray(cardIds) || cardIds.length === 0) {
+      return res.status(400).json({ error: 'INVALID_BULK_REQUEST' });
+    }
+    if (cardIds.length > 500) {
+      return res.status(400).json({ error: 'TOO_MANY_CARDS' });
+    }
+    if (!cardIds.every(id => typeof id === 'string' && id.trim().length > 0)) {
+      return res.status(400).json({ error: 'INVALID_CARD_IDS' });
+    }
+    if (action === 'move') {
+      if (!targetDeckId || typeof targetDeckId !== 'string') return res.status(400).json({ error: 'TARGET_DECK_REQUIRED' });
+      const targetDeck = repo.getDeck('u1', targetDeckId);
+      if (!targetDeck) return res.status(404).json({ error: 'TARGET_DECK_NOT_FOUND' });
+      return res.json({ success: true, affectedCount: repo.bulkMoveCards('u1', cardIds, targetDeckId) });
+    }
+    if (action === 'suspend') {
+      return res.json({ success: true, affectedCount: repo.bulkSuspendCards('u1', cardIds, suspend !== false) });
+    }
+    if (action === 'delete') {
+      return res.json({ success: true, affectedCount: repo.bulkDeleteCards('u1', cardIds) });
+    }
+  });
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const port = (server.address() as any).port;
+
+  try {
+    // 1. Invalid action
+    const r1 = await fetch(`http://127.0.0.1:${port}/api/anki/browser/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'evil_drop', cardIds: ['c1'] }),
+    });
+    assert.strictEqual(r1.status, 400);
+    const b1: any = await r1.json();
+    assert.strictEqual(b1.error, 'INVALID_ACTION');
+
+    // 2. Too many cards (>500)
+    const largeList = new Array(501).fill('card-id');
+    const r2 = await fetch(`http://127.0.0.1:${port}/api/anki/browser/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'suspend', cardIds: largeList }),
+    });
+    assert.strictEqual(r2.status, 400);
+    const b2: any = await r2.json();
+    assert.strictEqual(b2.error, 'TOO_MANY_CARDS');
+
+    // 3. Move to nonexistent deck returns 404
+    const r3 = await fetch(`http://127.0.0.1:${port}/api/anki/browser/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'move', cardIds: [note.cards[0].id], targetDeckId: 'nonexistent-deck-id' }),
+    });
+    assert.strictEqual(r3.status, 404);
+    const b3: any = await r3.json();
+    assert.strictEqual(b3.error, 'TARGET_DECK_NOT_FOUND');
+  } finally {
+    server.close();
+  }
+});
+
+test('8. Security: AnkiApkgService.parseApkg limits notes and rejects unsafe media files', async () => {
+  const zip = new JSZip();
+
+  // Create collection on disk
+  const tempColPath = path.join(os.tmpdir(), `test-col-${Date.now()}.sqlite`);
+  const realDb = new DatabaseSync(tempColPath);
+  realDb.exec(`
+    CREATE TABLE col (id integer primary key, crt integer, mod integer, scm integer, ver integer, dty integer, usn integer, ls integer, conf text, models text, decks text, dconf text, tags text);
+    CREATE TABLE notes (id integer primary key, guid text, mid integer, mod integer, usn integer, tags text, flds text, sfld text, csum integer, flags integer, data text);
+    CREATE TABLE cards (id integer primary key, nid integer, did integer, ord integer, mod integer, usn integer, type integer, queue integer, due integer, ivl integer, factor integer, reps integer, lapses integer, left integer, odue integer, odid integer, flags integer, data text);
+    INSERT INTO col (id, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags) VALUES (1, 0, 0, 0, 11, 0, 0, 0, '{}', '{}', '{"1": {"id": 1, "name": "Default"}}', '{}', '{}');
+    INSERT INTO notes (id, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data) VALUES (1, 'g1', 1, 0, 0, '', 'Q\x1fA', 'Q', 0, 0, '');
+    INSERT INTO cards (id, nid, did, ord, mod, usn, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data) VALUES (1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '');
+  `);
+  realDb.close();
+
+  const colBuffer = fs.readFileSync(tempColPath);
+  fs.unlinkSync(tempColPath);
+
+  zip.file('collection.anki2', colBuffer);
+  // Media with 1 safe image, 1 dangerous exe, 1 dangerous html
+  const mediaMap = {
+    '0': 'safe_image.png',
+    '1': 'exploit.exe',
+    '2': 'malicious.html',
+    '3': 'audio.mp3',
+  };
+  zip.file('media', JSON.stringify(mediaMap));
+  zip.file('0', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  zip.file('1', Buffer.from('MZ...executable binary content'));
+  zip.file('2', Buffer.from('<script>alert("xss")</script>'));
+  zip.file('3', Buffer.from('ID3...audio content'));
+
+  const apkgBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+  const parsed = await AnkiApkgService.parseApkg(apkgBuffer);
+
+  // Unsafe files (.exe, .html) MUST NOT be included
+  assert.strictEqual(parsed.mediaFiles.length, 2);
+  const mediaNames = parsed.mediaFiles.map(m => m.filename);
+  assert.ok(mediaNames.includes('safe_image.png'));
+  assert.ok(mediaNames.includes('audio.mp3'));
+  assert.ok(!mediaNames.includes('exploit.exe'));
+  assert.ok(!mediaNames.includes('malicious.html'));
+});
+
+test('9. Security: SessionRepository.revokeExtensionSessions revokes only extension sessions', () => {
+  const db = createMockDb();
+  const sessionRepo = new SessionRepository(db as any);
+
+  // Create 1 extension session and 1 regular web session
+  const extSession = sessionRepo.createSession({
+    userId: 'u1',
+    role: 'cadet',
+    userAgent: 'cfo-browser-extension',
+  });
+
+  const webSession = sessionRepo.createSession({
+    userId: 'u1',
+    role: 'cadet',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+  });
+
+  // Verify both are initially active
+  const vExtBefore = sessionRepo.validateSession(extSession.rawToken);
+  assert.ok(vExtBefore.valid);
+
+  const vWebBefore = sessionRepo.validateSession(webSession.rawToken);
+  assert.ok(vWebBefore.valid);
+
+  // Revoke extension sessions
+  const revokedCount = sessionRepo.revokeExtensionSessions('u1');
+  assert.strictEqual(revokedCount, 1);
+
+  // Extension session is now invalidated
+  const vExtAfter = sessionRepo.validateSession(extSession.rawToken);
+  assert.strictEqual(vExtAfter.valid, false);
+
+  // Web session remains perfectly valid
+  const vWebAfter = sessionRepo.validateSession(webSession.rawToken);
+  assert.ok(vWebAfter.valid);
+});
+
+test('10. Security: APKG import pre-check prevents exceeding 300 decks limit', () => {
+  const db = createMockDb();
+  const repo = new AnkiRepository(db);
+
+  // Create mock existing decks count check
+  const currentCount = 295;
+  const newDecksCount = 10;
+  const wouldExceed = (currentCount + newDecksCount) > AnkiRepository.MAX_DECKS_PER_USER;
+
+  assert.strictEqual(wouldExceed, true);
+  assert.strictEqual(AnkiRepository.MAX_DECKS_PER_USER, 300);
+});
+

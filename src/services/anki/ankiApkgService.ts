@@ -417,10 +417,11 @@ export class AnkiApkgService {
 
       for (const [idStr, d] of Object.entries(decksObj)) {
         const id = parseInt(idStr, 10);
-        const name = d.name || 'Default';
-        deckIdToName.set(id, name);
-        if (name !== 'Default') {
-          parsedDecks.push({ name, description: d.desc || '' });
+        const rawName = d.name || 'Default';
+        const cleanName = rawName.replace(/[<>]/g, '').trim().slice(0, 80) || 'Default';
+        deckIdToName.set(id, cleanName);
+        if (cleanName !== 'Default') {
+          parsedDecks.push({ name: cleanName, description: (d.desc || '').slice(0, 500) });
         }
       }
 
@@ -447,13 +448,15 @@ export class AnkiApkgService {
         parsedNotetypes.push(ntInfo);
       }
 
-      // Extract notes and map to their target decks via cards
+      // Extract notes and map to their target decks via cards (capped to 2000 to prevent DoS)
+      const MAX_IMPORT_NOTES = 2000;
       const notesRows = db.prepare(`
         SELECT n.id, n.mid, n.flds, n.tags, c.did
         FROM notes n
         LEFT JOIN cards c ON c.nid = n.id
         GROUP BY n.id
-      `).all() as any[];
+        LIMIT ?
+      `).all(MAX_IMPORT_NOTES) as any[];
 
       const parsedNotes: Array<{ deckName: string; notetypeName: string; fields: string[]; tags: string[] }> = [];
 
@@ -473,7 +476,14 @@ export class AnkiApkgService {
 
       db.close();
 
-      // Extract media
+      // Extract media (safe whitelisted extensions only, max 150 files, max 10MB each)
+      const MAX_MEDIA_FILES = 150;
+      const MAX_MEDIA_FILE_BYTES = 10 * 1024 * 1024; // 10MB
+      const ALLOWED_MEDIA_EXTS = new Set([
+        '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg',
+        '.mp3', '.ogg', '.wav', '.m4a'
+      ]);
+
       const mediaFiles: Array<{ filename: string; buffer: Buffer }> = [];
       const mediaEntry = zip.file('media');
 
@@ -483,10 +493,17 @@ export class AnkiApkgService {
           const mediaMap: Record<string, string> = JSON.parse(mediaMapStr);
 
           for (const [idxStr, originalFilename] of Object.entries(mediaMap)) {
+            if (mediaFiles.length >= MAX_MEDIA_FILES) break;
+            if (typeof originalFilename !== 'string') continue;
+            const ext = path.extname(originalFilename).toLowerCase();
+            if (!ALLOWED_MEDIA_EXTS.has(ext)) continue;
+
             const assetFile = zip.file(idxStr);
             if (assetFile) {
               const buffer = await assetFile.async('nodebuffer');
-              mediaFiles.push({ filename: originalFilename, buffer });
+              if (buffer.length <= MAX_MEDIA_FILE_BYTES) {
+                mediaFiles.push({ filename: originalFilename, buffer });
+              }
             }
           }
         } catch {}
