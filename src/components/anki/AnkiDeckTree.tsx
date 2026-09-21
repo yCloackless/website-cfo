@@ -6,11 +6,12 @@ import {
   ChevronDown,
   Play,
   Settings,
-  Download,
   Trash2,
   Edit2,
   Plus,
   Layers,
+  FolderInput,
+  AlertCircle,
 } from 'lucide-react';
 import { AnkiDeck } from '../../services/anki/ankiTypes';
 
@@ -18,6 +19,8 @@ export interface DeckNode {
   id: string;
   fullName: string;
   displayName: string;
+  depth: number; // 1 to 5
+  parentDeckId?: string | null;
   deck?: AnkiDeck;
   children: DeckNode[];
   newCount: number;
@@ -33,7 +36,8 @@ interface AnkiDeckTreeProps {
   onRenameDeck: (deck: AnkiDeck) => void;
   onDeleteDeck: (deck: AnkiDeck) => void;
   onExportDeck: (deck: AnkiDeck) => void;
-  onCreateSubdeck: (parentFullName: string) => void;
+  onCreateSubdeck: (parentDeck: AnkiDeck) => void;
+  onMoveDeck?: (deck: AnkiDeck) => void;
 }
 
 export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
@@ -44,15 +48,102 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
   onDeleteDeck,
   onExportDeck,
   onCreateSubdeck,
+  onMoveDeck,
 }) => {
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
 
-  // Build hierarchical tree from deck names with "::"
+  // Build hierarchical tree supporting parentDeckId and backwards-compatible :: names
   const tree = useMemo(() => {
+    const deckMap = new Map<string, AnkiDeck>();
+    for (const d of decks) {
+      deckMap.set(d.id, d);
+    }
+
+    // Identify if decks use parentDeckId or legacy :: names
+    const usesParentId = decks.some((d) => d.parentDeckId !== undefined && d.parentDeckId !== null);
+
+    if (usesParentId || decks.every((d) => !d.name.includes('::'))) {
+      // Build tree using parentDeckId relation
+      const nodeMap = new Map<string, DeckNode>();
+      for (const d of decks) {
+        nodeMap.set(d.id, {
+          id: d.id,
+          fullName: d.name,
+          displayName: d.name.includes('::') ? d.name.split('::').pop() || d.name : d.name,
+          depth: d.depth || 1,
+          deck: d,
+          children: [],
+          newCount: d.newCount || 0,
+          learnCount: d.learnCount || 0,
+          reviewCount: d.reviewCount || 0,
+          totalCards: d.totalCards || 0,
+        });
+      }
+
+      const rootNodes: DeckNode[] = [];
+      for (const d of decks) {
+        const node = nodeMap.get(d.id)!;
+        if (d.parentDeckId && nodeMap.has(d.parentDeckId)) {
+          const parentNode = nodeMap.get(d.parentDeckId)!;
+          parentNode.children.push(node);
+        } else {
+          rootNodes.push(node);
+        }
+      }
+
+      // Compute depths recursively
+      function assignDepths(node: DeckNode, currentDepth: number) {
+        node.depth = Math.min(5, currentDepth);
+        for (const child of node.children) {
+          assignDepths(child, currentDepth + 1);
+        }
+      }
+
+      for (const root of rootNodes) {
+        assignDepths(root, 1);
+      }
+
+      // Roll up statistics to parents
+      function rollUpStats(node: DeckNode): { n: number; l: number; r: number; t: number } {
+        let n = node.deck?.newCount || 0;
+        let l = node.deck?.learnCount || 0;
+        let r = node.deck?.reviewCount || 0;
+        let t = node.deck?.totalCards || 0;
+
+        for (const child of node.children) {
+          const c = rollUpStats(child);
+          n += c.n;
+          l += c.l;
+          r += c.r;
+          t += c.t;
+        }
+
+        node.newCount = n;
+        node.learnCount = l;
+        node.reviewCount = r;
+        node.totalCards = t;
+        return { n, l, r, t };
+      }
+
+      for (const root of rootNodes) {
+        rollUpStats(root);
+      }
+
+      // Sort children alphabetically
+      function sortTree(nodes: DeckNode[]) {
+        nodes.sort((a, b) => a.displayName.localeCompare(b.displayName));
+        for (const n of nodes) {
+          sortTree(n.children);
+        }
+      }
+      sortTree(rootNodes);
+
+      return rootNodes;
+    }
+
+    // Fallback: build tree by splitting "::" for legacy decks
     const rootNodes: DeckNode[] = [];
     const nodeMap = new Map<string, DeckNode>();
-
-    // Sort decks so parent appears before child
     const sorted = [...decks].sort((a, b) => a.name.localeCompare(b.name));
 
     for (const d of sorted) {
@@ -63,6 +154,7 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
         const part = parts[i];
         const parentPath = currentPath;
         currentPath = currentPath ? `${currentPath}::${part}` : part;
+        const currentDepth = Math.min(5, i + 1);
 
         let node = nodeMap.get(currentPath);
         if (!node) {
@@ -70,6 +162,7 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
             id: currentPath === d.name ? d.id : `virtual_${currentPath}`,
             fullName: currentPath,
             displayName: part,
+            depth: currentDepth,
             deck: currentPath === d.name ? d : undefined,
             children: [],
             newCount: 0,
@@ -94,7 +187,6 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
       }
     }
 
-    // Roll up statistics to parent nodes
     function calculateTotals(node: DeckNode): { newC: number; learnC: number; reviewC: number; totalC: number } {
       let n = node.deck?.newCount || 0;
       let l = node.deck?.learnCount || 0;
@@ -124,43 +216,48 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
     return rootNodes;
   }, [decks]);
 
-  const toggleCollapse = (fullName: string) => {
+  const toggleCollapse = (nodeId: string) => {
     setCollapsedNodes((prev) => {
       const next = new Set(prev);
-      if (next.has(fullName)) next.delete(fullName);
-      else next.add(fullName);
+      if (next.has(nodeId)) next.delete(nodeId);
+      else next.add(nodeId);
       return next;
     });
   };
 
-  const renderNode = (node: DeckNode, depth: number = 0) => {
+  const renderNode = (node: DeckNode) => {
     const hasChildren = node.children.length > 0;
-    const isCollapsed = collapsedNodes.has(node.fullName);
-    const targetDeck = node.deck || {
+    const isCollapsed = collapsedNodes.has(node.id);
+    const depth = node.depth || 1;
+    const isMaxDepth = depth >= 5;
+
+    const targetDeck: AnkiDeck = node.deck || {
       id: node.id,
       userId: '',
       name: node.fullName,
+      parentDeckId: node.parentDeckId,
+      depth: node.depth,
       isCollapsed: false,
       createdAt: '',
       updatedAt: '',
     };
 
     return (
-      <React.Fragment key={node.fullName}>
+      <React.Fragment key={node.id}>
         <div
-          className={`grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_75px_85px_85px_130px] md:grid-cols-[1fr_80px_90px_90px_140px] items-center py-2.5 px-3 sm:px-4 border-b border-zinc-800/60 hover:bg-zinc-800/40 transition-colors group ${
-            depth > 0 ? 'bg-zinc-950/20' : ''
+          className={`grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_75px_85px_85px_220px] md:grid-cols-[1fr_80px_90px_90px_240px] items-center py-2.5 px-3 sm:px-4 border-b border-zinc-800/60 hover:bg-zinc-800/40 transition-colors group ${
+            depth > 1 ? 'bg-zinc-950/20' : ''
           }`}
         >
-          {/* Coluna 1: Nome do Baralho + Hierarquia */}
+          {/* Coluna 1: Nome do Baralho + Recuo Hierárquico */}
           <div
             className="flex items-center gap-2 min-w-0 pr-2"
-            style={{ paddingLeft: `${Math.max(0, depth * 18)}px` }}
+            style={{ paddingLeft: `${Math.max(0, (depth - 1) * 20)}px` }}
           >
             {hasChildren ? (
               <button
                 type="button"
-                onClick={() => toggleCollapse(node.fullName)}
+                onClick={() => toggleCollapse(node.id)}
                 className="p-1 hover:bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200 transition-colors shrink-0"
                 title={isCollapsed ? 'Expandir sub-baralhos' : 'Recolher sub-baralhos'}
               >
@@ -178,15 +275,25 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
               <Layers className="w-4 h-4 text-sky-400/90 shrink-0" />
             )}
 
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => onSelectDeck(targetDeck)}
-                className="text-left font-medium text-zinc-200 hover:text-sky-400 transition-colors truncate block text-xs sm:text-sm w-full"
+                className="text-left font-medium text-zinc-200 hover:text-sky-400 transition-colors truncate block text-xs sm:text-sm"
                 title={node.fullName}
               >
                 {node.displayName}
               </button>
+
+              {/* Nível do baralho */}
+              {depth > 1 && (
+                <span
+                  className="hidden md:inline-flex px-1.5 py-0.2 text-[10px] font-mono rounded bg-zinc-800/80 text-zinc-400 border border-zinc-700/50 shrink-0"
+                  title={`Nível ${depth} de 5`}
+                >
+                  Nv.{depth}
+                </span>
+              )}
 
               {/* Mobile count indicators */}
               <div className="flex sm:hidden items-center gap-2 text-[10px] font-mono mt-0.5 text-zinc-500">
@@ -235,8 +342,9 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
             </span>
           </div>
 
-          {/* Coluna 5: Ações */}
-          <div className="flex items-center justify-end gap-1.5 sm:gap-2 shrink-0">
+          {/* Coluna 5: Ações do Baralho */}
+          <div className="flex items-center justify-end gap-1 sm:gap-1.5 shrink-0">
+            {/* 1. Estudar */}
             <button
               type="button"
               onClick={() => onSelectDeck(targetDeck)}
@@ -247,6 +355,52 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
               <span className="hidden sm:inline">Estudar</span>
             </button>
 
+            {/* 2. Criar Sub-baralho (desabilitado se nível 5) */}
+            {isMaxDepth ? (
+              <button
+                type="button"
+                disabled
+                className="p-1.5 rounded-md text-zinc-600 cursor-not-allowed border border-transparent opacity-40"
+                title="Maximum deck nesting depth reached (5 levels)."
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onCreateSubdeck(targetDeck)}
+                className="p-1.5 hover:bg-zinc-800 rounded-md text-zinc-400 hover:text-sky-400 border border-transparent hover:border-zinc-700 transition-colors"
+                title={`Criar sub-baralho dentro de "${node.displayName}"`}
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* 3. Mover Baralho */}
+            {onMoveDeck && !node.id.startsWith('virtual_') && (
+              <button
+                type="button"
+                onClick={() => onMoveDeck(targetDeck)}
+                className="p-1.5 hover:bg-zinc-800 rounded-md text-zinc-400 hover:text-indigo-400 border border-transparent hover:border-zinc-700 transition-colors"
+                title="Mover baralho entre pastas ou para a raiz"
+              >
+                <FolderInput className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* 4. Renomear */}
+            {!node.id.startsWith('virtual_') && (
+              <button
+                type="button"
+                onClick={() => onRenameDeck(targetDeck)}
+                className="p-1.5 hover:bg-zinc-800 rounded-md text-zinc-400 hover:text-cyan-400 border border-transparent hover:border-zinc-700 transition-colors"
+                title="Renomear baralho"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* 5. Configurações / FSRS */}
             <button
               type="button"
               onClick={() => onOpenDeckOptions(targetDeck)}
@@ -255,22 +409,34 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
+
+            {/* 6. Excluir Baralho */}
+            {!node.id.startsWith('virtual_') && (
+              <button
+                type="button"
+                onClick={() => onDeleteDeck(targetDeck)}
+                className="p-1.5 hover:bg-zinc-800 rounded-md text-zinc-400 hover:text-red-400 border border-transparent hover:border-zinc-700 transition-colors"
+                title="Excluir baralho"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
 
         {/* Filhos Hierárquicos */}
         {hasChildren && !isCollapsed && (
-          <div>{node.children.map((child) => renderNode(child, depth + 1))}</div>
+          <div>{node.children.map((child) => renderNode(child))}</div>
         )}
       </React.Fragment>
     );
   };
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg">
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg overflow-hidden">
       {/* Table Header com CSS Grid Perfeitamente Alinhado */}
-      <div className="hidden sm:grid sm:grid-cols-[1fr_75px_85px_85px_130px] md:grid-cols-[1fr_80px_90px_90px_140px] items-center py-2.5 px-4 bg-zinc-950/80 border-b border-zinc-800 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-        <div>Baralho</div>
+      <div className="hidden sm:grid sm:grid-cols-[1fr_75px_85px_85px_220px] md:grid-cols-[1fr_80px_90px_90px_240px] items-center py-2.5 px-4 bg-zinc-950/80 border-b border-zinc-800 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+        <div>Baralho / Pastas</div>
         <div className="text-right pr-4 text-sky-400">Novo</div>
         <div className="text-right pr-4 text-amber-500">Aprender</div>
         <div className="text-right pr-4 text-emerald-400">Revisar</div>
@@ -289,7 +455,7 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
           Nenhum baralho encontrado. Clique em "+ Criar Baralho" acima para começar!
         </div>
       ) : (
-        <div>{tree.map((node) => renderNode(node, 0))}</div>
+        <div>{tree.map((node) => renderNode(node))}</div>
       )}
     </div>
   );

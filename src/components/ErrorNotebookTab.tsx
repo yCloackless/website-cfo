@@ -21,6 +21,7 @@ import {
   FolderPlus,
   FileSpreadsheet,
   Settings,
+  FolderInput,
 } from 'lucide-react';
 import { AppTheme } from '../types';
 import { apiFetch } from '../services/apiFetch';
@@ -32,6 +33,7 @@ import { AnkiAddNoteModal } from './anki/AnkiAddNoteModal';
 import { AnkiDeckOptionsModal } from './anki/AnkiDeckOptionsModal';
 import { AnkiStatsModal } from './anki/AnkiStatsModal';
 import { AnkiApkgModal } from './anki/AnkiApkgModal';
+import { ConfirmModal } from './ConfirmModal';
 
 interface ErrorNotebookTabProps {
   theme?: AppTheme;
@@ -67,12 +69,22 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
 
   // Quick Create Deck Modal
   const [isCreateDeckModalOpen, setIsCreateDeckModalOpen] = useState<boolean>(false);
+  const [parentDeckForSubdeck, setParentDeckForSubdeck] = useState<AnkiDeck | null>(null);
   const [newDeckName, setNewDeckName] = useState<string>('');
   const [newDeckDesc, setNewDeckDesc] = useState<string>('');
 
   // Rename Deck Modal
   const [renamingDeck, setRenamingDeck] = useState<AnkiDeck | null>(null);
   const [renameInput, setRenameInput] = useState<string>('');
+
+  // Move Deck Modal
+  const [movingDeck, setMovingDeck] = useState<AnkiDeck | null>(null);
+  const [targetParentId, setTargetParentId] = useState<string>('');
+  const [isMovingDeck, setIsMovingDeck] = useState<boolean>(false);
+
+  // Delete Deck Modal (ConfirmModal)
+  const [deckToDelete, setDeckToDelete] = useState<AnkiDeck | null>(null);
+  const [isDeletingDeck, setIsDeletingDeck] = useState<boolean>(false);
 
   // ⚡ AI Generator State (Top section)
   const [aiTopicInput, setAiTopicInput] = useState<string>('');
@@ -108,15 +120,21 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   // Create Deck Action
   const handleCreateDeck = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDeckName.trim()) return;
+    const trimmed = newDeckName.trim();
+    if (!trimmed) return;
+    if (trimmed.length > 80) {
+      showToast?.('Nome do baralho não pode ultrapassar 80 caracteres.', 'error');
+      return;
+    }
 
     try {
       const res = await apiFetch('/api/anki/decks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: newDeckName.trim(),
+          name: trimmed,
           description: newDeckDesc.trim() || undefined,
+          parentDeckId: parentDeckForSubdeck ? parentDeckForSubdeck.id : undefined,
         }),
       });
 
@@ -124,10 +142,12 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
         showToast?.('Baralho criado com sucesso!', 'success');
         setNewDeckName('');
         setNewDeckDesc('');
+        setParentDeckForSubdeck(null);
         setIsCreateDeckModalOpen(false);
         void fetchDecks();
       } else {
-        showToast?.('Falha ao criar baralho.', 'error');
+        const err = await res.json().catch(() => ({}));
+        showToast?.(err.message || 'Falha ao criar baralho.', 'error');
       }
     } catch {
       showToast?.('Erro de conexão ao criar baralho.', 'error');
@@ -138,40 +158,120 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   const handleRenameDeck = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!renamingDeck || !renameInput.trim()) return;
+    const trimmed = renameInput.trim();
+    if (trimmed.length > 80) {
+      showToast?.('Nome do baralho não pode ultrapassar 80 caracteres.', 'error');
+      return;
+    }
 
     try {
       const res = await apiFetch(`/api/anki/decks/${renamingDeck.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: renameInput.trim() }),
+        body: JSON.stringify({ name: trimmed }),
       });
 
       if (res.ok) {
         showToast?.('Baralho renomeado!', 'success');
         setRenamingDeck(null);
         void fetchDecks();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showToast?.(err.message || 'Falha ao renomear baralho.', 'error');
       }
     } catch {
       showToast?.('Erro ao renomear baralho.', 'error');
     }
   };
 
-  // Delete Deck Action
-  const handleDeleteDeck = async (deck: AnkiDeck) => {
-    if (!window.confirm(`Tem certeza que deseja excluir o baralho "${deck.name}" e todos os seus cards?`)) {
-      return;
-    }
+  // Move Deck Action
+  const handleMoveDeckSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!movingDeck) return;
 
     try {
-      const res = await apiFetch(`/api/anki/decks/${deck.id}`, { method: 'DELETE' });
+      setIsMovingDeck(true);
+      const res = await apiFetch(`/api/anki/decks/${movingDeck.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          parentDeckId: targetParentId ? targetParentId : null,
+        }),
+      });
+
+      if (res.ok) {
+        showToast?.('Baralho movido com sucesso!', 'success');
+        setMovingDeck(null);
+        void fetchDecks();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showToast?.(err.message || 'Falha ao mover baralho.', 'error');
+      }
+    } catch {
+      showToast?.('Erro de conexão ao mover baralho.', 'error');
+    } finally {
+      setIsMovingDeck(false);
+    }
+  };
+
+  // Delete Deck Action with ConfirmModal
+  const confirmDeleteDeck = async () => {
+    if (!deckToDelete) return;
+    try {
+      setIsDeletingDeck(true);
+      const res = await apiFetch(`/api/anki/decks/${deckToDelete.id}`, { method: 'DELETE' });
       if (res.ok) {
         showToast?.('Baralho excluído com sucesso.', 'success');
+        setDeckToDelete(null);
         void fetchDecks();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showToast?.(err.message || 'Falha ao excluir baralho.', 'error');
       }
     } catch {
       showToast?.('Erro ao excluir baralho.', 'error');
+    } finally {
+      setIsDeletingDeck(false);
     }
   };
+
+  // Count subdecks of deck to delete
+  const subdecksCountToDelete = useMemo(() => {
+    if (!deckToDelete) return 0;
+    const findDescendants = (parentId: string): number => {
+      const children = decks.filter((d) => d.parentDeckId === parentId);
+      return children.length + children.reduce((acc, c) => acc + findDescendants(c.id), 0);
+    };
+    return findDescendants(deckToDelete.id);
+  }, [deckToDelete, decks]);
+
+  // Valid move target decks for movingDeck
+  const validMoveTargets = useMemo(() => {
+    if (!movingDeck) return [];
+    // Helper to find all descendants of movingDeck
+    const descendants = new Set<string>();
+    const fillDescendants = (id: string) => {
+      descendants.add(id);
+      for (const d of decks) {
+        if (d.parentDeckId === id) fillDescendants(d.id);
+      }
+    };
+    fillDescendants(movingDeck.id);
+
+    // Helper to calculate subtree height of movingDeck
+    const getSubtreeHeight = (id: string): number => {
+      const children = decks.filter((d) => d.parentDeckId === id);
+      if (children.length === 0) return 1;
+      return 1 + Math.max(...children.map((c) => getSubtreeHeight(c.id)));
+    };
+    const movingHeight = getSubtreeHeight(movingDeck.id);
+
+    return decks.filter((d) => {
+      if (descendants.has(d.id)) return false; // cannot move into self or descendants
+      const targetDepth = d.depth || 1;
+      return targetDepth + movingHeight <= 5; // cannot exceed 5 levels
+    });
+  }, [movingDeck, decks]);
 
   // AI Generation (+20 Flashcards saved atomically to Anki Deck)
   const handleGenerateAiFlashcards = async () => {
@@ -444,13 +544,22 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
             setRenamingDeck(d);
             setRenameInput(d.name);
           }}
-          onDeleteDeck={(d) => void handleDeleteDeck(d)}
+          onDeleteDeck={(d) => setDeckToDelete(d)}
+          onMoveDeck={(d) => {
+            setMovingDeck(d);
+            setTargetParentId(d.parentDeckId || '');
+          }}
           onExportDeck={(d) => {
             window.open(`/api/anki/export-apkg?deckId=${encodeURIComponent(d.id)}`, '_blank');
             showToast?.(`Exportação do baralho "${d.name}" iniciada!`, 'success');
           }}
-          onCreateSubdeck={(parentName) => {
-            setNewDeckName(`${parentName}::`);
+          onCreateSubdeck={(parentDeck) => {
+            if (parentDeck.depth && parentDeck.depth >= 5) {
+              showToast?.('Maximum deck nesting depth reached (5 levels).', 'error');
+              return;
+            }
+            setParentDeckForSubdeck(parentDeck);
+            setNewDeckName('');
             setNewDeckDesc('');
             setIsCreateDeckModalOpen(true);
           }}
@@ -498,7 +607,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
           isOpen={Boolean(optionsDeck)}
           onClose={() => setOptionsDeck(null)}
           onDeckUpdated={() => void fetchDecks()}
-          onDeleteDeck={(d) => void handleDeleteDeck(d)}
+          onDeleteDeck={(d) => setDeckToDelete(d)}
           onExportDeck={(d) => {
             window.open(`/api/anki/export-apkg?deckId=${encodeURIComponent(d.id)}`, '_blank');
             showToast?.(`Exportação do baralho "${d.name}" iniciada!`, 'success');
@@ -522,32 +631,58 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
         showToast={showToast}
       />
 
-      {/* ➕ Modal Criar Baralho */}
+      {/* ➕ Modal Criar Baralho / Sub-baralho */}
       {isCreateDeckModalOpen && (
         <div
           className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-md flex items-center justify-center p-3 animate-in fade-in duration-150"
-          onClick={() => setIsCreateDeckModalOpen(false)}
+          onClick={() => {
+            setIsCreateDeckModalOpen(false);
+            setParentDeckForSubdeck(null);
+          }}
         >
           <div
             className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-md shadow-2xl space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-sm font-bold text-zinc-100">Criar Novo Baralho</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-zinc-100">
+                {parentDeckForSubdeck ? `Criar Sub-baralho` : `Criar Novo Baralho (Raiz)`}
+              </h3>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">
+                {parentDeckForSubdeck
+                  ? `Nível ${Math.min(5, (parentDeckForSubdeck.depth || 1) + 1)} de 5`
+                  : 'Nível 1 (Raiz)'}
+              </span>
+            </div>
+
+            {parentDeckForSubdeck && (
+              <div className="p-2.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-400">
+                Criando dentro de: <strong className="text-zinc-200">{parentDeckForSubdeck.name}</strong>
+              </div>
+            )}
+
             <form onSubmit={handleCreateDeck} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1">
-                  Nome do Baralho (Use "::" para sub-baralhos)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                    {parentDeckForSubdeck ? 'Nome do Sub-baralho' : 'Nome do Baralho'}
+                  </label>
+                  <span className="text-[10px] font-mono text-zinc-500">
+                    {newDeckName.length}/80
+                  </span>
+                </div>
                 <input
                   type="text"
                   value={newDeckName}
                   onChange={(e) => setNewDeckName(e.target.value)}
-                  placeholder="ex: Matemática::Geometria::Espacial"
+                  placeholder={parentDeckForSubdeck ? 'ex: Canudos' : 'ex: História'}
                   autoFocus
                   required
+                  maxLength={80}
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-sky-500 font-mono"
                 />
               </div>
+
               <div>
                 <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1">
                   Descrição (Opcional)
@@ -560,17 +695,22 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-sky-500"
                 />
               </div>
+
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsCreateDeckModalOpen(false)}
+                  onClick={() => {
+                    setIsCreateDeckModalOpen(false);
+                    setParentDeckForSubdeck(null);
+                  }}
                   className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold rounded-lg text-xs"
+                  disabled={!newDeckName.trim()}
+                  className="px-4 py-1.5 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold rounded-lg text-xs disabled:opacity-40"
                 >
                   Criar Baralho
                 </button>
@@ -593,15 +733,21 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
             <h3 className="text-sm font-bold text-zinc-100">Renomear Baralho</h3>
             <form onSubmit={handleRenameDeck} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1">
-                  Novo Nome
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                    Novo Nome
+                  </label>
+                  <span className="text-[10px] font-mono text-zinc-500">
+                    {renameInput.length}/80
+                  </span>
+                </div>
                 <input
                   type="text"
                   value={renameInput}
                   onChange={(e) => setRenameInput(e.target.value)}
                   autoFocus
                   required
+                  maxLength={80}
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-sky-500 font-mono"
                 />
               </div>
@@ -615,7 +761,8 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold rounded-lg text-xs"
+                  disabled={!renameInput.trim()}
+                  className="px-4 py-1.5 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold rounded-lg text-xs disabled:opacity-40"
                 >
                   Salvar
                 </button>
@@ -624,6 +771,129 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* 📁 Modal Mover Baralho */}
+      {movingDeck && (
+        <div
+          className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-md flex items-center justify-center p-3 animate-in fade-in duration-150"
+          onClick={() => setMovingDeck(null)}
+        >
+          <div
+            className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-md shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div>
+              <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                <FolderInput className="w-4 h-4 text-indigo-400" />
+                <span>Mover Baralho: {movingDeck.name}</span>
+              </h3>
+              <p className="text-xs text-zinc-400 mt-1">
+                Selecione o destino para este baralho ou mova para a raiz.
+              </p>
+            </div>
+
+            <form onSubmit={handleMoveDeckSubmit} className="space-y-4">
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                {/* Opção Raiz */}
+                <label
+                  className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-all ${
+                    targetParentId === ''
+                      ? 'bg-indigo-500/10 border-indigo-500/50 text-zinc-100'
+                      : 'bg-zinc-950/60 border-zinc-800 text-zinc-300 hover:bg-zinc-800/40'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="targetParent"
+                      value=""
+                      checked={targetParentId === ''}
+                      onChange={() => setTargetParentId('')}
+                      className="text-indigo-500 focus:ring-indigo-400"
+                    />
+                    <span className="text-xs font-semibold">📁 Raiz (Nível 1)</span>
+                  </div>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                    Raiz
+                  </span>
+                </label>
+
+                {/* Lista de pais válidos */}
+                {validMoveTargets.map((parent) => (
+                  <label
+                    key={parent.id}
+                    className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-all ${
+                      targetParentId === parent.id
+                        ? 'bg-indigo-500/10 border-indigo-500/50 text-zinc-100'
+                        : 'bg-zinc-950/60 border-zinc-800 text-zinc-300 hover:bg-zinc-800/40'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <input
+                        type="radio"
+                        name="targetParent"
+                        value={parent.id}
+                        checked={targetParentId === parent.id}
+                        onChange={() => setTargetParentId(parent.id)}
+                        className="text-indigo-500 focus:ring-indigo-400"
+                      />
+                      <span className="text-xs font-medium truncate">{parent.name}</span>
+                    </div>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 shrink-0 ml-2">
+                      Nível {parent.depth || 1}
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setMovingDeck(null)}
+                  className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isMovingDeck}
+                  className="px-4 py-1.5 bg-indigo-500 hover:bg-indigo-400 text-white font-semibold rounded-lg text-xs transition-all disabled:opacity-40"
+                >
+                  {isMovingDeck ? 'Movendo...' : 'Mover Baralho'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 🗑️ Modal de Confirmação para Exclusão (Substituindo window.confirm) */}
+      <ConfirmModal
+        isOpen={Boolean(deckToDelete)}
+        title="Excluir Baralho"
+        description={
+          deckToDelete
+            ? `Tem certeza que deseja excluir o baralho "${deckToDelete.name}"?${
+                subdecksCountToDelete > 0
+                  ? ` Este baralho contém ${subdecksCountToDelete} sub-baralho(s) dependente(s).`
+                  : ''
+              }${
+                (deckToDelete.totalCards || 0) > 0
+                  ? ` Contém ${deckToDelete.totalCards} cartão(ões) que serão permanentemente removidos.`
+                  : ''
+              } Esta ação não pode ser desfeita.`
+            : ''
+        }
+        variant="danger"
+        iconType="danger"
+        isDestructive={true}
+        confirmLabel={isDeletingDeck ? 'Excluindo...' : 'Excluir Permanentemente'}
+        cancelLabel="Cancelar"
+        loading={isDeletingDeck}
+        theme={theme}
+        onConfirm={() => void confirmDeleteDeck()}
+        onClose={() => setDeckToDelete(null)}
+      />
     </div>
   );
 };

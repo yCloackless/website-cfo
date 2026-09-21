@@ -11,6 +11,7 @@ import {
   Trash2,
   Check,
   RotateCcw,
+  AlertCircle,
 } from 'lucide-react';
 import {
   AnkiDeck,
@@ -197,21 +198,30 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
     e.preventDefault();
     if (!subdeckNameInput.trim()) return;
 
-    const fullSubdeckName = `${deck.name}::${subdeckNameInput.trim()}`;
+    if (deck.depth && deck.depth >= 5) {
+      showToast?.('Maximum deck nesting depth reached (5 levels).', 'error');
+      return;
+    }
+
+    const subName = subdeckNameInput.trim();
     try {
       setIsCreatingSubdeck(true);
       const res = await apiFetch('/api/anki/decks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: fullSubdeckName }),
+        body: JSON.stringify({
+          name: subName,
+          parentDeckId: deck.id,
+        }),
       });
 
       if (res.ok) {
-        showToast?.(`Sub-baralho "${fullSubdeckName}" criado!`, 'success');
+        showToast?.(`Sub-baralho "${subName}" criado com sucesso!`, 'success');
         setSubdeckNameInput('');
         onDeckUpdated?.();
       } else {
-        showToast?.('Falha ao criar sub-baralho.', 'error');
+        const err = await res.json().catch(() => ({}));
+        showToast?.(err.message || 'Falha ao criar sub-baralho.', 'error');
       }
     } catch {
       showToast?.('Erro ao criar sub-baralho.', 'error');
@@ -455,34 +465,45 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
 
               {/* Create Subdeck */}
               <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-xl space-y-3">
-                <div className="flex items-center gap-2 text-zinc-100 font-semibold text-sm">
-                  <Plus className="w-4 h-4 text-emerald-400" />
-                  <span>Criar Sub-baralho</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-zinc-100 font-semibold text-sm">
+                    <Plus className="w-4 h-4 text-emerald-400" />
+                    <span>Criar Sub-baralho</span>
+                  </div>
+                  {deck.depth && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">
+                      Nível {deck.depth} de 5
+                    </span>
+                  )}
                 </div>
                 <p className="text-[11px] text-zinc-400">
-                  Cria um novo baralho filho sob <code>{deck.name}::...</code>
+                  Cria um novo sub-baralho sob <code className="text-zinc-200">{deck.name}</code>
                 </p>
-                <form onSubmit={handleCreateSubdeckSubmit} className="flex gap-2">
-                  <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg flex-1 px-3">
-                    <span className="text-zinc-500 font-mono text-[11px] shrink-0">
-                      {deck.name}::
-                    </span>
+
+                {deck.depth && deck.depth >= 5 ? (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-2 text-amber-300 text-xs">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+                    <span>Maximum deck nesting depth reached (5 levels).</span>
+                  </div>
+                ) : (
+                  <form onSubmit={handleCreateSubdeckSubmit} className="flex gap-2">
                     <input
                       type="text"
                       value={subdeckNameInput}
                       onChange={(e) => setSubdeckNameInput(e.target.value)}
-                      placeholder="Subtópico"
-                      className="bg-transparent border-0 px-1 py-2 text-xs text-zinc-200 font-mono focus:outline-none flex-1"
+                      placeholder="Nome do sub-baralho (ex: Canudos)"
+                      maxLength={80}
+                      className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 font-mono focus:outline-none focus:border-sky-500"
                     />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={isCreatingSubdeck || !subdeckNameInput.trim()}
-                    className="px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold text-xs transition-all disabled:opacity-40"
-                  >
-                    {isCreatingSubdeck ? 'Criando...' : 'Adicionar'}
-                  </button>
-                </form>
+                    <button
+                      type="submit"
+                      disabled={isCreatingSubdeck || !subdeckNameInput.trim()}
+                      className="px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold text-xs transition-all disabled:opacity-40"
+                    >
+                      {isCreatingSubdeck ? 'Criando...' : 'Adicionar'}
+                    </button>
+                  </form>
+                )}
               </div>
 
               {/* Export & Delete Actions */}

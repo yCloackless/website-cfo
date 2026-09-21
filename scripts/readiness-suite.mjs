@@ -19,6 +19,7 @@ files.push('ifrj_profile_persistence');
 files.push('emergency_lockdown');
 files.push('flashcards_anki');
 files.push('anki_real_engine');
+files.push('anki_hierarchy');
 files.push('student_study');
 files.push('leveling');
 files.push('extension_integration');

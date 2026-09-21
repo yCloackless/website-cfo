@@ -1521,6 +1521,15 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_anki_media_user_hash ON anki_media(user_id, hash);
     `,
   },
+  {
+    id: 33,
+    name: '033_anki_deck_hierarchy',
+    sql: `
+      ALTER TABLE anki_decks ADD COLUMN parent_deck_id TEXT REFERENCES anki_decks(id) ON DELETE CASCADE;
+      CREATE INDEX IF NOT EXISTS idx_anki_decks_parent ON anki_decks(parent_deck_id);
+      CREATE INDEX IF NOT EXISTS idx_anki_decks_user_parent ON anki_decks(user_id, parent_deck_id);
+    `,
+  },
 ];
 
 

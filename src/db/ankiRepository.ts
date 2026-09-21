@@ -228,8 +228,105 @@ export class AnkiRepository {
   }
 
   // =========================================================================
-  // 2. DECKS & HIERARCHY
+  // 2. DECKS & HIERARCHY (Folder system, Max Depth 5, Cycle Prevention)
   // =========================================================================
+
+  public static readonly MAX_DECK_DEPTH = 5;
+  public static readonly MAX_DECKS_PER_USER = 300;
+  public static readonly MAX_DECK_NAME_LENGTH = 80;
+
+  public countDecks(userId: string): number {
+    const row = this.db.prepare(`SELECT COUNT(*) as cnt FROM anki_decks WHERE user_id = ?`).get(userId) as any;
+    return Number(row?.cnt || 0);
+  }
+
+  public getDeckDepth(userId: string, deckId: string): number {
+    let depth = 1;
+    let currentId: string | null = deckId;
+    const visited = new Set<string>();
+
+    while (currentId && visited.size < 15) {
+      visited.add(currentId);
+      const row = this.db.prepare(`SELECT parent_deck_id FROM anki_decks WHERE user_id = ? AND id = ?`).get(userId, currentId) as any;
+      if (!row || !row.parent_deck_id) {
+        break;
+      }
+      currentId = row.parent_deck_id;
+      depth++;
+      if (visited.has(currentId)) break;
+    }
+    return Math.min(AnkiRepository.MAX_DECK_DEPTH + 1, depth);
+  }
+
+  public getSubtreeHeight(userId: string, deckId: string): number {
+    const rows = this.db.prepare(`SELECT id, parent_deck_id FROM anki_decks WHERE user_id = ?`).all(userId) as any[];
+    const childrenMap = new Map<string, string[]>();
+    for (const r of rows) {
+      if (r.parent_deck_id) {
+        const list = childrenMap.get(r.parent_deck_id) || [];
+        list.push(r.id);
+        childrenMap.set(r.parent_deck_id, list);
+      }
+    }
+
+    const calcHeight = (id: string, visited: Set<string>): number => {
+      if (visited.has(id)) return 1;
+      visited.add(id);
+      const children = childrenMap.get(id) || [];
+      if (children.length === 0) return 1;
+      let maxChildHeight = 0;
+      for (const childId of children) {
+        maxChildHeight = Math.max(maxChildHeight, calcHeight(childId, new Set(visited)));
+      }
+      return 1 + maxChildHeight;
+    };
+
+    return calcHeight(deckId, new Set());
+  }
+
+  public isDescendant(userId: string, targetDeckId: string, potentialAncestorId: string): boolean {
+    if (targetDeckId === potentialAncestorId) return true;
+    let currentId: string | null = targetDeckId;
+    const visited = new Set<string>();
+
+    while (currentId && visited.size < 25) {
+      visited.add(currentId);
+      const row = this.db.prepare(`SELECT parent_deck_id FROM anki_decks WHERE user_id = ? AND id = ?`).get(userId, currentId) as any;
+      if (!row || !row.parent_deck_id) return false;
+      if (row.parent_deck_id === potentialAncestorId) return true;
+      currentId = row.parent_deck_id;
+      if (visited.has(currentId)) break;
+    }
+    return false;
+  }
+
+  public getDescendantDeckIds(userId: string, deckId: string): string[] {
+    const rows = this.db.prepare(`SELECT id, parent_deck_id FROM anki_decks WHERE user_id = ?`).all(userId) as any[];
+    const childrenMap = new Map<string, string[]>();
+    for (const r of rows) {
+      if (r.parent_deck_id) {
+        const list = childrenMap.get(r.parent_deck_id) || [];
+        list.push(r.id);
+        childrenMap.set(r.parent_deck_id, list);
+      }
+    }
+
+    const result: string[] = [];
+    const queue = [deckId];
+    const visited = new Set<string>();
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (visited.has(current)) continue;
+      visited.add(current);
+      result.push(current);
+      const children = childrenMap.get(current) || [];
+      for (const ch of children) {
+        if (!visited.has(ch)) queue.push(ch);
+      }
+    }
+    return result;
+  }
 
   public listDecks(userId: string): AnkiDeck[] {
     const todayEpochDays = Math.floor(Date.now() / 86400000);
@@ -249,13 +346,36 @@ export class AnkiRepository {
       ORDER BY d.name COLLATE NOCASE ASC
     `).all(nowSeconds, todayEpochDays, userId) as any[];
 
+    const deckMap = new Map<string, any>();
+    for (const r of rows) {
+      deckMap.set(r.id, r);
+    }
+
+    const depthMap = new Map<string, number>();
+    const getDepth = (id: string, visited: Set<string>): number => {
+      if (depthMap.has(id)) return depthMap.get(id)!;
+      if (visited.has(id)) return 1;
+      visited.add(id);
+      const r = deckMap.get(id);
+      if (!r || !r.parent_deck_id) {
+        depthMap.set(id, 1);
+        return 1;
+      }
+      const pDepth = getDepth(r.parent_deck_id, visited);
+      const curDepth = Math.min(AnkiRepository.MAX_DECK_DEPTH, pDepth + 1);
+      depthMap.set(id, curDepth);
+      return curDepth;
+    };
+
     return rows.map((r) => ({
       id: r.id,
       userId: r.user_id,
       name: r.name,
+      parentDeckId: r.parent_deck_id || null,
       description: r.description,
       configId: r.config_id,
       isCollapsed: Boolean(r.is_collapsed),
+      depth: getDepth(r.id, new Set()),
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       newCount: Number(r.new_count || 0),
@@ -288,9 +408,11 @@ export class AnkiRepository {
       id: r.id,
       userId: r.user_id,
       name: r.name,
+      parentDeckId: r.parent_deck_id || null,
       description: r.description,
       configId: r.config_id,
       isCollapsed: Boolean(r.is_collapsed),
+      depth: this.getDeckDepth(userId, r.id),
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       newCount: Number(r.new_count || 0),
@@ -300,23 +422,121 @@ export class AnkiRepository {
     };
   }
 
-  public createDeck(userId: string, data: { name: string; description?: string | null; configId?: string | null }): AnkiDeck {
+  public createDeck(userId: string, data: { name: string; description?: string | null; configId?: string | null; parentDeckId?: string | null }): AnkiDeck {
+    const totalDecks = this.countDecks(userId);
+    if (totalDecks >= AnkiRepository.MAX_DECKS_PER_USER) {
+      const err = new Error(`Limite máximo de ${AnkiRepository.MAX_DECKS_PER_USER} baralhos por usuário atingido.`);
+      (err as any).code = 'MAX_DECKS_EXCEEDED';
+      throw err;
+    }
+
+    const trimmedName = (data.name || '').trim();
+    if (!trimmedName) {
+      const err = new Error('Nome do baralho é obrigatório.');
+      (err as any).code = 'INVALID_NAME';
+      throw err;
+    }
+    if (trimmedName.length > AnkiRepository.MAX_DECK_NAME_LENGTH) {
+      const err = new Error(`Nome do baralho não pode ultrapassar ${AnkiRepository.MAX_DECK_NAME_LENGTH} caracteres.`);
+      (err as any).code = 'NAME_TOO_LONG';
+      throw err;
+    }
+
+    let parentDeckId: string | null = null;
+    let depth = 1;
+
+    if (data.parentDeckId) {
+      const parent = this.getDeck(userId, data.parentDeckId);
+      if (!parent) {
+        const err = new Error('Baralho pai selecionado não existe ou não pertence a você.');
+        (err as any).code = 'PARENT_DECK_NOT_FOUND';
+        throw err;
+      }
+
+      const parentDepth = this.getDeckDepth(userId, data.parentDeckId);
+      if (parentDepth >= AnkiRepository.MAX_DECK_DEPTH) {
+        const err = new Error('Maximum deck nesting depth reached (5 levels).');
+        (err as any).code = 'MAX_DEPTH_EXCEEDED';
+        throw err;
+      }
+
+      parentDeckId = data.parentDeckId;
+      depth = parentDepth + 1;
+    }
+
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
     this.db.prepare(`
-      INSERT INTO anki_decks (id, user_id, name, description, config_id, is_collapsed, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-    `).run(id, userId, data.name.trim(), data.description || null, data.configId || null, now, now);
+      INSERT INTO anki_decks (id, user_id, name, description, config_id, parent_deck_id, is_collapsed, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+    `).run(id, userId, trimmedName, data.description || null, data.configId || null, parentDeckId, now, now);
 
-    return this.getDeck(userId, id)!;
+    const deck = this.getDeck(userId, id)!;
+    deck.depth = depth;
+    return deck;
   }
 
-  public updateDeck(userId: string, deckId: string, data: { name?: string; description?: string | null; configId?: string | null; isCollapsed?: boolean }): AnkiDeck | null {
+  public updateDeck(userId: string, deckId: string, data: { name?: string; description?: string | null; configId?: string | null; isCollapsed?: boolean; parentDeckId?: string | null }): AnkiDeck | null {
     const deck = this.getDeck(userId, deckId);
     if (!deck) return null;
 
-    const name = data.name !== undefined ? data.name.trim() : deck.name;
+    let name = deck.name;
+    if (data.name !== undefined) {
+      const trimmed = data.name.trim();
+      if (!trimmed) {
+        const err = new Error('Nome do baralho é obrigatório.');
+        (err as any).code = 'INVALID_NAME';
+        throw err;
+      }
+      if (trimmed.length > AnkiRepository.MAX_DECK_NAME_LENGTH) {
+        const err = new Error(`Nome do baralho não pode ultrapassar ${AnkiRepository.MAX_DECK_NAME_LENGTH} caracteres.`);
+        (err as any).code = 'NAME_TOO_LONG';
+        throw err;
+      }
+      name = trimmed;
+    }
+
+    let parentDeckId = deck.parentDeckId ?? null;
+    if (data.parentDeckId !== undefined) {
+      if (data.parentDeckId === null || data.parentDeckId === '') {
+        // Move to root
+        parentDeckId = null;
+      } else {
+        if (data.parentDeckId === deckId) {
+          const err = new Error('A deck cannot be its own parent.');
+          (err as any).code = 'CYCLIC_RELATIONSHIP';
+          throw err;
+        }
+
+        const targetParent = this.getDeck(userId, data.parentDeckId);
+        if (!targetParent) {
+          const err = new Error('Baralho pai de destino não existe ou não pertence a você.');
+          (err as any).code = 'PARENT_DECK_NOT_FOUND';
+          throw err;
+        }
+
+        // Check cycle: is targetParent a descendant of deckId?
+        if (this.isDescendant(userId, data.parentDeckId, deckId)) {
+          const err = new Error('A deck cannot be moved inside one of its descendants.');
+          (err as any).code = 'CYCLIC_RELATIONSHIP';
+          throw err;
+        }
+
+        // Check depth limit with subtree height
+        const targetParentDepth = this.getDeckDepth(userId, data.parentDeckId);
+        const subtreeHeight = this.getSubtreeHeight(userId, deckId);
+
+        if (targetParentDepth + subtreeHeight > AnkiRepository.MAX_DECK_DEPTH) {
+          const err = new Error('Maximum deck nesting depth reached (5 levels).');
+          (err as any).code = 'MAX_DEPTH_EXCEEDED';
+          throw err;
+        }
+
+        parentDeckId = data.parentDeckId;
+      }
+    }
+
     const description = data.description !== undefined ? data.description : deck.description;
     const configId = data.configId !== undefined ? data.configId : deck.configId;
     const isCollapsed = data.isCollapsed !== undefined ? (data.isCollapsed ? 1 : 0) : (deck.isCollapsed ? 1 : 0);
@@ -324,9 +544,9 @@ export class AnkiRepository {
 
     this.db.prepare(`
       UPDATE anki_decks
-      SET name = ?, description = ?, config_id = ?, is_collapsed = ?, updated_at = ?
+      SET name = ?, description = ?, config_id = ?, parent_deck_id = ?, is_collapsed = ?, updated_at = ?
       WHERE user_id = ? AND id = ?
-    `).run(name, description, configId, isCollapsed, now, userId, deckId);
+    `).run(name, description, configId, parentDeckId, isCollapsed, now, userId, deckId);
 
     return this.getDeck(userId, deckId);
   }
@@ -335,8 +555,13 @@ export class AnkiRepository {
     const deck = this.getDeck(userId, deckId);
     if (!deck) return false;
 
-    // Delete deck and cascade (cards deleted via FK ON DELETE CASCADE)
-    this.db.prepare(`DELETE FROM anki_decks WHERE user_id = ? AND id = ?`).run(userId, deckId);
+    // Get all descendant deck IDs to cascade delete cleanly
+    const descendantIds = this.getDescendantDeckIds(userId, deckId);
+
+    // Delete from leaves up so foreign keys and dependencies are purged cleanly
+    for (const dId of descendantIds.reverse()) {
+      this.db.prepare(`DELETE FROM anki_decks WHERE user_id = ? AND id = ?`).run(userId, dId);
+    }
     return true;
   }
 
@@ -588,21 +813,25 @@ export class AnkiRepository {
 
     if (deckId) {
       let targetDeckName: string | null = null;
+      let targetIds: string[] = [deckId];
+
       if (deckId.startsWith('virtual_')) {
         targetDeckName = deckId.replace(/^virtual_/, '');
       } else {
         const d = this.getDeck(userId, deckId);
         if (d) {
           targetDeckName = d.name;
+          targetIds = this.getDescendantDeckIds(userId, deckId);
         }
       }
 
+      const idPlaceholders = targetIds.map(() => '?').join(', ');
       if (targetDeckName) {
-        query += ` AND (c.deck_id = ? OR d.name = ? OR d.name LIKE ?)`;
-        params.push(deckId, targetDeckName, `${targetDeckName}::%`);
+        query += ` AND (c.deck_id IN (${idPlaceholders}) OR d.name = ? OR d.name LIKE ?)`;
+        params.push(...targetIds, targetDeckName, `${targetDeckName}::%`);
       } else {
-        query += ` AND c.deck_id = ?`;
-        params.push(deckId);
+        query += ` AND c.deck_id IN (${idPlaceholders})`;
+        params.push(...targetIds);
       }
     }
 

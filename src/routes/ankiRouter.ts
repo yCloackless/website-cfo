@@ -14,6 +14,7 @@
 
 import path from 'node:path';
 import { Router, Request, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { AnkiRepository } from '../db/ankiRepository';
 import { AnkiRenderer } from '../services/anki/ankiRenderer';
 import { AnkiScheduler } from '../services/anki/ankiScheduler';
@@ -25,6 +26,20 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
   const router = Router();
 
   const getRepo = () => new AnkiRepository(getDb().getRawDb());
+
+  const deckMutationLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 120, // 120 deck mutations per 15 min
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: () => process.env.NODE_ENV === 'test',
+    handler: (_req: Request, res: Response) => {
+      res.status(429).json({
+        error: 'TOO_MANY_REQUESTS',
+        message: 'Muitas operações de baralho em pouco tempo. Aguarde alguns instantes.',
+      });
+    },
+  });
 
   // =========================================================================
   // 1. DECKS
@@ -45,33 +60,42 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
     }
   });
 
-  // Create deck
-  router.post('/decks', requireAuthMiddleware, (req: Request, res: Response) => {
+  // Create deck (root or subdeck with parentDeckId)
+  router.post('/decks', requireAuthMiddleware, deckMutationLimiter, (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { name, description, configId } = req.body || {};
-      if (!name || typeof name !== 'string' || !name.trim()) {
-        return res.status(400).json({ error: 'INVALID_NAME', message: 'Nome do baralho é obrigatório.' });
-      }
+      const { name, description, configId, parentDeckId } = req.body || {};
 
       const repo = getRepo();
       const deck = repo.createDeck(user.userId, {
-        name: name.trim(),
+        name,
         description,
         configId,
+        parentDeckId,
       });
 
       return res.status(201).json({ success: true, deck });
     } catch (err: any) {
+      if (
+        err.code === 'MAX_DECKS_EXCEEDED' ||
+        err.code === 'MAX_DEPTH_EXCEEDED' ||
+        err.code === 'INVALID_NAME' ||
+        err.code === 'NAME_TOO_LONG'
+      ) {
+        return res.status(400).json({ error: err.code, message: err.message });
+      }
+      if (err.code === 'PARENT_DECK_NOT_FOUND') {
+        return res.status(404).json({ error: err.code, message: err.message });
+      }
       return res.status(500).json({ error: 'CREATE_DECK_FAILED', message: err.message });
     }
   });
 
-  // Update deck
-  router.patch('/decks/:id', requireAuthMiddleware, (req: Request, res: Response) => {
+  // Update deck (rename, move between parents, move to root, toggle collapsed)
+  router.patch('/decks/:id', requireAuthMiddleware, deckMutationLimiter, (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { name, description, configId, isCollapsed } = req.body || {};
+      const { name, description, configId, isCollapsed, parentDeckId } = req.body || {};
       const repo = getRepo();
 
       const updated = repo.updateDeck(user.userId, req.params.id, {
@@ -79,26 +103,38 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
         description,
         configId,
         isCollapsed,
+        parentDeckId,
       });
 
       if (!updated) {
-        return res.status(404).json({ error: 'DECK_NOT_FOUND' });
+        return res.status(404).json({ error: 'DECK_NOT_FOUND', message: 'Baralho não encontrado.' });
       }
 
       return res.json({ success: true, deck: updated });
     } catch (err: any) {
+      if (
+        err.code === 'MAX_DEPTH_EXCEEDED' ||
+        err.code === 'CYCLIC_RELATIONSHIP' ||
+        err.code === 'INVALID_NAME' ||
+        err.code === 'NAME_TOO_LONG'
+      ) {
+        return res.status(400).json({ error: err.code, message: err.message });
+      }
+      if (err.code === 'PARENT_DECK_NOT_FOUND') {
+        return res.status(404).json({ error: err.code, message: err.message });
+      }
       return res.status(500).json({ error: 'UPDATE_DECK_FAILED', message: err.message });
     }
   });
 
   // Delete deck
-  router.delete('/decks/:id', requireAuthMiddleware, (req: Request, res: Response) => {
+  router.delete('/decks/:id', requireAuthMiddleware, deckMutationLimiter, (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const repo = getRepo();
       const deleted = repo.deleteDeck(user.userId, req.params.id);
       if (!deleted) {
-        return res.status(404).json({ error: 'DECK_NOT_FOUND' });
+        return res.status(404).json({ error: 'DECK_NOT_FOUND', message: 'Baralho não encontrado.' });
       }
 
       return res.json({ success: true, message: 'Baralho excluído com sucesso.' });

@@ -89,10 +89,12 @@ export const DEFAULT_DECK_CONFIG: DeckConfigOptions = {
 export interface AnkiDeck {
   id: string;
   userId: string;
-  name: string; // Hierarchical, e.g. "Matemática::Álgebra::Logaritmos"
+  name: string; // Hierarchical, e.g. "Matemática::Álgebra::Logaritmos" or simple name "Canudos"
+  parentDeckId?: string | null;
   description?: string | null;
   configId?: string | null;
   isCollapsed: boolean;
+  depth?: number; // 1 to 5 (1 = root deck)
   createdAt: string;
   updatedAt: string;
   // Computed statistics

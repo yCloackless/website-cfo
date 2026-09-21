@@ -17,6 +17,14 @@
   - Histórico de resoluções e data de revisão.
 
 ### 1.2 Sistema Avançado de Flashcards Anki (SM-2 Nativo)
+- **Hierarquia de Baralhos & Pastas (Sub-baralhos até 5 Níveis)**:
+  - Criação de baralhos aninhados em árvore com `parentDeckId` (raízes têm `parentDeckId = null`).
+  - Limite estrito de 5 níveis de profundidade enforced no backend e banco de dados.
+  - Proteção anti-ciclo: impossibilidade de um baralho ser pai de si mesmo ou ser movido para a própria descendência.
+  - Cálculo de altura da sub-árvore na movimentação para impedir que nós filhos extrapolem a profundidade máxima.
+  - Teto de segurança de até 300 baralhos por usuário e rate limit dedicado de mutações (`deckMutationLimiter`, 120 req/15min).
+  - Interface em árvore (`AnkiDeckTree.tsx`) com indentação dinâmica `(depth - 1) * 20px`, ícones de pasta/camadas, contagens agregadas de cartões, modal de mover e bloqueio de criação no 5º nível com aviso explicativo.
+  - Exclusão com confirmação rica (`ConfirmModal`) e propagação em cascata no banco e na fila de estudos (`getStudyQueue`).
 - **Algoritmo de Repetição Espaçada (SM-2)**:
   - Cálculo dinâmico de intervalo, fator de facilidade (Ease Factor $\ge 1.30$) e repetições consecutivas.
   - Fila de estudo priorizada (Novos $\to$ Atrasados/Hoje $\to$ Futuros).
