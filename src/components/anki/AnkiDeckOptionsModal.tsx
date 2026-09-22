@@ -12,6 +12,7 @@ import {
   Check,
   RotateCcw,
   AlertCircle,
+  ArrowRightLeft,
 } from 'lucide-react';
 import {
   AnkiDeck,
@@ -23,6 +24,7 @@ import { apiFetch } from '../../services/apiFetch';
 
 interface AnkiDeckOptionsModalProps {
   deck: AnkiDeck;
+  decks?: AnkiDeck[];
   isOpen: boolean;
   onClose: () => void;
   onDeckUpdated?: () => void;
@@ -35,6 +37,7 @@ interface AnkiDeckOptionsModalProps {
 
 export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
   deck,
+  decks = [],
   isOpen,
   onClose,
   onDeckUpdated,
@@ -58,6 +61,9 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
   // Subdeck creation inside modal
   const [subdeckNameInput, setSubdeckNameInput] = useState<string>('');
   const [isCreatingSubdeck, setIsCreatingSubdeck] = useState<boolean>(false);
+  const [targetDeckId, setTargetDeckId] = useState<string>('');
+  const [isTransferConfirmOpen, setIsTransferConfirmOpen] = useState<boolean>(false);
+  const [isTransferring, setIsTransferring] = useState<boolean>(false);
 
   // Body scroll locking and Escape key handling
   useEffect(() => {
@@ -65,6 +71,8 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
 
     setDeckNameInput(deck.name);
     setSubdeckNameInput('');
+    setTargetDeckId('');
+    setIsTransferConfirmOpen(false);
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -227,6 +235,33 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
       showToast?.('Erro ao criar sub-baralho.', 'error');
     } finally {
       setIsCreatingSubdeck(false);
+    }
+  };
+
+  const transferTargets = decks.filter((candidate) => candidate.id !== deck.id && !candidate.id.startsWith('virtual_'));
+
+  const handleTransferCards = async () => {
+    if (!targetDeckId) return;
+    try {
+      setIsTransferring(true);
+      const res = await apiFetch(`/api/anki/decks/${deck.id}/transfer-cards`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetDeckId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast?.(data.error === 'SAME_DECK_TRANSFER' ? 'Escolha um baralho diferente.' : 'Falha ao transferir flashcards.', 'error');
+        return;
+      }
+      showToast?.(`${data.movedCount || 0} flashcard(s) transferido(s) com sucesso.`, 'success');
+      setIsTransferConfirmOpen(false);
+      setTargetDeckId('');
+      onDeckUpdated?.();
+    } catch {
+      showToast?.('Erro de conexão ao transferir flashcards.', 'error');
+    } finally {
+      setIsTransferring(false);
     }
   };
 
@@ -530,6 +565,43 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
                   <Trash2 className="w-4 h-4" />
                   <span className="font-semibold text-xs">Excluir Baralho</span>
                 </button>
+              </div>
+
+              <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-xl space-y-3">
+                <div className="flex items-center gap-2 text-zinc-100 font-semibold text-sm">
+                  <ArrowRightLeft className="w-4 h-4 text-violet-400" />
+                  <span>Transferir flashcards</span>
+                </div>
+                <p className="text-[11px] text-zinc-400">
+                  Move apenas os flashcards deste baralho para outro. Os sub-baralhos não são incluídos.
+                </p>
+                {transferTargets.length === 0 ? (
+                  <p className="text-[11px] text-zinc-500">Crie outro baralho para habilitar a transferência.</p>
+                ) : isTransferConfirmOpen ? (
+                  <div className="space-y-3 rounded-lg border border-violet-500/30 bg-violet-500/5 p-3">
+                    <p className="text-xs text-zinc-200">
+                      Transferir <strong>{deck.totalCards || 0}</strong> flashcard(s) de <strong>{deck.name}</strong> para <strong>{transferTargets.find((d) => d.id === targetDeckId)?.name}</strong>?
+                    </p>
+                    <div className="flex justify-end gap-2">
+                      <button type="button" onClick={() => setIsTransferConfirmOpen(false)} className="px-3 py-2 rounded-lg text-xs text-zinc-400 hover:text-zinc-200">
+                        Não, cancelar
+                      </button>
+                      <button type="button" onClick={() => void handleTransferCards()} disabled={isTransferring} className="px-3 py-2 rounded-lg bg-violet-500 hover:bg-violet-400 text-white text-xs font-semibold disabled:opacity-50">
+                        {isTransferring ? 'Transferindo...' : 'Sim, transferir'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <select value={targetDeckId} onChange={(e) => setTargetDeckId(e.target.value)} className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-violet-500">
+                      <option value="">Escolha o baralho de destino</option>
+                      {transferTargets.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+                    </select>
+                    <button type="button" onClick={() => setIsTransferConfirmOpen(true)} disabled={!targetDeckId} className="px-3 py-2 rounded-lg bg-violet-500/15 border border-violet-500/30 text-violet-300 text-xs font-semibold disabled:opacity-40">
+                      Continuar
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}

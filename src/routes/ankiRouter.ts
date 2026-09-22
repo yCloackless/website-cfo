@@ -157,6 +157,23 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
     }
   });
 
+  router.post('/decks/:id/transfer-cards', requireAuthMiddleware, noteMutationLimiter, (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { targetDeckId } = req.body || {};
+      if (typeof targetDeckId !== 'string' || !targetDeckId.trim()) {
+        return res.status(400).json({ error: 'TARGET_DECK_REQUIRED' });
+      }
+
+      const movedCount = getRepo().transferDeckCards(user.userId, req.params.id, targetDeckId);
+      return res.json({ success: true, movedCount });
+    } catch (err: any) {
+      if (err.message === 'SAME_DECK_TRANSFER') return res.status(400).json({ error: 'SAME_DECK_TRANSFER' });
+      if (err.message === 'DECK_NOT_FOUND') return res.status(404).json({ error: 'DECK_NOT_FOUND' });
+      return res.status(500).json({ error: 'TRANSFER_CARDS_FAILED', message: err.message });
+    }
+  });
+
   // Delete deck
   router.delete('/decks/:id', requireAuthMiddleware, deckMutationLimiter, (req: Request, res: Response) => {
     try {

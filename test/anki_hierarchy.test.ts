@@ -318,3 +318,23 @@ test('Hierarchical Decks: Exclusão em cascata de sub-baralhos e cartões', () =
     cleanup();
   }
 });
+
+test('Hierarchical Decks: Transferência move apenas cards do baralho selecionado', () => {
+  const { userRepo, ankiRepo, cleanup } = createTempDb();
+  try {
+    const user = userRepo.create({ username: 'transfer_user', email: 'transfer@test.local', passwordHash: 'hash' });
+    ankiRepo.ensureDefaultDeckConfig(user.id);
+    const notetype = ankiRepo.ensureDefaultNoteTypes(user.id)[0];
+    const source = ankiRepo.createDeck(user.id, { name: 'Origem' });
+    const target = ankiRepo.createDeck(user.id, { name: 'Destino' });
+    const child = ankiRepo.createDeck(user.id, { name: 'Filho', parentDeckId: source.id });
+    const sourceNote = ankiRepo.createNote(user.id, { deckId: source.id, notetypeId: notetype.id, fields: ['origem', 'resposta'] });
+    const childNote = ankiRepo.createNote(user.id, { deckId: child.id, notetypeId: notetype.id, fields: ['filho', 'resposta'] });
+
+    assert.equal(ankiRepo.transferDeckCards(user.id, source.id, target.id), 1);
+    assert.equal(ankiRepo.getCard(user.id, sourceNote.cards[0].id)?.deckId, target.id);
+    assert.equal(ankiRepo.getCard(user.id, childNote.cards[0].id)?.deckId, child.id);
+  } finally {
+    cleanup();
+  }
+});

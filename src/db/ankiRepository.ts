@@ -1123,6 +1123,21 @@ export class AnkiRepository {
     return moved;
   }
 
+  public transferDeckCards(userId: string, sourceDeckId: string, targetDeckId: string): number {
+    if (sourceDeckId === targetDeckId) throw new Error('SAME_DECK_TRANSFER');
+    if (!this.getDeck(userId, sourceDeckId) || !this.getDeck(userId, targetDeckId)) {
+      throw new Error('DECK_NOT_FOUND');
+    }
+
+    const result = this.db.prepare(`
+      UPDATE anki_cards
+      SET deck_id = ?, updated_at = ?
+      WHERE user_id = ? AND deck_id = ?
+    `).run(targetDeckId, new Date().toISOString(), userId, sourceDeckId) as any;
+
+    return Number(result.changes || 0);
+  }
+
   public bulkSuspendCards(userId: string, cardIds: string[], suspend: boolean): number {
     let affected = 0;
     for (const cid of cardIds) {

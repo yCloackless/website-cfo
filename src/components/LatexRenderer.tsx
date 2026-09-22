@@ -168,14 +168,23 @@ function extractBracedContent(str: string, startIndex: number): { content: strin
 function renderFormattedText(rawText: string, baseKey = 'fmt'): React.ReactNode[] {
   if (!rawText) return [];
 
+  const sourceText = rawText
+    .replace(/<\/?(?:strong|b)>/gi, '**')
+    .replace(/<\/?(?:em|i)>/gi, '*')
+    .replace(/<\/?code>/gi, '`')
+    .replace(/<u>/gi, '\\underline{')
+    .replace(/<\/u>/gi, '}')
+    .replace(/<div[^>]*>/gi, '')
+    .replace(/<\/div>/gi, '\n');
+
   const nodes: React.ReactNode[] = [];
   let currentIndex = 0;
   let keyCounter = 0;
 
-  while (currentIndex < rawText.length) {
+  while (currentIndex < sourceText.length) {
     // 1. Check for LaTeX commands starting with backslash
-    if (rawText[currentIndex] === '\\') {
-      const rest = rawText.slice(currentIndex);
+    if (sourceText[currentIndex] === '\\') {
+      const rest = sourceText.slice(currentIndex);
 
       // LaTeX Escaped symbols: \%, \$, \&, \_, \#
       const escapeMatch = /^\\([%$&_#])/.exec(rest);
@@ -190,7 +199,7 @@ function renderFormattedText(rawText: string, baseKey = 'fmt'): React.ReactNode[
       if (cmdMatch) {
         const cmd = cmdMatch[1];
         const braceStartIndex = currentIndex + cmdMatch[0].length - 1;
-        const braced = extractBracedContent(rawText, braceStartIndex);
+        const braced = extractBracedContent(sourceText, braceStartIndex);
         if (braced) {
           const innerNodes = renderFormattedText(braced.content, `${baseKey}-${keyCounter}`);
           const elementKey = `${baseKey}-${keyCounter++}`;
@@ -231,10 +240,10 @@ function renderFormattedText(rawText: string, baseKey = 'fmt'): React.ReactNode[
     }
 
     // 2. Check for Markdown Bold: **...**
-    if (rawText.startsWith('**', currentIndex)) {
-      const closingIdx = rawText.indexOf('**', currentIndex + 2);
+    if (sourceText.startsWith('**', currentIndex)) {
+      const closingIdx = sourceText.indexOf('**', currentIndex + 2);
       if (closingIdx !== -1) {
-        const innerContent = rawText.slice(currentIndex + 2, closingIdx);
+        const innerContent = sourceText.slice(currentIndex + 2, closingIdx);
         nodes.push(
           <strong key={`${baseKey}-${keyCounter++}`} className="font-bold text-slate-100">
             {renderFormattedText(innerContent, `${baseKey}-${keyCounter}`)}
@@ -246,10 +255,10 @@ function renderFormattedText(rawText: string, baseKey = 'fmt'): React.ReactNode[
     }
 
     // 3. Check for Markdown Italic: *...* (avoiding lone asterisk)
-    if (rawText[currentIndex] === '*' && rawText[currentIndex + 1] !== ' ' && rawText[currentIndex + 1] !== '*') {
-      const closingIdx = rawText.indexOf('*', currentIndex + 1);
-      if (closingIdx !== -1 && closingIdx > currentIndex + 1 && rawText[closingIdx - 1] !== ' ') {
-        const innerContent = rawText.slice(currentIndex + 1, closingIdx);
+    if (sourceText[currentIndex] === '*' && sourceText[currentIndex + 1] !== ' ' && sourceText[currentIndex + 1] !== '*') {
+      const closingIdx = sourceText.indexOf('*', currentIndex + 1);
+      if (closingIdx !== -1 && closingIdx > currentIndex + 1 && sourceText[closingIdx - 1] !== ' ') {
+        const innerContent = sourceText.slice(currentIndex + 1, closingIdx);
         nodes.push(
           <em key={`${baseKey}-${keyCounter++}`} className="italic text-slate-200">
             {renderFormattedText(innerContent, `${baseKey}-${keyCounter}`)}
@@ -261,10 +270,10 @@ function renderFormattedText(rawText: string, baseKey = 'fmt'): React.ReactNode[
     }
 
     // 4. Check for Markdown Code: `...`
-    if (rawText[currentIndex] === '`') {
-      const closingIdx = rawText.indexOf('`', currentIndex + 1);
+    if (sourceText[currentIndex] === '`') {
+      const closingIdx = sourceText.indexOf('`', currentIndex + 1);
       if (closingIdx !== -1) {
-        const innerContent = rawText.slice(currentIndex + 1, closingIdx);
+        const innerContent = sourceText.slice(currentIndex + 1, closingIdx);
         nodes.push(
           <code key={`${baseKey}-${keyCounter++}`} className="font-mono text-[11px] px-1 py-0.5 rounded bg-slate-800/80 text-blue-300">
             {innerContent}
@@ -278,9 +287,9 @@ function renderFormattedText(rawText: string, baseKey = 'fmt'): React.ReactNode[
     // 5. Consume next chunk of plain text up to next special char (\, *, `)
     const nextSpecialRegex = /[\\*`]/g;
     nextSpecialRegex.lastIndex = currentIndex + 1;
-    const nextMatch = nextSpecialRegex.exec(rawText);
-    const nextIndex = nextMatch ? nextMatch.index : rawText.length;
-    nodes.push(rawText.slice(currentIndex, nextIndex));
+    const nextMatch = nextSpecialRegex.exec(sourceText);
+    const nextIndex = nextMatch ? nextMatch.index : sourceText.length;
+    nodes.push(sourceText.slice(currentIndex, nextIndex));
     currentIndex = nextIndex;
   }
 

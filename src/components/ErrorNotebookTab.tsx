@@ -604,6 +604,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
       {optionsDeck && (
         <AnkiDeckOptionsModal
           deck={optionsDeck}
+          decks={decks}
           isOpen={Boolean(optionsDeck)}
           onClose={() => setOptionsDeck(null)}
           onDeckUpdated={() => void fetchDecks()}
