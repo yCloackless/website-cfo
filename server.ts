@@ -1825,6 +1825,8 @@ interface TimerState {
   intervals?: TimerInterval[]; // lista de blocos de estudo e descanso
 }
 
+const TIMER_STATE_STORAGE_KEY = 'cfo_timer_state_v1';
+
 app.use('/api/timer', requireUserAuth, (_req: Request, res: Response, next: NextFunction) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.setHeader('Pragma', 'no-cache');
@@ -1851,17 +1853,36 @@ function timerStateFile(userId: string): string {
 }
 
 function readTimerState(userId: string): TimerState {
+  const persistedState = userStateRepoInstance.get(userId)?.payload[TIMER_STATE_STORAGE_KEY];
+  if (persistedState) {
+    try {
+      const parsed = JSON.parse(persistedState);
+      if (parsed && ['STOPPED', 'RUNNING', 'PAUSED'].includes(parsed.status) && typeof parsed.accumulatedTime === 'number') {
+        return {
+          ...parsed,
+          restAccumulatedMs: typeof parsed.restAccumulatedMs === "number" ? parsed.restAccumulatedMs : 0,
+          restStartTime: parsed.restStartTime || null,
+          intervals: Array.isArray(parsed.intervals) ? parsed.intervals : [],
+        };
+      }
+    } catch {
+      // Ignora um snapshot inválido sem interromper o cronômetro do usuário.
+    }
+  }
+
   const TIMER_STATE_FILE = timerStateFile(userId);
   try {
     if (fs.existsSync(TIMER_STATE_FILE)) {
       const raw = fs.readFileSync(TIMER_STATE_FILE, "utf-8");
       const parsed = JSON.parse(raw);
-      return {
+      const legacyState: TimerState = {
         ...parsed,
         restAccumulatedMs: typeof parsed.restAccumulatedMs === "number" ? parsed.restAccumulatedMs : 0,
         restStartTime: parsed.restStartTime || null,
         intervals: Array.isArray(parsed.intervals) ? parsed.intervals : [],
       };
+      saveTimerState(userId, legacyState);
+      return legacyState;
     }
   } catch (e) {
     console.warn("Falha ao ler timer-state.json:", e);
@@ -1878,13 +1899,14 @@ function readTimerState(userId: string): TimerState {
 }
 
 function saveTimerState(userId: string, state: TimerState): void {
-  const TIMER_STATE_FILE = timerStateFile(userId);
   try {
-    const dir = path.dirname(TIMER_STATE_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(TIMER_STATE_FILE, JSON.stringify(state, null, 2), "utf-8");
+    const payload = userStateRepoInstance.get(userId)?.payload || {};
+    userStateRepoInstance.upsert(userId, {
+      ...payload,
+      [TIMER_STATE_STORAGE_KEY]: JSON.stringify(state),
+    });
   } catch (e) {
-    console.warn("Falha ao salvar timer-state.json:", e);
+    console.warn("Falha ao salvar estado persistente do cronômetro:", e);
   }
 }
 
@@ -6352,10 +6374,15 @@ app.put("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
     const sanitized: Record<string, string> = {};
     for (const [key, value] of Object.entries(state)) {
       if (!/^(cfo_[a-zA-Z0-9_.-]+|.*anki_[a-zA-Z0-9_.-]+)$/.test(key)) continue;
+      if (key === TIMER_STATE_STORAGE_KEY) continue;
       if (typeof value !== 'string' || value.length > 2_000_000) return res.status(413).json({ error: 'STATE_VALUE_TOO_LARGE' });
       sanitized[key] = value;
     }
-    const savedAt = userStateRepoInstance.upsert(userId, sanitized);
+    const currentPayload = userStateRepoInstance.get(userId)?.payload || {};
+    const savedAt = userStateRepoInstance.upsert(userId, {
+      ...sanitized,
+      ...(currentPayload[TIMER_STATE_STORAGE_KEY] ? { [TIMER_STATE_STORAGE_KEY]: currentPayload[TIMER_STATE_STORAGE_KEY] } : {}),
+    });
     logAuditEvent({ action: 'USER_STATE_SYNC', actor: (req as any).user.username || userId, resource: 'user_state_snapshots', status: 'SUCCESS', ip: getClientIp(req), details: { userId, keys: Object.keys(sanitized).length } });
     return res.json({ success: true, savedAt });
   } catch (err) {

@@ -24,6 +24,7 @@ files.push('anki_security_and_bugs');
 files.push('student_study');
 files.push('leveling');
 files.push('extension_integration');
+files.push('timer_deploy_persistence');
 files.splice(files.indexOf('exam_bank'), 0, 'board_intelligence');
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|HOME|USERPROFILE|COMSPEC|PATHEXT)$/i.test(key)));
