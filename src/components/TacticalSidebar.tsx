@@ -201,6 +201,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
 
   const handleMouseLeave = () => {
     setIsHovered(false);
+    setIsFocused(false);
   };
 
   const handleFocus = () => {
