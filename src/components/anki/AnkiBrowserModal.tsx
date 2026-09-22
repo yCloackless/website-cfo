@@ -12,6 +12,8 @@ import {
   Trash2,
   Filter,
   RefreshCw,
+  GripVertical,
+  ArrowDownToLine,
 } from 'lucide-react';
 import { AnkiCard, AnkiDeck } from '../../services/anki/ankiTypes';
 import { apiFetch } from '../../services/apiFetch';
@@ -38,6 +40,8 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
   // Bulk action modals/dropdowns
   const [targetDeckId, setTargetDeckId] = useState<string>('');
   const [isMoveOpen, setIsMoveOpen] = useState<boolean>(false);
+  const [draggedCardId, setDraggedCardId] = useState<string | null>(null);
+  const [dropDeckId, setDropDeckId] = useState<string | null>(null);
 
   const fetchCards = useCallback(async () => {
     try {
@@ -119,6 +123,36 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
       }
     } catch {
       showToast?.('Erro ao mover cartões.', 'error');
+    }
+  };
+
+  const handleDropCards = async (targetId: string) => {
+    if (!draggedCardId) return;
+    const cardIds = selectedIds.has(draggedCardId) ? Array.from(selectedIds) : [draggedCardId];
+    const sourceIds = new Set(cards.filter((card) => cardIds.includes(card.id)).map((card) => card.deckId));
+    if (sourceIds.size === 1 && sourceIds.has(targetId)) {
+      showToast?.('O destino precisa ser outro baralho.', 'info');
+      return;
+    }
+
+    try {
+      const res = await apiFetch('/api/anki/browser/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'move', cardIds, targetDeckId: targetId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast?.(data.message || 'Não foi possível mover os flashcards.', 'error');
+        return;
+      }
+      showToast?.(`${data.affectedCount || 0} flashcard(s) movido(s) para o novo baralho.`, 'success');
+      void fetchCards();
+    } catch {
+      showToast?.('Erro de conexão ao mover flashcards.', 'error');
+    } finally {
+      setDraggedCardId(null);
+      setDropDeckId(null);
     }
   };
 
@@ -317,6 +351,50 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
           </div>
         )}
 
+        <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-950/40 text-[11px] text-zinc-500 flex items-center gap-2">
+          <GripVertical className="w-3.5 h-3.5 text-violet-400" />
+          <span>Arraste um flashcard — ou uma seleção — para outro baralho.</span>
+        </div>
+
+        {draggedCardId && (
+          <div className="px-4 py-3 border-b border-violet-500/30 bg-violet-500/5 animate-in slide-in-from-top-2 duration-150">
+            <div className="flex items-center gap-2 mb-2 text-xs font-semibold text-violet-200">
+              <ArrowDownToLine className="w-4 h-4 animate-bounce" />
+              Solte sobre o baralho de destino
+              {selectedIds.has(draggedCardId) && <span className="text-violet-400">({selectedIds.size} selecionados)</span>}
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {decks.map((deck) => {
+                const isSource = cards.find((card) => card.id === draggedCardId)?.deckId === deck.id;
+                return (
+                  <div
+                    key={deck.id}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      if (!isSource) setDropDeckId(deck.id);
+                    }}
+                    onDragLeave={() => setDropDeckId(null)}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      if (!isSource) void handleDropCards(deck.id);
+                    }}
+                    className={`min-w-[150px] rounded-lg border px-3 py-2 transition-all duration-150 ${
+                      isSource
+                        ? 'border-zinc-800 bg-zinc-900/60 opacity-40'
+                        : dropDeckId === deck.id
+                          ? 'border-violet-300 bg-violet-500/25 scale-105 shadow-lg shadow-violet-500/20'
+                          : 'border-violet-500/30 bg-zinc-900 hover:border-violet-400/70'
+                    }`}
+                  >
+                    <div className="text-xs font-semibold text-zinc-200 truncate">{deck.name}</div>
+                    <div className="text-[10px] text-zinc-500 mt-0.5">Soltar aqui</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Data Table */}
         <div className="flex-1 overflow-auto">
           <table className="w-full text-left text-xs border-collapse">
@@ -362,8 +440,20 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
                   return (
                     <tr
                       key={card.id}
+                      draggable
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', card.id);
+                        setDraggedCardId(card.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedCardId(null);
+                        setDropDeckId(null);
+                      }}
                       onClick={() => toggleSelectCard(card.id)}
-                      className={`hover:bg-zinc-800/40 cursor-pointer transition-colors ${
+                      className={`hover:bg-zinc-800/40 cursor-grab active:cursor-grabbing transition-all duration-150 ${
+                        draggedCardId === card.id ? 'opacity-40 scale-[0.99]' : ''
+                      } ${
                         isSelected ? 'bg-sky-500/10' : ''
                       }`}
                     >
