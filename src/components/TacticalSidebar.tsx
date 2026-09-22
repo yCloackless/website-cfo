@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   House,
@@ -161,9 +161,6 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
 
-  const openTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const closeTimerRef = useRef<NodeJS.Timeout | null>(null);
-
   // Mobile body scroll lock
   useEffect(() => {
     if (!isOpen || typeof window === 'undefined') return;
@@ -188,14 +185,6 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
     };
   }, [isOpen, onClose]);
 
-  // Clean timers on unmount
-  useEffect(() => {
-    return () => {
-      if (openTimerRef.current) clearTimeout(openTimerRef.current);
-      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
-    };
-  }, []);
-
   const togglePin = () => {
     setIsPinned((prev) => {
       const next = !prev;
@@ -207,27 +196,11 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
   };
 
   const handleMouseEnter = () => {
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-    if (!openTimerRef.current) {
-      openTimerRef.current = setTimeout(() => {
-        setIsHovered(true);
-      }, 150); // 150ms intent delay
-    }
+    setIsHovered(true);
   };
 
   const handleMouseLeave = () => {
-    if (openTimerRef.current) {
-      clearTimeout(openTimerRef.current);
-      openTimerRef.current = null;
-    }
-    if (!closeTimerRef.current) {
-      closeTimerRef.current = setTimeout(() => {
-        setIsHovered(false);
-      }, 450); // 450ms close delay
-    }
+    setIsHovered(false);
   };
 
   const handleFocus = () => {
@@ -504,6 +477,8 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
   ];
 
   const handleItemClick = (item: SidebarItem) => {
+    setIsHovered(false);
+    setIsFocused(false);
     if (item.route) {
       navigate(item.route);
     } else if (item.tabId) {
@@ -711,7 +686,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         aria-hidden="true"
       />
 
-      {/* Invisible Hover-Intent Edge Zone (12px wide on right edge) */}
+      {/* Hover edge for the collapsed desktop menu */}
       <div
         className="hidden md:block fixed top-0 bottom-0 left-[68px] w-3 z-30 pointer-events-auto"
         onMouseEnter={handleMouseEnter}
@@ -726,7 +701,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         onMouseLeave={handleMouseLeave}
         onFocus={handleFocus}
         onBlur={handleBlur}
-        className={`hidden md:flex fixed top-0 left-0 bottom-0 z-30 flex-col h-full border-r select-none transition-[width,box-shadow,background-color] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden ${
+        className={`hidden md:flex fixed top-0 left-0 bottom-0 z-30 flex-col h-full border-r select-none transition-[width,box-shadow,background-color] duration-150 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden ${
           isExpandedDesktop
             ? 'w-[260px] shadow-2xl shadow-black/50'
             : 'w-[72px] shadow-none'

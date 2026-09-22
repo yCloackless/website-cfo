@@ -26,6 +26,7 @@ files.push('leveling');
 files.push('extension_integration');
 files.push('timer_deploy_persistence');
 files.push('anki_add_note_selection');
+files.push('sidebar_interaction');
 files.splice(files.indexOf('exam_bank'), 0, 'board_intelligence');
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|HOME|USERPROFILE|COMSPEC|PATHEXT)$/i.test(key)));
