@@ -975,8 +975,13 @@ export default function App() {
           );
           return;
         }
-        console.warn('Erro na abertura do OAuth:', backendOAuthErr?.message || backendOAuthErr);
-        showToast(backendOAuthErr?.message || 'Falha ao abrir autenticação com Google.', 'error');
+        // Cadetes usam seu próprio token OAuth no fallback direto; a sessão persistente do backend é administrativa.
+        const { googleSignIn } = await getFirebaseAuthService();
+        const result = await googleSignIn();
+        if (!result) return;
+        setUser(result.user);
+        setAccessToken(result.accessToken);
+        showToast('Google Agenda conectada para esta sessão. Seus estudos serão sincronizados.', 'success');
         return;
       }
     } catch (error: any) {
