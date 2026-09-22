@@ -65,12 +65,9 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
   }, [isOpen]);
 
   useEffect(() => {
-    if (defaultDeckId) {
-      setSelectedDeckId(defaultDeckId);
-    } else if (decks.length > 0 && !selectedDeckId) {
-      setSelectedDeckId(decks[0].id);
-    }
-  }, [defaultDeckId, decks]);
+    if (selectedDeckId && decks.some((deck) => deck.id === selectedDeckId)) return;
+    setSelectedDeckId(decks.find((deck) => deck.id === defaultDeckId)?.id || decks[0]?.id || '');
+  }, [defaultDeckId, decks, selectedDeckId]);
 
   useEffect(() => {
     if (!isOpen) return;
