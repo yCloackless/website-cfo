@@ -185,33 +185,37 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   };
 
   // Move Deck Action
-  const handleMoveDeckSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!movingDeck) return;
-
+  const moveDeckToParent = async (deck: AnkiDeck, parentDeckId: string): Promise<boolean> => {
     try {
-      setIsMovingDeck(true);
-      const res = await apiFetch(`/api/anki/decks/${movingDeck.id}`, {
+      const res = await apiFetch(`/api/anki/decks/${deck.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          parentDeckId: targetParentId ? targetParentId : null,
+          parentDeckId: parentDeckId || null,
         }),
       });
 
       if (res.ok) {
         showToast?.('Baralho movido com sucesso!', 'success');
-        setMovingDeck(null);
         void fetchDecks();
+        return true;
       } else {
         const err = await res.json().catch(() => ({}));
         showToast?.(err.message || 'Falha ao mover baralho.', 'error');
       }
     } catch {
       showToast?.('Erro de conexão ao mover baralho.', 'error');
-    } finally {
-      setIsMovingDeck(false);
     }
+    return false;
+  };
+
+  const handleMoveDeckSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!movingDeck) return;
+    setIsMovingDeck(true);
+    const moved = await moveDeckToParent(movingDeck, targetParentId);
+    if (moved) setMovingDeck(null);
+    setIsMovingDeck(false);
   };
 
   // Delete Deck Action with ConfirmModal
@@ -549,6 +553,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
             setMovingDeck(d);
             setTargetParentId(d.parentDeckId || '');
           }}
+          onDropDeck={(deck, targetParentId) => void moveDeckToParent(deck, targetParentId)}
           onExportDeck={(d) => {
             window.open(`/api/anki/export-apkg?deckId=${encodeURIComponent(d.id)}`, '_blank');
             showToast?.(`Exportação do baralho "${d.name}" iniciada!`, 'success');
