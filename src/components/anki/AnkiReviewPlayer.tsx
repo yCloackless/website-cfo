@@ -412,17 +412,17 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
             </div>
           </div>
         ) : (
-          <div className="w-full max-w-3xl flex flex-col items-center">
+          <div className="w-full max-w-2xl flex flex-col items-center">
             {/* The Flashcard Container */}
-            <div className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-6 sm:p-10 min-h-[320px] flex flex-col justify-between relative overflow-hidden transition-all">
+            <div className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl p-5 sm:p-7 min-h-[220px] flex flex-col justify-between relative overflow-hidden transition-all">
               {/* Question Front */}
               <div className="w-full">
-                <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-4 flex items-center justify-between">
+                <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-3 flex items-center justify-between">
                   <span>Pergunta</span>
                   {currentCard.note?.tags && currentCard.note.tags.length > 0 && (
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {currentCard.note.tags.map((t) => (
-                        <span key={t} className="px-2 py-0.5 rounded text-[11px] bg-zinc-800 text-zinc-400 font-mono">
+                        <span key={t} className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400 font-mono">
                           #{t}
                         </span>
                       ))}
@@ -430,7 +430,7 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
                   )}
                 </div>
 
-                <div className="text-lg sm:text-2xl font-normal leading-relaxed text-zinc-100">
+                <div className="text-sm sm:text-base font-normal leading-relaxed text-zinc-100">
                   {renderedContent ? (
                     <div
                       className="anki-card-front"
@@ -444,11 +444,11 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
 
               {/* Answer Divider & Back */}
               {isAnswerRevealed && (
-                <div className="w-full mt-8 pt-8 border-t border-zinc-800 animate-in fade-in duration-150">
-                  <div className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-4">
+                <div className="w-full mt-5 pt-5 border-t border-zinc-800 animate-in fade-in duration-150">
+                  <div className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider mb-3">
                     Resposta
                   </div>
-                  <div className="text-lg sm:text-2xl font-normal leading-relaxed text-zinc-100">
+                  <div className="text-sm sm:text-base font-normal leading-relaxed text-zinc-100">
                     {renderedContent ? (
                       <div
                         className="anki-card-back"

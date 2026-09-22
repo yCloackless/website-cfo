@@ -322,11 +322,11 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
         <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4">
           {isPreview ? (
             <div className="space-y-4">
-              <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5">
-                <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider block mb-2">
+              <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+                <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block mb-2">
                   Prévia da Frente (Pergunta)
                 </span>
-                <div className="text-lg text-zinc-100">
+                <div className="text-sm sm:text-base text-zinc-100">
                   <ClozeLatexCard
                     text={activeNotetype?.fields[0] ? fieldValues[activeNotetype.fields[0].name] || '' : ''}
                     isAnswer={false}
@@ -334,11 +334,11 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
                 </div>
               </div>
 
-              <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5">
-                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block mb-2">
+              <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+                <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block mb-2">
                   Prévia do Verso (Resposta)
                 </span>
-                <div className="text-lg text-zinc-100">
+                <div className="text-sm sm:text-base text-zinc-100">
                   <ClozeLatexCard
                     text={
                       activeNotetype?.kind === 'cloze'

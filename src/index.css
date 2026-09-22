@@ -96,6 +96,32 @@ button, a {
   max-width: 100%;
 }
 
+/* Flashcards Anki: visual proporcional e compacto */
+.anki-card-front,
+.anki-card-back {
+  word-break: break-word;
+  line-height: 1.6;
+}
+
+.anki-card-front .katex-display,
+.anki-card-back .katex-display {
+  margin: 0.35rem 0;
+}
+
+.anki-card-front .katex,
+.anki-card-back .katex,
+.latex-renderer .katex {
+  font-size: 1.05em;
+}
+
+/* Fórmulas matemáticas com moldura (\boxed) compactas */
+.katex .fbox,
+.katex .boxed {
+  padding: 0.15em 0.35em !important;
+  border-width: 1px !important;
+  border-radius: 4px;
+}
+
 /* Topbar follows the sidebar icon language: neutral at rest, colored on intent. */
 .topbar-icon {
   color: #94a3b8;
