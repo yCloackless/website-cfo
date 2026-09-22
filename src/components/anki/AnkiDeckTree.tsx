@@ -12,7 +12,6 @@ import {
   Layers,
   FolderInput,
   AlertCircle,
-  GripVertical,
 } from 'lucide-react';
 import { AnkiDeck } from '../../services/anki/ankiTypes';
 
@@ -39,7 +38,6 @@ interface AnkiDeckTreeProps {
   onExportDeck: (deck: AnkiDeck) => void;
   onCreateSubdeck: (parentDeck: AnkiDeck) => void;
   onMoveDeck?: (deck: AnkiDeck) => void;
-  onDropDeck?: (deck: AnkiDeck, targetParentId: string) => void;
 }
 
 export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
@@ -51,11 +49,8 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
   onExportDeck,
   onCreateSubdeck,
   onMoveDeck,
-  onDropDeck,
 }) => {
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
-  const [draggedDeckId, setDraggedDeckId] = useState<string | null>(null);
-  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
 
   // Build hierarchical tree supporting parentDeckId and backwards-compatible :: names
   const tree = useMemo(() => {
@@ -235,7 +230,6 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
     const isCollapsed = collapsedNodes.has(node.id);
     const depth = node.depth || 1;
     const isMaxDepth = depth >= 5;
-    const isRealDeck = Boolean(node.deck) && !node.id.startsWith('virtual_');
 
     const targetDeck: AnkiDeck = node.deck || {
       id: node.id,
@@ -257,24 +251,7 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
         >
           {/* Coluna 1: Nome do Baralho + Recuo Hierárquico */}
           <div
-            onDragOver={(event) => {
-              if (!draggedDeckId || !isRealDeck || draggedDeckId === node.id) return;
-              event.preventDefault();
-              setDropTargetId(node.id);
-            }}
-            onDragLeave={() => setDropTargetId(null)}
-            onDrop={(event) => {
-              event.preventDefault();
-              if (draggedDeckId && isRealDeck && draggedDeckId !== node.id) {
-                const draggedDeck = decks.find((deck) => deck.id === draggedDeckId);
-                if (draggedDeck) onDropDeck?.(draggedDeck, node.id);
-              }
-              setDraggedDeckId(null);
-              setDropTargetId(null);
-            }}
-            className={`flex items-center gap-2 min-w-0 pr-2 rounded-lg transition-all duration-150 ${
-              dropTargetId === node.id ? 'bg-indigo-500/20 ring-1 ring-indigo-400 scale-[1.01]' : ''
-            }`}
+            className="flex items-center gap-2 min-w-0 pr-2"
             style={{ paddingLeft: `${Math.max(0, (depth - 1) * 20)}px` }}
           >
             {hasChildren ? (
@@ -296,30 +273,6 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
               <FolderOpen className="w-4 h-4 text-amber-500/90 shrink-0" />
             ) : (
               <Layers className="w-4 h-4 text-sky-400/90 shrink-0" />
-            )}
-
-            {isRealDeck && (
-              <button
-                type="button"
-                draggable
-                onClick={(event) => event.stopPropagation()}
-                onDragStart={(event) => {
-                  event.dataTransfer.effectAllowed = 'move';
-                  event.dataTransfer.setData('text/plain', node.id);
-                  setDraggedDeckId(node.id);
-                }}
-                onDragEnd={() => {
-                  setDraggedDeckId(null);
-                  setDropTargetId(null);
-                }}
-                className={`p-1 -ml-1 rounded text-zinc-500 hover:text-indigo-300 cursor-grab active:cursor-grabbing ${
-                  draggedDeckId === node.id ? 'opacity-40 cursor-grabbing' : ''
-                }`}
-                title="Arraste para dentro de outro baralho"
-                aria-label={`Arrastar baralho ${node.displayName}`}
-              >
-                <GripVertical className="w-3.5 h-3.5" />
-              </button>
             )}
 
             <div className="min-w-0 flex-1 flex items-center gap-2">
@@ -424,7 +377,7 @@ export const AnkiDeckTree: React.FC<AnkiDeckTreeProps> = ({
             )}
 
             {/* 3. Mover Baralho */}
-            {onMoveDeck && isRealDeck && (
+            {onMoveDeck && !node.id.startsWith('virtual_') && (
               <button
                 type="button"
                 onClick={() => onMoveDeck(targetDeck)}
