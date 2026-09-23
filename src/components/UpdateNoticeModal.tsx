@@ -4,7 +4,10 @@ import { appUpdateService, VersionInfo } from '../services/appUpdateService';
 
 const DISMISSED_UPDATE_KEY = 'cfo_update_dismissed';
 
-const getUpdateKey = (info?: VersionInfo) => `${DISMISSED_UPDATE_KEY}:${info?.version || 'unknown'}:${info?.startedAt || 0}`;
+const getServerUpdateKey = (info?: VersionInfo) =>
+  `${DISMISSED_UPDATE_KEY}:${info?.version || 'unknown'}:${info?.startedAt || 0}`;
+const getUpdateKey = (info?: VersionInfo) =>
+  `${getServerUpdateKey(info)}${info?.updateId ? `:${info.updateId}` : ''}`;
 
 export const UpdateNoticeModal: React.FC = () => {
   const [hasUpdate, setHasUpdate] = useState(false);
@@ -14,7 +17,8 @@ export const UpdateNoticeModal: React.FC = () => {
   useEffect(() => {
     // Inscreve-se nas notificações de atualização em tempo real do Service Worker e /api/version
     const unsubscribe = appUpdateService.subscribe((updateAvailable, info) => {
-      const isDismissed = localStorage.getItem(getUpdateKey(info)) === 'true';
+      const updateKey = info?.updateId ? getUpdateKey(info) : getServerUpdateKey(info);
+      const isDismissed = localStorage.getItem(updateKey) === 'true';
       if (updateAvailable && !isDismissed) {
         setHasUpdate(true);
         if (info) setVersionInfo(info);
@@ -34,7 +38,8 @@ export const UpdateNoticeModal: React.FC = () => {
   };
 
   const handleDismiss = () => {
-    localStorage.setItem(getUpdateKey(versionInfo), 'true');
+    localStorage.setItem(getServerUpdateKey(versionInfo), 'true');
+    if (versionInfo?.updateId) localStorage.setItem(getUpdateKey(versionInfo), 'true');
     setHasUpdate(false);
   };
 

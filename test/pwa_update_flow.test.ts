@@ -20,3 +20,15 @@ test('atualizações do service worker aguardam o comando explícito do usuário
   assert.doesNotMatch(installHandler[0], /skipWaiting\(\)/);
   assert.match(serviceWorker, /event\.data\.type === 'SKIP_WAITING'[\s\S]*?self\.skipWaiting\(\)/);
 });
+
+test('adiar um aviso não oculta a instalação de um service worker mais novo', async () => {
+  const service = await readFile(new URL('src/services/appUpdateService.ts', root), 'utf8');
+  const notice = await readFile(new URL('src/components/UpdateNoticeModal.tsx', root), 'utf8');
+
+  assert.match(service, /updateId\?: string/);
+  assert.match(service, /markWaitingWorker\(newWorker, true\)/);
+  assert.match(service, /withWaitingUpdateId\(info \|\| this\.updateInfo\)/);
+  assert.match(notice, /info\?\.updateId/);
+  assert.match(notice, /getServerUpdateKey\(versionInfo\)/);
+  assert.match(notice, /localStorage\.setItem\(getUpdateKey\(versionInfo\), 'true'\)/);
+});

@@ -10,6 +10,7 @@ export interface VersionInfo {
   version: string;
   startedAt: number;
   timestamp: number;
+  updateId?: string;
 }
 
 export type UpdateListener = (hasUpdate: boolean, versionInfo?: VersionInfo) => void;
@@ -17,6 +18,8 @@ export type UpdateListener = (hasUpdate: boolean, versionInfo?: VersionInfo) => 
 class AppUpdateService {
   private initialVersion: VersionInfo | null = null;
   private waitingWorker: ServiceWorker | null = null;
+  private waitingUpdateId: string | null = null;
+  private workerUpdateSequence = 0;
   private hasUpdate = false;
   private updateInfo: VersionInfo | null = null;
   private listeners = new Set<UpdateListener>();
@@ -68,7 +71,10 @@ class AppUpdateService {
 
   private attachRegistrationListeners(reg: ServiceWorkerRegistration): void {
     if (reg.waiting) {
-      this.waitingWorker = reg.waiting;
+      if (this.waitingWorker !== reg.waiting) {
+        this.waitingWorker = reg.waiting;
+        this.waitingUpdateId = null;
+      }
       void this.fetchCurrentVersion().then((info) => this.notifyUpdateAvailable(info || undefined));
     }
 
@@ -79,8 +85,10 @@ class AppUpdateService {
       newWorker.addEventListener('statechange', () => {
         // Se o novo worker foi instalado e já existe um controlador ativo, temos um deploy novo!
         if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-          this.waitingWorker = newWorker;
-          void this.fetchCurrentVersion().then((info) => this.notifyUpdateAvailable(info || undefined));
+          this.markWaitingWorker(newWorker, true);
+          void this.fetchCurrentVersion().then((info) =>
+            this.notifyUpdateAvailable(this.withWaitingUpdateId(info || this.updateInfo))
+          );
         }
       });
     });
@@ -97,9 +105,13 @@ class AppUpdateService {
         if (reg) {
           await reg.update().catch(() => {});
           if (reg.waiting) {
-            this.waitingWorker = reg.waiting;
+            if (this.waitingWorker && this.waitingWorker !== reg.waiting) {
+              this.markWaitingWorker(reg.waiting, true);
+            } else if (!this.waitingWorker) {
+              this.waitingWorker = reg.waiting;
+            }
             const info = await this.fetchCurrentVersion();
-            this.notifyUpdateAvailable(info || undefined);
+            this.notifyUpdateAvailable(this.withWaitingUpdateId(info || this.updateInfo));
             return true;
           }
         }
@@ -148,6 +160,18 @@ class AppUpdateService {
         // Evita que erros em listeners degradem a execução
       }
     });
+  }
+
+  private markWaitingWorker(worker: ServiceWorker, isNewInstallation = false): void {
+    if (isNewInstallation || (this.waitingWorker && this.waitingWorker !== worker)) {
+      this.waitingUpdateId = `sw-${Date.now()}-${++this.workerUpdateSequence}`;
+    }
+    this.waitingWorker = worker;
+  }
+
+  private withWaitingUpdateId(info: VersionInfo | null): VersionInfo | undefined {
+    if (!info) return undefined;
+    return this.waitingUpdateId ? { ...info, updateId: this.waitingUpdateId } : info;
   }
 
   public subscribe(listener: UpdateListener): () => void {
