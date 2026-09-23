@@ -397,6 +397,23 @@ export const TimerTab: React.FC<TimerTabProps> = ({
     return subjects.find((s) => s.id === selectedSubjectId) || subjects[0];
   }, [subjects, selectedSubjectId]);
 
+  const handleSubjectChange = (subjectId: string) => {
+    setSelectedSubjectId(subjectId);
+    const subject = subjects.find((item) => item.id === subjectId);
+    if (!subject) return;
+    const nextTimer = { ...timerState, activeSubjectId: subject.id, activeSubjectName: subject.name };
+    setTimerState(nextTimer);
+    window.postMessage({ source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload: { ...nextTimer, serverOffset: serverOffsetRef.current } }, '*');
+    document.dispatchEvent(new CustomEvent('cfo-timer-web-event', {
+      detail: { source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload: { ...nextTimer, serverOffset: serverOffsetRef.current } },
+    }));
+    apiFetch('/api/timer/subject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subjectId: subject.id, subjectName: subject.name }),
+    }).catch(() => setIsOnline(false));
+  };
+
   // Iniciar
   const handleStart = async () => {
     if (mutationPendingRef.current) return;
@@ -845,13 +862,12 @@ export const TimerTab: React.FC<TimerTabProps> = ({
           <div className="relative">
             <select
               value={selectedSubjectId}
-              onChange={(e) => setSelectedSubjectId(e.target.value)}
-              disabled={isRunning}
+              onChange={(e) => handleSubjectChange(e.target.value)}
               className={`w-full py-2.5 pl-4 pr-10 rounded-xl text-xs font-bold border transition-all appearance-none cursor-pointer ${
                 isDark
                   ? 'bg-[#0F1D38] border-blue-900/60 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
                   : 'bg-white border-slate-300 text-slate-800 focus:border-blue-600 focus:ring-1 focus:ring-blue-600'
-              } ${isRunning ? 'opacity-80 cursor-not-allowed' : ''}`}
+              }`}
             >
               {subjects.map((sub) => (
                 <option key={sub.id} value={sub.id}>

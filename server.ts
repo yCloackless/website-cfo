@@ -1991,6 +1991,20 @@ app.post("/api/timer/start", (req: Request, res: Response) => {
   });
 });
 
+app.post("/api/timer/subject", (req: Request, res: Response) => {
+  const { subjectId, subjectName } = req.body || {};
+  if (typeof subjectId !== 'string' || !subjectId.trim() || typeof subjectName !== 'string' || !subjectName.trim()) {
+    return res.status(400).json({ error: 'Disciplina inválida' });
+  }
+  const userId = (req as any).user.userId;
+  const state = readTimerState(userId);
+  state.activeSubjectId = subjectId;
+  state.activeSubjectName = subjectName;
+  state.updatedAt = new Date().toISOString();
+  saveTimerState(userId, state);
+  return res.json(state);
+});
+
 // 3. Pausar Cronômetro (Inicia o descanso em andamento)
 app.post("/api/timer/pause", (req: Request, res: Response) => {
   const state = readTimerState((req as any).user.userId);
