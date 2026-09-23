@@ -54,6 +54,26 @@ test('a pausa legada sem acumulado conserva os 34 minutos, em vez de voltar aos 
   assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 34 * 60_000);
 });
 
+test('snapshot RUNNING antigo não reativa uma pausa feita pela extensão', () => {
+  const pauseTime = Date.now();
+  const w = worker({
+    cfo_ext_timer: {
+      status: 'PAUSED',
+      accumulatedMs: 34 * 60_000,
+      restStartTime: pauseTime,
+    },
+  });
+
+  w.web({
+    status: 'RUNNING',
+    accumulatedTime: 34 * 60_000,
+    startTime: pauseTime - 1000,
+  });
+
+  assert.equal(w.storage.cfo_ext_timer.status, 'PAUSED');
+  assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 34 * 60_000);
+});
+
 test('a extensão repete uma pausa após falha transitória do servidor', async () => {
   let pauseCalls = 0;
   const w = worker({
@@ -74,6 +94,30 @@ test('a extensão repete uma pausa após falha transitória do servidor', async 
   assert.equal(pauseCalls, 2);
   assert.equal(w.storage.cfo_ext_timer.status, 'PAUSED');
   assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 34 * 60_000);
+});
+
+test('polling antigo do servidor não substitui o estado pausado', async () => {
+  const pauseTime = Date.now();
+  const w = worker({
+    cfo_ext_timer: {
+      status: 'PAUSED',
+      accumulatedMs: 34 * 60_000,
+      restStartTime: pauseTime,
+    },
+    cfo_ext_settings: { serverUrl: 'http://local.test', token: 'fixture' },
+  }, async () => ({
+    ok: true,
+    json: async () => ({
+      status: 'RUNNING',
+      accumulatedTime: 34 * 60_000,
+      startTime: pauseTime - 1000,
+    }),
+  }));
+
+  w.poll();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(w.storage.cfo_ext_timer.status, 'PAUSED');
 });
 
 test('a ponte compartilha o ajuste do relógio sem descontar novamente o atraso de entrega', () => {

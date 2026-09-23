@@ -253,6 +253,19 @@ function applyWebTimerUpdate(web) {
   chrome.storage.local.get([STORAGE_KEYS.TIMER], (res) => {
     const prev = res[STORAGE_KEYS.TIMER] || {};
 
+    // Uma resposta RUNNING iniciada antes da pausa não pode reativar o timer.
+    const webStartTime = Number(web.startTime);
+    const pauseTime = Number(prev.restStartTime);
+    if (
+      prev.status === 'PAUSED' &&
+      web.status === 'RUNNING' &&
+      Number.isFinite(webStartTime) &&
+      Number.isFinite(pauseTime) &&
+      webStartTime <= pauseTime
+    ) {
+      return;
+    }
+
     if (web.status === 'STOPPED') {
       const resetTimer = {
         status: 'STOPPED',
@@ -351,6 +364,17 @@ function pollServerStatus() {
         }
 
         const current = res[STORAGE_KEYS.TIMER] || {};
+        const cloudStartTime = Number(cloud.startTime);
+        const pauseTime = Number(current.restStartTime);
+        if (
+          current.status === 'PAUSED' &&
+          cloud.status === 'RUNNING' &&
+          Number.isFinite(cloudStartTime) &&
+          Number.isFinite(pauseTime) &&
+          cloudStartTime <= pauseTime
+        ) {
+          return;
+        }
         const cloudAcc = Number(cloud.accumulatedTime ?? cloud.accumulatedMs ?? 0);
         const cloudRestAcc = Number(cloud.restAccumulatedMs ?? cloud.totalRestMs) || 0;
 
