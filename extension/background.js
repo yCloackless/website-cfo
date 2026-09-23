@@ -18,12 +18,22 @@ let pendingTimerWrites = 0;
 let timerWrites = Promise.resolve();
 
 // Start/pause/reset chegam ao servidor na mesma ordem dos cliques.
-function writeTimer(url, options) {
+function writeTimer(url, options, retryTransientFailure = false) {
   pendingTimerWrites += 1;
   const request = timerWrites.then(async () => {
-    const response = await fetch(url, options);
-    if (!response.ok) throw new Error('Falha ao sincronizar cronômetro');
-    return response.json();
+    for (let attempt = 0; ; attempt += 1) {
+      let response;
+      try {
+        response = await fetch(url, options);
+      } catch (error) {
+        if (!retryTransientFailure || attempt > 0) throw error;
+        continue;
+      }
+      if (response.ok) return response.json();
+      if (!retryTransientFailure || attempt > 0 || response.status < 500) {
+        throw new Error('Falha ao sincronizar cronômetro');
+      }
+    }
   });
   timerWrites = request.catch(() => {});
   return request.finally(() => { pendingTimerWrites -= 1; });
@@ -577,7 +587,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               'Authorization': `Bearer ${settings.token}`,
             },
             body: JSON.stringify({ accumulatedTime: newAcc }),
-          })
+          }, true)
             .then((cloud) => {
               if (command !== commandRevision) return;
               if (cloud && typeof cloud.serverTime === 'number') {

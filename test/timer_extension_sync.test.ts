@@ -54,6 +54,28 @@ test('a pausa legada sem acumulado conserva os 34 minutos, em vez de voltar aos 
   assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 34 * 60_000);
 });
 
+test('a extensão repete uma pausa após falha transitória do servidor', async () => {
+  let pauseCalls = 0;
+  const w = worker({
+    cfo_ext_timer: { status: 'RUNNING', accumulatedMs: 12 * 60_000, startTime: Date.now() - 22 * 60_000 },
+    cfo_ext_settings: { serverUrl: 'http://local.test', token: 'fixture' },
+  }, async (url: string) => {
+    if (!url.endsWith('/pause')) return { ok: true, json: async () => ({}) };
+    pauseCalls += 1;
+    return pauseCalls === 1
+      ? { ok: false, status: 503, json: async () => ({}) }
+      : { ok: true, json: async () => ({ status: 'PAUSED', accumulatedTime: 34 * 60_000 }) };
+  });
+
+  w.command('TIMER_PAUSE');
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(pauseCalls, 2);
+  assert.equal(w.storage.cfo_ext_timer.status, 'PAUSED');
+  assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 34 * 60_000);
+});
+
 test('a ponte compartilha o ajuste do relógio sem descontar novamente o atraso de entrega', () => {
   const w = worker({});
   w.web({ status: 'RUNNING', accumulatedTime: 720_000, startTime: Date.now(), serverTime: Date.now() - 5000, serverOffset: 250 });
