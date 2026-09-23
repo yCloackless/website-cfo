@@ -12,6 +12,22 @@ const STORAGE_KEYS = {
 };
 
 let serverOffset = 0;
+let timerRevision = 0;
+let commandRevision = 0;
+let pendingTimerWrites = 0;
+let timerWrites = Promise.resolve();
+
+// Start/pause/reset chegam ao servidor na mesma ordem dos cliques.
+function writeTimer(url, options) {
+  pendingTimerWrites += 1;
+  const request = timerWrites.then(async () => {
+    const response = await fetch(url, options);
+    if (!response.ok) throw new Error('Falha ao sincronizar cronômetro');
+    return response.json();
+  });
+  timerWrites = request.catch(() => {});
+  return request.finally(() => { pendingTimerWrites -= 1; });
+}
 chrome.storage.local.get([STORAGE_KEYS.SERVER_OFFSET], (result) => {
   if (typeof result[STORAGE_KEYS.SERVER_OFFSET] === 'number') {
     serverOffset = result[STORAGE_KEYS.SERVER_OFFSET];
@@ -157,6 +173,7 @@ const webBridgePorts = new Set();
 
 function broadcastToWeb(timerState) {
   if (!timerState) return;
+  timerState = { ...timerState, serverOffset };
 
   // 1. Envia para portas abertas na conexão persistente (webBridgePorts)
   for (const port of webBridgePorts) {
@@ -244,19 +261,22 @@ function applyWebTimerUpdate(web) {
       return;
     }
 
-    if (typeof web.serverTime === 'number') {
-      serverOffset = web.serverTime - Date.now();
+    if (Number.isFinite(web.serverOffset) || typeof web.serverTime === 'number') {
+      serverOffset = Number.isFinite(web.serverOffset) ? web.serverOffset : web.serverTime - Date.now();
       chrome.storage.local.set({ [STORAGE_KEYS.SERVER_OFFSET]: serverOffset });
     }
 
+    const pauseDelta = web.status === 'PAUSED' && prev.status === 'RUNNING' && prev.startTime
+      ? Math.max(0, (web.restStartTime || getServerNow()) - prev.startTime) : 0;
     const nextAcc = typeof web.accumulatedTime === 'number'
       ? web.accumulatedTime
-      : (typeof web.accumulatedMs === 'number' ? web.accumulatedMs : prev.accumulatedMs || 0);
+      : (typeof web.accumulatedMs === 'number' ? web.accumulatedMs : (Number(prev.accumulatedMs ?? prev.accumulatedTime) || 0) + pauseDelta);
     const nextRestAcc = typeof web.restAccumulatedMs === 'number'
       ? web.restAccumulatedMs
       : (typeof web.totalRestMs === 'number' ? web.totalRestMs : prev.restAccumulatedMs || 0);
 
     const updatedTimer = {
+      serverOffset,
       status: web.status || prev.status || 'STOPPED',
       accumulatedMs: nextAcc,
       accumulatedTime: nextAcc,
@@ -297,7 +317,7 @@ function applyAuthSessionUpdate(payload) {
 
 let isPolling = false;
 function pollServerStatus() {
-  if (isPolling) return;
+  if (isPolling || pendingTimerWrites) return;
   chrome.storage.local.get([STORAGE_KEYS.SETTINGS, STORAGE_KEYS.TIMER, STORAGE_KEYS.SERVER_OFFSET], (res) => {
     const settings = res[STORAGE_KEYS.SETTINGS] || {};
     if (!settings.serverUrl || !settings.token) return;
@@ -307,12 +327,13 @@ function pollServerStatus() {
     }
 
     isPolling = true;
+    const revision = timerRevision;
     fetch(`${settings.serverUrl}/api/timer/status`, {
       headers: { Authorization: `Bearer ${settings.token}` },
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((cloud) => {
-        if (!cloud || !cloud.status) return;
+        if (!cloud || !cloud.status || pendingTimerWrites || revision !== timerRevision) return;
 
         if (typeof cloud.serverTime === 'number') {
           serverOffset = cloud.serverTime - Date.now();
@@ -324,6 +345,7 @@ function pollServerStatus() {
         const cloudRestAcc = Number(cloud.restAccumulatedMs ?? cloud.totalRestMs) || 0;
 
         const nextTimer = {
+          serverOffset,
           status: cloud.status,
           accumulatedMs: cloudAcc,
           accumulatedTime: cloudAcc,
@@ -338,13 +360,12 @@ function pollServerStatus() {
         const startTimeChanged =
           nextTimer.status === 'RUNNING' &&
           nextTimer.startTime &&
-          Math.abs((current.startTime || 0) - nextTimer.startTime) > 1000;
+          current.startTime !== nextTimer.startTime;
         const accChanged =
-          (nextTimer.status === 'PAUSED' || nextTimer.status === 'STOPPED') &&
-          Math.abs((current.accumulatedMs || 0) - nextTimer.accumulatedMs) > 1000;
+          (current.accumulatedMs || 0) !== nextTimer.accumulatedMs;
         const subjectChanged = nextTimer.subjectId && current.subjectId !== nextTimer.subjectId;
 
-        const changed = statusChanged || startTimeChanged || accChanged || subjectChanged;
+        const changed = statusChanged || startTimeChanged || accChanged || subjectChanged || current.serverOffset !== serverOffset;
 
         if (changed) {
           chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: nextTimer }, () => {
@@ -400,6 +421,7 @@ chrome.runtime.onConnect.addListener((port) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local') {
     if (changes[STORAGE_KEYS.TIMER]) {
+      timerRevision += 1;
       const next = changes[STORAGE_KEYS.TIMER].newValue;
       updateBadge(next);
       ensureTicker(next?.status);
@@ -443,6 +465,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (type === 'TIMER_START') {
+    const command = ++commandRevision;
     chrome.storage.local.get([STORAGE_KEYS.TIMER, STORAGE_KEYS.SETTINGS, STORAGE_KEYS.SERVER_OFFSET], (res) => {
       if (typeof res[STORAGE_KEYS.SERVER_OFFSET] === 'number') {
         serverOffset = res[STORAGE_KEYS.SERVER_OFFSET];
@@ -458,6 +481,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const newRestAcc = prevRestAcc + restDelta;
 
       const newTimer = {
+        serverOffset,
         status: 'RUNNING',
         accumulatedMs: prevAcc,
         accumulatedTime: prevAcc,
@@ -476,7 +500,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         // Sincroniza com o backend se houver token
         if (settings.serverUrl && settings.token) {
-          fetch(`${settings.serverUrl}/api/timer/start`, {
+          writeTimer(`${settings.serverUrl}/api/timer/start`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -489,14 +513,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               resetAccumulated: newTimer.accumulatedMs === 0,
             }),
           })
-            .then((r) => (r.ok ? r.json() : null))
             .then((cloud) => {
+              if (command !== commandRevision) return;
               if (!cloud) return;
               if (typeof cloud.serverTime === 'number') {
                 serverOffset = cloud.serverTime - Date.now();
                 chrome.storage.local.set({ [STORAGE_KEYS.SERVER_OFFSET]: serverOffset });
               }
               if (cloud.startTime) {
+                newTimer.serverOffset = serverOffset;
                 newTimer.startTime = cloud.startTime;
                 newTimer.accumulatedMs = Number(cloud.accumulatedTime ?? newTimer.accumulatedMs);
                 newTimer.accumulatedTime = newTimer.accumulatedMs;
@@ -513,6 +538,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (type === 'TIMER_PAUSE') {
+    const command = ++commandRevision;
     chrome.storage.local.get([STORAGE_KEYS.TIMER, STORAGE_KEYS.SETTINGS, STORAGE_KEYS.SERVER_OFFSET], (res) => {
       if (typeof res[STORAGE_KEYS.SERVER_OFFSET] === 'number') {
         serverOffset = res[STORAGE_KEYS.SERVER_OFFSET];
@@ -528,6 +554,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       const newTimer = {
         ...prev,
+        serverOffset,
         status: 'PAUSED',
         accumulatedMs: newAcc,
         accumulatedTime: newAcc,
@@ -543,7 +570,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ success: true, timer: newTimer, serverOffset });
 
         if (settings.serverUrl && settings.token) {
-          fetch(`${settings.serverUrl}/api/timer/pause`, {
+          writeTimer(`${settings.serverUrl}/api/timer/pause`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -551,8 +578,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             },
             body: JSON.stringify({ accumulatedTime: newAcc }),
           })
-            .then((r) => (r.ok ? r.json() : null))
             .then((cloud) => {
+              if (command !== commandRevision) return;
               if (cloud && typeof cloud.serverTime === 'number') {
                 serverOffset = cloud.serverTime - Date.now();
                 chrome.storage.local.set({ [STORAGE_KEYS.SERVER_OFFSET]: serverOffset });
@@ -562,6 +589,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 const cloudRestAcc = Number(cloud.restAccumulatedMs ?? cloud.totalRestMs ?? newTimer.restAccumulatedMs);
                 const cloudTimer = {
                   ...newTimer,
+                  serverOffset,
                   accumulatedMs: cloudAcc,
                   accumulatedTime: cloudAcc,
                   startTime: null,
@@ -581,9 +609,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (type === 'TIMER_RESET') {
+    const command = ++commandRevision;
     chrome.storage.local.get([STORAGE_KEYS.SETTINGS], (res) => {
       const settings = res[STORAGE_KEYS.SETTINGS] || {};
       const newTimer = {
+        serverOffset,
         status: 'STOPPED',
         accumulatedMs: 0,
         accumulatedTime: 0,
@@ -601,15 +631,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ success: true, timer: newTimer });
 
         if (settings.serverUrl && settings.token) {
-          fetch(`${settings.serverUrl}/api/timer/reset`, {
+          writeTimer(`${settings.serverUrl}/api/timer/reset`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${settings.token}`,
             },
           })
-            .then((r) => (r.ok ? r.json() : null))
             .then((cloud) => {
+              if (command !== commandRevision) return;
               if (cloud && typeof cloud.serverTime === 'number') {
                 serverOffset = cloud.serverTime - Date.now();
                 chrome.storage.local.set({ [STORAGE_KEYS.SERVER_OFFSET]: serverOffset });

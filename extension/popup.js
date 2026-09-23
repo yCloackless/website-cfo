@@ -102,6 +102,7 @@ const sendRuntimeMessage = (message, callback) => {
 };
 
 
+let timerRevision = 0;
 const state = {
   activeTab: 'timer',
   serverOffset: 0,
@@ -565,6 +566,7 @@ function broadcastToWebTabs(timerState) {
 
 // Timer Listeners
 els.btnTimerToggle.addEventListener('click', async () => {
+  timerRevision += 1;
   const selectedOption = els.timerSubject?.options?.[els.timerSubject.selectedIndex];
   const subjectId = els.timerSubject?.value || 'geral';
   const subjectName = selectedOption?.text || 'Estudo Geral / Questões';
@@ -603,11 +605,9 @@ els.btnTimerToggle.addEventListener('click', async () => {
     };
   }
 
-  // Grava imediatamente no storage local para garantir contagem mesmo se o popup for fechado no milissegundo seguinte
-  await storage.set({ cfo_ext_timer: state.timer });
+  // O worker aplica a transição uma única vez e persiste mesmo após fechar o popup.
   updateTimerDisplay();
   startTimerTicker();
-  broadcastToWebTabs(state.timer);
 
   sendRuntimeMessage(
     isCurrentlyRunning
@@ -634,7 +634,6 @@ els.btnTimerToggle.addEventListener('click', async () => {
         accumulatedTime: respAcc,
         restAccumulatedMs: respRestAcc,
       };
-      storage.set({ cfo_ext_timer: state.timer, cfo_ext_server_offset: state.serverOffset });
       updateTimerDisplay();
       startTimerTicker();
       broadcastToWebTabs(state.timer);
@@ -858,6 +857,7 @@ async function initPopup() {
 
   if (state.settings.serverUrl && state.settings.token) {
     setConnectionStatus('connecting');
+    const revision = timerRevision;
     fetch(`${state.settings.serverUrl}/api/timer/status`, {
       headers: { Authorization: `Bearer ${state.settings.token}` },
     })
@@ -865,6 +865,10 @@ async function initPopup() {
         if (!response.ok) throw new Error('status error');
         setConnectionStatus('connected');
         const cloud = await response.json();
+        if (revision !== timerRevision) {
+          fetchLevelingFromCloud();
+          return;
+        }
         if (cloud && cloud.status) {
           if (typeof cloud.serverTime === 'number') {
             state.serverOffset = cloud.serverTime - Date.now();
@@ -889,6 +893,7 @@ async function initPopup() {
             stopTimerTicker();
           } else if (cloud.status === 'RUNNING') {
             state.timer = {
+              serverOffset: state.serverOffset,
               status: 'RUNNING',
               accumulatedMs: cloudAcc,
               accumulatedTime: cloudAcc,
@@ -903,6 +908,7 @@ async function initPopup() {
             startTimerTicker();
           } else if (cloud.status === 'PAUSED') {
             state.timer = {
+              serverOffset: state.serverOffset,
               status: 'PAUSED',
               accumulatedMs: cloudAcc,
               accumulatedTime: cloudAcc,
@@ -930,8 +936,10 @@ async function initPopup() {
       if (area !== 'local') return;
 
       if (changes['cfo_ext_timer']) {
+        timerRevision += 1;
         const next = changes['cfo_ext_timer'].newValue;
         if (next) {
+          if (Number.isFinite(next.serverOffset)) state.serverOffset = next.serverOffset;
           state.timer = {
             ...state.timer,
             ...next,
