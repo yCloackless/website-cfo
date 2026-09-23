@@ -227,7 +227,7 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
     } finally { setSavingEdit(false); }
   };
 
-  const uploadEditImage = async (file?: File) => {
+  const uploadEditImage = async (file?: File, fieldIndex = uploadField) => {
     if (!file || !file.type.startsWith('image/') || file.size > 5 * 1024 * 1024) {
       if (file) showToast?.('Selecione uma imagem válida de até 5MB.', 'error');
       return;
@@ -240,8 +240,16 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
       const res = await apiFetch('/api/anki/media/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64, filename: file.name }) });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error();
-      setEditFields((prev) => prev.map((field, idx) => idx === uploadField ? `${field}\n<img src="${data.url}" />` : field));
+      setEditFields((prev) => prev.map((field, idx) => idx === fieldIndex ? `${field}\n<img src="${data.url}" />` : field));
     } catch { showToast?.('Erro ao anexar imagem.', 'error'); }
+  };
+
+  const handleEditPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>, fieldIndex: number) => {
+    const image = Array.from(event.clipboardData.items)
+      .find((item) => item.type.startsWith('image/'))?.getAsFile();
+    if (!image) return;
+    event.preventDefault();
+    void uploadEditImage(image, fieldIndex);
   };
 
   const getQueueBadge = (queue: number) => {
@@ -565,6 +573,7 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
                     <button type="button" onClick={() => { setUploadField(idx); editFileInput.current?.click(); }} className="flex items-center gap-1 text-xs text-sky-300 hover:text-sky-200"><ImageIcon className="w-3.5 h-3.5" />Adicionar imagem</button>
                   </div>
                   <textarea value={field} onChange={(e) => setEditFields((prev) => prev.map((value, i) => i === idx ? e.target.value : value))}
+                    onPaste={(event) => handleEditPaste(event, idx)}
                     rows={5} className="w-full bg-zinc-950 border border-zinc-700 rounded-xl p-3 text-sm text-zinc-100 focus:outline-none focus:border-sky-500" />
                   <div className="flex flex-wrap gap-2 mt-2">
                     {[...field.matchAll(/<img\b[^>]*src=["']([^"']+)["'][^>]*>/gi)].map((match, imageIdx) => (
