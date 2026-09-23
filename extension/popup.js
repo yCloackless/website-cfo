@@ -124,6 +124,7 @@ const state = {
     answers: [],
     mode: 'live',
   },
+  lastResetTime: 0,
   isConnected: false,
 };
 
@@ -689,15 +690,68 @@ if (els.timerSubject) {
   });
 }
 
-els.btnTimerReset.addEventListener('click', () => {
-  sendRuntimeMessage({ type: 'TIMER_RESET' }, (response) => {
-    if (!response?.timer) return;
-    state.timer = response.timer;
-    updateTimerDisplay();
-    stopTimerTicker();
-    broadcastToWebTabs(state.timer);
-    showToast('Cronômetro zerado.');
-  });
+els.btnTimerReset.addEventListener('click', async () => {
+  timerRevision += 1;
+  const now = getServerNow();
+  state.lastResetTime = now;
+  const selectedOption = els.timerSubject?.options?.[els.timerSubject.selectedIndex];
+  const subjectId = els.timerSubject?.value || state.timer?.subjectId || 'geral';
+  const subjectName = selectedOption?.text || state.timer?.subjectName || 'Estudo Geral / Questões';
+
+  const resetTimer = {
+    serverOffset: state.serverOffset,
+    status: 'STOPPED',
+    accumulatedMs: 0,
+    accumulatedTime: 0,
+    startTime: null,
+    restAccumulatedMs: 0,
+    restStartTime: null,
+    subjectId,
+    subjectName,
+    resetAt: now,
+    lastAction: 'reset',
+  };
+
+  state.timer = resetTimer;
+  stopTimerTicker();
+  updateTimerDisplay();
+  await storage.set({ cfo_ext_timer: resetTimer });
+  broadcastToWebTabs(resetTimer);
+  showToast('Cronômetro zerado.');
+
+  sendRuntimeMessage(
+    {
+      type: 'TIMER_RESET',
+      payload: {
+        resetAt: now,
+        subjectId,
+        subjectName,
+      },
+    },
+    (response) => {
+      if (!response?.timer) return;
+      const respAcc = Number(response.timer.accumulatedMs ?? response.timer.accumulatedTime) || 0;
+      state.timer = {
+        ...response.timer,
+        accumulatedMs: respAcc,
+        accumulatedTime: respAcc,
+      };
+      storage.set({ cfo_ext_timer: state.timer });
+      updateTimerDisplay();
+      stopTimerTicker();
+      broadcastToWebTabs(state.timer);
+    }
+  );
+
+  if (state.settings.serverUrl && state.settings.token) {
+    fetch(`${state.settings.serverUrl}/api/timer/reset`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${state.settings.token}`,
+      },
+    }).catch(() => {});
+  }
 });
 
 els.btnTimerSave.addEventListener('click', async () => {
@@ -926,6 +980,7 @@ async function initPopup() {
           const cloudRestAcc = Number(cloud.restAccumulatedMs ?? cloud.totalRestMs) || 0;
 
           if (cloud.status === 'STOPPED') {
+            state.lastResetTime = typeof cloud.resetAt === 'number' ? cloud.resetAt : Date.now();
             state.timer = {
               status: 'STOPPED',
               accumulatedMs: 0,
@@ -933,8 +988,10 @@ async function initPopup() {
               startTime: null,
               restAccumulatedMs: 0,
               restStartTime: null,
-              subjectId: 'geral',
-              subjectName: 'Estudo Geral',
+              subjectId: cloud.activeSubjectId || state.timer.subjectId || 'geral',
+              subjectName: cloud.activeSubjectName || state.timer.subjectName || 'Estudo Geral',
+              resetAt: state.lastResetTime,
+              lastAction: 'reset',
             };
             await storage.set({ cfo_ext_timer: state.timer });
             updateTimerDisplay();
@@ -943,6 +1000,18 @@ async function initPopup() {
             const current = state.timer || {};
             const cloudStartTime = Number(cloud.startTime);
             const pauseTime = Number(current.restStartTime);
+            const resetTime = Number(current.resetAt || state.lastResetTime || 0);
+
+            // Guarda anti-sobrescrita pós-reset: se o timer local já está STOPPED, snapshot RUNNING não pode reverter!
+            if (
+              current.status === 'STOPPED' &&
+              ((Number.isFinite(cloudStartTime) && Number.isFinite(resetTime) && cloudStartTime <= resetTime) ||
+                Date.now() - (state.lastResetTime || 0) < 5000)
+            ) {
+              fetchLevelingFromCloud();
+              return;
+            }
+
             // Guarda anti-sobrescrita: se o timer local já está PAUSED e o startTime do servidor
             // foi iniciado antes ou durante a pausa, essa resposta RUNNING é antiga e não pode reverter!
             if (
@@ -965,6 +1034,7 @@ async function initPopup() {
               restStartTime: null,
               subjectId: cloud.activeSubjectId || state.timer.subjectId || 'geral',
               subjectName: cloud.activeSubjectName || state.timer.subjectName || 'Estudo Geral',
+              lastAction: 'start',
             };
             await storage.set({ cfo_ext_timer: state.timer });
             updateTimerDisplay();
@@ -973,6 +1043,18 @@ async function initPopup() {
             const current = state.timer || {};
             const cloudRestTime = Number(cloud.restStartTime);
             const currentStartTime = Number(current.startTime);
+            const resetTime = Number(current.resetAt || state.lastResetTime || 0);
+
+            // Guarda anti-sobrescrita pós-reset: se o timer local já está STOPPED, snapshot PAUSED não pode reverter!
+            if (
+              current.status === 'STOPPED' &&
+              ((Number.isFinite(cloudRestTime) && Number.isFinite(resetTime) && cloudRestTime <= resetTime) ||
+                Date.now() - (state.lastResetTime || 0) < 5000)
+            ) {
+              fetchLevelingFromCloud();
+              return;
+            }
+
             // Guarda anti-sobrescrita: se o timer local já está RUNNING e o restStartTime do servidor
             // foi antes ou durante o início do estudo atual, essa resposta PAUSED é obsoleta e não pode reverter!
             if (
@@ -995,6 +1077,7 @@ async function initPopup() {
               restStartTime: cloud.restStartTime || getServerNow(),
               subjectId: cloud.activeSubjectId || state.timer.subjectId || 'geral',
               subjectName: cloud.activeSubjectName || state.timer.subjectName || 'Estudo Geral',
+              lastAction: 'pause',
             };
             await storage.set({ cfo_ext_timer: state.timer });
             updateTimerDisplay();
@@ -1014,9 +1097,26 @@ async function initPopup() {
       if (area !== 'local') return;
 
       if (changes['cfo_ext_timer']) {
-        timerRevision += 1;
         const next = changes['cfo_ext_timer'].newValue;
         if (next) {
+          // Guarda anti-reversão pós-reset: se o timer local é STOPPED e chega RUNNING/PAUSED gerado antes do reset
+          if (
+            state.timer.status === 'STOPPED' &&
+            next.status !== 'STOPPED'
+          ) {
+            const nextActionTime = Number(next.status === 'RUNNING' ? next.startTime : next.restStartTime);
+            const resetTime = Number(state.timer.resetAt || state.lastResetTime || 0);
+            if (Number.isFinite(nextActionTime) && Number.isFinite(resetTime) && nextActionTime <= resetTime) {
+              return;
+            }
+            if (Date.now() - (state.lastResetTime || 0) < 5000) {
+              return;
+            }
+          }
+          if (next.status === 'STOPPED') {
+            state.lastResetTime = typeof next.resetAt === 'number' ? next.resetAt : Date.now();
+          }
+          timerRevision += 1;
           if (Number.isFinite(next.serverOffset)) state.serverOffset = next.serverOffset;
           state.timer = {
             ...state.timer,

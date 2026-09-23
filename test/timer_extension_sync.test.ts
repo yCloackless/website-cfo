@@ -283,3 +283,148 @@ test('a ponte da extensão encaminha uma atualização de timer por um canal só
   portListener({ type: 'EXTENSION_TIMER_SYNC', payload: { status: 'PAUSED' } });
   assert.equal(webEvents.length, 1, 'a página deve receber apenas o CustomEvent observado pelo timer');
 });
+
+test('TIMER_RESET zera completamente o timer no background e define status STOPPED', async () => {
+  const now = Date.now();
+  let resetCalls = 0;
+  const w = worker({
+    cfo_ext_timer: {
+      status: 'RUNNING',
+      accumulatedMs: 15 * 60_000,
+      startTime: now - 30_000,
+    },
+    cfo_ext_settings: { serverUrl: 'http://local.test', token: 'fixture' },
+  }, async (url: string) => {
+    if (url.endsWith('/reset')) {
+      resetCalls += 1;
+      return { ok: true, json: async () => ({ status: 'STOPPED', elapsedMs: 0, accumulatedTime: 0 }) };
+    }
+    return { ok: true, json: async () => ({}) };
+  });
+
+  w.command('TIMER_RESET', { resetAt: now });
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(w.storage.cfo_ext_timer.status, 'STOPPED');
+  assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 0);
+  assert.equal(w.storage.cfo_ext_timer.startTime, null);
+  assert.equal(w.storage.cfo_ext_timer.restStartTime, null);
+  assert.equal(w.storage.cfo_ext_timer.restAccumulatedMs, 0);
+  assert.equal(w.storage.cfo_ext_timer.lastAction, 'reset');
+  assert.ok(w.storage.cfo_ext_timer.resetAt >= now);
+  assert.equal(resetCalls, 1);
+});
+
+test('snapshot RUNNING ou PAUSED atrasado da web NÃO revive timer após RESET', async () => {
+  const resetTime = Date.now();
+  const w = worker({
+    cfo_ext_timer: {
+      status: 'STOPPED',
+      accumulatedMs: 0,
+      startTime: null,
+      restStartTime: null,
+      resetAt: resetTime,
+    },
+  });
+
+  // Chegada de snapshot RUNNING gerado antes ou durante o reset
+  w.web({
+    status: 'RUNNING',
+    accumulatedTime: 120_000,
+    startTime: resetTime - 5000,
+  });
+
+  assert.equal(w.storage.cfo_ext_timer.status, 'STOPPED');
+  assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 0);
+
+  // Chegada de snapshot PAUSED gerado antes ou durante o reset
+  w.web({
+    status: 'PAUSED',
+    accumulatedTime: 120_000,
+    restStartTime: resetTime - 1000,
+  });
+
+  assert.equal(w.storage.cfo_ext_timer.status, 'STOPPED');
+  assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 0);
+});
+
+test('polling do servidor com RUNNING ou PAUSED antigo é ignorado se timer está em STOPPED', async () => {
+  const resetTime = Date.now();
+  const w = worker({
+    cfo_ext_timer: {
+      status: 'STOPPED',
+      accumulatedMs: 0,
+      startTime: null,
+      restStartTime: null,
+      resetAt: resetTime,
+    },
+    cfo_ext_settings: { serverUrl: 'http://local.test', token: 'fixture' },
+  }, async () => ({
+    ok: true,
+    json: async () => ({
+      status: 'RUNNING',
+      accumulatedTime: 50_000,
+      startTime: resetTime - 10_000,
+    }),
+  }));
+
+  w.poll();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(w.storage.cfo_ext_timer.status, 'STOPPED');
+  assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 0);
+});
+
+test('resposta atrasada de /start ou /pause não reverte TIMER_RESET', async () => {
+  let finishStart!: (value: any) => void;
+  const w = worker({
+    cfo_ext_timer: { status: 'RUNNING', accumulatedMs: 60_000 },
+    cfo_ext_settings: { serverUrl: 'http://local.test', token: 'fixture' },
+  }, async (url: string) => {
+    if (url.endsWith('/start')) return new Promise((resolve) => { finishStart = resolve; });
+    return { ok: true, json: async () => ({ status: 'STOPPED', elapsedMs: 0 }) };
+  });
+
+  w.command('TIMER_START');
+  await new Promise((resolve) => setImmediate(resolve));
+  w.command('TIMER_RESET', { resetAt: Date.now() });
+
+  assert.equal(w.storage.cfo_ext_timer.status, 'STOPPED');
+
+  // Start antigo finaliza depois do reset
+  finishStart({ ok: true, json: async () => ({ status: 'RUNNING', startTime: Date.now(), accumulatedTime: 60_000 }) });
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(w.storage.cfo_ext_timer.status, 'STOPPED');
+  assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 0);
+});
+
+test('múltiplos cliques rápidos de RESET são idempotentes e mantêm 00:00:00 e STOPPED', async () => {
+  let resetCount = 0;
+  const w = worker({
+    cfo_ext_timer: { status: 'RUNNING', accumulatedMs: 120_000 },
+    cfo_ext_settings: { serverUrl: 'http://local.test', token: 'fixture' },
+  }, async (url: string) => {
+    if (url.endsWith('/reset')) {
+      resetCount++;
+      return { ok: true, json: async () => ({ status: 'STOPPED', elapsedMs: 0 }) };
+    }
+    return { ok: true, json: async () => ({}) };
+  });
+
+  const now = Date.now();
+  w.command('TIMER_RESET', { resetAt: now });
+  w.command('TIMER_RESET', { resetAt: now + 50 });
+  w.command('TIMER_RESET', { resetAt: now + 100 });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(w.storage.cfo_ext_timer.status, 'STOPPED');
+  assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 0);
+  assert.equal(w.storage.cfo_ext_timer.startTime, null);
+  assert.equal(w.storage.cfo_ext_timer.restStartTime, null);
+});
+

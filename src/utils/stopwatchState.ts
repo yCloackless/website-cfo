@@ -17,6 +17,8 @@ export interface StopwatchState {
   activeSubjectId?: string;
   activeSubjectName?: string;
   intervals?: StopwatchInterval[];
+  resetAt?: number | null;
+  lastAction?: string;
 }
 
 /**
@@ -66,6 +68,8 @@ export function transitionStopwatchState(
       activeSubjectId: subject?.id || current.activeSubjectId,
       activeSubjectName: subject?.name || current.activeSubjectName,
       intervals: [],
+      resetAt: now,
+      lastAction: 'reset',
     };
   }
 
@@ -92,6 +96,7 @@ export function transitionStopwatchState(
       activeSubjectId: subject?.id || current.activeSubjectId,
       activeSubjectName: subject?.name || current.activeSubjectName,
       intervals,
+      lastAction: 'start',
     };
   }
 
@@ -120,6 +125,7 @@ export function transitionStopwatchState(
     activeSubjectId: subject?.id || current.activeSubjectId,
     activeSubjectName: subject?.name || current.activeSubjectName,
     intervals,
+    lastAction: 'pause',
   };
 }
 

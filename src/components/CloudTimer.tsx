@@ -36,6 +36,7 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
   // Timestamp da última ação de pausa (protege contra corridas em eventos de window.focus)
   const lastPauseActionTimeRef = useRef<number>(0);
   const lastStartActionTimeRef = useRef<number>(0);
+  const lastResetActionTimeRef = useRef<number>(0);
   const mutationPendingRef = useRef(false);
   const syncRevisionRef = useRef(0);
   const lastExtensionSyncAtRef = useRef(0);
@@ -53,6 +54,22 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
       const extensionTimer = latestExtensionTimerRef.current;
       const cloudStartTime = Number(data.startTime);
       const pauseRefTime = Number(extensionTimer?.restStartTime || timerState.restStartTime);
+      const resetRefTime = Number(extensionTimer?.resetAt || lastResetActionTimeRef.current);
+
+      // Se o widget ou a extensão está em STOPPED (resetado), um snapshot RUNNING ou PAUSED
+      // cujo startTime ou restStartTime foi antes ou durante o reset ou recente após reset (< 5s)
+      // é obsoleto e nunca deve reverter o timer!
+      if (
+        (timerState.status === 'STOPPED' || extensionTimer?.status === 'STOPPED') &&
+        (data.status === 'RUNNING' || data.status === 'PAUSED') &&
+        (
+          (Number.isFinite(cloudStartTime) && Number.isFinite(resetRefTime) && cloudStartTime <= resetRefTime) ||
+          Date.now() - lastResetActionTimeRef.current < 5000
+        )
+      ) {
+        return;
+      }
+
       // Se o widget ou a extensão está em PAUSED, um snapshot RUNNING cujo startTime foi antes ou durante a pausa
       // é obsoleto e nunca deve reverter o timer!
       if (
@@ -191,6 +208,21 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
           .then((r) => (r.ok ? r.json() : null))
           .then((serverData) => {
             if (serverData && serverData.status === 'RUNNING') {
+              setTimerState(serverData);
+            }
+          })
+          .catch(() => {});
+      } else if (ext.status === 'STOPPED') {
+        lastResetActionTimeRef.current = Date.now();
+        lastStartActionTimeRef.current = 0;
+        lastPauseActionTimeRef.current = 0;
+        apiFetch('/api/timer/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((serverData) => {
+            if (serverData && serverData.status === 'STOPPED') {
               setTimerState(serverData);
             }
           })
@@ -427,6 +459,11 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
     if (mutationPendingRef.current) return;
     mutationPendingRef.current = true;
     syncRevisionRef.current += 1;
+    lastResetActionTimeRef.current = Date.now();
+    lastStartActionTimeRef.current = 0;
+    lastPauseActionTimeRef.current = 0;
+    setDisplayMs(0);
+    setRestDisplayMs(0);
     if (shouldLogTime && resetModal && onLogStudyTime) {
       onLogStudyTime(resetModal.minutes);
     }
@@ -444,6 +481,8 @@ export const CloudTimer: React.FC<CloudTimerProps> = ({ onLogStudyTime, classNam
             startTime: null,
             restAccumulatedMs: 0,
             restStartTime: null,
+            resetAt: lastResetActionTimeRef.current,
+            lastAction: 'reset',
           },
         },
         '*'

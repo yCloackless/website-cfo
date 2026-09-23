@@ -97,6 +97,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   // Timestamps de guarda para consistência de foco
   const lastPauseActionTimeRef = useRef<number>(0);
   const lastStartActionTimeRef = useRef<number>(0);
+  const lastResetActionTimeRef = useRef<number>(0);
   const mutationPendingRef = useRef(false);
   const syncRevisionRef = useRef(0);
   const lastExtensionSyncAtRef = useRef(0);
@@ -184,6 +185,19 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       const extensionTimer = latestExtensionTimerRef.current;
       const cloudStartTime = Number(data.startTime);
       const pauseRefTime = Number(extensionTimer?.restStartTime || timerStateRef.current.restStartTime);
+      const resetRefTime = Number(extensionTimer?.resetAt || lastResetActionTimeRef.current);
+
+      // Se o cronômetro local ou da extensão está STOPPED (resetado), snapshots RUNNING ou PAUSED antigos não podem reverter!
+      if (
+        (timerStateRef.current.status === 'STOPPED' || extensionTimer?.status === 'STOPPED') &&
+        (data.status === 'RUNNING' || data.status === 'PAUSED') &&
+        (
+          (Number.isFinite(cloudStartTime) && Number.isFinite(resetRefTime) && cloudStartTime <= resetRefTime) ||
+          Date.now() - lastResetActionTimeRef.current < 5000
+        )
+      ) {
+        return;
+      }
 
       if (
         (timerStateRef.current.status === 'PAUSED' || extensionTimer?.status === 'PAUSED') &&
@@ -299,6 +313,22 @@ export const TimerTab: React.FC<TimerTabProps> = ({
           .then((r) => (r.ok ? r.json() : null))
           .then((serverData) => {
             if (serverData && serverData.status === 'RUNNING') {
+              setTimerState(serverData);
+            }
+          })
+          .catch(() => {});
+      } else if (ext.status === 'STOPPED') {
+        lastResetActionTimeRef.current = Date.now();
+        lastStartActionTimeRef.current = 0;
+        lastPauseActionTimeRef.current = 0;
+        // Persiste o reset no backend usando a sessão autenticada com cookies da aba web
+        apiFetch('/api/timer/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((serverData) => {
+            if (serverData && serverData.status === 'STOPPED') {
               setTimerState(serverData);
             }
           })
@@ -537,6 +567,9 @@ export const TimerTab: React.FC<TimerTabProps> = ({
 
   const executeReset = () => {
     setResetModal(null);
+    lastResetActionTimeRef.current = Date.now();
+    lastStartActionTimeRef.current = 0;
+    lastPauseActionTimeRef.current = 0;
     const now = Date.now() + serverOffsetRef.current;
     const next = transitionStopwatchState(timerStateRef.current as any, 'STOPPED', now);
     if (!next) return;

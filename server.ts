@@ -1823,6 +1823,9 @@ interface TimerState {
   restAccumulatedMs?: number; // milissegundos acumulados em descanso
   restStartTime?: number | null; // timestamp de início do descanso atual (se PAUSED)
   intervals?: TimerInterval[]; // lista de blocos de estudo e descanso
+  resetAt?: number | null;
+  version?: number;
+  lastAction?: string;
 }
 
 const TIMER_STATE_STORAGE_KEY = 'cfo_timer_state_v1';
@@ -1863,6 +1866,9 @@ function readTimerState(userId: string): TimerState {
           restAccumulatedMs: typeof parsed.restAccumulatedMs === "number" ? parsed.restAccumulatedMs : 0,
           restStartTime: parsed.restStartTime || null,
           intervals: Array.isArray(parsed.intervals) ? parsed.intervals : [],
+          resetAt: typeof parsed.resetAt === "number" ? parsed.resetAt : null,
+          version: typeof parsed.version === "number" ? parsed.version : 1,
+          lastAction: typeof parsed.lastAction === "string" ? parsed.lastAction : (parsed.status ? String(parsed.status).toLowerCase() : "init"),
         };
       }
     } catch {
@@ -1895,6 +1901,9 @@ function readTimerState(userId: string): TimerState {
     restStartTime: null,
     intervals: [],
     updatedAt: new Date().toISOString(),
+    resetAt: null,
+    version: 1,
+    lastAction: "init",
   };
 }
 
@@ -1925,6 +1934,11 @@ app.get("/api/timer/status", (req: Request, res: Response) => {
       saveTimerState((req as any).user.userId, state);
     }
     totalRestMs += Math.max(0, now - state.restStartTime);
+  } else if (state.status === "STOPPED") {
+    totalElapsedMs = 0;
+    totalRestMs = 0;
+    state.accumulatedTime = 0;
+    state.restAccumulatedMs = 0;
   }
 
   return res.json({
@@ -1975,6 +1989,9 @@ app.post("/api/timer/start", (req: Request, res: Response) => {
 
   if (subjectId) state.activeSubjectId = subjectId;
   if (subjectName) state.activeSubjectName = subjectName;
+  state.version = (state.version || 0) + 1;
+  state.lastAction = "start";
+  state.resetAt = null;
   state.updatedAt = new Date().toISOString();
 
   saveTimerState((req as any).user.userId, state);
@@ -2040,6 +2057,18 @@ app.post("/api/timer/subject", (req: Request, res: Response) => {
 app.post("/api/timer/pause", (req: Request, res: Response) => {
   const state = readTimerState((req as any).user.userId);
   const now = Date.now();
+
+  // Se o cronômetro está STOPPED (resetado), não pode entrar em pausa! Retorna STOPPED zerado.
+  if (state.status === "STOPPED") {
+    return res.json({
+      success: true,
+      ...state,
+      totalElapsedMs: 0,
+      totalRestMs: 0,
+      serverTime: now,
+    });
+  }
+
   const reportedAccumulatedTime = Number(req.body?.accumulatedTime);
   let studyDelta = 0;
 
@@ -2067,6 +2096,8 @@ app.post("/api/timer/pause", (req: Request, res: Response) => {
   if (!wasAlreadyPaused) {
     state.restStartTime = now;
   }
+  state.version = (state.version || 0) + 1;
+  state.lastAction = "pause";
   // Preserva restAccumulatedMs acumulado das pausas anteriores da sessão
   state.updatedAt = new Date().toISOString();
   saveTimerState((req as any).user.userId, state);
@@ -2084,6 +2115,8 @@ app.post("/api/timer/pause", (req: Request, res: Response) => {
 
 // 4. Resetar Cronômetro
 app.post("/api/timer/reset", (req: Request, res: Response) => {
+  const current = readTimerState((req as any).user.userId);
+  const now = Date.now();
   const state: TimerState = {
     status: "STOPPED",
     accumulatedTime: 0,
@@ -2092,6 +2125,11 @@ app.post("/api/timer/reset", (req: Request, res: Response) => {
     restStartTime: null,
     intervals: [],
     updatedAt: new Date().toISOString(),
+    resetAt: now,
+    version: (current.version || 0) + 1,
+    lastAction: "reset",
+    activeSubjectId: current.activeSubjectId,
+    activeSubjectName: current.activeSubjectName,
   };
   saveTimerState((req as any).user.userId, state);
   return res.json({
@@ -2099,7 +2137,7 @@ app.post("/api/timer/reset", (req: Request, res: Response) => {
     ...state,
     totalElapsedMs: 0,
     totalRestMs: 0,
-    serverTime: Date.now(),
+    serverTime: now,
   });
 });
 

@@ -13,6 +13,7 @@ const STORAGE_KEYS = {
 
 let serverOffset = 0;
 let timerRevision = 0;
+let lastResetTime = 0;
 let webTimerUpdateRevision = 0;
 let commandRevision = 0;
 let pendingTimerWrites = 0;
@@ -287,16 +288,36 @@ function applyWebTimerUpdate(web) {
       return;
     }
 
+    // Se o timer local estiver STOPPED (resetado), nenhuma atualização da web com RUNNING ou PAUSED
+    // cujo startTime ou restStartTime seja anterior ou igual ao reset pode reativar o timer!
+    if (
+      prev.status === 'STOPPED' &&
+      web.status !== 'STOPPED'
+    ) {
+      const webActionTime = Number(web.status === 'RUNNING' ? web.startTime : web.restStartTime);
+      const resetTime = Number(prev.resetAt || lastResetTime || 0);
+      if (Number.isFinite(webActionTime) && Number.isFinite(resetTime) && webActionTime <= resetTime) {
+        return;
+      }
+      if (Date.now() - (lastResetTime || 0) < 5000) {
+        return;
+      }
+    }
+
     if (web.status === 'STOPPED') {
+      lastResetTime = typeof web.resetAt === 'number' ? web.resetAt : Date.now();
       const resetTimer = {
+        serverOffset,
         status: 'STOPPED',
         accumulatedMs: 0,
         accumulatedTime: 0,
         startTime: null,
         restAccumulatedMs: 0,
         restStartTime: null,
-        subjectId: 'geral',
-        subjectName: 'Estudo Geral',
+        subjectId: web.subjectId || prev.subjectId || 'geral',
+        subjectName: web.subjectName || prev.subjectName || 'Estudo Geral',
+        resetAt: lastResetTime,
+        lastAction: 'reset',
       };
       chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: resetTimer }, () => {
         updateBadge(resetTimer);
@@ -386,6 +407,23 @@ function pollServerStatus() {
         }
 
         const current = res[STORAGE_KEYS.TIMER] || {};
+
+        // Se o timer local estiver STOPPED, qualquer resposta da nuvem com RUNNING ou PAUSED
+        // iniciada antes ou durante o reset é obsoleta e deve ser ignorada!
+        if (
+          current.status === 'STOPPED' &&
+          cloud.status !== 'STOPPED'
+        ) {
+          const cloudActionTime = Number(cloud.status === 'RUNNING' ? cloud.startTime : cloud.restStartTime);
+          const resetTime = Number(current.resetAt || lastResetTime || 0);
+          if (Number.isFinite(cloudActionTime) && Number.isFinite(resetTime) && cloudActionTime <= resetTime) {
+            return;
+          }
+          if (Date.now() - (lastResetTime || 0) < 5000) {
+            return;
+          }
+        }
+
         const cloudStartTime = Number(cloud.startTime);
         const pauseTime = Number(current.restStartTime);
         if (
@@ -675,6 +713,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (type === 'TIMER_RESET') {
     const command = ++commandRevision;
+    timerRevision += 1;
+    const now = getServerNow();
+    lastResetTime = typeof payload?.resetAt === 'number' ? payload.resetAt : now;
     chrome.storage.local.get([STORAGE_KEYS.SETTINGS], (res) => {
       const settings = res[STORAGE_KEYS.SETTINGS] || {};
       const newTimer = {
@@ -685,8 +726,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         startTime: null,
         restAccumulatedMs: 0,
         restStartTime: null,
-        subjectId: 'geral',
-        subjectName: 'Estudo Geral',
+        subjectId: payload?.subjectId || 'geral',
+        subjectName: payload?.subjectName || 'Estudo Geral',
+        resetAt: lastResetTime,
+        lastAction: 'reset',
       };
 
       chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {
