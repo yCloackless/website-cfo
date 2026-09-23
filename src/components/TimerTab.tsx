@@ -80,6 +80,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   const serverOffsetRef = useRef<number>(0);
   // Timestamp da última ação de pausa (protege contra corridas em eventos de window.focus)
   const lastPauseActionTimeRef = useRef<number>(0);
+  const lastStartActionTimeRef = useRef<number>(0);
   const mutationPendingRef = useRef(false);
   const syncRevisionRef = useRef(0);
   const lastExtensionSyncAtRef = useRef(0);
@@ -151,6 +152,21 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         return;
       }
 
+      // Se a aba ou a extensão está em RUNNING, um snapshot PAUSED cujo restStartTime foi antes ou durante o foco
+      // ou recente após o início é obsoleto e nunca deve reverter o timer para pausa!
+      const currentStudyStart = Number(extensionTimer?.startTime || timerState.startTime);
+      const cloudRestTime = Number(data.restStartTime);
+      if (
+        (timerState.status === 'RUNNING' || extensionTimer?.status === 'RUNNING') &&
+        data.status === 'PAUSED' &&
+        (
+          (Number.isFinite(cloudRestTime) && Number.isFinite(currentStudyStart) && cloudRestTime <= currentStudyStart) ||
+          Date.now() - lastStartActionTimeRef.current < 4000
+        )
+      ) {
+        return;
+      }
+
       if (Date.now() - lastExtensionSyncAtRef.current < 4000 && extensionTimer && (
         data.status !== extensionTimer.status ||
         Number(data.accumulatedTime) < Number(extensionTimer.accumulatedTime ?? extensionTimer.accumulatedMs ?? 0) ||
@@ -163,6 +179,10 @@ export const TimerTab: React.FC<TimerTabProps> = ({
 
       // Guarda contra corrida de foco: se acabamos de pausar há menos de 4s e o servidor ainda respondeu RUNNING, não reverte!
       if (Date.now() - lastPauseActionTimeRef.current < 4000 && data.status === 'RUNNING') {
+        return;
+      }
+      // Guarda simétrica: se acabamos de iniciar há menos de 4s e o servidor ainda respondeu PAUSED, não reverte!
+      if (Date.now() - lastStartActionTimeRef.current < 4000 && data.status === 'PAUSED') {
         return;
       }
       setTimerState(data);
@@ -228,8 +248,10 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       if (!['RUNNING', 'PAUSED', 'STOPPED'].includes(ext.status) || !Number.isFinite(accumulatedTime)) return;
       syncRevisionRef.current += 1;
       lastExtensionSyncAtRef.current = Date.now();
+      latestExtensionTimerRef.current = ext;
       if (ext.status === 'PAUSED') {
         lastPauseActionTimeRef.current = Date.now();
+        lastStartActionTimeRef.current = 0;
         // Persiste a pausa no backend usando a sessão autenticada com cookies da aba web
         apiFetch('/api/timer/pause', {
           method: 'POST',
@@ -239,6 +261,26 @@ export const TimerTab: React.FC<TimerTabProps> = ({
           .then((r) => (r.ok ? r.json() : null))
           .then((serverData) => {
             if (serverData && serverData.status === 'PAUSED') {
+              setTimerState(serverData);
+            }
+          })
+          .catch(() => {});
+      } else if (ext.status === 'RUNNING') {
+        lastStartActionTimeRef.current = Date.now();
+        lastPauseActionTimeRef.current = 0;
+        // Persiste o início/retomada no backend usando a sessão autenticada com cookies da aba web
+        apiFetch('/api/timer/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subjectId: ext.activeSubjectId || ext.subjectId,
+            subjectName: ext.activeSubjectName || ext.subjectName,
+            accumulatedTime,
+          }),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((serverData) => {
+            if (serverData && serverData.status === 'RUNNING') {
               setTimerState(serverData);
             }
           })
@@ -360,6 +402,8 @@ export const TimerTab: React.FC<TimerTabProps> = ({
     if (mutationPendingRef.current) return;
     mutationPendingRef.current = true;
     syncRevisionRef.current += 1;
+    lastStartActionTimeRef.current = Date.now();
+    lastPauseActionTimeRef.current = 0;
     const now = Date.now();
     const estimatedServerNow = now + serverOffsetRef.current;
 
@@ -423,6 +467,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
     mutationPendingRef.current = true;
     syncRevisionRef.current += 1;
     lastPauseActionTimeRef.current = Date.now();
+    lastStartActionTimeRef.current = 0;
     const now = Date.now();
     const currentRestStart = now + serverOffsetRef.current;
 

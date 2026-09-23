@@ -1938,7 +1938,7 @@ app.get("/api/timer/status", (req: Request, res: Response) => {
 
 // 2. Iniciar / Retomar Cronômetro
 app.post("/api/timer/start", (req: Request, res: Response) => {
-  const { subjectId, subjectName, accumulatedTime, resetAccumulated } = req.body || {};
+  const { subjectId, subjectName, accumulatedTime, resetAccumulated, restAccumulatedMs } = req.body || {};
   const state = readTimerState((req as any).user.userId);
   const now = Date.now();
 
@@ -1965,9 +1965,13 @@ app.post("/api/timer/start", (req: Request, res: Response) => {
     state.restStartTime = null;
   }
 
-  // Ao iniciar ou retomar, registra status RUNNING e o timestamp de início deste ciclo
+  // Ao iniciar ou retomar, registra status RUNNING. Se já estava RUNNING com startTime válido, preserva o startTime (idempotência)
+  const wasAlreadyRunning = state.status === "RUNNING" && typeof state.startTime === "number" && resetAccumulated !== true;
   state.status = "RUNNING";
-  state.startTime = now;
+  if (!wasAlreadyRunning) {
+    state.startTime = now;
+  }
+  state.restStartTime = null;
 
   if (subjectId) state.activeSubjectId = subjectId;
   if (subjectName) state.activeSubjectName = subjectName;

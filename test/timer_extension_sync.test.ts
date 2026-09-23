@@ -186,3 +186,50 @@ test('popup initPopup protege estado PAUSED contra sobrescrita por RUNNING obsol
   assert.ok(popupSrc.includes('broadcastToWebTabs(state.timer)'), 'popup.js deve propagar imediatamente para abas web');
 });
 
+test('popup initPopup protege estado RUNNING contra sobrescrita por PAUSED obsoleto da nuvem', () => {
+  const popupSrc = fs.readFileSync('extension/popup.js', 'utf8');
+  assert.ok(popupSrc.includes('cloudRestTime <= currentStartTime'), 'popup.js deve conter a guarda anti-reversão contra PAUSED obsoleto');
+});
+
+test('snapshot PAUSED antigo da web não reverte timer RUNNING no background', () => {
+  const now = Date.now();
+  const w = worker({
+    cfo_ext_timer: {
+      status: 'RUNNING',
+      accumulatedMs: 900_000,
+      startTime: now,
+    },
+  });
+
+  w.web({
+    status: 'PAUSED',
+    accumulatedTime: 900_000,
+    restStartTime: now - 5000,
+  });
+
+  assert.equal(w.storage.cfo_ext_timer.status, 'RUNNING');
+  assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 900_000);
+});
+
+test('TIMER_START com payload preserva restAccumulatedMs e startTime no background', async () => {
+  const now = Date.now();
+  const w = worker({
+    cfo_ext_timer: { status: 'PAUSED', accumulatedMs: 900_000, restStartTime: now - 60_000, restAccumulatedMs: 120_000 },
+    cfo_ext_settings: { serverUrl: 'http://local.test', token: 'fixture' },
+  }, async () => ({ ok: true, json: async () => ({ status: 'RUNNING', startTime: now, accumulatedTime: 900_000 }) }));
+
+  w.command('TIMER_START', {
+    subjectId: 'matematica',
+    subjectName: 'Matemática',
+    accumulatedTime: 900_000,
+    restAccumulatedMs: 180_000,
+    startTime: now,
+  });
+
+  assert.equal(w.storage.cfo_ext_timer.status, 'RUNNING');
+  assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 900_000);
+  assert.equal(w.storage.cfo_ext_timer.restAccumulatedMs, 180_000);
+  assert.equal(w.storage.cfo_ext_timer.startTime, now);
+});
+
+

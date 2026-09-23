@@ -630,6 +630,8 @@ els.btnTimerToggle.addEventListener('click', async () => {
             subjectId,
             subjectName,
             accumulatedTime: currentAccumulated,
+            restAccumulatedMs: newRestAccumulated,
+            startTime: now,
             resetAccumulated: currentAccumulated === 0,
           },
         },
@@ -934,6 +936,21 @@ async function initPopup() {
             updateTimerDisplay();
             startTimerTicker();
           } else if (cloud.status === 'PAUSED') {
+            const current = state.timer || {};
+            const cloudRestTime = Number(cloud.restStartTime);
+            const currentStartTime = Number(current.startTime);
+            // Guarda anti-sobrescrita: se o timer local já está RUNNING e o restStartTime do servidor
+            // foi antes ou durante o início do estudo atual, essa resposta PAUSED é obsoleta e não pode reverter!
+            if (
+              current.status === 'RUNNING' &&
+              Number.isFinite(cloudRestTime) &&
+              Number.isFinite(currentStartTime) &&
+              cloudRestTime <= currentStartTime
+            ) {
+              fetchLevelingFromCloud();
+              return;
+            }
+
             state.timer = {
               serverOffset: state.serverOffset,
               status: 'PAUSED',

@@ -272,6 +272,19 @@ function applyWebTimerUpdate(web) {
       return;
     }
 
+    // Uma resposta PAUSED iniciada antes ou durante o foco não pode reverter o timer.
+    const webRestTime = Number(web.restStartTime);
+    const studyStartTime = Number(prev.startTime);
+    if (
+      prev.status === 'RUNNING' &&
+      web.status === 'PAUSED' &&
+      Number.isFinite(webRestTime) &&
+      Number.isFinite(studyStartTime) &&
+      webRestTime <= studyStartTime
+    ) {
+      return;
+    }
+
     if (web.status === 'STOPPED') {
       const resetTimer = {
         status: 'STOPPED',
@@ -518,14 +531,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         : (Number(prev.accumulatedMs ?? prev.accumulatedTime) || 0);
       const prevRestAcc = Number(prev.restAccumulatedMs) || 0;
       const restDelta = prev.status === 'PAUSED' && prev.restStartTime ? Math.max(0, now - prev.restStartTime) : 0;
-      const newRestAcc = prevRestAcc + restDelta;
+      const newRestAcc = typeof payload?.restAccumulatedMs === 'number'
+        ? payload.restAccumulatedMs
+        : prevRestAcc + restDelta;
+      const startTimestamp = typeof payload?.startTime === 'number' ? payload.startTime : now;
 
       const newTimer = {
         serverOffset,
         status: 'RUNNING',
         accumulatedMs: prevAcc,
         accumulatedTime: prevAcc,
-        startTime: now,
+        startTime: startTimestamp,
         restAccumulatedMs: newRestAcc,
         restStartTime: null,
         subjectId: payload?.subjectId || prev.subjectId || 'geral',
@@ -550,6 +566,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               subjectId: newTimer.subjectId,
               subjectName: newTimer.subjectName,
               accumulatedTime: newTimer.accumulatedMs,
+              restAccumulatedMs: newTimer.restAccumulatedMs,
               resetAccumulated: newTimer.accumulatedMs === 0,
             }),
           })
