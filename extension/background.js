@@ -524,6 +524,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (changes[STORAGE_KEYS.SERVER_OFFSET]) {
       if (typeof changes[STORAGE_KEYS.SERVER_OFFSET].newValue === 'number') {
         serverOffset = changes[STORAGE_KEYS.SERVER_OFFSET].newValue;
+        updateBadge();
       }
     }
     if (changes[STORAGE_KEYS.SETTINGS]) {
@@ -553,7 +554,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (typeof res[STORAGE_KEYS.SERVER_OFFSET] === 'number') {
         serverOffset = res[STORAGE_KEYS.SERVER_OFFSET];
       }
-      sendResponse({ timer: res[STORAGE_KEYS.TIMER], serverOffset });
+      const currentTimer = res[STORAGE_KEYS.TIMER];
+      const safeTimer = currentTimer ? { ...currentTimer, serverOffset } : null;
+      sendResponse({ timer: safeTimer, serverOffset });
     });
     return true; // async
   }
@@ -589,7 +592,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         subjectName: payload?.subjectName || prev.subjectName || 'Estudo Geral',
       };
 
-      chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {
+      chrome.storage.local.set({
+        [STORAGE_KEYS.TIMER]: newTimer,
+        [STORAGE_KEYS.SERVER_OFFSET]: serverOffset,
+      }, () => {
         updateBadge(newTimer);
         ensureTicker('RUNNING');
         broadcastToWeb(newTimer);
@@ -666,7 +672,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         subjectName: payload?.subjectName || prev.subjectName || 'Estudo Geral',
       };
 
-      chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {
+      chrome.storage.local.set({
+        [STORAGE_KEYS.TIMER]: newTimer,
+        [STORAGE_KEYS.SERVER_OFFSET]: serverOffset,
+      }, () => {
         updateBadge(newTimer);
         ensureTicker('PAUSED');
         broadcastToWeb(newTimer);
@@ -732,11 +741,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         lastAction: 'reset',
       };
 
-      chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {
+      chrome.storage.local.set({
+        [STORAGE_KEYS.TIMER]: newTimer,
+        [STORAGE_KEYS.SERVER_OFFSET]: serverOffset,
+      }, () => {
         updateBadge(newTimer);
         ensureTicker('STOPPED');
         broadcastToWeb(newTimer);
-        sendResponse({ success: true, timer: newTimer });
+        sendResponse({ success: true, timer: newTimer, serverOffset });
 
         if (settings.serverUrl && settings.token) {
           writeTimer(`${settings.serverUrl}/api/timer/reset`, {

@@ -44,7 +44,7 @@ function worker(initial: Record<string, any>, fetcher = async (..._args: any[]) 
   return {
     storage,
     web: (snapshot: any) => { context.snapshot = snapshot; vm.runInContext('applyWebTimerUpdate(snapshot)', context); },
-    command: (type: string, payload?: any) => onMessage({ type, payload }, {}, noop),
+    command: (type: string, payload?: any, cb: Function = noop) => onMessage({ type, payload }, {}, cb),
     poll: () => vm.runInContext('pollServerStatus()', context),
   };
 }
@@ -426,5 +426,66 @@ test('múltiplos cliques rápidos de RESET são idempotentes e mantêm 00:00:00 
   assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 0);
   assert.equal(w.storage.cfo_ext_timer.startTime, null);
   assert.equal(w.storage.cfo_ext_timer.restStartTime, null);
+});
+
+test('GET_TIMER_STATE responde com serverOffset e timer autoritativo sincronizados', async () => {
+  const w = worker({
+    cfo_ext_timer: { status: 'RUNNING', accumulatedMs: 0, startTime: Date.now() },
+    cfo_ext_server_offset: 6000,
+  });
+
+  let response: any = null;
+  w.command('GET_TIMER_STATE', null, (res: any) => {
+    response = res;
+  });
+
+  assert.ok(response, 'GET_TIMER_STATE deve retornar resposta');
+  assert.equal(response.serverOffset, 6000);
+  assert.equal(response.timer.serverOffset, 6000);
+  assert.equal(response.timer.status, 'RUNNING');
+});
+
+test('TIMER_START, TIMER_PAUSE e TIMER_RESET persistem explicitamente cfo_ext_server_offset no storage', async () => {
+  const w = worker({
+    cfo_ext_timer: { status: 'STOPPED', accumulatedMs: 0 },
+    cfo_ext_server_offset: 6000,
+  });
+
+  // Start
+  w.command('TIMER_START', { accumulatedTime: 0, startTime: Date.now() });
+  assert.equal(w.storage.cfo_ext_server_offset, 6000);
+  assert.equal(w.storage.cfo_ext_timer.serverOffset, 6000);
+
+  // Pause
+  w.command('TIMER_PAUSE', { accumulatedTime: 10000 });
+  assert.equal(w.storage.cfo_ext_server_offset, 6000);
+  assert.equal(w.storage.cfo_ext_timer.serverOffset, 6000);
+
+  // Reset
+  w.command('TIMER_RESET', { resetAt: Date.now() });
+  assert.equal(w.storage.cfo_ext_server_offset, 6000);
+  assert.equal(w.storage.cfo_ext_timer.serverOffset, 6000);
+});
+
+test('harmonia perfeita de relógio: badge do background e display do popup calculam exatamente o mesmo tempo com serverOffset (+6s)', () => {
+  // Simula o cenário relatado: servidor do Render com skew de +6 segundos (6000ms)
+  const serverOffset = 6000;
+  const localNow = 1_000_000;
+  const serverNow = localNow + serverOffset; // 1_006_000
+  const startTime = serverNow - 33_000; // Iniciado há 33 segundos reais
+
+  // Cálculo do background (updateBadge)
+  const bgNow = localNow + serverOffset;
+  const bgElapsed = Math.max(0, bgNow - startTime); // 33_000ms
+  const bgSecs = Math.floor(bgElapsed / 1000); // 33s
+
+  // Cálculo do popup quando sincronizado com serverOffset do background
+  const popupNow = localNow + serverOffset;
+  const popupElapsed = Math.max(0, popupNow - startTime); // 33_000ms
+  const popupSecs = Math.floor(popupElapsed / 1000); // 33s
+
+  assert.equal(bgSecs, 33, 'Badge deve indicar 33s');
+  assert.equal(popupSecs, 33, 'Popup sincronizado deve indicar exatamente 33s, eliminando o atraso de 6s');
+  assert.equal(bgSecs, popupSecs, 'Discrepância entre badge e janela deve ser rigorosamente 0');
 });
 

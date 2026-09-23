@@ -90,10 +90,17 @@ const sendRuntimeMessage = (message, callback) => {
       storage.set({ cfo_ext_timer: newTimer });
       callback({ success: true, timer: newTimer });
     } else if (message.type === 'GET_TIMER_STATE') {
-      storage.get(['cfo_ext_timer']).then((res) => {
+      storage.get(['cfo_ext_timer', 'cfo_ext_server_offset']).then((res) => {
         const raw = res.cfo_ext_timer || state.timer;
         const acc = Number(raw.accumulatedMs ?? raw.accumulatedTime) || 0;
-        callback({ success: true, timer: { ...raw, accumulatedMs: acc, accumulatedTime: acc } });
+        const offset = typeof res.cfo_ext_server_offset === 'number'
+          ? res.cfo_ext_server_offset
+          : (typeof raw.serverOffset === 'number' ? raw.serverOffset : state.serverOffset);
+        callback({
+          success: true,
+          timer: { ...raw, accumulatedMs: acc, accumulatedTime: acc, serverOffset: offset },
+          serverOffset: offset,
+        });
       });
     } else {
       callback({ success: true, timer: state.timer });
@@ -606,7 +613,10 @@ els.btnTimerToggle.addEventListener('click', async () => {
   // Persiste no storage local e transmite para as abas web IMEDIATAMENTE no clique (0ms)
   updateTimerDisplay();
   startTimerTicker();
-  await storage.set({ cfo_ext_timer: state.timer });
+  await storage.set({
+    cfo_ext_timer: state.timer,
+    cfo_ext_server_offset: state.serverOffset,
+  });
   broadcastToWebTabs(state.timer);
 
   sendRuntimeMessage(
@@ -633,8 +643,9 @@ els.btnTimerToggle.addEventListener('click', async () => {
         },
     (response) => {
       if (!response?.timer) return;
-      if (typeof response.serverOffset === 'number') {
+      if (typeof response.serverOffset === 'number' && Number.isFinite(response.serverOffset)) {
         state.serverOffset = response.serverOffset;
+        storage.set({ cfo_ext_server_offset: state.serverOffset });
       }
       const respAcc = Number(response.timer.accumulatedMs ?? response.timer.accumulatedTime) || 0;
       const respRestAcc = Number(response.timer.restAccumulatedMs) || 0;
@@ -906,8 +917,11 @@ async function initPopup() {
     'cfo_ext_server_offset',
   ]);
 
-  if (typeof saved.cfo_ext_server_offset === 'number') {
+  if (typeof saved.cfo_ext_server_offset === 'number' && Number.isFinite(saved.cfo_ext_server_offset)) {
     state.serverOffset = saved.cfo_ext_server_offset;
+  } else if (typeof saved.cfo_ext_timer?.serverOffset === 'number' && Number.isFinite(saved.cfo_ext_timer.serverOffset)) {
+    state.serverOffset = saved.cfo_ext_timer.serverOffset;
+    storage.set({ cfo_ext_server_offset: state.serverOffset });
   }
 
   if (saved.cfo_ext_settings) {
@@ -934,28 +948,47 @@ async function initPopup() {
     if (state.timer.subjectId) els.timerSubject.value = state.timer.subjectId;
   }
 
+  // Obtém o estado autoritativo e o serverOffset do background worker antes do primeiro frame de renderização
+  const bgState = await new Promise((resolve) => {
+    let resolved = false;
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        resolve(null);
+      }
+    }, 100);
+    sendRuntimeMessage({ type: 'GET_TIMER_STATE' }, (response) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        resolve(response);
+      }
+    });
+  });
+
+  if (bgState?.timer) {
+    if (typeof bgState.serverOffset === 'number' && Number.isFinite(bgState.serverOffset)) {
+      state.serverOffset = bgState.serverOffset;
+      storage.set({ cfo_ext_server_offset: state.serverOffset });
+    } else if (typeof bgState.timer.serverOffset === 'number' && Number.isFinite(bgState.timer.serverOffset)) {
+      state.serverOffset = bgState.timer.serverOffset;
+      storage.set({ cfo_ext_server_offset: state.serverOffset });
+    }
+    const respAcc = Number(bgState.timer.accumulatedMs ?? bgState.timer.accumulatedTime) || 0;
+    state.timer = {
+      ...bgState.timer,
+      accumulatedMs: respAcc,
+      accumulatedTime: respAcc,
+    };
+    if (state.timer.subjectId) els.timerSubject.value = state.timer.subjectId;
+  }
+
   setTheme(saved.cfo_ext_theme || 'dark');
   updateLevelingUI();
   updateTimerDisplay();
   if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') {
     startTimerTicker();
   }
-
-  sendRuntimeMessage({ type: 'GET_TIMER_STATE' }, (response) => {
-    if (!response?.timer) return;
-    if (typeof response.serverOffset === 'number') {
-      state.serverOffset = response.serverOffset;
-    }
-    const respAcc = Number(response.timer.accumulatedMs ?? response.timer.accumulatedTime) || 0;
-    state.timer = {
-      ...response.timer,
-      accumulatedMs: respAcc,
-      accumulatedTime: respAcc,
-    };
-    if (state.timer.subjectId) els.timerSubject.value = state.timer.subjectId;
-    updateTimerDisplay();
-    if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') startTimerTicker();
-  });
 
   if (state.settings.serverUrl && state.settings.token) {
     setConnectionStatus('connecting');
