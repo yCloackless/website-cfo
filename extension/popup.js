@@ -586,6 +586,8 @@ els.btnTimerToggle.addEventListener('click', async () => {
       startTime: null,
       restStartTime: now,
       restAccumulatedMs: currentRestAccumulated,
+      subjectId,
+      subjectName,
     };
   } else {
     const restElapsed = state.timer.status === 'PAUSED' && state.timer.restStartTime
@@ -605,13 +607,23 @@ els.btnTimerToggle.addEventListener('click', async () => {
     };
   }
 
-  // O worker aplica a transição uma única vez e persiste mesmo após fechar o popup.
+  // Persiste no storage local e transmite para as abas web IMEDIATAMENTE no clique (0ms)
   updateTimerDisplay();
   startTimerTicker();
+  await storage.set({ cfo_ext_timer: state.timer });
+  broadcastToWebTabs(state.timer);
 
   sendRuntimeMessage(
     isCurrentlyRunning
-      ? { type: 'TIMER_PAUSE' }
+      ? {
+          type: 'TIMER_PAUSE',
+          payload: {
+            accumulatedTime: state.timer.accumulatedMs,
+            restStartTime: state.timer.restStartTime,
+            subjectId,
+            subjectName,
+          },
+        }
       : {
           type: 'TIMER_START',
           payload: {
@@ -892,6 +904,21 @@ async function initPopup() {
             updateTimerDisplay();
             stopTimerTicker();
           } else if (cloud.status === 'RUNNING') {
+            const current = state.timer || {};
+            const cloudStartTime = Number(cloud.startTime);
+            const pauseTime = Number(current.restStartTime);
+            // Guarda anti-sobrescrita: se o timer local já está PAUSED e o startTime do servidor
+            // foi iniciado antes ou durante a pausa, essa resposta RUNNING é antiga e não pode reverter!
+            if (
+              current.status === 'PAUSED' &&
+              Number.isFinite(cloudStartTime) &&
+              Number.isFinite(pauseTime) &&
+              cloudStartTime <= pauseTime
+            ) {
+              fetchLevelingFromCloud();
+              return;
+            }
+
             state.timer = {
               serverOffset: state.serverOffset,
               status: 'RUNNING',

@@ -2008,11 +2008,16 @@ app.post("/api/timer/pause", (req: Request, res: Response) => {
       endTime: now,
       subjectId: state.activeSubjectId,
     });
+  } else if (Number.isFinite(reportedAccumulatedTime) && reportedAccumulatedTime > (state.accumulatedTime || 0)) {
+    state.accumulatedTime = reportedAccumulatedTime;
   }
 
   state.startTime = null;
+  const wasAlreadyPaused = state.status === "PAUSED" && typeof state.restStartTime === "number";
   state.status = "PAUSED";
-  state.restStartTime = now;
+  if (!wasAlreadyPaused) {
+    state.restStartTime = now;
+  }
   // Preserva restAccumulatedMs acumulado das pausas anteriores da sessão
   state.updatedAt = new Date().toISOString();
   saveTimerState((req as any).user.userId, state);

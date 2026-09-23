@@ -137,6 +137,20 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       const data = await res.json();
       if (mutationPendingRef.current || revision !== syncRevisionRef.current) return;
       const extensionTimer = latestExtensionTimerRef.current;
+      const cloudStartTime = Number(data.startTime);
+      const pauseRefTime = Number(extensionTimer?.restStartTime || timerState.restStartTime);
+      // Se a aba ou a extensão está em PAUSED, um snapshot RUNNING cujo startTime foi antes ou durante a pausa
+      // é obsoleto e nunca deve reverter o timer!
+      if (
+        (timerState.status === 'PAUSED' || extensionTimer?.status === 'PAUSED') &&
+        data.status === 'RUNNING' &&
+        Number.isFinite(cloudStartTime) &&
+        Number.isFinite(pauseRefTime) &&
+        cloudStartTime <= pauseRefTime
+      ) {
+        return;
+      }
+
       if (Date.now() - lastExtensionSyncAtRef.current < 4000 && extensionTimer && (
         data.status !== extensionTimer.status ||
         Number(data.accumulatedTime) < Number(extensionTimer.accumulatedTime ?? extensionTimer.accumulatedMs ?? 0) ||
@@ -214,11 +228,24 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       if (!['RUNNING', 'PAUSED', 'STOPPED'].includes(ext.status) || !Number.isFinite(accumulatedTime)) return;
       syncRevisionRef.current += 1;
       lastExtensionSyncAtRef.current = Date.now();
-      latestExtensionTimerRef.current = ext;
-      if (ext.status === 'PAUSED') lastPauseActionTimeRef.current = Date.now();
+      if (ext.status === 'PAUSED') {
+        lastPauseActionTimeRef.current = Date.now();
+        // Persiste a pausa no backend usando a sessão autenticada com cookies da aba web
+        apiFetch('/api/timer/pause', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accumulatedTime }),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((serverData) => {
+            if (serverData && serverData.status === 'PAUSED') {
+              setTimerState(serverData);
+            }
+          })
+          .catch(() => {});
+      }
       if (Number.isFinite(ext.serverOffset)) serverOffsetRef.current = ext.serverOffset;
       const now = Date.now() + serverOffsetRef.current;
-      // Receber um snapshot apenas atualiza a tela; não repete o comando HTTP da extensão.
       setTimerState((prev) => ({
         ...prev,
         ...ext,

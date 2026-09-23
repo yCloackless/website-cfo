@@ -24,7 +24,13 @@ function writeTimer(url, options, retryTransientFailure = false) {
     for (let attempt = 0; ; attempt += 1) {
       let response;
       try {
-        response = await fetch(url, options);
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), 6000) : null;
+        try {
+          response = await fetch(url, { ...options, signal: controller?.signal });
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId);
+        }
       } catch (error) {
         if (!retryTransientFailure || attempt > 0) throw error;
         continue;
@@ -583,8 +589,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const now = getServerNow();
       const elapsed = prev.status === 'RUNNING' && prev.startTime ? Math.max(0, now - prev.startTime) : 0;
       const prevAcc = Number(prev.accumulatedMs ?? prev.accumulatedTime) || 0;
-      const newAcc = prevAcc + elapsed;
+      const newAcc = typeof payload?.accumulatedTime === 'number'
+        ? payload.accumulatedTime
+        : prevAcc + elapsed;
       const prevRestAcc = Number(prev.restAccumulatedMs) || 0;
+      const restStart = typeof payload?.restStartTime === 'number' ? payload.restStartTime : now;
 
       const newTimer = {
         ...prev,
@@ -593,8 +602,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         accumulatedMs: newAcc,
         accumulatedTime: newAcc,
         startTime: null,
-        restStartTime: now,
+        restStartTime: restStart,
         restAccumulatedMs: prevRestAcc,
+        subjectId: payload?.subjectId || prev.subjectId || 'geral',
+        subjectName: payload?.subjectName || prev.subjectName || 'Estudo Geral',
       };
 
       chrome.storage.local.set({ [STORAGE_KEYS.TIMER]: newTimer }, () => {

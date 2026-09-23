@@ -161,3 +161,28 @@ test('polling aplica também mudanças pequenas de startTime e acumulado durante
   assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 724_000);
   assert.equal(w.storage.cfo_ext_timer.startTime, start + 500);
 });
+
+test('TIMER_PAUSE com payload explícito preserva accumulatedTime e restStartTime no background', async () => {
+  const now = Date.now();
+  const w = worker({
+    cfo_ext_timer: { status: 'RUNNING', accumulatedMs: 600_000, startTime: now - 300_000 },
+    cfo_ext_settings: { serverUrl: 'http://local.test', token: 'fixture' },
+  }, async () => ({ ok: true, json: async () => ({ status: 'PAUSED', accumulatedTime: 900_000 }) }));
+
+  w.command('TIMER_PAUSE', {
+    accumulatedTime: 900_000,
+    restStartTime: now,
+  });
+
+  assert.equal(w.storage.cfo_ext_timer.status, 'PAUSED');
+  assert.equal(w.storage.cfo_ext_timer.accumulatedMs, 900_000);
+  assert.equal(w.storage.cfo_ext_timer.restStartTime, now);
+});
+
+test('popup initPopup protege estado PAUSED contra sobrescrita por RUNNING obsoleto da nuvem', () => {
+  const popupSrc = fs.readFileSync('extension/popup.js', 'utf8');
+  assert.ok(popupSrc.includes('cloudStartTime <= pauseTime'), 'popup.js deve conter a guarda anti-reversão contra RUNNING obsoleto');
+  assert.ok(popupSrc.includes("type: 'TIMER_PAUSE'"), 'popup.js deve emitir TIMER_PAUSE com payload');
+  assert.ok(popupSrc.includes('broadcastToWebTabs(state.timer)'), 'popup.js deve propagar imediatamente para abas web');
+});
+
