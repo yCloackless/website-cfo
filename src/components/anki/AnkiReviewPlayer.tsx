@@ -15,6 +15,8 @@ import {
   Layers,
   Image as ImageIcon,
   Loader2,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import {
   AnkiCard,
@@ -60,6 +62,9 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
   const [editFields, setEditFields] = useState<string[]>([]);
   const [isSavingEdit, setIsSavingEdit] = useState<boolean>(false);
   const [isUploadingEditImage, setIsUploadingEditImage] = useState<boolean>(false);
+  const [zoomedImageSrc, setZoomedImageSrc] = useState<string | null>(null);
+  const [imageZoom, setImageZoom] = useState(1);
+  const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
   const editFileInputRef = useRef<HTMLInputElement | null>(null);
   const activeEditFieldIdxRef = useRef<number>(0);
 
@@ -327,6 +332,41 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
     }
   };
 
+  const openImageViewer = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.tagName !== 'IMG') return;
+    const src = (target as HTMLImageElement).src;
+    setZoomedImageSrc(src);
+    setImageZoom(1);
+  };
+
+  const changeImageZoom = (nextZoom: number) => {
+    setImageZoom(Math.min(3, Math.max(0.5, Number(nextZoom.toFixed(2)))));
+  };
+
+  const handleImageWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    changeImageZoom(imageZoom + (event.deltaY < 0 ? 0.1 : -0.1));
+  };
+
+  const touchDistance = (touches: React.TouchList) => {
+    const [first, second] = [touches[0], touches[1]];
+    return Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
+  };
+
+  const handleImageTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (event.touches.length === 2) {
+      pinchRef.current = { distance: touchDistance(event.touches), zoom: imageZoom };
+    }
+  };
+
+  const handleImageTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (event.touches.length === 2 && pinchRef.current) {
+      event.preventDefault();
+      changeImageZoom(pinchRef.current.zoom * (touchDistance(event.touches) / pinchRef.current.distance));
+    }
+  };
+
   // Keyboard shortcuts (Space, 1, 2, 3, 4, Ctrl+Z, E)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -503,7 +543,7 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
       </div>
 
       {/* Main Study Surface */}
-      <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center p-4 sm:p-8">
+      <div className="flex-1 overflow-y-auto flex flex-col items-center justify-start p-4 sm:p-8">
         {loading ? (
           <div className="text-center py-20 text-zinc-400 flex flex-col items-center gap-3">
             <div className="w-8 h-8 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
@@ -535,7 +575,7 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
             </div>
           </div>
         ) : (
-          <div className="w-full max-w-2xl flex flex-col items-center">
+          <div className="w-full max-w-2xl flex flex-col items-center my-2 sm:my-4">
             {/* The Flashcard Container */}
             <div className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl p-5 sm:p-7 min-h-[220px] flex flex-col justify-between relative overflow-hidden transition-all">
               {/* Question Front */}
@@ -556,7 +596,8 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
                 <div className="text-sm sm:text-base font-normal leading-relaxed text-zinc-100">
                   {renderedContent ? (
                     <div
-                      className="anki-card-front"
+                      className="anki-card-front cursor-zoom-in"
+                      onClick={openImageViewer}
                       dangerouslySetInnerHTML={{ __html: renderedContent.questionHtml }}
                     />
                   ) : (
@@ -574,7 +615,8 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
                   <div className="text-sm sm:text-base font-normal leading-relaxed text-zinc-100">
                     {renderedContent ? (
                       <div
-                        className="anki-card-back"
+                        className="anki-card-back cursor-zoom-in"
+                        onClick={openImageViewer}
                         dangerouslySetInnerHTML={{ __html: renderedContent.answerHtml }}
                       />
                     ) : (
@@ -686,6 +728,84 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+      {zoomedImageSrc && (
+        <div
+          className="fixed inset-0 z-[70] bg-black/90 flex flex-col"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Visualizador de imagem do flashcard"
+          onClick={() => setZoomedImageSrc(null)}
+        >
+          <div className="flex items-center justify-between gap-3 p-3 bg-zinc-950/90 border-b border-zinc-800 shrink-0">
+            <span className="text-xs font-mono text-zinc-300">{Math.round(imageZoom * 100)}%</span>
+            <div className="flex items-center gap-1.5">
+              {[0.5, 1, 1.5, 2].map((zoom) => (
+                <button
+                  key={zoom}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    changeImageZoom(zoom);
+                  }}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    imageZoom === zoom ? 'bg-sky-500 text-zinc-950' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                  }`}
+                >
+                  {Math.round(zoom * 100)}%
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  changeImageZoom(imageZoom + 0.1);
+                }}
+                className="p-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                title="Aumentar zoom"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  changeImageZoom(imageZoom - 0.1);
+                }}
+                className="p-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                title="Diminuir zoom"
+              >
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoomedImageSrc(null)}
+                className="px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+          <div
+            className="flex-1 overflow-auto p-4 sm:p-8"
+            onClick={(event) => event.stopPropagation()}
+            onWheel={handleImageWheel}
+            onTouchStart={handleImageTouchStart}
+            onTouchMove={handleImageTouchMove}
+            onTouchEnd={() => { pinchRef.current = null; }}
+            style={{ touchAction: 'pan-x pan-y pinch-zoom' }}
+          >
+            <img
+              src={zoomedImageSrc}
+              alt="Imagem ampliada do flashcard"
+              className="block h-auto min-w-0 mx-auto object-contain"
+              style={{ width: `${imageZoom * 100}%`, maxWidth: 'none' }}
+            />
+          </div>
+          <p className="text-center text-[11px] text-zinc-500 pb-3 shrink-0">
+            Role o mouse para aproximar/afastar · use dois dedos no celular para ampliar
+          </p>
         </div>
       )}
       {/* ✏️ Modal Editar Nota & Anexar Imagem */}
