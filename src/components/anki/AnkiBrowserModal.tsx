@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Search,
   X,
@@ -14,9 +14,12 @@ import {
   RefreshCw,
   GripVertical,
   ArrowDownToLine,
+  Edit3,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { AnkiCard, AnkiDeck } from '../../services/anki/ankiTypes';
 import { apiFetch } from '../../services/apiFetch';
+import { ConfirmModal } from '../ConfirmModal';
 
 interface AnkiBrowserModalProps {
   decks: AnkiDeck[];
@@ -42,6 +45,13 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
   const [isMoveOpen, setIsMoveOpen] = useState<boolean>(false);
   const [draggedCardId, setDraggedCardId] = useState<string | null>(null);
   const [dropDeckId, setDropDeckId] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [editingCard, setEditingCard] = useState<AnkiCard | null>(null);
+  const [editFields, setEditFields] = useState<string[]>([]);
+  const [editTags, setEditTags] = useState('');
+  const [uploadField, setUploadField] = useState(0);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const editFileInput = useRef<HTMLInputElement>(null);
 
   const fetchCards = useCallback(async () => {
     try {
@@ -179,7 +189,6 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
 
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
-    if (!window.confirm(`Tem certeza que deseja excluir ${selectedIds.size} cartão(ões)?`)) return;
 
     try {
       const res = await apiFetch('/api/anki/browser/bulk', {
@@ -192,11 +201,47 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
       });
       if (res.ok) {
         showToast?.('Cartões excluídos com sucesso.', 'success');
+        setDeleteConfirmOpen(false);
         void fetchCards();
       }
     } catch {
       showToast?.('Erro ao excluir cartões.', 'error');
     }
+  };
+
+  const saveEdit = async () => {
+    if (!editingCard?.note) return;
+    setSavingEdit(true);
+    try {
+      const res = await apiFetch(`/api/anki/notes/${editingCard.note.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: editFields, tags: editTags.split(/\s+/).filter(Boolean) }),
+      });
+      if (!res.ok) throw new Error();
+      setCards((prev) => prev.map((card) => card.note?.id === editingCard.note?.id
+        ? { ...card, note: { ...card.note, fields: editFields, tags: editTags.split(/\s+/).filter(Boolean) } } : card));
+      setEditingCard(null);
+      showToast?.('Flashcard atualizado.', 'success');
+    } catch {
+      showToast?.('Não foi possível salvar o flashcard.', 'error');
+    } finally { setSavingEdit(false); }
+  };
+
+  const uploadEditImage = async (file?: File) => {
+    if (!file || !file.type.startsWith('image/') || file.size > 5 * 1024 * 1024) {
+      if (file) showToast?.('Selecione uma imagem válida de até 5MB.', 'error');
+      return;
+    }
+    try {
+      const reader = new FileReader();
+      const imageBase64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string); reader.onerror = reject; reader.readAsDataURL(file);
+      });
+      const res = await apiFetch('/api/anki/media/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64, filename: file.name }) });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error();
+      setEditFields((prev) => prev.map((field, idx) => idx === uploadField ? `${field}\n<img src="${data.url}" />` : field));
+    } catch { showToast?.('Erro ao anexar imagem.', 'error'); }
   };
 
   const getQueueBadge = (queue: number) => {
@@ -341,7 +386,7 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
               {/* Delete */}
               <button
                 type="button"
-                onClick={handleBulkDelete}
+                onClick={() => setDeleteConfirmOpen(true)}
                 className="px-2.5 py-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 flex items-center gap-1.5 transition-colors"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -416,18 +461,19 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
                 <th className="p-3 w-20 text-right">Intervalo</th>
                 <th className="p-3 w-20 text-right">Revisões</th>
                 <th className="p-3 w-24">Tags</th>
+                <th className="p-3 w-16">Editar</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-zinc-500">
+                  <td colSpan={9} className="p-8 text-center text-zinc-500">
                     Carregando tabela de cartões...
                   </td>
                 </tr>
               ) : cards.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-zinc-500">
+                  <td colSpan={9} className="p-8 text-center text-zinc-500">
                     Nenhum cartão corresponde aos critérios de busca.
                   </td>
                 </tr>
@@ -483,6 +529,13 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
                       <td className="p-3 text-zinc-500 truncate max-w-[120px]">
                         {(card.note?.tags || []).join(', ') || '-'}
                       </td>
+                      <td className="p-2" onClick={(e) => e.stopPropagation()}>
+                        <button type="button" title="Editar flashcard" aria-label="Editar flashcard" disabled={!card.note}
+                          onClick={() => { setEditingCard(card); setEditFields([...card.note!.fields]); setEditTags((card.note!.tags || []).join(' ')); }}
+                          className="p-1.5 rounded-lg text-zinc-400 hover:text-sky-300 hover:bg-sky-400/10 disabled:opacity-40">
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })
@@ -491,6 +544,46 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
           </table>
         </div>
       </div>
+      <ConfirmModal isOpen={deleteConfirmOpen} title="Excluir flashcards?"
+        description={`Esta ação removerá ${selectedIds.size} cartão(ões) selecionado(s) e não pode ser desfeita.`}
+        badgeText={`${selectedIds.size} selecionado(s)`} confirmLabel="Excluir cartões" cancelLabel="Manter cartões"
+        variant="danger" iconType="danger" isDestructive onConfirm={() => void handleBulkDelete()}
+        onClose={() => setDeleteConfirmOpen(false)} />
+      {editingCard && (
+        <div className="fixed inset-0 z-[60] bg-zinc-950/85 backdrop-blur-md flex items-center justify-center p-3" onClick={() => setEditingCard(null)}>
+          <section role="dialog" aria-modal="true" aria-label="Editar flashcard" onClick={(e) => e.stopPropagation()}
+            className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <header className="px-5 py-4 border-b border-zinc-800 flex justify-between items-center">
+              <h3 className="text-zinc-100 font-semibold">Editar flashcard</h3>
+              <button type="button" onClick={() => setEditingCard(null)} aria-label="Fechar" className="text-zinc-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </header>
+            <div className="p-5 space-y-4 overflow-y-auto">
+              {editFields.map((field, idx) => (
+                <div key={idx}>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className="text-xs uppercase tracking-wider text-zinc-400">{idx === 0 ? 'Pergunta / Frente' : `Campo ${idx + 1} / Resposta`}</label>
+                    <button type="button" onClick={() => { setUploadField(idx); editFileInput.current?.click(); }} className="flex items-center gap-1 text-xs text-sky-300 hover:text-sky-200"><ImageIcon className="w-3.5 h-3.5" />Adicionar imagem</button>
+                  </div>
+                  <textarea value={field} onChange={(e) => setEditFields((prev) => prev.map((value, i) => i === idx ? e.target.value : value))}
+                    rows={5} className="w-full bg-zinc-950 border border-zinc-700 rounded-xl p-3 text-sm text-zinc-100 focus:outline-none focus:border-sky-500" />
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {[...field.matchAll(/<img\b[^>]*src=["']([^"']+)["'][^>]*>/gi)].map((match, imageIdx) => (
+                      <div key={`${match[1]}-${imageIdx}`} className="relative border border-zinc-700 rounded-lg p-1 bg-zinc-950">
+                        <img src={match[1]} alt={`Imagem ${imageIdx + 1}`} className="h-16 max-w-28 object-contain rounded" />
+                        <button type="button" aria-label="Remover imagem" title="Remover imagem" onClick={() => setEditFields((prev) => prev.map((value, i) => i === idx ? value.replace(match[0], '').trim() : value))}
+                          className="absolute -top-2 -right-2 rounded-full bg-zinc-700 hover:bg-zinc-600 text-zinc-100 w-5 h-5 text-xs">×</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <input ref={editFileInput} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { void uploadEditImage(e.target.files?.[0]); e.currentTarget.value = ''; }} />
+              <label className="block"><span className="text-xs uppercase tracking-wider text-zinc-400">Tags</span><input value={editTags} onChange={(e) => setEditTags(e.target.value)} placeholder="Separe tags com espaços" className="mt-1.5 w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-sky-500" /></label>
+            </div>
+            <footer className="px-5 py-4 border-t border-zinc-800 flex justify-end gap-2"><button type="button" onClick={() => setEditingCard(null)} className="px-4 py-2 rounded-lg text-sm text-zinc-300 hover:bg-zinc-800">Cancelar</button><button type="button" disabled={savingEdit} onClick={() => void saveEdit()} className="px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold text-sm disabled:opacity-50">{savingEdit ? 'Salvando…' : 'Salvar alterações'}</button></footer>
+          </section>
+        </div>
+      )}
     </div>
   );
 };
