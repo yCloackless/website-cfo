@@ -51,6 +51,7 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
 
   // Active card rendered content & interval previews
   const [renderedContent, setRenderedContent] = useState<RenderedCardContent | null>(null);
+  const [displayContent, setDisplayContent] = useState<RenderedCardContent | null>(null);
   const [intervals, setIntervals] = useState<ScheduleIntervalPreview[]>([]);
   const [startTimeMs, setStartTimeMs] = useState<number>(Date.now());
 
@@ -109,6 +110,7 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
   useEffect(() => {
     if (!currentCard) {
       setRenderedContent(null);
+      setDisplayContent(null);
       setIntervals([]);
       return;
     }
@@ -117,6 +119,47 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
     setIsAnswerRevealed(false);
     void fetchCardRender(currentCard.id);
   }, [currentCard, fetchCardRender]);
+
+  useEffect(() => {
+    if (!renderedContent) {
+      setDisplayContent(null);
+      return;
+    }
+
+    let cancelled = false;
+    const objectUrls: string[] = [];
+    const resolveImages = async (html: string, cache: Map<string, string>) => {
+      const sources = [...new Set([...html.matchAll(/<img\b[^>]*\bsrc=["']([^"']+)["']/gi)].map((match) => match[1]))];
+      await Promise.all(sources.map(async (src) => {
+        if (!src.startsWith('/api/anki/media/')) return;
+        try {
+          const response = await apiFetch(src);
+          if (!response.ok) return;
+          const objectUrl = URL.createObjectURL(await response.blob());
+          objectUrls.push(objectUrl);
+          cache.set(src, objectUrl);
+        } catch {}
+      }));
+      return html.replace(/(<img\b[^>]*\bsrc=["'])([^"']+)(["'][^>]*>)/gi, (tag, before, src, after) =>
+        `${before}${cache.get(src) || src}${after}`
+      );
+    };
+
+    void (async () => {
+      const cache = new Map<string, string>();
+      const [questionHtml, answerHtml] = await Promise.all([
+        resolveImages(renderedContent.questionHtml, cache),
+        resolveImages(renderedContent.answerHtml, cache),
+      ]);
+      if (!cancelled) setDisplayContent({ ...renderedContent, questionHtml, answerHtml });
+      else objectUrls.forEach(URL.revokeObjectURL);
+    })();
+
+    return () => {
+      cancelled = true;
+      objectUrls.forEach(URL.revokeObjectURL);
+    };
+  }, [renderedContent]);
 
   // Rate card action
   const handleRate = async (rating: Rating) => {
@@ -594,13 +637,13 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
                 </div>
 
                 <div className="text-sm sm:text-base font-normal leading-relaxed text-zinc-100">
-                  {renderedContent ? (
+                  {displayContent ? (
                     <div
                       className="anki-card-front cursor-zoom-in"
                       onClick={openImageViewer}
-                      dangerouslySetInnerHTML={{ __html: renderedContent.questionHtml }}
+                      dangerouslySetInnerHTML={{ __html: displayContent.questionHtml }}
                     />
-                  ) : (
+                  ) : renderedContent ? null : (
                     <ClozeLatexCard text={currentCard.note?.fields[0] || ''} isAnswer={false} />
                   )}
                 </div>
@@ -613,13 +656,13 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
                     Resposta
                   </div>
                   <div className="text-sm sm:text-base font-normal leading-relaxed text-zinc-100">
-                    {renderedContent ? (
+                    {displayContent ? (
                       <div
                         className="anki-card-back cursor-zoom-in"
                         onClick={openImageViewer}
-                        dangerouslySetInnerHTML={{ __html: renderedContent.answerHtml }}
+                        dangerouslySetInnerHTML={{ __html: displayContent.answerHtml }}
                       />
-                    ) : (
+                    ) : renderedContent ? null : (
                       <ClozeLatexCard text={currentCard.note?.fields[1] || ''} isAnswer={true} />
                     )}
                   </div>
@@ -781,9 +824,11 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
               <button
                 type="button"
                 onClick={() => setZoomedImageSrc(null)}
-                className="px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs"
+                className="p-2 rounded-full text-zinc-300 hover:text-white hover:bg-white/10 transition-colors"
+                aria-label="Fechar zoom"
+                title="Fechar"
               >
-                Fechar
+                <X className="w-5 h-5" />
               </button>
             </div>
           </div>
