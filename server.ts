@@ -1991,14 +1991,19 @@ app.post("/api/timer/start", (req: Request, res: Response) => {
 app.post("/api/timer/pause", (req: Request, res: Response) => {
   const state = readTimerState((req as any).user.userId);
   const now = Date.now();
+  const reportedAccumulatedTime = Number(req.body?.accumulatedTime);
+  let studyDelta = 0;
 
   if (state.status === "RUNNING" && state.startTime) {
-    const delta = Math.max(0, now - state.startTime);
-    state.accumulatedTime += delta;
+    const elapsed = Math.max(0, now - state.startTime);
+    studyDelta = Number.isFinite(reportedAccumulatedTime) && reportedAccumulatedTime >= state.accumulatedTime
+      ? Math.max(elapsed, reportedAccumulatedTime - state.accumulatedTime)
+      : elapsed;
+    state.accumulatedTime += studyDelta;
     if (!state.intervals) state.intervals = [];
     state.intervals.push({
       type: "study",
-      durationMs: delta,
+      durationMs: studyDelta,
       startTime: state.startTime,
       endTime: now,
       subjectId: state.activeSubjectId,

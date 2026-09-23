@@ -80,6 +80,8 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   const serverOffsetRef = useRef<number>(0);
   // Timestamp da última ação de pausa (protege contra corridas em eventos de window.focus)
   const lastPauseActionTimeRef = useRef<number>(0);
+  const lastExtensionActionTimeRef = useRef<number>(0);
+  const latestExtensionTimerRef = useRef<any>(null);
 
   const [floatingPosition, setFloatingPosition] = useState(() => {
     try {
@@ -138,6 +140,14 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       // Guarda contra corrida de foco: se acabamos de pausar há menos de 4s e o servidor ainda respondeu RUNNING, não reverte!
       if (Date.now() - lastPauseActionTimeRef.current < 4000 && data.status === 'RUNNING') {
         return;
+      }
+      // Polls atrasados não podem reverter o estado recém-recebido da extensão.
+      const extensionTimer = latestExtensionTimerRef.current;
+      if (Date.now() - lastExtensionActionTimeRef.current < 4000 && extensionTimer) {
+        const staleStatus = data.status !== extensionTimer.status;
+        const staleElapsed = Number(data.accumulatedTime) < Number(extensionTimer.accumulatedTime ?? extensionTimer.accumulatedMs ?? 0);
+        const staleStart = extensionTimer.status === 'RUNNING' && data.startTime !== extensionTimer.startTime;
+        if (staleStatus || staleElapsed || staleStart) return;
       }
 
       setTimerState(data);
@@ -203,6 +213,8 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       if (!ext) return;
 
       const incomingStatus = ext.status;
+      lastExtensionActionTimeRef.current = Date.now();
+      latestExtensionTimerRef.current = ext;
 
       setTimerState((prev) => {
         const nextStatus = ext.status || prev.status;

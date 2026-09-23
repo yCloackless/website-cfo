@@ -549,6 +549,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${settings.token}`,
             },
+            body: JSON.stringify({ accumulatedTime: newAcc }),
           })
             .then((r) => (r.ok ? r.json() : null))
             .then((cloud) => {

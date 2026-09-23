@@ -64,3 +64,17 @@ test('o estado ativo do cronômetro persiste no banco e sobrevive à sincroniza�
   assert.equal(restored.body.status, 'RUNNING');
   assert.equal(restored.body.startTime, persistedTimer.startTime);
 });
+
+test('a pausa preserva o acumulado mais recente recebido da extensão', async () => {
+  const headers = { Authorization: `Bearer ${token}` };
+  await request('/api/timer/start', { method: 'POST', headers, body: JSON.stringify({ accumulatedTime: 12 * 60_000 }) });
+
+  const paused = await request('/api/timer/pause', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ accumulatedTime: 34 * 60_000 }),
+  });
+
+  assert.equal(paused.response.status, 200);
+  assert.ok(paused.body.accumulatedTime >= 34 * 60_000);
+});
