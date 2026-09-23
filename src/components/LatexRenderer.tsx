@@ -284,8 +284,30 @@ function renderFormattedText(rawText: string, baseKey = 'fmt'): React.ReactNode[
       }
     }
 
-    // 5. Consume next chunk of plain text up to next special char (\, *, `)
-    const nextSpecialRegex = /[\\*`]/g;
+    // 5. Check for HTML Image Tag: <img ... />
+    if (sourceText.startsWith('<img', currentIndex)) {
+      const imgMatch = /^<img\s+[^>]*?src=["']([^"']+)["'][^>]*?\/?>/i.exec(sourceText.slice(currentIndex));
+      if (imgMatch) {
+        const rawSrc = imgMatch[1].trim();
+        const resolvedSrc = (rawSrc.startsWith('http://') || rawSrc.startsWith('https://') || rawSrc.startsWith('/') || rawSrc.startsWith('data:'))
+          ? rawSrc
+          : `/api/anki/media/${encodeURIComponent(rawSrc)}`;
+        nodes.push(
+          <img
+            key={`${baseKey}-${keyCounter++}`}
+            src={resolvedSrc}
+            alt="Imagem do Flashcard"
+            className="max-w-full max-h-96 rounded-xl my-2 border border-zinc-800 object-contain shadow-md mx-auto block"
+            loading="lazy"
+          />
+        );
+        currentIndex += imgMatch[0].length;
+        continue;
+      }
+    }
+
+    // 6. Consume next chunk of plain text up to next special char (\, *, `, <)
+    const nextSpecialRegex = /[\\*`<]/g;
     nextSpecialRegex.lastIndex = currentIndex + 1;
     const nextMatch = nextSpecialRegex.exec(sourceText);
     const nextIndex = nextMatch ? nextMatch.index : sourceText.length;

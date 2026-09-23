@@ -26,13 +26,14 @@ export const MAX_AVATAR_SIZE_BYTES = 3 * 1024 * 1024; // 3 Megabytes
 /**
  * Validates file buffer by checking actual magic bytes rather than trusting client mime/extension.
  */
-export function validateImageBuffer(buffer: Buffer): ImageValidationResult {
+export function validateImageBuffer(buffer: Buffer, maxSizeBytes: number = MAX_AVATAR_SIZE_BYTES): ImageValidationResult {
   if (!buffer || buffer.length === 0) {
     return { valid: false, error: 'O arquivo enviado está vazio.' };
   }
 
-  if (buffer.length > MAX_AVATAR_SIZE_BYTES) {
-    return { valid: false, error: 'O tamanho da imagem excede o limite máximo permitido de 3MB.' };
+  if (buffer.length > maxSizeBytes) {
+    const maxMb = Math.round(maxSizeBytes / (1024 * 1024));
+    return { valid: false, error: `O tamanho da imagem excede o limite máximo permitido de ${maxMb}MB.` };
   }
 
   const hexHead = buffer.subarray(0, 12).toString('hex').toLowerCase();

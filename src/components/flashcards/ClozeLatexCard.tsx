@@ -22,6 +22,8 @@ interface ClozeLatexCardProps {
  */
 function sanitizeForSpeech(rawText: string): string {
   let clean = rawText
+    // Remove tags de imagem para não ler atributos HTML
+    .replace(/<img[^>]*>/gi, ' ')
     // Remove cloze markup deixando apenas a resposta
     .replace(/\{\{c\d+::([^:}]+)(?:::([^}]+))?\}\}/g, '$1')
     // Remove delimitadores de LaTeX

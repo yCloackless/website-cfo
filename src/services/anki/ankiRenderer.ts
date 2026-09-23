@@ -104,6 +104,21 @@ export class AnkiRenderer {
   }
 
   /**
+   * Rewrites relative image sources to canonical Anki media URL.
+   * e.g. <img src="paste-123.png"> -> <img src="/api/anki/media/paste-123.png">
+   */
+  public static rewriteMediaUrls(html: string): string {
+    if (!html) return '';
+    return html.replace(/<img([^>]+?)src=["']([^"']+)["']([^>]*)>/gi, (match, prefix, src, suffix) => {
+      const cleanSrc = src.trim();
+      if (cleanSrc.startsWith('data:') || cleanSrc.startsWith('http://') || cleanSrc.startsWith('https://') || cleanSrc.startsWith('/')) {
+        return match;
+      }
+      return `<img${prefix}src="/api/anki/media/${encodeURIComponent(cleanSrc)}"${suffix}>`;
+    });
+  }
+
+  /**
    * Renders a card's Question and Answer HTML based on note fields and card template.
    */
   public static renderCard(
@@ -171,7 +186,7 @@ export class AnkiRenderer {
     };
 
     // Render Question
-    const rawQuestionHtml = replaceFields(template.qfmt, false);
+    const rawQuestionHtml = this.rewriteMediaUrls(replaceFields(template.qfmt, false));
     const questionHtml = this.renderMath(rawQuestionHtml);
 
     // Render Answer (substituting {{FrontSide}} with questionHtml without audio if applicable)
@@ -179,7 +194,7 @@ export class AnkiRenderer {
     if (rawAnswerTpl.includes('{{FrontSide}}')) {
       rawAnswerTpl = rawAnswerTpl.replace(/\{\{FrontSide\}\}/gi, rawQuestionHtml);
     }
-    const answerHtml = this.renderMath(replaceFields(rawAnswerTpl, true));
+    const answerHtml = this.renderMath(this.rewriteMediaUrls(replaceFields(rawAnswerTpl, true)));
 
     return {
       questionHtml,

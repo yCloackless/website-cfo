@@ -737,5 +737,19 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
   .rumo-activity-content p { white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; }
 }
 
-
-
+/* =========================================================================
+   Anki Flashcard Images & Media
+   ========================================================================= */
+.anki-card-front img,
+.anki-card-back img {
+  max-width: 100%;
+  max-height: 420px;
+  height: auto;
+  border-radius: 0.75rem;
+  margin: 0.75rem auto;
+  display: block;
+  object-fit: contain;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(63, 63, 70, 0.5);
+  background-color: rgba(9, 9, 11, 0.5);
+}

@@ -12,6 +12,7 @@
  * - Multi-tenant media storage & Statistics
  */
 
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -21,11 +22,12 @@ import { AnkiScheduler } from '../services/anki/ankiScheduler';
 import { AnkiApkgService } from '../services/anki/ankiApkgService';
 import { CardFlag, Rating } from '../services/anki/ankiTypes';
 import { getDb } from '../db/database';
+import { validateImageBuffer } from '../services/avatarService';
 
-export function createAnkiRouter(requireAuthMiddleware: any): Router {
+export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () => AnkiRepository): Router {
   const router = Router();
 
-  const getRepo = () => new AnkiRepository(getDb().getRawDb());
+  const getRepo = repoFactory || (() => new AnkiRepository(getDb().getRawDb()));
 
   const deckMutationLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -65,6 +67,20 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
       res.status(429).json({
         error: 'TOO_MANY_REQUESTS',
         message: 'Limite de importações .apkg atingido. Aguarde alguns minutos antes de tentar novamente.',
+      });
+    },
+  });
+
+  const mediaUploadLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 60, // 60 uploads por 15 min
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: () => process.env.NODE_ENV === 'test',
+    handler: (_req: Request, res: Response) => {
+      res.status(429).json({
+        error: 'TOO_MANY_REQUESTS',
+        message: 'Muitos uploads de imagem para flashcards em pouco tempo. Aguarde alguns instantes.',
       });
     },
   });
@@ -353,6 +369,24 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
       return res.status(201).json({ success: true, createdNotes, createdCards });
     } catch (err: any) {
       return res.status(500).json({ error: 'BATCH_CREATE_FAILED', message: err.message });
+    }
+  });
+
+  router.patch('/notes/:id', requireAuthMiddleware, noteMutationLimiter, (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { fields, tags } = req.body || {};
+      if (!Array.isArray(fields) || fields.length === 0) {
+        return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'Array de campos (fields) é obrigatório.' });
+      }
+      const repo = getRepo();
+      const updated = repo.updateNote(user.userId, req.params.id, fields.map(f => String(f ?? '')), tags);
+      if (!updated) {
+        return res.status(404).json({ error: 'NOTE_NOT_FOUND' });
+      }
+      return res.json({ success: true, note: updated });
+    } catch (err: any) {
+      return res.status(500).json({ error: 'UPDATE_NOTE_FAILED', message: err.message });
     }
   });
 
@@ -807,8 +841,60 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
   });
 
   // =========================================================================
-  // 9. USER MEDIA ASSETS
+  // 9. USER MEDIA ASSETS (Images in Flashcards)
   // =========================================================================
+
+  const handleMediaUpload = (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { imageBase64, filename } = req.body || {};
+
+      if (!imageBase64 || typeof imageBase64 !== 'string') {
+        return res.status(400).json({
+          error: 'INVALID_PAYLOAD',
+          message: 'Dados da imagem (imageBase64) são obrigatórios.',
+        });
+      }
+
+      const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+      const buffer = Buffer.from(base64Data, 'base64');
+
+      const MAX_MEDIA_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+      const validation = validateImageBuffer(buffer, MAX_MEDIA_SIZE_BYTES);
+      if (!validation.valid || !validation.extension) {
+        return res.status(400).json({
+          error: 'INVALID_IMAGE',
+          message: validation.error || 'Formato de imagem inválido. Apenas JPG, PNG ou WEBP são permitidos.',
+        });
+      }
+
+      // Gera nome único e seguro sem caracteres perigosos
+      let safeBase = '';
+      if (filename && typeof filename === 'string') {
+        safeBase = path.basename(filename, path.extname(filename)).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
+      }
+      const randomSuffix = crypto.randomBytes(4).toString('hex');
+      const finalFilename = safeBase
+        ? `${safeBase}_${randomSuffix}.${validation.extension}`
+        : `img_${Date.now()}_${randomSuffix}.${validation.extension}`;
+
+      const repo = getRepo();
+      const media = repo.saveMedia(user.userId, finalFilename, buffer, validation.detectedMime!);
+
+      return res.json({
+        success: true,
+        filename: media.filename,
+        url: `/api/anki/media/${media.filename}`,
+        mimeType: media.mimeType,
+        sizeBytes: media.fileSize,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: 'UPLOAD_FAILED', message: err.message });
+    }
+  };
+
+  router.post('/media/upload', requireAuthMiddleware, mediaUploadLimiter, handleMediaUpload);
+  router.post('/media', requireAuthMiddleware, mediaUploadLimiter, handleMediaUpload);
 
   router.get('/media/:filename', requireAuthMiddleware, (req: Request, res: Response) => {
     try {
@@ -823,7 +909,6 @@ export function createAnkiRouter(requireAuthMiddleware: any): Router {
       res.setHeader('Content-Type', asset.media.mimeType);
       res.setHeader('Cache-Control', 'private, max-age=86400');
       res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
       return res.send(asset.buffer);
     } catch (err: any) {
       return res.status(500).json({ error: 'GET_MEDIA_FAILED', message: err.message });

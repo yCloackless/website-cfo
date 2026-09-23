@@ -13,6 +13,8 @@ import {
   MoreVertical,
   Volume2,
   Layers,
+  Image as ImageIcon,
+  Loader2,
 } from 'lucide-react';
 import {
   AnkiCard,
@@ -53,6 +55,14 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
   // Flags & Marked state for current card
   const currentCard = queue[currentCardIndex] || null;
 
+  // Quick Edit Note State
+  const [isEditingNote, setIsEditingNote] = useState<boolean>(false);
+  const [editFields, setEditFields] = useState<string[]>([]);
+  const [isSavingEdit, setIsSavingEdit] = useState<boolean>(false);
+  const [isUploadingEditImage, setIsUploadingEditImage] = useState<boolean>(false);
+  const editFileInputRef = useRef<HTMLInputElement | null>(null);
+  const activeEditFieldIdxRef = useRef<number>(0);
+
   // Load study queue
   const loadQueue = useCallback(async () => {
     try {
@@ -79,6 +89,17 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
     void loadQueue();
   }, [loadQueue]);
 
+  const fetchCardRender = useCallback(async (cardId: string) => {
+    try {
+      const res = await apiFetch(`/api/anki/cards/${cardId}/render`);
+      if (res.ok) {
+        const data = await res.json();
+        setRenderedContent(data.rendered || null);
+        setIntervals(data.intervals || []);
+      }
+    } catch {}
+  }, []);
+
   // When active card changes, render it and get interval previews
   useEffect(() => {
     if (!currentCard) {
@@ -89,25 +110,8 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
 
     setStartTimeMs(Date.now());
     setIsAnswerRevealed(false);
-
-    let isMounted = true;
-    const fetchRender = async () => {
-      try {
-        const res = await apiFetch(`/api/anki/cards/${currentCard.id}/render`);
-        if (res.ok && isMounted) {
-          const data = await res.json();
-          setRenderedContent(data.rendered || null);
-          setIntervals(data.intervals || []);
-        }
-      } catch {}
-    };
-
-    void fetchRender();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [currentCard]);
+    void fetchCardRender(currentCard.id);
+  }, [currentCard, fetchCardRender]);
 
   // Rate card action
   const handleRate = async (rating: Rating) => {
@@ -227,9 +231,113 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
     } catch {}
   };
 
-  // Keyboard shortcuts (Space, 1, 2, 3, 4, Ctrl+Z)
+  // Quick Edit Handlers
+  const handleOpenEdit = () => {
+    if (!currentCard?.note) return;
+    setEditFields([...currentCard.note.fields]);
+    setIsEditingNote(true);
+  };
+
+  const uploadEditImageFile = async (file: File, targetIdx?: number) => {
+    const idx = targetIdx ?? activeEditFieldIdxRef.current;
+    if (!file.type.startsWith('image/')) {
+      showToast?.('Arquivo selecionado não é uma imagem válida.', 'error');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showToast?.('A imagem não pode ultrapassar 5MB.', 'error');
+      return;
+    }
+
+    try {
+      setIsUploadingEditImage(true);
+      const reader = new FileReader();
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const res = await apiFetch('/api/anki/media/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: base64Data,
+          filename: file.name || 'clipboard.png',
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const imgTag = `\n<img src="${data.url}" />\n`;
+        setEditFields((prev) => {
+          const next = [...prev];
+          next[idx] = (next[idx] || '') + imgTag;
+          return next;
+        });
+        showToast?.('Imagem anexada com sucesso!', 'success');
+      } else {
+        showToast?.(data.message || 'Falha ao processar imagem.', 'error');
+      }
+    } catch {
+      showToast?.('Erro ao enviar imagem.', 'error');
+    } finally {
+      setIsUploadingEditImage(false);
+      if (editFileInputRef.current) editFileInputRef.current.value = '';
+    }
+  };
+
+  const handleEditPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>, idx: number) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        const file = items[i].getAsFile();
+        if (file) {
+          e.preventDefault();
+          void uploadEditImageFile(file, idx);
+          return;
+        }
+      }
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!currentCard?.note) return;
+    try {
+      setIsSavingEdit(true);
+      const res = await apiFetch(`/api/anki/notes/${currentCard.note.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: editFields }),
+      });
+      if (res.ok) {
+        currentCard.note.fields = [...editFields];
+        void fetchCardRender(currentCard.id);
+        setIsEditingNote(false);
+        showToast?.('Nota atualizada com sucesso!', 'success');
+        onCardEdited?.();
+      } else {
+        showToast?.('Falha ao atualizar nota.', 'error');
+      }
+    } catch {
+      showToast?.('Erro de conexão ao salvar nota.', 'error');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  // Keyboard shortcuts (Space, 1, 2, 3, 4, Ctrl+Z, E)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isEditingNote) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setIsEditingNote(false);
+        }
+        return;
+      }
+
       // Don't intercept if user is in an input or textarea
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
@@ -237,6 +345,12 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
       if (e.key === 'Escape') {
         e.preventDefault();
         onClose();
+        return;
+      }
+
+      if ((e.key === 'e' || e.key === 'E') && !e.ctrlKey && !e.metaKey && currentCard?.note) {
+        e.preventDefault();
+        handleOpenEdit();
         return;
       }
 
@@ -282,7 +396,7 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
       window.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = prevOverflow;
     };
-  }, [isAnswerRevealed, currentCard, isSubmitting, onClose]);
+  }, [isAnswerRevealed, currentCard, isSubmitting, isEditingNote, onClose]);
 
   // Dynamic preview intervals map
   const getIntervalLabel = (rating: Rating): string => {
@@ -364,6 +478,15 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
                 title="Suspender este card da fila"
               >
                 Suspender
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenEdit}
+                className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-sky-400 transition-colors"
+                title="Editar Cartão / Inserir Foto (E)"
+              >
+                <Edit3 className="w-4 h-4" />
               </button>
 
               <button
@@ -563,6 +686,105 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+      {/* ✏️ Modal Editar Nota & Anexar Imagem */}
+      {isEditingNote && currentCard?.note && (
+        <div
+          className="fixed inset-0 z-[60] bg-zinc-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150"
+          onClick={() => setIsEditingNote(false)}
+        >
+          <div
+            className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden max-h-[85vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/60">
+              <div className="flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-sky-400" />
+                <h3 className="text-sm font-semibold text-zinc-100">Editar Flashcard / Questão</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditingNote(false)}
+                className="p-1 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-4 flex-1">
+              {editFields.map((val, idx) => (
+                <div key={idx} className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                      {idx === 0 ? 'Frente (Pergunta / Enunciado)' : 'Verso (Resposta)'}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        activeEditFieldIdxRef.current = idx;
+                        editFileInputRef.current?.click();
+                      }}
+                      disabled={isUploadingEditImage}
+                      className="text-[11px] text-zinc-400 hover:text-sky-400 flex items-center gap-1 transition-colors"
+                      title="Inserir imagem do PC (ou use Ctrl+V diretamente no campo)"
+                    >
+                      {isUploadingEditImage && activeEditFieldIdxRef.current === idx ? (
+                        <Loader2 className="w-3 h-3 animate-spin text-sky-400" />
+                      ) : (
+                        <ImageIcon className="w-3 h-3" />
+                      )}
+                      <span>Foto</span>
+                    </button>
+                  </div>
+                  <textarea
+                    value={val}
+                    onChange={(e) => {
+                      const next = [...editFields];
+                      next[idx] = e.target.value;
+                      setEditFields(next);
+                    }}
+                    onFocus={() => {
+                      activeEditFieldIdxRef.current = idx;
+                    }}
+                    onPaste={(e) => handleEditPaste(e, idx)}
+                    rows={idx === 0 ? 5 : 4}
+                    placeholder={`Conteúdo do campo ${idx === 0 ? 'Pergunta' : 'Resposta'}... (Cole imagem com Ctrl+V se desejar)`}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-sky-500 font-sans resize-y leading-relaxed"
+                  />
+                </div>
+              ))}
+
+              <input
+                type="file"
+                ref={editFileInputRef}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void uploadEditImageFile(file);
+                }}
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+              />
+            </div>
+
+            <div className="p-4 border-t border-zinc-800 flex items-center justify-end gap-2 bg-zinc-950/60">
+              <button
+                type="button"
+                onClick={() => setIsEditingNote(false)}
+                className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={isSavingEdit || isUploadingEditImage}
+                className="px-4 py-1.5 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold rounded-lg text-xs transition-all disabled:opacity-50"
+              >
+                {isSavingEdit ? 'Salvando...' : 'Salvar Alterações'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -767,6 +767,22 @@ export class AnkiRepository {
     };
   }
 
+  public updateNote(userId: string, noteId: string, fields: string[], tags?: string[]): AnkiNote | null {
+    const existing = this.getNote(userId, noteId);
+    if (!existing) return null;
+
+    const now = new Date().toISOString();
+    const tagsStr = Array.isArray(tags) ? tags.filter(Boolean).join(' ') : existing.tags.join(' ');
+
+    this.db.prepare(`
+      UPDATE anki_notes
+      SET fields_json = ?, tags = ?, updated_at = ?
+      WHERE user_id = ? AND id = ?
+    `).run(JSON.stringify(fields), tagsStr, now, userId, noteId);
+
+    return this.getNote(userId, noteId);
+  }
+
   public getCard(userId: string, cardId: string): AnkiCard | null {
     const row = this.db.prepare(`
       SELECT c.*, n.fields_json, n.tags, n.notetype_id, d.name as deck_name

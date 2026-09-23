@@ -11,6 +11,8 @@ import {
   Layers,
   Tag,
   Lightbulb,
+  Image as ImageIcon,
+  Loader2,
 } from 'lucide-react';
 import { AnkiDeck, AnkiNoteType } from '../../services/anki/ankiTypes';
 import { apiFetch } from '../../services/apiFetch';
@@ -40,8 +42,10 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
   const [tagsInput, setTagsInput] = useState<string>('');
   const [isPreview, setIsPreview] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isUploadingImage, setIsUploadingImage] = useState<boolean>(false);
 
   const activeFieldRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Fetch notetypes
   useEffect(() => {
@@ -92,6 +96,108 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
 
   const handleFieldChange = (fieldName: string, val: string) => {
     setFieldValues((prev) => ({ ...prev, [fieldName]: val }));
+  };
+
+  const extractImageUrls = (text: string): string[] => {
+    if (!text) return [];
+    const urls: string[] = [];
+    const regex = /<img[^>]*?src=["']([^"']+)["'][^>]*?>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(text)) !== null) {
+      if (match[1]) urls.push(match[1]);
+    }
+    return urls;
+  };
+
+  const removeImageFromField = (fieldName: string, targetSrc: string) => {
+    const current = fieldValues[fieldName] || '';
+    const escaped = targetSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`\\s*<img[^>]*?src=["']${escaped}["'][^>]*?>\\s*`, 'gi');
+    const updated = current.replace(regex, ' ').trim();
+    handleFieldChange(fieldName, updated);
+  };
+
+  const uploadImageFile = async (file: File, targetFieldName?: string) => {
+    const fieldName = targetFieldName || activeFieldRef.current?.dataset.fieldname || activeNotetype?.fields[0]?.name || '';
+    if (!fieldName) {
+      showToast?.('Selecione um campo para inserir a imagem.', 'error');
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      showToast?.('Arquivo selecionado não é uma imagem válida.', 'error');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast?.('A imagem não pode ultrapassar 5MB.', 'error');
+      return;
+    }
+
+    try {
+      setIsUploadingImage(true);
+      const reader = new FileReader();
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const res = await apiFetch('/api/anki/media/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: base64Data,
+          filename: file.name || 'clipboard.png',
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const imgTag = `\n<img src="${data.url}" />\n`;
+        if (activeFieldRef.current && activeFieldRef.current.dataset.fieldname === fieldName) {
+          const textarea = activeFieldRef.current;
+          const start = textarea.selectionStart;
+          const end = textarea.selectionEnd;
+          const currentVal = textarea.value;
+          const newVal = currentVal.substring(0, start) + imgTag + currentVal.substring(end);
+          handleFieldChange(fieldName, newVal);
+          setTimeout(() => {
+            textarea.focus();
+            textarea.setSelectionRange(start + imgTag.length, start + imgTag.length);
+          }, 0);
+        } else {
+          setFieldValues((prev) => ({
+            ...prev,
+            [fieldName]: (prev[fieldName] || '') + imgTag,
+          }));
+        }
+        showToast?.('Imagem anexada com sucesso!', 'success');
+      } else {
+        showToast?.(data.message || 'Falha ao processar imagem.', 'error');
+      }
+    } catch {
+      showToast?.('Erro de conexão ao enviar imagem.', 'error');
+    } finally {
+      setIsUploadingImage(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>, fieldName: string) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        const file = items[i].getAsFile();
+        if (file) {
+          e.preventDefault();
+          void uploadImageFile(file, fieldName);
+          return;
+        }
+      }
+    }
   };
 
   // Formatting Toolbar Helper
@@ -302,6 +408,33 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
               <Lightbulb className="w-3.5 h-3.5" />
               <span>Bizu</span>
             </button>
+
+            {/* Inserir Imagem do PC */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploadingImage}
+              className="px-2 py-1 hover:bg-zinc-800 rounded text-zinc-400 hover:text-sky-400 text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              title="Inserir Imagem do Computador (ou use Ctrl+V diretamente no campo)"
+            >
+              {isUploadingImage ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400" />
+              ) : (
+                <ImageIcon className="w-3.5 h-3.5" />
+              )}
+              <span>{isUploadingImage ? 'Enviando...' : 'Imagem'}</span>
+            </button>
+
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void uploadImageFile(file);
+              }}
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+            />
           </div>
 
           <button
@@ -351,22 +484,62 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
               </div>
             </div>
           ) : (
-            activeNotetype?.fields.map((f, idx) => (
-              <div key={f.id}>
-                <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
-                  {f.name} {idx === 0 ? '(Obrigatório)' : ''}
-                </label>
-                <textarea
-                  data-fieldname={f.name}
-                  value={fieldValues[f.name] || ''}
-                  onChange={(e) => handleFieldChange(f.name, e.target.value)}
-                  onFocus={(e) => (activeFieldRef.current = e.target)}
-                  rows={activeNotetype.kind === 'cloze' && idx === 0 ? 5 : 3}
-                  placeholder={`Digite o conteúdo para o campo ${f.name}...`}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-sky-500 font-sans resize-y leading-relaxed"
-                />
-              </div>
-            ))
+            activeNotetype?.fields.map((f, idx) => {
+              const attachedImages = extractImageUrls(fieldValues[f.name] || '');
+
+              return (
+                <div key={f.id} className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                      {f.name} {idx === 0 ? '(Obrigatório)' : ''}
+                    </label>
+                    {attachedImages.length > 0 && (
+                      <span className="text-[10px] text-sky-400 font-mono">
+                        {attachedImages.length} imagem(ns)
+                      </span>
+                    )}
+                  </div>
+                  <textarea
+                    data-fieldname={f.name}
+                    value={fieldValues[f.name] || ''}
+                    onChange={(e) => handleFieldChange(f.name, e.target.value)}
+                    onPaste={(e) => handlePaste(e, f.name)}
+                    onFocus={(e) => (activeFieldRef.current = e.target)}
+                    rows={activeNotetype.kind === 'cloze' && idx === 0 ? 5 : 3}
+                    placeholder={`Digite o conteúdo para o campo ${f.name}...`}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-sky-500 font-sans resize-y leading-relaxed"
+                  />
+                  {/* Chips discretos de imagens anexadas */}
+                  {attachedImages.length > 0 && (
+                    <div className="flex items-center gap-2 flex-wrap pt-1">
+                      {attachedImages.map((imgUrl, imgIdx) => (
+                        <div
+                          key={imgIdx}
+                          className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800/80 text-xs text-zinc-300 shadow-sm"
+                        >
+                          <img
+                            src={imgUrl}
+                            alt="Miniatura"
+                            className="w-6 h-6 object-cover rounded border border-zinc-700/50"
+                          />
+                          <span className="truncate max-w-[140px] text-[11px] font-mono text-zinc-400">
+                            {imgUrl.split('/').pop()?.replace(/_\w{8}\./, '.')}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeImageFromField(f.name, imgUrl)}
+                            className="text-zinc-500 hover:text-red-400 p-0.5 rounded transition-colors ml-1"
+                            title="Remover imagem deste campo"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
 
           {/* Tags */}
