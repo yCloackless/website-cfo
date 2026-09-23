@@ -18,6 +18,7 @@ class AppUpdateService {
   private initialVersion: VersionInfo | null = null;
   private waitingWorker: ServiceWorker | null = null;
   private hasUpdate = false;
+  private updateInfo: VersionInfo | null = null;
   private listeners = new Set<UpdateListener>();
   private checkIntervalId: number | null = null;
   private isChecking = false;
@@ -68,7 +69,7 @@ class AppUpdateService {
   private attachRegistrationListeners(reg: ServiceWorkerRegistration): void {
     if (reg.waiting) {
       this.waitingWorker = reg.waiting;
-      this.notifyUpdateAvailable();
+      void this.fetchCurrentVersion().then((info) => this.notifyUpdateAvailable(info || undefined));
     }
 
     reg.addEventListener('updatefound', () => {
@@ -79,14 +80,14 @@ class AppUpdateService {
         // Se o novo worker foi instalado e já existe um controlador ativo, temos um deploy novo!
         if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
           this.waitingWorker = newWorker;
-          this.notifyUpdateAvailable();
+          void this.fetchCurrentVersion().then((info) => this.notifyUpdateAvailable(info || undefined));
         }
       });
     });
   }
 
   public async checkForUpdate(): Promise<boolean> {
-    if (this.isChecking || this.hasUpdate) return this.hasUpdate;
+    if (this.isChecking) return this.hasUpdate;
     this.isChecking = true;
 
     try {
@@ -97,7 +98,8 @@ class AppUpdateService {
           await reg.update().catch(() => {});
           if (reg.waiting) {
             this.waitingWorker = reg.waiting;
-            this.notifyUpdateAvailable();
+            const info = await this.fetchCurrentVersion();
+            this.notifyUpdateAvailable(info || undefined);
             return true;
           }
         }
@@ -138,9 +140,10 @@ class AppUpdateService {
 
   private notifyUpdateAvailable(info?: VersionInfo): void {
     this.hasUpdate = true;
+    if (info) this.updateInfo = info;
     this.listeners.forEach((listener) => {
       try {
-        listener(true, info);
+        listener(true, this.updateInfo || undefined);
       } catch {
         // Evita que erros em listeners degradem a execução
       }
@@ -150,7 +153,7 @@ class AppUpdateService {
   public subscribe(listener: UpdateListener): () => void {
     this.listeners.add(listener);
     if (this.hasUpdate) {
-      listener(true);
+      listener(true, this.updateInfo || undefined);
     }
     return () => {
       this.listeners.delete(listener);

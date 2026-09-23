@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { RefreshCw, Sparkles, X, ArrowUpRight } from 'lucide-react';
 import { appUpdateService, VersionInfo } from '../services/appUpdateService';
 
-const DISMISSED_SESSION_KEY = 'cfo_update_toast_dismissed';
+const DISMISSED_UPDATE_KEY = 'cfo_update_dismissed';
+
+const getUpdateKey = (info?: VersionInfo) => `${DISMISSED_UPDATE_KEY}:${info?.version || 'unknown'}:${info?.startedAt || 0}`;
 
 export const UpdateNoticeModal: React.FC = () => {
   const [hasUpdate, setHasUpdate] = useState(false);
@@ -12,7 +14,7 @@ export const UpdateNoticeModal: React.FC = () => {
   useEffect(() => {
     // Inscreve-se nas notificações de atualização em tempo real do Service Worker e /api/version
     const unsubscribe = appUpdateService.subscribe((updateAvailable, info) => {
-      const isDismissed = sessionStorage.getItem(DISMISSED_SESSION_KEY) === 'true';
+      const isDismissed = localStorage.getItem(getUpdateKey(info)) === 'true';
       if (updateAvailable && !isDismissed) {
         setHasUpdate(true);
         if (info) setVersionInfo(info);
@@ -32,7 +34,7 @@ export const UpdateNoticeModal: React.FC = () => {
   };
 
   const handleDismiss = () => {
-    sessionStorage.setItem(DISMISSED_SESSION_KEY, 'true');
+    localStorage.setItem(getUpdateKey(versionInfo), 'true');
     setHasUpdate(false);
   };
 
