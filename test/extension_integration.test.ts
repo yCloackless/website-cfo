@@ -446,4 +446,32 @@ test('EXT-20: propagação imediata e resiliência de pausa da extensão para ab
   assert.equal(pausedState.restAccumulatedMs, 5000, 'restAccumulatedMs prévio deve ser preservado');
 });
 
+test('EXT-21: arquitetura de layout do modal da extensão com Portal, max-height e overflow responsivo', () => {
+  const modalCode = readSource('src/components/ExtensionModal.tsx');
+  // 1. Deve usar createPortal para document.body (imune a containing blocks com backdrop-filter)
+  assert.match(modalCode, /import\s*\{\s*createPortal\s*\}\s*from\s*['"]react-dom['"]/, 'ExtensionModal deve importar createPortal de react-dom');
+  assert.match(modalCode, /createPortal\s*\(\s*modalContent\s*,\s*document\.body\s*\)/, 'ExtensionModal deve renderizar via createPortal em document.body');
 
+  // 2. Overlay deve ter position fixed, inset-0, z-index alto e alinhamento seguro com scroll
+  assert.match(modalCode, /fixed\s+inset-0\s+z-\[100\]/, 'Overlay deve ter fixed inset-0 z-[100]');
+  assert.match(modalCode, /items-start\s+justify-center/, 'Overlay deve ter flex items-start para evitar corte superior no overflow');
+  assert.match(modalCode, /overflow-y-auto/, 'Overlay deve ter overflow-y-auto');
+
+  // 3. Card do modal deve ter max-height dinâmica relativa a 100dvh e rolagem interna
+  assert.match(modalCode, /max-h-\[calc\(100dvh-[^\]]+\)\]/, 'Card deve usar max-h atrelada a 100dvh');
+  assert.match(modalCode, /overflow-y-auto/, 'Card deve possuir overflow-y-auto');
+  assert.match(modalCode, /my-auto/, 'Card deve usar my-auto para centralização segura sem perda de scroll');
+
+  // 4. Reset de scroll ao topo e trava de body
+  assert.match(modalCode, /scrollTop\s*=\s*0/, 'Modal deve resetar scrollTop para 0 ao abrir');
+  assert.match(modalCode, /document\.body\.style\.overflow\s*=\s*['"]hidden['"]/, 'Modal deve bloquear scroll do body');
+  assert.match(modalCode, /key\s*===\s*['"]Escape['"]/, 'Modal deve suportar fechamento com Escape');
+
+  // 5. Header deve delegar abertura para onOpenExtension e App.tsx deve repassar
+  const headerCode = readSource('src/components/Header.tsx');
+  assert.match(headerCode, /onOpenExtension\?: \(\) => void;/, 'HeaderProps deve declarar onOpenExtension');
+  assert.match(headerCode, /if\s*\(onOpenExtension\)\s*\{\s*onOpenExtension\(\);?\s*\}\s*else/, 'Header deve chamar onOpenExtension se disponível');
+
+  const appCode = readSource('src/App.tsx');
+  assert.match(appCode, /<Header[\s\S]*?onOpenExtension=\{\(\)\s*=>\s*setIsExtensionModalOpen\(true\)\}/, 'App.tsx deve repassar onOpenExtension para Header');
+});

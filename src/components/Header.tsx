@@ -38,6 +38,7 @@ interface HeaderProps {
   onLockTerminal?: () => void;
   isSidebarOpen?: boolean;
   onToggleSidebar?: () => void;
+  onOpenExtension?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -54,6 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleTheme,
   isSidebarOpen = true,
   onToggleSidebar,
+  onOpenExtension,
 }) => {
   const isDark = theme === 'dark';
   const surface = isDark
@@ -100,7 +102,13 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             id="btn-extension-token"
-            onClick={() => setIsExtensionModalOpen(true)}
+            onClick={() => {
+              if (onOpenExtension) {
+                onOpenExtension();
+              } else {
+                setIsExtensionModalOpen(true);
+              }
+            }}
             className={`hidden md:inline-flex ${iconButton} hover:border-blue-500/50 hover:text-blue-400`}
             title="Extensão CFO CBMERJ para Computador (Baixar ZIP & Conectar)"
             aria-label="Extensão CFO CBMERJ para Computador"

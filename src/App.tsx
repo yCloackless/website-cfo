@@ -1899,6 +1899,7 @@ export default function App() {
         onLockTerminal={handleLockTerminal}
         isSidebarOpen={isSidebarOpen}
         onToggleSidebar={handleToggleSidebar}
+        onOpenExtension={() => setIsExtensionModalOpen(true)}
       />
 
       {/* App Body: Collapsible Tactical Sidebar + Main Content */}

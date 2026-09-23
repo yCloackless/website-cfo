@@ -14,16 +14,16 @@
   function sendToBackground(msg) {
     if (typeof chrome === 'undefined' || !chrome.runtime) return;
 
-    // 1. Envia pela porta persistente se conectada
+    // Usa um único canal para que a mesma ação não seja aplicada duas vezes.
     if (bridgePort) {
       try {
         bridgePort.postMessage(msg);
+        return;
       } catch {
         bridgePort = null;
       }
     }
 
-    // 2. Envia também via chrome.runtime.sendMessage (desperta o service worker se estiver ocioso)
     try {
       chrome.runtime.sendMessage(msg, () => {
         if (chrome.runtime.lastError) {
@@ -39,17 +39,6 @@
   function dispatchToWeb(payload) {
     if (!payload) return;
 
-    // 1. window.postMessage
-    window.postMessage(
-      {
-        source: 'cfo-extension',
-        type: 'TIMER_SYNC_FROM_EXTENSION',
-        payload: payload,
-      },
-      '*'
-    );
-
-    // 2. CustomEvent no document para entrega síncrona imediata
     try {
       document.dispatchEvent(
         new CustomEvent('cfo-timer-ext-event', {
@@ -110,10 +99,10 @@
     });
   }
 
-  // Escuta mudanças no storage local (tripla redundância com garantia nativa do navegador)
+  // Escuta alterações reativas em chrome.storage.onChanged para cfo_ext_timer
   if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
-    chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && changes.cfo_ext_timer && changes.cfo_ext_timer.newValue) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === 'local' && changes && changes.cfo_ext_timer && changes.cfo_ext_timer.newValue) {
         dispatchToWeb(changes.cfo_ext_timer.newValue);
       }
     });

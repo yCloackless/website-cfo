@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Download, Check, Copy, Flame, X, Monitor, Loader2, AlertCircle, ShieldCheck, Sparkles, Terminal, ChevronRight } from 'lucide-react';
 import { AppTheme } from '../types';
 import { apiFetch } from '../services/apiFetch';
@@ -20,7 +21,39 @@ export const ExtensionModal: React.FC<ExtensionModalProps> = ({
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const PLATFORM_URL = 'https://cfo-oficial-agorasim.onrender.com';
+
+  // Bloqueio de rolagem do body enquanto o modal estiver aberto
+  useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isOpen]);
+
+  // Garante que o painel e o overlay sempre abram com scroll no topo (sem corte)
+  useEffect(() => {
+    if (isOpen) {
+      if (overlayRef.current) overlayRef.current.scrollTop = 0;
+      if (panelRef.current) panelRef.current.scrollTop = 0;
+    }
+  }, [isOpen]);
+
+  // Fechamento acessível com tecla Escape
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -62,6 +95,7 @@ export const ExtensionModal: React.FC<ExtensionModalProps> = ({
   }, [isOpen, token]);
 
   if (!isOpen) return null;
+  if (typeof document === 'undefined') return null;
 
   const handleCopyUrl = () => {
     navigator.clipboard.writeText(PLATFORM_URL).then(() => {
@@ -86,10 +120,23 @@ export const ExtensionModal: React.FC<ExtensionModalProps> = ({
     });
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-300">
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  };
+
+  const modalContent = (
+    <div
+      ref={overlayRef}
+      id="extension-modal-overlay"
+      onClick={handleBackdropClick}
+      className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto overscroll-contain p-3 sm:p-5 md:p-6 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200"
+    >
       <div
-        className={`relative w-full max-w-xl rounded-[28px] sm:rounded-[32px] border p-6 sm:p-8 shadow-[0_25px_80px_-15px_rgba(0,0,0,0.8)] overflow-hidden transition-all duration-300 ${
+        ref={panelRef}
+        id="extension-modal-panel"
+        className={`relative w-full max-w-xl my-auto max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-3.5rem)] rounded-[28px] sm:rounded-[32px] border p-5 sm:p-7 md:p-8 shadow-[0_25px_80px_-15px_rgba(0,0,0,0.8)] overflow-y-auto overscroll-contain scrollbar-thin transition-all duration-300 ${
           isDark
             ? 'bg-[#070D18]/95 border-cyan-500/20 text-white shadow-cyan-950/30'
             : 'bg-white/95 border-slate-200 text-slate-900 shadow-slate-300/50'
@@ -97,17 +144,20 @@ export const ExtensionModal: React.FC<ExtensionModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="extension-modal-title"
+        onClick={(e) => e.stopPropagation()}
       >
-        {/* Glows Ambientais Dinâmicos de Cockpit */}
-        <div className="absolute -top-28 -right-28 w-64 h-64 rounded-full bg-blue-600/25 blur-[90px] pointer-events-none animate-pulse" />
-        <div className="absolute -bottom-28 -left-28 w-64 h-64 rounded-full bg-orange-600/20 blur-[90px] pointer-events-none" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-cyan-600/10 blur-[120px] pointer-events-none" />
+        {/* Glows Ambientais Dinâmicos de Cockpit encapsulados para não inflar scrollbar */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none rounded-[inherit]">
+          <div className="absolute -top-28 -right-28 w-64 h-64 rounded-full bg-blue-600/25 blur-[90px] animate-pulse" />
+          <div className="absolute -bottom-28 -left-28 w-64 h-64 rounded-full bg-orange-600/20 blur-[90px]" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-cyan-600/10 blur-[120px]" />
+        </div>
 
         {/* Botão Fechar com Efeito de Vidro */}
         <button
           type="button"
           onClick={onClose}
-          className={`absolute top-5 right-5 p-2.5 rounded-2xl border transition-all duration-200 cursor-pointer ${
+          className={`absolute top-4 sm:top-5 right-4 sm:right-5 p-2.5 rounded-2xl border transition-all duration-200 cursor-pointer z-10 ${
             isDark
               ? 'border-white/10 bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 hover:border-white/20'
               : 'border-slate-200 bg-slate-50 text-slate-500 hover:text-slate-950 hover:bg-slate-100 hover:border-slate-300'
@@ -334,4 +384,7 @@ export const ExtensionModal: React.FC<ExtensionModalProps> = ({
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 };
+
