@@ -553,6 +553,17 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
               </button>
             </div>
 
+            {(userProfile || canReturnToAdmin) && (
+              <div className={`px-3 py-2 border-b flex items-center gap-2 ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
+                <button type="button" onClick={onOpenSettings} className="min-w-0 flex-1 flex items-center gap-3 text-left" aria-label="Abrir perfil e configurações">
+                  {userProfile?.avatarUrl ? <img src={userProfile.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" /> : <CircleUserRound size={22} className="text-blue-400" />}
+                  <span className="min-w-0"><span className="block text-xs font-semibold truncate">{userProfile?.fullName || userProfile?.username || 'Perfil'}</span><span className="block text-[11px] text-slate-400 truncate">@{userProfile?.username || 'conta'}</span></span>
+                </button>
+                {isAdmin && onOpenAccountSwitcher && <button type="button" onClick={onOpenAccountSwitcher} className="p-2 rounded-lg text-slate-400 hover:bg-slate-800" aria-label="Trocar de conta"><ArrowLeftRight size={16} /></button>}
+                {canReturnToAdmin && onReturnToAdmin && <button type="button" onClick={onReturnToAdmin} className="px-2 py-1 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-300">ADM</button>}
+              </div>
+            )}
+
             {/* Nav list Mobile */}
             <nav className="flex-1 py-3 px-2.5 space-y-4 overflow-y-auto">
               {NAV_GROUPS.map((group) => (
@@ -599,7 +610,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                           </span>
                         </div>
 
-                        {item.badge && (
+                        {item.badge && item.isNumericBadge && (
                           <span
                             className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase border shrink-0 ${
                               item.badgeClass
@@ -619,61 +630,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
               ))}
             </nav>
 
-            {/* Profile Mobile */}
-            {(userProfile || canReturnToAdmin) && (
-              <div className={`p-3 border-t shrink-0 ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    {userProfile?.avatarUrl ? (
-                      <img
-                        src={userProfile.avatarUrl}
-                        alt=""
-                        className="w-9 h-9 rounded-full object-cover border border-slate-700"
-                      />
-                    ) : (
-                      <div className="w-9 h-9 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-300">
-                        <CircleUserRound size={20} strokeWidth={1.8} />
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className={`text-xs font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                        {userProfile?.fullName || userProfile?.username || 'Perfil'}
-                      </p>
-                      <p className={`text-[11px] font-mono truncate ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                        @{userProfile?.username || 'conta'}
-                      </p>
-                    </div>
-                  </div>
-
-                  {isAdmin && onOpenAccountSwitcher && (
-                    <button
-                      type="button"
-                      onClick={onOpenAccountSwitcher}
-                      className="p-2 rounded-xl border border-slate-700 bg-slate-800 text-slate-300"
-                      title="Trocar de conta"
-                    >
-                      <ArrowLeftRight size={18} strokeWidth={1.8} />
-                    </button>
-                  )}
-                  {canReturnToAdmin && onReturnToAdmin && (
-                    <button
-                      type="button"
-                      onClick={onReturnToAdmin}
-                      className="px-2.5 py-1 rounded-xl text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                      title="Voltar ao ADM"
-                    >
-                      ADM
-                    </button>
-                  )}
-                </div>
-                {onSignOut && (
-                  <button type="button" onClick={onSignOut} className="mt-2 flex h-10 w-full items-center gap-2 rounded-lg px-3 text-xs font-semibold text-slate-400 transition-colors hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400" aria-label="Sair da conta">
-                    <LogOut size={16} strokeWidth={1.8} />
-                    Sair da conta
-                  </button>
-                )}
-              </div>
-            )}
+            {onSignOut && <div className={`p-3 border-t shrink-0 ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}><button type="button" onClick={onSignOut} className="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-xs font-semibold text-slate-400 transition-colors hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400" aria-label="Sair da conta"><LogOut size={16} strokeWidth={1.8} />Sair da conta</button></div>}
           </aside>
         </div>
       )}
@@ -761,6 +718,19 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
           </div>
         </div>
 
+        {(userProfile || canReturnToAdmin) && (
+          <div className={`px-2 py-2 border-b shrink-0 ${isDark ? 'border-slate-800/80' : 'border-slate-200/80'}`}>
+            <div className="flex items-center">
+              <button type="button" onClick={onOpenSettings} className="min-w-0 flex-1 flex items-center h-11 rounded-xl hover:bg-white/5 text-left" title="Abrir perfil e configurações" aria-label="Abrir perfil e configurações">
+                <span className="w-[56px] flex justify-center shrink-0">{userProfile?.avatarUrl ? <img src={userProfile.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" /> : <CircleUserRound size={22} className="text-blue-400" />}</span>
+                <span className={`min-w-0 text-xs font-semibold truncate transition-opacity ${isExpandedDesktop ? 'opacity-100' : 'opacity-0'}`}>{userProfile?.fullName || userProfile?.username || 'Perfil'}<span className="block text-[10px] font-normal text-slate-400">@{userProfile?.username || 'conta'}</span></span>
+              </button>
+              {isExpandedDesktop && isAdmin && onOpenAccountSwitcher && <button type="button" onClick={onOpenAccountSwitcher} title="Trocar de conta" aria-label="Trocar de conta" className="p-2 text-slate-400 hover:text-white"><ArrowLeftRight size={16} /></button>}
+              {isExpandedDesktop && canReturnToAdmin && onReturnToAdmin && <button type="button" onClick={onReturnToAdmin} className="px-2 py-1 text-[10px] rounded-lg bg-amber-500/20 text-amber-300" aria-label="Voltar ao ADM">ADM</button>}
+            </div>
+          </div>
+        )}
+
         {/* Navigation Items List Grouped Semantically */}
         <nav className="flex-1 py-3 px-2 space-y-4 overflow-y-auto overflow-x-hidden">
           {NAV_GROUPS.map((group) => (
@@ -841,7 +811,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                         {item.label}
                       </span>
 
-                      {item.badge && (
+                      {item.badge && item.isNumericBadge && (
                         <span
                           className={`ml-1.5 px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase border shrink-0 ${
                             item.badgeClass
@@ -861,81 +831,6 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
             </div>
           ))}
         </nav>
-
-        {/* Profile & Account Switcher Footer */}
-        {(userProfile || canReturnToAdmin) && (
-          <div
-            className={`p-2 border-t shrink-0 ${
-              isDark ? 'border-slate-800/80' : 'border-slate-200/80'
-            }`}
-          >
-            <div
-              onClick={onOpenSettings}
-              className="flex items-center h-12 rounded-xl transition-all duration-200 overflow-hidden cursor-pointer hover:bg-white/5"
-              title="Abrir Minha Conta / Configurações"
-            >
-              {/* Avatar Icon Container: Fixed width 56px */}
-              <div className="w-[56px] h-12 flex items-center justify-center shrink-0">
-                {userProfile?.avatarUrl ? (
-                  <img
-                    src={userProfile.avatarUrl}
-                    alt=""
-                    className="w-8 h-8 rounded-full object-cover border border-slate-700 shrink-0"
-                  />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-300 shrink-0">
-                    <CircleUserRound size={20} strokeWidth={1.8} />
-                  </div>
-                )}
-              </div>
-
-              {/* Profile Details Container */}
-              <div
-                className={`flex items-center justify-between flex-1 min-w-0 pr-2 transition-all duration-200 ease-in-out ${
-                  isExpandedDesktop
-                    ? 'opacity-100 translate-x-0 delay-75 pointer-events-auto'
-                    : 'opacity-0 -translate-x-2 pointer-events-none'
-                }`}
-              >
-                <div className="min-w-0 flex-1">
-                  <p className={`text-xs font-bold truncate leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                    {userProfile?.fullName || userProfile?.username || 'Perfil'}
-                  </p>
-                  <p className={`text-[10px] font-mono truncate leading-tight ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                    @{userProfile?.username || 'conta'}
-                  </p>
-                </div>
-
-                {isAdmin && onOpenAccountSwitcher && (
-                  <button
-                    type="button"
-                    onClick={onOpenAccountSwitcher}
-                    className={`p-1.5 rounded-lg border transition-all cursor-pointer shrink-0 ${
-                      isDark
-                        ? 'border-slate-800 bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-800'
-                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100 shadow-sm'
-                    }`}
-                    title="Trocar de conta"
-                    aria-label="Trocar de conta"
-                  >
-                    <ArrowLeftRight size={16} strokeWidth={1.8} />
-                  </button>
-                )}
-                {canReturnToAdmin && onReturnToAdmin && (
-                  <button
-                    type="button"
-                    onClick={onReturnToAdmin}
-                    className="ml-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0"
-                    title="Voltar ao ADM"
-                    aria-label="Voltar ao ADM"
-                  >
-                    ADM
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
 
         {onSignOut && (
           <div className={`px-2 pb-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
