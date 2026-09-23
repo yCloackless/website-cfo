@@ -18,6 +18,14 @@ import {
 } from 'lucide-react';
 import { Subject, AppTheme } from '../types';
 import { ConfirmModal } from './ConfirmModal';
+import {
+  StopwatchState,
+  StopwatchStatus,
+  transitionStopwatchState,
+  switchStopwatchSubject,
+  getElapsedStudyMs,
+  getElapsedRestMs,
+} from '../utils/stopwatchState';
 
 interface TimerTabProps {
   theme: AppTheme;
@@ -76,9 +84,17 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   const [isOnline, setIsOnline] = useState(true);
   const [sessionSuccessMsg, setSessionSuccessMsg] = useState<string | null>(null);
 
-  // Offset entre o relógio local do cliente e o relógio do servidor (evita pulos por clock skew/descompasso NTP)
+  // Offset entre o relógio local do cliente e o relógio do servidor
   const serverOffsetRef = useRef<number>(0);
-  // Timestamp da última ação de pausa (protege contra corridas em eventos de window.focus)
+  // Identificador único da aba para neutralizar loops de eco com a extensão
+  const clientInstanceIdRef = useRef<string>(
+    `cfo_tab_${Math.random().toString(36).slice(2, 9)}_${Date.now()}`
+  );
+  // Revisão sequencial de ações do usuário: descarta respostas HTTP antigas out-of-order
+  const actionRevisionRef = useRef<number>(0);
+  const lastUserActionTimeRef = useRef<number>(0);
+
+  // Timestamps de guarda para consistência de foco
   const lastPauseActionTimeRef = useRef<number>(0);
   const lastStartActionTimeRef = useRef<number>(0);
   const mutationPendingRef = useRef(false);
@@ -86,10 +102,16 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   const lastExtensionSyncAtRef = useRef(0);
   const latestExtensionTimerRef = useRef<any>(null);
 
+  // Referência síncrona ao estado atual para os tickers e callbacks
+  const timerStateRef = useRef<TimerState>(timerState);
+  useEffect(() => {
+    timerStateRef.current = timerState;
+  }, [timerState]);
+
   const [floatingPosition, setFloatingPosition] = useState(() => {
     try {
       const saved = window.localStorage.getItem('study-timer-floating-position');
-      return saved ? JSON.parse(saved) as { right: number; bottom: number } : { right: 20, bottom: 20 };
+      return saved ? (JSON.parse(saved) as { right: number; bottom: number }) : { right: 20, bottom: 20 };
     } catch {
       return { right: 20, bottom: 20 };
     }
@@ -124,26 +146,47 @@ export const TimerTab: React.FC<TimerTabProps> = ({
     try {
       window.localStorage.setItem('study-timer-floating-position', JSON.stringify(floatingPosition));
     } catch {
-      // A posição é apenas uma preferência local; o cronômetro continua funcionando sem ela.
+      // Posição flutuante opcional
     }
   };
 
-  // Sincroniza estado com o backend
+  // Emite estado atual para a extensão Chrome com tag de cliente para neutralizar ecos
+  const emitToExtension = useCallback((stateToEmit: any) => {
+    if (typeof window === 'undefined') return;
+    const payload = {
+      ...stateToEmit,
+      serverOffset: serverOffsetRef.current,
+      sourceClientId: clientInstanceIdRef.current,
+    };
+    window.postMessage({ source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload }, '*');
+    try {
+      document.dispatchEvent(
+        new CustomEvent('cfo-timer-web-event', {
+          detail: { source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload },
+        })
+      );
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Sincroniza estado com o backend (polling de contingência e foco)
   const fetchTimerStatus = useCallback(async () => {
-    if (mutationPendingRef.current) return;
+    // Se o usuário interagiu nos últimos 3.5 segundos, não sobrescreve a ação otimista
+    if (Date.now() - lastUserActionTimeRef.current < 3500) return;
     const revision = syncRevisionRef.current;
     try {
       const res = await apiFetch('/api/timer/status');
       if (!res.ok) throw new Error('Falha ao obter status');
       const data = await res.json();
-      if (mutationPendingRef.current || revision !== syncRevisionRef.current) return;
+      if (Date.now() - lastUserActionTimeRef.current < 3500 || revision !== syncRevisionRef.current) return;
+
       const extensionTimer = latestExtensionTimerRef.current;
       const cloudStartTime = Number(data.startTime);
-      const pauseRefTime = Number(extensionTimer?.restStartTime || timerState.restStartTime);
-      // Se a aba ou a extensão está em PAUSED, um snapshot RUNNING cujo startTime foi antes ou durante a pausa
-      // é obsoleto e nunca deve reverter o timer!
+      const pauseRefTime = Number(extensionTimer?.restStartTime || timerStateRef.current.restStartTime);
+
       if (
-        (timerState.status === 'PAUSED' || extensionTimer?.status === 'PAUSED') &&
+        (timerStateRef.current.status === 'PAUSED' || extensionTimer?.status === 'PAUSED') &&
         data.status === 'RUNNING' &&
         Number.isFinite(cloudStartTime) &&
         Number.isFinite(pauseRefTime) &&
@@ -152,104 +195,79 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         return;
       }
 
-      // Se a aba ou a extensão está em RUNNING, um snapshot PAUSED cujo restStartTime foi antes ou durante o foco
-      // ou recente após o início é obsoleto e nunca deve reverter o timer para pausa!
-      const currentStudyStart = Number(extensionTimer?.startTime || timerState.startTime);
+      const currentStudyStart = Number(extensionTimer?.startTime || timerStateRef.current.startTime);
       const cloudRestTime = Number(data.restStartTime);
       if (
-        (timerState.status === 'RUNNING' || extensionTimer?.status === 'RUNNING') &&
+        (timerStateRef.current.status === 'RUNNING' || extensionTimer?.status === 'RUNNING') &&
         data.status === 'PAUSED' &&
-        (
-          (Number.isFinite(cloudRestTime) && Number.isFinite(currentStudyStart) && cloudRestTime <= currentStudyStart) ||
-          Date.now() - lastStartActionTimeRef.current < 4000
-        )
+        ((Number.isFinite(cloudRestTime) && Number.isFinite(currentStudyStart) && cloudRestTime <= currentStudyStart) ||
+          Date.now() - lastStartActionTimeRef.current < 4000)
       ) {
         return;
       }
 
-      if (Date.now() - lastExtensionSyncAtRef.current < 4000 && extensionTimer && (
-        data.status !== extensionTimer.status ||
-        Number(data.accumulatedTime) < Number(extensionTimer.accumulatedTime ?? extensionTimer.accumulatedMs ?? 0) ||
-        (extensionTimer.status === 'RUNNING' && data.startTime !== extensionTimer.startTime)
-      )) return;
+      if (
+        Date.now() - lastExtensionSyncAtRef.current < 4000 &&
+        extensionTimer &&
+        (data.status !== extensionTimer.status ||
+          Number(data.accumulatedTime) < Number(extensionTimer.accumulatedTime ?? extensionTimer.accumulatedMs ?? 0) ||
+          (extensionTimer.status === 'RUNNING' && data.startTime !== extensionTimer.startTime))
+      ) {
+        return;
+      }
 
       if (typeof data.serverTime === 'number') {
         serverOffsetRef.current = data.serverTime - Date.now();
       }
 
-      // Guarda contra corrida de foco: se acabamos de pausar há menos de 4s e o servidor ainda respondeu RUNNING, não reverte!
-      if (Date.now() - lastPauseActionTimeRef.current < 4000 && data.status === 'RUNNING') {
-        return;
-      }
-      // Guarda simétrica: se acabamos de iniciar há menos de 4s e o servidor ainda respondeu PAUSED, não reverte!
-      if (Date.now() - lastStartActionTimeRef.current < 4000 && data.status === 'PAUSED') {
-        return;
-      }
+      if (Date.now() - lastPauseActionTimeRef.current < 4000 && data.status === 'RUNNING') return;
+      if (Date.now() - lastStartActionTimeRef.current < 4000 && data.status === 'PAUSED') return;
+
       setTimerState(data);
       setIsOnline(true);
 
-      if (data.activeSubjectId) {
+      // Não sobrescreve a matéria se o usuário acabou de trocar
+      if (data.activeSubjectId && Date.now() - lastUserActionTimeRef.current >= 4000) {
         setSelectedSubjectId(data.activeSubjectId);
       }
 
+      const estimatedServerNow = Date.now() + serverOffsetRef.current;
       if (data.status === 'RUNNING' && data.startTime) {
-        const estimatedServerNow = Date.now() + serverOffsetRef.current;
-        const elapsed = data.accumulatedTime + Math.max(0, estimatedServerNow - data.startTime);
-        setDisplayMs(elapsed);
+        setDisplayMs(getElapsedStudyMs(data as any, estimatedServerNow));
       } else if (typeof data.totalElapsedMs === 'number') {
         setDisplayMs(data.totalElapsedMs);
       } else {
         setDisplayMs(data.accumulatedTime || 0);
       }
 
-      const baseRest = typeof data.restAccumulatedMs === 'number' ? data.restAccumulatedMs : (typeof data.totalRestMs === 'number' ? data.totalRestMs : 0);
-      if (data.status === 'PAUSED' && data.restStartTime) {
-        const estimatedServerNow = Date.now() + serverOffsetRef.current;
-        const currentRest = Math.max(0, estimatedServerNow - data.restStartTime);
-        setRestDisplayMs(baseRest + currentRest);
+      if (data.status === 'PAUSED') {
+        setRestDisplayMs(getElapsedRestMs(data as any, estimatedServerNow));
       } else {
-        setRestDisplayMs(baseRest);
+        setRestDisplayMs(typeof data.restAccumulatedMs === 'number' ? data.restAccumulatedMs : (data.totalRestMs || 0));
       }
 
-      // Sincroniza estado com a extensão Chrome via ponte instantânea (window + document)
-      if (typeof window !== 'undefined') {
-        window.postMessage(
-          {
-            source: 'cfo-web',
-            type: 'TIMER_SYNC_FROM_WEB',
-            payload: { ...data, serverOffset: serverOffsetRef.current },
-          },
-          '*'
-        );
-        try {
-          document.dispatchEvent(
-            new CustomEvent('cfo-timer-web-event', {
-              detail: {
-                source: 'cfo-web',
-                type: 'TIMER_SYNC_FROM_WEB',
-                payload: { ...data, serverOffset: serverOffsetRef.current },
-              },
-            })
-          );
-        } catch {
-          /* ignore */
-        }
-      }
-    } catch (err) {
+      emitToExtension(data);
+    } catch {
       setIsOnline(false);
     }
-  }, []);
+  }, [emitToExtension]);
 
   // Ouve eventos instantâneos disparados pela extensão Chrome (< 5ms) via postMessage e CustomEvent
   useEffect(() => {
     const handleExtensionData = (ext: any) => {
-      if (!ext || mutationPendingRef.current) return;
+      if (!ext) return;
+      // NEUTRALIZAÇÃO DE ECO: se o evento veio desta mesma aba, ignora para não redisparar requisições
+      if (ext.sourceClientId === clientInstanceIdRef.current) {
+        return;
+      }
+
       const accumulatedTime = ext.accumulatedTime ?? ext.accumulatedMs;
       if (!['RUNNING', 'PAUSED', 'STOPPED'].includes(ext.status) || !Number.isFinite(accumulatedTime)) return;
       syncRevisionRef.current += 1;
       lastExtensionSyncAtRef.current = Date.now();
       latestExtensionTimerRef.current = ext;
-      if (ext.status === 'PAUSED') {
+
+      if (ext.status === 'PAUSED' && timerStateRef.current.status !== 'PAUSED') {
         lastPauseActionTimeRef.current = Date.now();
         lastStartActionTimeRef.current = 0;
         // Persiste a pausa no backend usando a sessão autenticada com cookies da aba web
@@ -265,7 +283,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
             }
           })
           .catch(() => {});
-      } else if (ext.status === 'RUNNING') {
+      } else if (ext.status === 'RUNNING' && timerStateRef.current.status !== 'RUNNING') {
         lastStartActionTimeRef.current = Date.now();
         lastPauseActionTimeRef.current = 0;
         // Persiste o início/retomada no backend usando a sessão autenticada com cookies da aba web
@@ -286,6 +304,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
           })
           .catch(() => {});
       }
+
       if (Number.isFinite(ext.serverOffset)) serverOffsetRef.current = ext.serverOffset;
       const now = Date.now() + serverOffsetRef.current;
       setTimerState((prev) => ({
@@ -295,9 +314,11 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         activeSubjectId: ext.activeSubjectId || ext.subjectId || prev.activeSubjectId,
         activeSubjectName: ext.activeSubjectName || ext.subjectName || prev.activeSubjectName,
       }));
-      setDisplayMs(accumulatedTime + (ext.status === 'RUNNING' && ext.startTime ? Math.max(0, now - ext.startTime) : 0));
-      setRestDisplayMs((ext.restAccumulatedMs || 0) + (ext.status === 'PAUSED' && ext.restStartTime ? Math.max(0, now - ext.restStartTime) : 0));
-      if (ext.subjectId || ext.activeSubjectId) setSelectedSubjectId(ext.subjectId || ext.activeSubjectId);
+      setDisplayMs(getElapsedStudyMs({ ...ext, accumulatedTime }, now));
+      setRestDisplayMs(getElapsedRestMs(ext, now));
+      if (ext.subjectId || ext.activeSubjectId) {
+        setSelectedSubjectId(ext.subjectId || ext.activeSubjectId);
+      }
     };
 
     const handleExtensionMessage = (event: MessageEvent) => {
@@ -359,181 +380,147 @@ export const TimerTab: React.FC<TimerTabProps> = ({
     };
   }, [fetchTimerStatus]);
 
-  // Tick contínuo em tempo real com compensação de offset do servidor
+  // Único ticker unificado e estável: não reconstrói o interval a cada mudança de estado
   useEffect(() => {
-    if (timerState.status !== 'RUNNING' || !timerState.startTime) return;
-
-    const interval = setInterval(() => {
-      const estimatedServerNow = Date.now() + serverOffsetRef.current;
-      const currentElapsed =
-        timerState.accumulatedTime + Math.max(0, estimatedServerNow - (timerState.startTime || estimatedServerNow));
-      setDisplayMs(currentElapsed);
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, [timerState.status, timerState.startTime, timerState.accumulatedTime]);
-
-  // Tick contínuo de descanso quando PAUSED
-  useEffect(() => {
-    if (timerState.status !== 'PAUSED') return;
-
-    // Se estiver em PAUSED mas sem restStartTime registrado, inicializa imediatamente
-    if (!timerState.restStartTime) {
-      const nowEstimated = Date.now() + serverOffsetRef.current;
-      setTimerState((prev) => ({ ...prev, restStartTime: nowEstimated }));
+    if (timerState.status === 'STOPPED') {
+      setDisplayMs(0);
+      setRestDisplayMs(0);
+      return;
     }
 
     const interval = setInterval(() => {
-      const estimatedServerNow = Date.now() + serverOffsetRef.current;
-      const start = timerState.restStartTime || estimatedServerNow;
-      const currentRest = (timerState.restAccumulatedMs || 0) + Math.max(0, estimatedServerNow - start);
-      setRestDisplayMs(currentRest);
+      const now = Date.now() + serverOffsetRef.current;
+      const current = timerStateRef.current;
+      if (current.status === 'RUNNING') {
+        setDisplayMs(getElapsedStudyMs(current as any, now));
+      } else if (current.status === 'PAUSED') {
+        setRestDisplayMs(getElapsedRestMs(current as any, now));
+      }
     }, 100);
 
     return () => clearInterval(interval);
-  }, [timerState.status, timerState.restStartTime, timerState.restAccumulatedMs]);
+  }, [timerState.status]);
 
   const activeSubject = useMemo(() => {
     return subjects.find((s) => s.id === selectedSubjectId) || subjects[0];
   }, [subjects, selectedSubjectId]);
 
+  // Transição atômica de troca de matéria com resposta visual instantânea (< 10ms)
   const handleSubjectChange = (subjectId: string) => {
-    setSelectedSubjectId(subjectId);
     const subject = subjects.find((item) => item.id === subjectId);
     if (!subject) return;
-    const nextTimer = { ...timerState, activeSubjectId: subject.id, activeSubjectName: subject.name };
-    setTimerState(nextTimer);
-    window.postMessage({ source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload: { ...nextTimer, serverOffset: serverOffsetRef.current } }, '*');
-    document.dispatchEvent(new CustomEvent('cfo-timer-web-event', {
-      detail: { source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload: { ...nextTimer, serverOffset: serverOffsetRef.current } },
-    }));
+
+    setSelectedSubjectId(subject.id);
+    const now = Date.now() + serverOffsetRef.current;
+    const current = timerStateRef.current;
+    const next = switchStopwatchSubject(current as any, { id: subject.id, name: subject.name }, now);
+
+    const actionRev = ++actionRevisionRef.current;
+    lastUserActionTimeRef.current = Date.now();
+
+    setTimerState(next as any);
+    emitToExtension(next);
+
     apiFetch('/api/timer/subject', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subjectId: subject.id, subjectName: subject.name }),
-    }).catch(() => setIsOnline(false));
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Falha ao trocar disciplina');
+        return res.json();
+      })
+      .then((data) => {
+        if (actionRev !== actionRevisionRef.current) return;
+        setTimerState((prev) => ({ ...prev, ...data }));
+      })
+      .catch(() => {
+        setIsOnline(false);
+      });
   };
 
-  // Iniciar
-  const handleStart = async () => {
-    if (mutationPendingRef.current) return;
-    mutationPendingRef.current = true;
-    syncRevisionRef.current += 1;
+  // Iniciar / Retomar: resposta visual instantânea (otimista) sem bloqueio de cliques
+  const handleStart = () => {
+    const now = Date.now() + serverOffsetRef.current;
+    const current = timerStateRef.current;
+    const next = transitionStopwatchState(current as any, 'RUNNING', now, {
+      id: activeSubject?.id,
+      name: activeSubject?.name,
+    });
+    if (!next) return;
+
+    const actionRev = ++actionRevisionRef.current;
+    lastUserActionTimeRef.current = Date.now();
     lastStartActionTimeRef.current = Date.now();
     lastPauseActionTimeRef.current = 0;
-    const now = Date.now();
-    const estimatedServerNow = now + serverOffsetRef.current;
 
-    const nextTimer = {
-      ...timerState,
-      status: 'RUNNING' as const,
-      startTime: estimatedServerNow,
-      restStartTime: null,
-      restAccumulatedMs: (timerState.restAccumulatedMs || 0) + (timerState.status === 'PAUSED' && timerState.restStartTime ? Math.max(0, estimatedServerNow - timerState.restStartTime) : 0),
-      serverOffset: serverOffsetRef.current,
-      activeSubjectId: activeSubject?.id,
-      activeSubjectName: activeSubject?.name,
-    };
-    setTimerState(nextTimer);
-    setDisplayMs(nextTimer.accumulatedTime);
-    setRestDisplayMs(nextTimer.restAccumulatedMs);
-    window.postMessage({ source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload: nextTimer }, '*');
+    setTimerState(next as any);
+    setDisplayMs(getElapsedStudyMs(next as any, now));
+    emitToExtension(next);
 
-    try {
-      setIsSyncing(true);
-      const res = await apiFetch('/api/timer/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subjectId: activeSubject?.id,
-          subjectName: activeSubject?.name,
-        }),
+    apiFetch('/api/timer/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subjectId: activeSubject?.id,
+        subjectName: activeSubject?.name,
+        accumulatedTime: next.accumulatedTime,
+      }),
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Falha ao sincronizar cronômetro');
+        return res.json();
+      })
+      .then((data) => {
+        if (actionRev !== actionRevisionRef.current) return;
+        if (typeof data.serverTime === 'number') {
+          serverOffsetRef.current = data.serverTime - Date.now();
+        }
+        setTimerState((prev) => ({ ...prev, ...data }));
+        emitToExtension(data);
+      })
+      .catch(() => {
+        setIsOnline(false);
       });
-      if (!res.ok) throw new Error('Falha ao sincronizar cronômetro');
-      const data = await res.json();
-      if (typeof data.serverTime === 'number') {
-        serverOffsetRef.current = data.serverTime - Date.now();
-      }
-      setTimerState(data);
-      if (typeof window !== 'undefined') {
-        window.postMessage({ source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload: { ...data, serverOffset: serverOffsetRef.current } }, '*');
-      }
-      if (typeof data.totalElapsedMs === 'number') {
-        setDisplayMs(data.totalElapsedMs);
-      } else {
-        const estNow = Date.now() + serverOffsetRef.current;
-        setDisplayMs(data.accumulatedTime + (data.startTime ? Math.max(0, estNow - data.startTime) : 0));
-      }
-      if (typeof data.totalRestMs === 'number') {
-        setRestDisplayMs(data.totalRestMs);
-      } else {
-        setRestDisplayMs(data.restAccumulatedMs || 0);
-      }
-    } catch (err) {
-      setIsOnline(false);
-    } finally {
-      mutationPendingRef.current = false;
-      syncRevisionRef.current += 1;
-      setIsSyncing(false);
-    }
   };
 
-  // Pausar
-  const handlePause = async () => {
-    if (mutationPendingRef.current) return;
-    mutationPendingRef.current = true;
-    syncRevisionRef.current += 1;
+  // Pausar: resposta visual instantânea (otimista) sem bloqueio de cliques
+  const handlePause = () => {
+    const now = Date.now() + serverOffsetRef.current;
+    const current = timerStateRef.current;
+    const next = transitionStopwatchState(current as any, 'PAUSED', now);
+    if (!next) return;
+
+    const actionRev = ++actionRevisionRef.current;
+    lastUserActionTimeRef.current = Date.now();
     lastPauseActionTimeRef.current = Date.now();
     lastStartActionTimeRef.current = 0;
-    const now = Date.now();
-    const currentRestStart = now + serverOffsetRef.current;
 
-    const nextTimer = {
-      ...timerState,
-      status: 'PAUSED' as const,
-      startTime: null,
-      restStartTime: currentRestStart,
-      accumulatedTime: timerState.accumulatedTime + (timerState.status === 'RUNNING' && timerState.startTime ? Math.max(0, currentRestStart - timerState.startTime) : 0),
-      restAccumulatedMs: timerState.restAccumulatedMs || 0,
-      serverOffset: serverOffsetRef.current,
-    };
-    setTimerState(nextTimer);
-    setDisplayMs(nextTimer.accumulatedTime);
-    setRestDisplayMs(nextTimer.restAccumulatedMs);
-    window.postMessage({ source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload: nextTimer }, '*');
+    setTimerState(next as any);
+    setDisplayMs(next.accumulatedTime);
+    setRestDisplayMs(next.restAccumulatedMs || 0);
+    emitToExtension(next);
 
-    try {
-      setIsSyncing(true);
-      const res = await apiFetch('/api/timer/pause', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accumulatedTime: nextTimer.accumulatedTime }),
+    apiFetch('/api/timer/pause', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accumulatedTime: next.accumulatedTime }),
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Falha ao sincronizar cronômetro');
+        return res.json();
+      })
+      .then((data) => {
+        if (actionRev !== actionRevisionRef.current) return;
+        if (typeof data.serverTime === 'number') {
+          serverOffsetRef.current = data.serverTime - Date.now();
+        }
+        setTimerState((prev) => ({ ...prev, ...data }));
+        emitToExtension(data);
+      })
+      .catch(() => {
+        setIsOnline(false);
       });
-      if (!res.ok) throw new Error('Falha ao sincronizar cronômetro');
-      const data = await res.json();
-      if (typeof data.serverTime === 'number') {
-        serverOffsetRef.current = data.serverTime - Date.now();
-      }
-      setTimerState(data);
-      if (typeof window !== 'undefined') {
-        window.postMessage({ source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload: { ...data, serverOffset: serverOffsetRef.current } }, '*');
-      }
-      setDisplayMs(typeof data.totalElapsedMs === 'number' ? data.totalElapsedMs : (data.accumulatedTime || 0));
-      if (typeof data.totalRestMs === 'number') {
-        setRestDisplayMs(data.totalRestMs);
-      } else if (data.status === 'PAUSED' && data.restStartTime) {
-        const estNow = Date.now() + serverOffsetRef.current;
-        setRestDisplayMs(Math.max(0, estNow - data.restStartTime));
-      } else {
-        setRestDisplayMs(0);
-      }
-    } catch (err) {
-      setIsOnline(false);
-    } finally {
-      mutationPendingRef.current = false;
-      syncRevisionRef.current += 1;
-      setIsSyncing(false);
-    }
   };
 
   const [resetModal, setResetModal] = useState<{ isOpen: boolean; minutes: number } | null>(null);
@@ -544,56 +531,40 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       const minutes = Math.round(displayMs / 60000);
       setResetModal({ isOpen: true, minutes });
     } else {
-      void executeReset();
+      executeReset();
     }
   };
 
-  const executeReset = async () => {
-    if (mutationPendingRef.current) return;
-    mutationPendingRef.current = true;
-    syncRevisionRef.current += 1;
+  const executeReset = () => {
     setResetModal(null);
-    if (typeof window !== 'undefined') {
-      window.postMessage(
-        {
-          source: 'cfo-web',
-          type: 'TIMER_SYNC_FROM_WEB',
-          payload: {
-            status: 'STOPPED',
-            accumulatedTime: 0,
-            accumulatedMs: 0,
-            startTime: null,
-            restAccumulatedMs: 0,
-            restStartTime: null,
-          },
-        },
-        '*'
-      );
-    }
-    try {
-      setIsSyncing(true);
-      const res = await apiFetch('/api/timer/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+    const now = Date.now() + serverOffsetRef.current;
+    const next = transitionStopwatchState(timerStateRef.current as any, 'STOPPED', now);
+    if (!next) return;
+
+    const actionRev = ++actionRevisionRef.current;
+    lastUserActionTimeRef.current = Date.now();
+
+    setTimerState(next as any);
+    setDisplayMs(0);
+    setRestDisplayMs(0);
+    emitToExtension(next);
+
+    apiFetch('/api/timer/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Falha ao resetar cronômetro');
+        return res.json();
+      })
+      .then((data) => {
+        if (actionRev !== actionRevisionRef.current) return;
+        setTimerState(data);
+        emitToExtension(data);
+      })
+      .catch(() => {
+        setIsOnline(false);
       });
-      if (!res.ok) throw new Error('Falha ao sincronizar cronômetro');
-      const data = await res.json();
-      if (typeof data.serverTime === 'number') {
-        serverOffsetRef.current = data.serverTime - Date.now();
-      }
-      setTimerState(data);
-      if (typeof window !== 'undefined') {
-        window.postMessage({ source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload: { ...data, serverOffset: serverOffsetRef.current } }, '*');
-      }
-      setDisplayMs(0);
-      setRestDisplayMs(0);
-    } catch (err) {
-      setIsOnline(false);
-    } finally {
-      mutationPendingRef.current = false;
-      syncRevisionRef.current += 1;
-      setIsSyncing(false);
-    }
   };
 
   // Salvar sessão direto no banco de dados e sincronizar com cronograma
@@ -1046,18 +1017,18 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         <div className="mt-8 flex flex-col sm:flex-row flex-wrap items-center justify-center gap-3 sm:gap-4 relative z-10 w-full max-w-xl">
           {!isRunning ? (
             <button
+              type="button"
               onClick={handleStart}
-              disabled={isSyncing}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-3.5 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 text-white font-bold text-xs sm:text-sm tracking-wider uppercase shadow-[0_10px_30px_rgba(0,86,210,0.4)] hover:shadow-[0_15px_35px_rgba(0,86,210,0.6)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer disabled:opacity-50"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-3.5 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 text-white font-bold text-xs sm:text-sm tracking-wider uppercase shadow-[0_10px_30px_rgba(0,86,210,0.4)] hover:shadow-[0_15px_35px_rgba(0,86,210,0.6)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
             >
               <Play className="w-4 sm:w-5 h-4 sm:h-5 fill-current" />
               <span>{displayMs > 0 ? 'RETOMAR ESTUDO' : 'INICIAR ESTUDO'}</span>
             </button>
           ) : (
             <button
+              type="button"
               onClick={handlePause}
-              disabled={isSyncing}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-3.5 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-700 via-indigo-600 to-blue-800 hover:from-blue-600 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm tracking-wider uppercase shadow-[0_10px_30px_rgba(30,58,138,0.5)] hover:shadow-[0_15px_35px_rgba(30,58,138,0.7)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer disabled:opacity-50"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-3.5 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-700 via-indigo-600 to-blue-800 hover:from-blue-600 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm tracking-wider uppercase shadow-[0_10px_30px_rgba(30,58,138,0.5)] hover:shadow-[0_15px_35px_rgba(30,58,138,0.7)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
             >
               <Pause className="w-4 sm:w-5 h-4 sm:h-5 fill-current" />
               <span>PAUSAR CRONÔMETRO</span>
@@ -1065,8 +1036,9 @@ export const TimerTab: React.FC<TimerTabProps> = ({
           )}
 
           <button
+            type="button"
             onClick={handleResetClick}
-            disabled={isSyncing || displayMs === 0}
+            disabled={displayMs === 0}
             className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3.5 sm:py-4 rounded-2xl border text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
               isDark
                 ? 'bg-slate-900/80 hover:bg-slate-800 text-slate-300 border-slate-700'

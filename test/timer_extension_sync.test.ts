@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // Execute the real worker with an in-memory Chrome API and a controllable network.
 function worker(initial: Record<string, any>, fetcher = async (..._args: any[]) => ({ ok: true, json: async () => ({}) })) {
@@ -36,7 +40,7 @@ function worker(initial: Record<string, any>, fetcher = async (..._args: any[]) 
       tabs: { query: (_query: any, cb: Function) => cb([]) },
     },
   });
-  vm.runInContext(fs.readFileSync('extension/background.js', 'utf8'), context);
+  vm.runInContext(fs.readFileSync(path.join(projectRoot, 'extension/background.js'), 'utf8'), context);
   return {
     storage,
     web: (snapshot: any) => { context.snapshot = snapshot; vm.runInContext('applyWebTimerUpdate(snapshot)', context); },
@@ -180,14 +184,14 @@ test('TIMER_PAUSE com payload explícito preserva accumulatedTime e restStartTim
 });
 
 test('popup initPopup protege estado PAUSED contra sobrescrita por RUNNING obsoleto da nuvem', () => {
-  const popupSrc = fs.readFileSync('extension/popup.js', 'utf8');
+  const popupSrc = fs.readFileSync(path.join(projectRoot, 'extension/popup.js'), 'utf8');
   assert.ok(popupSrc.includes('cloudStartTime <= pauseTime'), 'popup.js deve conter a guarda anti-reversão contra RUNNING obsoleto');
   assert.ok(popupSrc.includes("type: 'TIMER_PAUSE'"), 'popup.js deve emitir TIMER_PAUSE com payload');
   assert.ok(popupSrc.includes('broadcastToWebTabs(state.timer)'), 'popup.js deve propagar imediatamente para abas web');
 });
 
 test('popup initPopup protege estado RUNNING contra sobrescrita por PAUSED obsoleto da nuvem', () => {
-  const popupSrc = fs.readFileSync('extension/popup.js', 'utf8');
+  const popupSrc = fs.readFileSync(path.join(projectRoot, 'extension/popup.js'), 'utf8');
   assert.ok(popupSrc.includes('cloudRestTime <= currentStartTime'), 'popup.js deve conter a guarda anti-reversão contra PAUSED obsoleto');
 });
 
@@ -232,4 +236,50 @@ test('TIMER_START com payload preserva restAccumulatedMs e startTime no backgrou
   assert.equal(w.storage.cfo_ext_timer.startTime, now);
 });
 
+test('a ponte da extensão encaminha uma atualização de timer por um canal só', () => {
+  const source = fs.readFileSync(path.join(projectRoot, 'extension/content.js'), 'utf8');
+  const windowListeners: Record<string, Function> = {};
+  const documentListeners: Record<string, Function> = {};
+  const portMessages: any[] = [];
+  const runtimeMessages: any[] = [];
+  const webEvents: any[] = [];
+  let portListener: Function = () => {};
+  const port = {
+    postMessage: (message: any) => portMessages.push(message),
+    onMessage: { addListener: (listener: Function) => { portListener = listener; } },
+    onDisconnect: { addListener: () => {} },
+  };
+  const context = vm.createContext({
+    Date,
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+    fetch: async () => ({ ok: false, json: async () => null }),
+    window: {
+      location: { origin: 'http://local.test' },
+      localStorage: { getItem: () => null },
+      addEventListener: (type: string, listener: Function) => { windowListeners[type] = listener; },
+    },
+    document: {
+      addEventListener: (type: string, listener: Function) => { documentListeners[type] = listener; },
+      dispatchEvent: (event: any) => { webEvents.push(event); },
+    },
+    CustomEvent: function (this: any, type: string, options: any) { this.type = type; this.detail = options.detail; },
+    chrome: {
+      runtime: {
+        connect: () => port,
+        sendMessage: (message: any) => runtimeMessages.push(message),
+        onMessage: { addListener: () => {} },
+      },
+    },
+  });
+  vm.runInContext(source, context);
 
+  windowListeners.message({ source: context.window, data: {
+    source: 'cfo-web', type: 'TIMER_SYNC_FROM_WEB', payload: { status: 'RUNNING' },
+  } });
+  assert.equal(portMessages.filter((message) => message.type === 'WEB_TIMER_UPDATE').length, 1);
+  assert.equal(runtimeMessages.length, 0, 'não deve reenviar a mesma atualização via sendMessage');
+
+  portListener({ type: 'EXTENSION_TIMER_SYNC', payload: { status: 'PAUSED' } });
+  assert.equal(webEvents.length, 1, 'a página deve receber apenas o CustomEvent observado pelo timer');
+});

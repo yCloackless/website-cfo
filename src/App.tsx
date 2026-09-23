@@ -1724,6 +1724,15 @@ export default function App() {
     );
   }
 
+  // Se ainda estiver validando o token existente no localStorage, exibe loader transitório
+  if (isCheckingSession && typeof window !== 'undefined' && Boolean(localStorage.getItem('cfo_terminal_session'))) {
+    return (
+      <div className="min-h-screen bg-[#070b14] flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
   // Se o terminal NÃO estiver desbloqueado (visitante ou deslogado)
   if (!isTerminalUnlocked) {
     if (normalizedPath === '/login') {

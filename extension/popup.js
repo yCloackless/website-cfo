@@ -537,11 +537,6 @@ function broadcastToWebTabs(timerState) {
                   chrome.scripting.executeScript({
                     target: { tabId: tab.id },
                     func: (payload) => {
-                      window.postMessage({
-                        source: 'cfo-extension',
-                        type: 'TIMER_SYNC_FROM_EXTENSION',
-                        payload: payload,
-                      }, '*');
                       try {
                         document.dispatchEvent(new CustomEvent('cfo-timer-ext-event', {
                           detail: { source: 'cfo-extension', type: 'TIMER_SYNC_FROM_EXTENSION', payload }
@@ -654,6 +649,45 @@ els.btnTimerToggle.addEventListener('click', async () => {
     }
   );
 });
+
+// Listener de troca imediata de disciplina no popup da extensão
+if (els.timerSubject) {
+  els.timerSubject.addEventListener('change', async () => {
+    const selectedOption = els.timerSubject.options[els.timerSubject.selectedIndex];
+    const subjectId = els.timerSubject.value || 'geral';
+    const subjectName = selectedOption?.text || 'Estudo Geral / Questões';
+    const now = getServerNow();
+
+    let nextTimer = { ...state.timer, subjectId, subjectName };
+    if (state.timer.status === 'RUNNING' && state.timer.startTime) {
+      const elapsed = Math.max(0, now - state.timer.startTime);
+      const prevAcc = Number(state.timer.accumulatedMs ?? state.timer.accumulatedTime) || 0;
+      const newAcc = prevAcc + elapsed;
+      nextTimer = {
+        ...nextTimer,
+        accumulatedMs: newAcc,
+        accumulatedTime: newAcc,
+        startTime: now,
+      };
+    }
+
+    state.timer = nextTimer;
+    updateTimerDisplay();
+    await storage.set({ cfo_ext_timer: state.timer });
+    broadcastToWebTabs(state.timer);
+
+    if (state.settings.serverUrl && state.settings.token) {
+      fetch(`${state.settings.serverUrl}/api/timer/subject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${state.settings.token}`,
+        },
+        body: JSON.stringify({ subjectId, subjectName }),
+      }).catch(() => {});
+    }
+  });
+}
 
 els.btnTimerReset.addEventListener('click', () => {
   sendRuntimeMessage({ type: 'TIMER_RESET' }, (response) => {

@@ -1996,13 +1996,44 @@ app.post("/api/timer/subject", (req: Request, res: Response) => {
   if (typeof subjectId !== 'string' || !subjectId.trim() || typeof subjectName !== 'string' || !subjectName.trim()) {
     return res.status(400).json({ error: 'Disciplina inválida' });
   }
+  const cleanSubjectId = subjectId.trim().slice(0, 80);
+  const cleanSubjectName = subjectName.trim().slice(0, 120);
   const userId = (req as any).user.userId;
   const state = readTimerState(userId);
-  state.activeSubjectId = subjectId;
-  state.activeSubjectName = subjectName;
+  const now = Date.now();
+
+  // Transição atômica de disciplina: se o cronômetro estiver RUNNING, fecha o bloco da matéria anterior sem perda de tempo
+  if (state.status === "RUNNING" && typeof state.startTime === "number" && state.startTime > 0) {
+    const studyDelta = Math.max(0, now - state.startTime);
+    if (!state.intervals) state.intervals = [];
+    if (studyDelta > 0) {
+      state.intervals.push({
+        type: "study",
+        durationMs: studyDelta,
+        startTime: state.startTime,
+        endTime: now,
+        subjectId: state.activeSubjectId,
+      });
+    }
+    state.accumulatedTime += studyDelta;
+    state.startTime = now;
+  }
+
+  state.activeSubjectId = cleanSubjectId;
+  state.activeSubjectName = cleanSubjectName;
   state.updatedAt = new Date().toISOString();
   saveTimerState(userId, state);
-  return res.json(state);
+
+  const totalElapsedMs = state.accumulatedTime + (state.status === "RUNNING" && state.startTime ? Math.max(0, now - state.startTime) : 0);
+  const totalRestMs = state.restAccumulatedMs || 0;
+
+  return res.json({
+    success: true,
+    ...state,
+    totalElapsedMs,
+    totalRestMs,
+    serverTime: now,
+  });
 });
 
 // 3. Pausar Cronômetro (Inicia o descanso em andamento)

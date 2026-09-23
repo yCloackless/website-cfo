@@ -13,6 +13,7 @@ const STORAGE_KEYS = {
 
 let serverOffset = 0;
 let timerRevision = 0;
+let webTimerUpdateRevision = 0;
 let commandRevision = 0;
 let pendingTimerWrites = 0;
 let timerWrites = Promise.resolve();
@@ -191,19 +192,23 @@ function broadcastToWeb(timerState) {
   if (!timerState) return;
   timerState = { ...timerState, serverOffset };
 
-  // 1. Envia para portas abertas na conexão persistente (webBridgePorts)
-  for (const port of webBridgePorts) {
-    try {
-      port.postMessage({
-        type: 'EXTENSION_TIMER_SYNC',
-        payload: timerState,
-      });
-    } catch {
-      webBridgePorts.delete(port);
+  // Envia por um único canal; enviar também por tabs.sendMessage duplicava cada atualização.
+  if (webBridgePorts.size > 0) {
+    let delivered = false;
+    for (const port of webBridgePorts) {
+      try {
+        port.postMessage({
+          type: 'EXTENSION_TIMER_SYNC',
+          payload: timerState,
+        });
+        delivered = true;
+      } catch {
+        webBridgePorts.delete(port);
+      }
     }
+    if (delivered) return;
   }
 
-  // 2. Envia diretamente para todas as abas ativas via tabs.sendMessage (resiliente contra quedas de porta)
   if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
     try {
       chrome.tabs.query({}, (tabs) => {
@@ -225,11 +230,6 @@ function broadcastToWeb(timerState) {
                     chrome.scripting.executeScript({
                       target: { tabId: tab.id },
                       func: (payload) => {
-                        window.postMessage({
-                          source: 'cfo-extension',
-                          type: 'TIMER_SYNC_FROM_EXTENSION',
-                          payload: payload,
-                        }, '*');
                         try {
                           document.dispatchEvent(new CustomEvent('cfo-timer-ext-event', {
                             detail: { source: 'cfo-extension', type: 'TIMER_SYNC_FROM_EXTENSION', payload }
@@ -255,8 +255,10 @@ function broadcastToWeb(timerState) {
 
 function applyWebTimerUpdate(web) {
   if (!web) return;
+  const updateRevision = ++webTimerUpdateRevision;
 
   chrome.storage.local.get([STORAGE_KEYS.TIMER], (res) => {
+    if (updateRevision !== webTimerUpdateRevision) return;
     const prev = res[STORAGE_KEYS.TIMER] || {};
 
     // Uma resposta RUNNING iniciada antes da pausa não pode reativar o timer.
@@ -319,6 +321,7 @@ function applyWebTimerUpdate(web) {
 
     const updatedTimer = {
       serverOffset,
+      sourceClientId: web.sourceClientId,
       status: web.status || prev.status || 'STOPPED',
       accumulatedMs: nextAcc,
       accumulatedTime: nextAcc,

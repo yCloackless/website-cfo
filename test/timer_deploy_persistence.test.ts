@@ -78,3 +78,39 @@ test('a pausa preserva o acumulado mais recente recebido da extensão', async ()
   assert.equal(paused.response.status, 200);
   assert.ok(paused.body.accumulatedTime >= 34 * 60_000);
 });
+
+test('30 transições autenticadas de Start/Pause/Resume/Stop mantêm o status esperado', async () => {
+  const headers = { Authorization: `Bearer ${token}` };
+  const reset = await request('/api/timer/reset', { method: 'POST', headers });
+  assert.equal(reset.response.status, 200);
+  const sequence = [
+    ['/api/timer/start', 'RUNNING'],
+    ['/api/timer/pause', 'PAUSED'],
+    ['/api/timer/start', 'RUNNING'],
+    ['/api/timer/pause', 'PAUSED'],
+    ['/api/timer/start', 'RUNNING'],
+    ['/api/timer/reset', 'STOPPED'],
+  ] as const;
+
+  for (let cycle = 0; cycle < 5; cycle += 1) {
+    for (const [route, expectedStatus] of sequence) {
+      const result = await request(route, { method: 'POST', headers });
+      assert.equal(result.response.status, 200, `${route} ciclo ${cycle + 1}`);
+      assert.equal(result.body.status, expectedStatus, `${route} ciclo ${cycle + 1}`);
+    }
+  }
+});
+
+test('finalizar e gravar a sessão deixa o cronômetro parado no servidor', async () => {
+  const headers = { Authorization: `Bearer ${token}` };
+  await request('/api/timer/start', { method: 'POST', headers, body: JSON.stringify({ subjectId: 'fisica', subjectName: 'Física' }) });
+  const saved = await request('/api/timer/save-session', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ subjectId: 'fisica', subjectName: 'Física', durationSeconds: 1 }),
+  });
+  assert.equal(saved.response.status, 201);
+  assert.equal(saved.body.timerState.status, 'STOPPED');
+  const status = await request('/api/timer/status', { headers });
+  assert.equal(status.body.status, 'STOPPED');
+});
