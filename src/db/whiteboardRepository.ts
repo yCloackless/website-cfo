@@ -215,12 +215,47 @@ export class WhiteboardRepository {
     const existing = this.getWhiteboard(userId, boardId);
     if (!existing) return { success: false, assetStorageKeys: [] };
 
-    const keys = existing.assets.map((a) => a.storage_key);
+    const potentialKeys = existing.assets.map((a) => a.storage_key);
 
     const del = this.db.prepare(`DELETE FROM whiteboards WHERE id = ? AND user_id = ?`);
     del.run(boardId, userId);
 
-    return { success: true, assetStorageKeys: keys };
+    // Retorna apenas chaves de assets que não possuem mais nenhuma referência
+    const safeToDeleteKeys: string[] = [];
+    for (const key of potentialKeys) {
+      const refCheck = this.db.prepare(`SELECT COUNT(*) as count FROM whiteboard_assets WHERE storage_key = ?`).get(key) as any;
+      const count = Number(refCheck?.count ?? refCheck?.['count(*)'] ?? 0);
+      if (count === 0) {
+        safeToDeleteKeys.push(key);
+      }
+    }
+
+    return { success: true, assetStorageKeys: safeToDeleteKeys };
+  }
+
+  public cleanupUnreferencedAssets(userId: string, boardId: string, activeStorageKeys: string[]): string[] {
+    const existing = this.getWhiteboard(userId, boardId);
+    if (!existing) return [];
+
+    const deletedKeys: string[] = [];
+    const activeSet = new Set(activeStorageKeys);
+
+    for (const asset of existing.assets) {
+      if (!activeSet.has(asset.storage_key)) {
+        // Deleta o registro órfão deste quadro
+        const delAsset = this.db.prepare(`DELETE FROM whiteboard_assets WHERE id = ? AND user_id = ?`);
+        delAsset.run(asset.id, userId);
+
+        // Se nenhuma outra linha referenciar a mesma chave, agenda exclusão no R2
+        const refCheck = this.db.prepare(`SELECT COUNT(*) as count FROM whiteboard_assets WHERE storage_key = ?`).get(asset.storage_key) as any;
+        const count = Number(refCheck?.count ?? refCheck?.['count(*)'] ?? 0);
+        if (count === 0) {
+          deletedKeys.push(asset.storage_key);
+        }
+      }
+    }
+
+    return deletedKeys;
   }
 
   public createAsset(asset: {

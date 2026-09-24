@@ -95,6 +95,7 @@ const NotFound = lazy(() => import('./components/NotFound').then(({ NotFound }) 
 const IfriStudyTab = lazy(() => import('./components/IfriStudyTab').then(({ IfriStudyTab }) => ({ default: IfriStudyTab })));
 const WhiteboardWorkspace = lazy(() => import('./components/whiteboard/WhiteboardWorkspace').then(({ WhiteboardWorkspace }) => ({ default: WhiteboardWorkspace })));
 import { ConfirmModal } from './components/ConfirmModal';
+import { clearUserOfflineCache } from './utils/whiteboardOfflineCache';
 
 export default function App() {
   const location = useLocation();
@@ -466,6 +467,9 @@ export default function App() {
     localStorage.removeItem('cfo_terminal_role');
     localStorage.removeItem('cfo_can_access_notion');
     localStorage.removeItem('cfo_can_access_ifrj');
+    if (userProfile?.id) {
+      clearUserOfflineCache(userProfile.id).catch(() => {});
+    }
     setUserProfile(null);
     setCanAccessNotion(true);
     setCanAccessIfrj(false);
@@ -2467,6 +2471,7 @@ export default function App() {
         {/* Render Tab: Quadro Branco / Cloud Workspace de Questões */}
         {activeTab === 'whiteboard' && (
           <WhiteboardWorkspace
+            userId={userProfile?.id}
             boardId={whiteboardBoardId}
             onNavigateBack={() => handleSelectTab('table')}
             showToast={showToast}

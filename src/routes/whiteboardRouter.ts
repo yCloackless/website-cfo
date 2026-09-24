@@ -181,6 +181,16 @@ export function createWhiteboardRouter(
         senderDeviceId: deviceId,
       });
 
+      // Limpeza segura de imagens deletadas do quadro (sem afetar outros quadros)
+      if (Array.isArray(req.body?.activeAssetKeys)) {
+        const orphanKeys = repo.cleanupUnreferencedAssets(userId, id, req.body.activeAssetKeys);
+        for (const k of orphanKeys) {
+          deleteWhiteboardMedia(k).catch((e) => {
+            console.warn(`[WhiteboardStorage] Falha ao expurgar asset órfão ${k}:`, e);
+          });
+        }
+      }
+
       res.json({
         success: true,
         version: saveResult.version,

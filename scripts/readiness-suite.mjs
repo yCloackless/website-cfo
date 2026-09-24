@@ -34,6 +34,7 @@ files.push('sidebar_interaction');
 files.push('postgres_runtime_audit');
 files.push('whiteboard_sync_and_security');
 files.push('whiteboard_e2e_flow');
+files.push('whiteboard_hardening_and_realworld');
 files.splice(files.indexOf('exam_bank'), 0, 'board_intelligence');
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|HOME|USERPROFILE|COMSPEC|PATHEXT)$/i.test(key)));

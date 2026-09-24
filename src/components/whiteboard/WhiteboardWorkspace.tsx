@@ -39,8 +39,14 @@ import { WhiteboardBackground, WhiteboardBackgroundType } from './WhiteboardBack
 import { WhiteboardCaptureModal } from './WhiteboardCaptureModal';
 import { WhiteboardListModal } from './WhiteboardListModal';
 import { apiFetch } from '../../services/apiFetch';
+import {
+  saveBoardOffline,
+  loadBoardOffline,
+  markBoardSynced,
+} from '../../utils/whiteboardOfflineCache';
 
 interface WhiteboardWorkspaceProps {
+  userId?: string;
   boardId?: string;
   onNavigateBack?: () => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
@@ -62,15 +68,17 @@ const PEN_SIZES = [
 ];
 
 export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
+  userId: propUserId,
   boardId: propBoardId,
   onNavigateBack,
   showToast,
 }) => {
+  const resolvedUserId = propUserId || (typeof window !== 'undefined' ? localStorage.getItem('cfo_user_id') || 'default_cadet' : 'default_cadet');
   const [boardId, setBoardId] = useState<string>(propBoardId || '');
   const [boardTitle, setBoardTitle] = useState('Quadro Negro de Resolução');
   const [backgroundType, setBackgroundType] = useState<WhiteboardBackgroundType>('pure_black');
   const [serverVersion, setServerVersion] = useState<number>(1);
-  const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'offline' | 'error' | 'conflict'>('synced');
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'offline' | 'pending' | 'error' | 'conflict'>('synced');
   const [lastSyncTime, setLastSyncTime] = useState<string>('agora');
   const [isPenMode, setIsPenMode] = useState<boolean>(true);
   const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false);
@@ -86,7 +94,9 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deviceIdRef = useRef<string>('');
   const lastSavedVersionRef = useRef<number>(1);
+  const lastSavedDocumentStateRef = useRef<string>('');
   const isApplyingRemoteRef = useRef<boolean>(false);
+  const isSavingRef = useRef<boolean>(false);
 
   // Inicializar Device ID para neutralizar ecos de SSE
   useEffect(() => {
@@ -164,20 +174,50 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
     };
   }, [boardId]);
 
-  // Função central de persistência para a nuvem
+  // Função central de persistência para a nuvem com tolerância a falhas e auto-reconciliação
   const saveToCloud = useCallback(async (isForced = false) => {
     if (!editorRef.current || !boardId) return;
     if (!hasPendingChangesRef.current && !isForced) return;
+    if (isSavingRef.current) return;
+
+    const snapshot = getSnapshot(editorRef.current.store);
+    const documentState = JSON.stringify(snapshot);
+
+    // Evita upload redundante se nada mudou no documento
+    if (!isForced && documentState === lastSavedDocumentStateRef.current) {
+      hasPendingChangesRef.current = false;
+      setSyncStatus('synced');
+      return;
+    }
+
+    // Salva sempre no IndexedDB offline primeiro (garante que nada seja perdido se a página fechar)
+    saveBoardOffline(resolvedUserId, boardId, {
+      title: boardTitle,
+      backgroundType,
+      version: lastSavedVersionRef.current,
+      documentState,
+      hasPendingSync: true,
+    }).catch(() => {});
 
     if (!navigator.onLine) {
       setSyncStatus('offline');
       return;
     }
 
+    isSavingRef.current = true;
     setSyncStatus('saving');
+
     try {
-      const snapshot = getSnapshot(editorRef.current.store);
-      const documentState = JSON.stringify(snapshot);
+      // Coleta chaves de assets ativos no documento para limpeza segura de órfãos
+      const allRecords = editorRef.current.store.allRecords();
+      const activeAssetKeys: string[] = [];
+      for (const r of allRecords) {
+        if (r.typeName === 'asset' && (r as any).props?.src) {
+          const src = String((r as any).props.src);
+          const match = src.match(/\/api\/whiteboards\/media\/([^?#]+)/);
+          if (match) activeAssetKeys.push(match[1]);
+        }
+      }
 
       const res = await apiFetch(`/api/whiteboards/${boardId}/save`, {
         method: 'POST',
@@ -186,24 +226,32 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
           documentState,
           clientVersion: lastSavedVersionRef.current,
           deviceId: deviceIdRef.current,
+          activeAssetKeys,
         }),
       });
 
       if (res.status === 409) {
-        // Conflito de versão: outro dispositivo salvou antes
+        // Conflito de versão monotônica (edições concorrentes PC <-> Tablet)
         const conflictData = await res.json();
         setSyncStatus('conflict');
-        setServerVersion(conflictData.serverVersion);
+        const remoteVersion = conflictData.serverVersion;
+        setServerVersion(remoteVersion);
+        lastSavedVersionRef.current = remoteVersion;
 
-        // Se houver snapshot do servidor, reconcilia sem descartar rabiscos locais
+        // Reconcilia registros remotos compartilhados preservando traços locais e histórico
         if (conflictData.currentDocumentState && editorRef.current) {
           try {
             const remoteSnap = JSON.parse(conflictData.currentDocumentState);
             const remoteRecords = remoteSnap.document?.records || remoteSnap.records || [];
-            if (Array.isArray(remoteRecords) && remoteRecords.length > 0) {
+            // Filtra exclusivamente registros de conteúdo (exclui câmera, cursor e sessão)
+            const sharedRemoteRecords = Array.isArray(remoteRecords)
+              ? remoteRecords.filter((r: any) => ['shape', 'asset', 'binding', 'page'].includes(r.typeName))
+              : [];
+
+            if (sharedRemoteRecords.length > 0) {
               isApplyingRemoteRef.current = true;
               editorRef.current.store.mergeRemoteChanges(() => {
-                editorRef.current?.store.put(remoteRecords);
+                editorRef.current?.store.put(sharedRemoteRecords);
               });
               isApplyingRemoteRef.current = false;
             }
@@ -211,7 +259,13 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
             console.warn('[ConflictReconciliation]', e);
           }
         }
-        showToast?.('Alterações remotas integradas ao seu quadro.', 'info');
+
+        // Imediatamente agenda novo salvamento com o estado combinado
+        isSavingRef.current = false;
+        hasPendingChangesRef.current = true;
+        setTimeout(() => {
+          saveToCloud(true);
+        }, 200);
         return;
       }
 
@@ -223,13 +277,21 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
       hasPendingChangesRef.current = false;
       setServerVersion(data.version);
       lastSavedVersionRef.current = data.version;
+      lastSavedDocumentStateRef.current = documentState;
       setSyncStatus('synced');
       setLastSyncTime(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+
+      // Marca o cache offline como sincronizado
+      markBoardSynced(resolvedUserId, boardId, data.version).catch(() => {});
     } catch (err) {
       console.error('[WhiteboardSaveError]', err);
-      setSyncStatus('error');
+      // Mantém a flag de pendência para que nunca haja perda de trabalho
+      hasPendingChangesRef.current = true;
+      setSyncStatus(navigator.onLine ? 'error' : 'offline');
+    } finally {
+      isSavingRef.current = false;
     }
-  }, [boardId, showToast]);
+  }, [boardId, boardTitle, backgroundType, resolvedUserId]);
 
   // Agendar salvamento debounced (1500ms)
   const scheduleAutosave = useCallback(() => {
@@ -241,9 +303,40 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
     }, 1500);
   }, [saveToCloud]);
 
-  // Carregar dados remotos do quadro no editor
+  // Carregar dados do quadro (com hidratação prévia de cache offline)
   const loadBoardData = useCallback(async (targetBoardId: string, editor: Editor) => {
     if (!targetBoardId) return;
+
+    // 1. Hidratação instantânea do IndexedDB local
+    try {
+      const cached = await loadBoardOffline(resolvedUserId, targetBoardId);
+      if (cached && cached.documentState && cached.documentState !== '{}') {
+        const parsedCached = JSON.parse(cached.documentState);
+        isApplyingRemoteRef.current = true;
+        loadSnapshot(editor.store, parsedCached);
+        isApplyingRemoteRef.current = false;
+        lastSavedVersionRef.current = cached.version || 1;
+        setServerVersion(cached.version || 1);
+        if (cached.title) setBoardTitle(cached.title);
+        if (cached.backgroundType) setBackgroundType(cached.backgroundType as WhiteboardBackgroundType);
+
+        if (cached.hasPendingSync) {
+          hasPendingChangesRef.current = true;
+          setSyncStatus('pending');
+        } else {
+          setSyncStatus('synced');
+        }
+      }
+    } catch (cacheErr) {
+      console.warn('[OfflineCacheLoad]', cacheErr);
+    }
+
+    // 2. Se online, valida e reconcilia com a nuvem
+    if (!navigator.onLine) {
+      setSyncStatus('offline');
+      return;
+    }
+
     try {
       const res = await apiFetch(`/api/whiteboards/${targetBoardId}`);
       if (!res.ok) return;
@@ -251,21 +344,46 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
       const data = await res.json();
       setBoardTitle(data.board?.title || 'Quadro de Resolução');
       setBackgroundType((data.board?.background_type as WhiteboardBackgroundType) || 'pure_black');
-      setServerVersion(data.board?.version || 1);
-      lastSavedVersionRef.current = data.board?.version || 1;
+
+      const remoteVer = data.board?.version || 1;
 
       if (data.document?.document_state && data.document.document_state !== '{}') {
-        const parsed = JSON.parse(data.document.document_state);
-        isApplyingRemoteRef.current = true;
-        loadSnapshot(editor.store, parsed);
-        isApplyingRemoteRef.current = false;
-        hasPendingChangesRef.current = false;
-        setSyncStatus('synced');
+        const parsedRemote = JSON.parse(data.document.document_state);
+
+        if (hasPendingChangesRef.current) {
+          // Se havia alterações locais pendentes no IndexedDB, mescla remotas sem sobrescrever
+          const remoteRecords = parsedRemote.document?.records || parsedRemote.records || [];
+          const sharedRecords = Array.isArray(remoteRecords)
+            ? remoteRecords.filter((r: any) => ['shape', 'asset', 'binding', 'page'].includes(r.typeName))
+            : [];
+
+          if (sharedRecords.length > 0) {
+            isApplyingRemoteRef.current = true;
+            editor.store.mergeRemoteChanges(() => {
+              editor.store.put(sharedRecords);
+            });
+            isApplyingRemoteRef.current = false;
+          }
+          // Sincroniza estado mesclado com a nuvem
+          lastSavedVersionRef.current = remoteVer;
+          setServerVersion(remoteVer);
+          saveToCloud(true);
+        } else {
+          // Sem edições locais pendentes: hidrata com o estado oficial do servidor
+          isApplyingRemoteRef.current = true;
+          loadSnapshot(editor.store, parsedRemote);
+          isApplyingRemoteRef.current = false;
+          lastSavedVersionRef.current = remoteVer;
+          lastSavedDocumentStateRef.current = data.document.document_state;
+          setServerVersion(remoteVer);
+          setSyncStatus('synced');
+          markBoardSynced(resolvedUserId, targetBoardId, remoteVer).catch(() => {});
+        }
       }
     } catch (err) {
-      console.error('[LoadBoardData]', err);
+      console.error('[LoadBoardDataRemote]', err);
     }
-  }, []);
+  }, [resolvedUserId, saveToCloud]);
 
   // Configuração inicial e callbacks do tldraw editor
   const handleMount = useCallback((editor: Editor) => {
@@ -290,11 +408,23 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
       loadBoardData(boardId, editor);
     }
 
-    // Escutar mudanças do store com guarda anti-echo de mudanças remotas
+    // Escutar mudanças do store com persistência imediata no IndexedDB
     const cleanupListen = editor.store.listen((entry) => {
       if (isApplyingRemoteRef.current) return;
       if (entry.source === 'user') {
         scheduleAutosave();
+
+        // Grava no IndexedDB de forma assíncrona imediata
+        try {
+          const snap = getSnapshot(editor.store);
+          saveBoardOffline(resolvedUserId, boardId, {
+            title: boardTitle,
+            backgroundType,
+            version: lastSavedVersionRef.current,
+            documentState: JSON.stringify(snap),
+            hasPendingSync: true,
+          }).catch(() => {});
+        } catch (_) {}
       }
     });
 
@@ -312,7 +442,110 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
       cleanupListen();
       cleanupSelection();
     };
-  }, [boardId, loadBoardData, scheduleAutosave]);
+  }, [boardId, boardTitle, backgroundType, resolvedUserId, loadBoardData, scheduleAutosave]);
+
+  // Verificação ativa de atualizações remotas (Lifecycle: ao retornar de background/foco)
+  const checkRemoteVersionAndReconcile = useCallback(async () => {
+    if (!editorRef.current || !boardId || !navigator.onLine) return;
+
+    try {
+      const res = await apiFetch(`/api/whiteboards/${boardId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const remoteVer = data.board?.version || 1;
+
+      // Se o servidor possui uma versão mais nova que a nossa base
+      if (remoteVer > lastSavedVersionRef.current && data.document?.document_state) {
+        const parsedRemote = JSON.parse(data.document.document_state);
+        const remoteRecords = parsedRemote.document?.records || parsedRemote.records || [];
+        const sharedRecords = Array.isArray(remoteRecords)
+          ? remoteRecords.filter((r: any) => ['shape', 'asset', 'binding', 'page'].includes(r.typeName))
+          : [];
+
+        if (sharedRecords.length > 0) {
+          isApplyingRemoteRef.current = true;
+          editorRef.current.store.mergeRemoteChanges(() => {
+            editorRef.current?.store.put(sharedRecords);
+          });
+          isApplyingRemoteRef.current = false;
+        }
+
+        lastSavedVersionRef.current = remoteVer;
+        setServerVersion(remoteVer);
+
+        // Se houver mudanças locais pendentes, envia novo salvamento com o estado combinado
+        if (hasPendingChangesRef.current) {
+          saveToCloud(true);
+        } else {
+          lastSavedDocumentStateRef.current = data.document.document_state;
+          setSyncStatus('synced');
+          markBoardSynced(resolvedUserId, boardId, remoteVer).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.warn('[CheckRemoteVersion]', e);
+    }
+  }, [boardId, resolvedUserId, saveToCloud]);
+
+  // Listeners de Ciclo de Vida: Backgrounding móvel, aba oculta, foco e reconexão
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        // App foi para background/minimizado: salva alterações pendentes
+        if (hasPendingChangesRef.current) {
+          saveToCloud(true);
+        }
+      } else if (document.visibilityState === 'visible') {
+        // Retornou ao foreground: busca atualizações feitas em outro dispositivo
+        checkRemoteVersionAndReconcile();
+      }
+    };
+
+    const handleWindowFocus = () => {
+      checkRemoteVersionAndReconcile();
+    };
+
+    const handleOnline = () => {
+      if (hasPendingChangesRef.current) {
+        saveToCloud(true);
+      } else {
+        checkRemoteVersionAndReconcile();
+      }
+    };
+
+    const handleOffline = () => {
+      setSyncStatus('offline');
+    };
+
+    const handleBeforeUnload = () => {
+      if (editorRef.current && boardId && hasPendingChangesRef.current) {
+        try {
+          const snapshot = getSnapshot(editorRef.current.store);
+          saveBoardOffline(resolvedUserId, boardId, {
+            title: boardTitle,
+            backgroundType,
+            version: lastSavedVersionRef.current,
+            documentState: JSON.stringify(snapshot),
+            hasPendingSync: true,
+          }).catch(() => {});
+        } catch (_) {}
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [boardId, boardTitle, backgroundType, resolvedUserId, saveToCloud, checkRemoteVersionAndReconcile]);
 
   // Escutar eventos de tela/caneta Pointer Events para auto-detectar Stylus
   useEffect(() => {
@@ -332,7 +565,6 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
   // Listener global de colagem de imagem (Ctrl+V)
   useEffect(() => {
     const handleGlobalPaste = async (e: ClipboardEvent) => {
-      // Ignora se estiver focado em um input de texto comum
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName || '')) return;
 
       const items = e.clipboardData?.items;
@@ -347,7 +579,6 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
             reader.onload = (event) => {
               const base64 = event.target?.result as string;
               if (base64) {
-                // Dimensões estimadas ou extraídas da imagem
                 const img = new Image();
                 img.onload = () => {
                   handleInsertQuestionAsset(base64, img.naturalWidth || 800, img.naturalHeight || 600);
@@ -365,27 +596,6 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
     window.addEventListener('paste', handleGlobalPaste);
     return () => window.removeEventListener('paste', handleGlobalPaste);
   }, [boardId]);
-
-  // Listener de reconexão de internet (Offline -> Online)
-  useEffect(() => {
-    const handleOnline = () => {
-      if (hasPendingChangesRef.current) {
-        saveToCloud(true);
-      } else {
-        setSyncStatus('synced');
-      }
-    };
-    const handleOffline = () => {
-      setSyncStatus('offline');
-    };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, [saveToCloud]);
 
   // Conexão SSE para sincronização instantânea entre dispositivos (Desktop <-> Tablet)
   useEffect(() => {
@@ -434,7 +644,6 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
               if (event.senderDeviceId === deviceIdRef.current) continue;
 
               if (event.type === 'VERSION_UPDATE' || event.type === 'ASSET_ADDED') {
-                // Dispositivo remoto atualizou o quadro!
                 if (!editorRef.current) continue;
 
                 // Buscar estado atualizado
@@ -445,11 +654,15 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
                 if (freshData.document?.document_state) {
                   const remoteSnapshot = JSON.parse(freshData.document.document_state);
                   const remoteRecords = remoteSnapshot.document?.records || remoteSnapshot.records || [];
+                  // Filtra apenas registros compartilhados do documento (exclui câmera e sessão)
+                  const sharedRemoteRecords = Array.isArray(remoteRecords)
+                    ? remoteRecords.filter((r: any) => ['shape', 'asset', 'binding', 'page'].includes(r.typeName))
+                    : [];
 
-                  if (Array.isArray(remoteRecords) && remoteRecords.length > 0) {
+                  if (sharedRemoteRecords.length > 0) {
                     isApplyingRemoteRef.current = true;
                     editorRef.current.store.mergeRemoteChanges(() => {
-                      editorRef.current?.store.put(remoteRecords);
+                      editorRef.current?.store.put(sharedRemoteRecords);
                     });
                     isApplyingRemoteRef.current = false;
                   }
@@ -706,10 +919,16 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
                 <span className="hidden lg:inline text-amber-300">Salvando...</span>
               </>
             )}
+            {syncStatus === 'pending' && (
+              <>
+                <Cloud className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden lg:inline text-amber-300">Pendente</span>
+              </>
+            )}
             {syncStatus === 'offline' && (
               <>
-                <CloudOff className="w-3.5 h-3.5 text-red-400" />
-                <span className="hidden lg:inline text-red-300">Offline</span>
+                <CloudOff className="w-3.5 h-3.5 text-slate-400" />
+                <span className="hidden lg:inline text-slate-300">Offline</span>
               </>
             )}
             {syncStatus === 'error' && (
@@ -720,8 +939,8 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
             )}
             {syncStatus === 'conflict' && (
               <>
-                <RefreshCw className="w-3.5 h-3.5 text-cyan-400" />
-                <span className="hidden lg:inline text-cyan-300">Atualizado</span>
+                <RefreshCw className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                <span className="hidden lg:inline text-cyan-300">Reconciliando...</span>
               </>
             )}
           </button>
@@ -732,7 +951,7 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
       <div className="relative flex-1 w-full h-full overflow-hidden bg-black">
         {boardId && (
           <Tldraw
-            persistenceKey={`cfo_whiteboard_${boardId}`}
+            persistenceKey={`cfo_whiteboard_${resolvedUserId}_${boardId}`}
             components={customComponents}
             onMount={handleMount}
             autoFocus
