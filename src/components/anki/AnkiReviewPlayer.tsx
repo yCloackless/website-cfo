@@ -95,13 +95,17 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
     void loadQueue();
   }, [loadQueue]);
 
+  const activeCardIdRef = useRef<string | null>(null);
+
   const fetchCardRender = useCallback(async (cardId: string) => {
     try {
       const res = await apiFetch(`/api/anki/cards/${cardId}/render`);
-      if (res.ok) {
+      if (res.ok && activeCardIdRef.current === cardId) {
         const data = await res.json();
-        setRenderedContent(data.rendered || null);
-        setIntervals(data.intervals || []);
+        if (activeCardIdRef.current === cardId) {
+          setRenderedContent(data.rendered || null);
+          setIntervals(data.intervals || []);
+        }
       }
     } catch {}
   }, []);
@@ -109,12 +113,18 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
   // When active card changes, render it and get interval previews
   useEffect(() => {
     if (!currentCard) {
+      activeCardIdRef.current = null;
       setRenderedContent(null);
       setDisplayContent(null);
       setIntervals([]);
       return;
     }
 
+    activeCardIdRef.current = currentCard.id;
+    // Reset immediately so previous card content does not leak into current card during fetch
+    setRenderedContent(null);
+    setDisplayContent(null);
+    setIntervals([]);
     setStartTimeMs(Date.now());
     setIsAnswerRevealed(false);
     void fetchCardRender(currentCard.id);
@@ -637,13 +647,13 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
                 </div>
 
                 <div className="text-sm sm:text-base font-normal leading-relaxed text-zinc-100">
-                  {displayContent ? (
+                  {displayContent || renderedContent ? (
                     <div
                       className="anki-card-front cursor-zoom-in"
                       onClick={openImageViewer}
-                      dangerouslySetInnerHTML={{ __html: displayContent.questionHtml }}
+                      dangerouslySetInnerHTML={{ __html: (displayContent || renderedContent)!.questionHtml }}
                     />
-                  ) : renderedContent ? null : (
+                  ) : (
                     <ClozeLatexCard text={currentCard.note?.fields[0] || ''} isAnswer={false} />
                   )}
                 </div>
@@ -656,13 +666,13 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
                     Resposta
                   </div>
                   <div className="text-sm sm:text-base font-normal leading-relaxed text-zinc-100">
-                    {displayContent ? (
+                    {displayContent || renderedContent ? (
                       <div
                         className="anki-card-back cursor-zoom-in"
                         onClick={openImageViewer}
-                        dangerouslySetInnerHTML={{ __html: displayContent.answerHtml }}
+                        dangerouslySetInnerHTML={{ __html: (displayContent || renderedContent)!.answerHtml }}
                       />
-                    ) : renderedContent ? null : (
+                    ) : (
                       <ClozeLatexCard text={currentCard.note?.fields[1] || ''} isAnswer={true} />
                     )}
                   </div>

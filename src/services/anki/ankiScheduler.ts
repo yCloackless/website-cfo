@@ -87,7 +87,7 @@ export class AnkiScheduler {
     const due = card.due > 0 
       ? (card.queue === CardQueue.Learn || card.queue === CardQueue.Relearn
           ? new Date(card.due * 1000)
-          : new Date(Date.now() + card.due * 86400000))
+          : new Date(card.due * 86400000))
       : now;
 
     return {

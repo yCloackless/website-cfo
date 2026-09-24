@@ -81,6 +81,8 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   const [movingDeck, setMovingDeck] = useState<AnkiDeck | null>(null);
   const [targetParentId, setTargetParentId] = useState<string>('');
   const [isMovingDeck, setIsMovingDeck] = useState<boolean>(false);
+  const [isCreatingDeck, setIsCreatingDeck] = useState<boolean>(false);
+  const [isRenamingDeck, setIsRenamingDeck] = useState<boolean>(false);
 
   // Delete Deck Modal (ConfirmModal)
   const [deckToDelete, setDeckToDelete] = useState<AnkiDeck | null>(null);
@@ -120,6 +122,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
   // Create Deck Action
   const handleCreateDeck = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isCreatingDeck) return;
     const trimmed = newDeckName.trim();
     if (!trimmed) return;
     if (trimmed.length > 80) {
@@ -128,6 +131,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     }
 
     try {
+      setIsCreatingDeck(true);
       const res = await apiFetch('/api/anki/decks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -151,12 +155,15 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
       }
     } catch {
       showToast?.('Erro de conexão ao criar baralho.', 'error');
+    } finally {
+      setIsCreatingDeck(false);
     }
   };
 
   // Rename Deck Action
   const handleRenameDeck = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isRenamingDeck) return;
     if (!renamingDeck || !renameInput.trim()) return;
     const trimmed = renameInput.trim();
     if (trimmed.length > 80) {
@@ -165,6 +172,7 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
     }
 
     try {
+      setIsRenamingDeck(true);
       const res = await apiFetch(`/api/anki/decks/${renamingDeck.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -181,6 +189,8 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
       }
     } catch {
       showToast?.('Erro ao renomear baralho.', 'error');
+    } finally {
+      setIsRenamingDeck(false);
     }
   };
 
@@ -715,10 +725,10 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={!newDeckName.trim()}
+                  disabled={!newDeckName.trim() || isCreatingDeck}
                   className="px-4 py-1.5 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold rounded-lg text-xs disabled:opacity-40"
                 >
-                  Criar Baralho
+                  {isCreatingDeck ? 'Criando...' : 'Criar Baralho'}
                 </button>
               </div>
             </form>
@@ -767,10 +777,10 @@ export const ErrorNotebookTab: React.FC<ErrorNotebookTabProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={!renameInput.trim()}
+                  disabled={!renameInput.trim() || isRenamingDeck}
                   className="px-4 py-1.5 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold rounded-lg text-xs disabled:opacity-40"
                 >
-                  Salvar
+                  {isRenamingDeck ? 'Salvando...' : 'Salvar'}
                 </button>
               </div>
             </form>

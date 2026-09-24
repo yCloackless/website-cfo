@@ -25,7 +25,7 @@ function sanitizeForSpeech(rawText: string): string {
     // Remove tags de imagem para não ler atributos HTML
     .replace(/<img[^>]*>/gi, ' ')
     // Remove cloze markup deixando apenas a resposta
-    .replace(/\{\{c\d+::([^:}]+)(?:::([^}]+))?\}\}/g, '$1')
+    .replace(/\{\{c\d+::(.*?)(?:::([^}]+))?\}\}/g, '$1')
     // Remove delimitadores de LaTeX
     .replace(/\$\$|\$|\\\[|\\\]|\\\(|\\\)/g, ' ')
     // Remove caracteres especiais de fórmulas comuns
@@ -71,7 +71,7 @@ export const ClozeLatexCard: React.FC<ClozeLatexCardProps> = ({
   const segments: ClozeSegment[] = useMemo(() => {
     if (!text) return [];
 
-    const clozeRegex = /\{\{c(\d+)::([^:}]+?)(?:::([^}]+?))?\}\}/g;
+    const clozeRegex = /\{\{c(\d+)::(.*?)(?:::([^}]+))?\}\}/g;
     const parts: ClozeSegment[] = [];
     let lastIndex = 0;
     let match: RegExpExecArray | null;

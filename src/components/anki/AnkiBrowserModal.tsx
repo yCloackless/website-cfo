@@ -51,6 +51,7 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
   const [editTags, setEditTags] = useState('');
   const [uploadField, setUploadField] = useState(0);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const editFileInput = useRef<HTMLInputElement>(null);
 
   const fetchCards = useCallback(async () => {
@@ -210,6 +211,7 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
   };
 
   const saveEdit = async () => {
+    if (savingEdit) return;
     if (!editingCard?.note) return;
     setSavingEdit(true);
     try {
@@ -228,11 +230,13 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
   };
 
   const uploadEditImage = async (file?: File, fieldIndex = uploadField) => {
+    if (uploadingImage) return;
     if (!file || !file.type.startsWith('image/') || file.size > 5 * 1024 * 1024) {
       if (file) showToast?.('Selecione uma imagem válida de até 5MB.', 'error');
       return;
     }
     try {
+      setUploadingImage(true);
       const reader = new FileReader();
       const imageBase64 = await new Promise<string>((resolve, reject) => {
         reader.onload = () => resolve(reader.result as string); reader.onerror = reject; reader.readAsDataURL(file);
@@ -242,6 +246,7 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
       if (!res.ok || !data.success) throw new Error();
       setEditFields((prev) => prev.map((field, idx) => idx === fieldIndex ? `${field}\n<img src="${data.url}" />` : field));
     } catch { showToast?.('Erro ao anexar imagem.', 'error'); }
+    finally { setUploadingImage(false); }
   };
 
   const handleEditPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>, fieldIndex: number) => {

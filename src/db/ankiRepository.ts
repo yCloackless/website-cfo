@@ -617,7 +617,9 @@ export class AnkiRepository {
     `).run(userId, userId);
 
     if (orphanMedia.length > 0) {
-      void this.cleanupUnreferencedMedia(userId, orphanMedia);
+      void this.cleanupUnreferencedMedia(userId, orphanMedia).catch((err) => {
+        console.error('[AnkiRepository] Falha ao limpar mídias órfãs após deleteDeck:', err);
+      });
     }
 
     return true;
@@ -801,6 +803,42 @@ export class AnkiRepository {
       SET fields_json = ?, tags = ?, updated_at = ?
       WHERE user_id = ? AND id = ?
     `).run(JSON.stringify(fields), tagsStr, now, userId, noteId);
+
+    // Synchronize cards for Cloze notes
+    const notetype = this.getNoteType(userId, existing.notetypeId);
+    if (notetype?.kind === 'cloze') {
+      const existingCards = this.db.prepare(`
+        SELECT id, template_ord, deck_id FROM anki_cards WHERE user_id = ? AND note_id = ?
+      `).all(userId, noteId) as any[];
+
+      const clozes = AnkiRenderer.extractClozeOrdinals(fields);
+      const desiredOrds = new Set(clozes.map((c) => c - 1));
+      const existingOrds = new Set(existingCards.map((c) => c.template_ord));
+
+      // 1. Remove cards whose cloze ordinals no longer exist
+      for (const card of existingCards) {
+        if (!desiredOrds.has(card.template_ord)) {
+          this.db.prepare(`DELETE FROM anki_cards WHERE user_id = ? AND id = ?`).run(userId, card.id);
+        }
+      }
+
+      // 2. Insert new cards for newly added cloze ordinals
+      const fallbackDeckId = existingCards[0]?.deck_id || this.listDecks(userId)[0]?.id;
+      if (fallbackDeckId) {
+        for (const ord of desiredOrds) {
+          if (!existingOrds.has(ord)) {
+            const newCardId = crypto.randomUUID();
+            this.db.prepare(`
+              INSERT INTO anki_cards (
+                id, user_id, note_id, deck_id, template_ord, queue, card_type, due,
+                interval_days, ease_factor, reps, lapses, difficulty, stability,
+                flags, is_marked, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, 2.5, 0, 0, 0.0, 0.0, 0, 0, ?, ?)
+            `).run(newCardId, userId, noteId, fallbackDeckId, ord, now, now);
+          }
+        }
+      }
+    }
 
     if (removedMedia.length > 0) {
       try {
@@ -1225,7 +1263,9 @@ export class AnkiRepository {
       `).run(userId, userId);
 
       if (orphanMedia.length > 0) {
-        void this.cleanupUnreferencedMedia(userId, orphanMedia);
+        void this.cleanupUnreferencedMedia(userId, orphanMedia).catch((err) => {
+          console.error('[AnkiRepository] Falha ao limpar mídias órfãs após bulkDeleteCards:', err);
+        });
       }
     }
     return deleted;
@@ -1515,8 +1555,8 @@ export class AnkiRepository {
 
     const references = this.db.prepare(`
       SELECT COUNT(*) as count FROM anki_notes
-      WHERE user_id = ? AND fields_json LIKE ?
-    `).get(userId, `%${safeFilename}%`) as any;
+      WHERE user_id = ? AND instr(fields_json, ?) > 0
+    `).get(userId, safeFilename) as any;
     if (Number(references?.count || 0) > 0) {
       throw new Error('MEDIA_IN_USE');
     }
@@ -1547,8 +1587,8 @@ export class AnkiRepository {
 
       const refCheck = this.db.prepare(`
         SELECT COUNT(*) as count FROM anki_notes
-        WHERE user_id = ? AND fields_json LIKE ?
-      `).get(userId, `%${safeFilename}%`) as any;
+        WHERE user_id = ? AND instr(fields_json, ?) > 0
+      `).get(userId, safeFilename) as any;
 
       if (!refCheck || refCheck.count === 0) {
         const deleted = await this.deleteMedia(userId, safeFilename);

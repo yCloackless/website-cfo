@@ -192,7 +192,7 @@ export class AnkiRenderer {
     // Render Answer (substituting {{FrontSide}} with questionHtml without audio if applicable)
     let rawAnswerTpl = template.afmt;
     if (rawAnswerTpl.includes('{{FrontSide}}')) {
-      rawAnswerTpl = rawAnswerTpl.replace(/\{\{FrontSide\}\}/gi, rawQuestionHtml);
+      rawAnswerTpl = rawAnswerTpl.replace(/\{\{FrontSide\}\}/gi, () => rawQuestionHtml);
     }
     const answerHtml = this.renderMath(this.rewriteMediaUrls(replaceFields(rawAnswerTpl, true)));
 

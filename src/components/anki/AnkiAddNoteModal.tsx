@@ -239,6 +239,7 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
   };
 
   const handleSaveNote = async () => {
+    if (isSaving) return;
     if (!selectedDeckId) {
       showToast?.('Selecione um baralho de destino.', 'error');
       return;

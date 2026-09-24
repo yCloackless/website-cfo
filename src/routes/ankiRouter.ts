@@ -309,11 +309,19 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         });
       }
 
+      const cleanFields = fields.map((f) => String(f ?? ''));
+      if (!cleanFields.some((f) => f.trim().length > 0)) {
+        return res.status(400).json({
+          error: 'EMPTY_NOTE',
+          message: 'Pelo menos um campo da nota deve conter conteúdo.',
+        });
+      }
+
       const repo = getRepo();
       const result = repo.createNote(user.userId, {
         deckId,
         notetypeId,
-        fields: fields.map(f => String(f ?? '')),
+        fields: cleanFields,
         tags: Array.isArray(tags) ? tags : [],
       });
 
@@ -650,6 +658,22 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
     }
   });
 
+  router.delete('/cards/:id', requireAuthMiddleware, noteMutationLimiter, (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const cardId = req.params.id;
+      const repo = getRepo();
+      const card = repo.getCard(user.userId, cardId);
+      if (!card) {
+        return res.status(404).json({ error: 'CARD_NOT_FOUND', message: 'Cartão não encontrado.' });
+      }
+      repo.bulkDeleteCards(user.userId, [cardId]);
+      return res.json({ success: true, message: 'Cartão excluído com sucesso.' });
+    } catch (err: any) {
+      return res.status(500).json({ error: 'DELETE_CARD_FAILED', message: err.message });
+    }
+  });
+
   // =========================================================================
   // 7. STATISTICS & HEATMAP
   // =========================================================================
@@ -719,11 +743,25 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         }
       }
 
+      const mediaFiles = new Map<string, Buffer>();
+      for (const note of notesMap.values()) {
+        const filenames = AnkiRepository.extractMediaFilenames(note.fields);
+        for (const filename of filenames) {
+          if (!mediaFiles.has(filename)) {
+            const asset = await repo.getMedia(user.userId, filename);
+            if (asset?.buffer) {
+              mediaFiles.set(filename, asset.buffer);
+            }
+          }
+        }
+      }
+
       const apkgBuffer = await AnkiApkgService.exportApkg({
         decks: exportDecks,
         notetypes,
         notes: Array.from(notesMap.values()),
         cards,
+        mediaFiles: Array.from(mediaFiles.entries()).map(([filename, buffer]) => ({ filename, buffer })),
       });
 
       const rootExportDeck = deckId ? allDecks.find(d => d.id === deckId) : null;
@@ -772,7 +810,12 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       let mediaSavedCount = 0;
       for (const mf of parsed.mediaFiles) {
         const ext = path.extname(mf.filename).toLowerCase();
-        const mime = ext === '.png' ? 'image/png' : (ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'application/octet-stream');
+        let mime = 'application/octet-stream';
+        if (ext === '.png') mime = 'image/png';
+        else if (ext === '.jpg' || ext === '.jpeg') mime = 'image/jpeg';
+        else if (ext === '.webp') mime = 'image/webp';
+        else if (ext === '.gif') mime = 'image/gif';
+        else if (ext === '.svg') mime = 'image/svg+xml';
         await repo.saveMedia(user.userId, mf.filename, mf.buffer, mime);
         mediaSavedCount++;
       }
@@ -912,6 +955,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       }
 
       res.setHeader('Content-Type', asset.media.mimeType);
+      res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox;");
       res.setHeader('Cache-Control', 'private, max-age=86400');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.vary('Cookie');
