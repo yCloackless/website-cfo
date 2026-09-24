@@ -935,6 +935,9 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       }
       return res.json({ success: true, message: 'Mídia excluída com sucesso.' });
     } catch (err: any) {
+      if (err?.message === 'MEDIA_IN_USE') {
+        return res.status(409).json({ error: 'MEDIA_IN_USE', message: 'Remova a imagem dos cartões antes de excluí-la.' });
+      }
       return res.status(500).json({ error: 'DELETE_MEDIA_FAILED', message: err.message });
     }
   });

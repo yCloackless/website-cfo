@@ -432,6 +432,10 @@ test('6. Complete lifecycle flow: upload image -> create flashcard -> reload -> 
       const buf1 = Buffer.from(await getImg1.arrayBuffer());
       assert.deepEqual(buf1, REAL_PNG_BUFFER);
 
+      const inUseDelete = await fetch(`http://127.0.0.1:${apiPort}/api/anki/media/${img1Filename}`, { method: 'DELETE' });
+      assert.strictEqual(inUseDelete.status, 409);
+      assert.ok(s3Storage.has(`/rumo-cfo-midia/${media1Db.storage_path}`));
+
       // 4. Simulate backend restart: new AnkiRepository instance with fresh state
       repo = new AnkiRepository(rawDb);
       const afterRestartMedia = await repo.getMedia(user1.id, img1Filename);
@@ -474,21 +478,27 @@ test('6. Complete lifecycle flow: upload image -> create flashcard -> reload -> 
       // Verify image 2 is still in R2
       assert.strictEqual(s3Storage.has(`/rumo-cfo-midia/${media2Db.storage_path}`), true);
 
-      // 7. Explicit delete: delete image 2 via DELETE /api/anki/media/:filename
-      const deleteRes = await fetch(`http://127.0.0.1:${apiPort}/api/anki/media/${img2Filename}`, {
+      // Explicit deletion must not break an image still referenced by a card.
+      const blockedDelete = await fetch(`http://127.0.0.1:${apiPort}/api/anki/media/${img2Filename}`, {
         method: 'DELETE',
       });
-      assert.strictEqual(deleteRes.status, 200);
-      const deleteData: any = await deleteRes.json();
-      assert.strictEqual(deleteData.success, true);
+      assert.strictEqual(blockedDelete.status, 409);
+      assert.strictEqual(s3Storage.has(`/rumo-cfo-midia/${media2Db.storage_path}`), true);
+
+      // Removing the image from the card triggers safe orphan cleanup.
+      const removeRefRes = await fetch(`http://127.0.0.1:${apiPort}/api/anki/notes/${noteCreated.note.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: ['Questão atualizada sem imagem', 'Resposta atualizada'] }),
+      });
+      assert.strictEqual(removeRefRes.status, 200);
 
       // Verify image 2 removed from R2 mock and database
       assert.strictEqual(s3Storage.has(`/rumo-cfo-midia/${media2Db.storage_path}`), false);
       const deletedMedia2Db = rawDb.prepare('SELECT * FROM anki_media WHERE user_id = ? AND filename = ?').get(user1.id, img2Filename);
       assert.equal(deletedMedia2Db, undefined);
 
-      // 8. Multi-tenant security check: user2 cannot access user1's images
-      // Upload a new private image for user 1
+      // Explicit deletion works once a private image has no card references.
       const upload3Res = await fetch(`http://127.0.0.1:${apiPort}/api/anki/media/upload`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -498,7 +508,21 @@ test('6. Complete lifecycle flow: upload image -> create flashcard -> reload -> 
         }),
       });
       const upload3Data: any = await upload3Res.json();
-      const u1PrivateFilename = upload3Data.filename;
+      const orphanFilename = upload3Data.filename;
+      const explicitDelete = await fetch(`http://127.0.0.1:${apiPort}/api/anki/media/${orphanFilename}`, { method: 'DELETE' });
+      assert.strictEqual(explicitDelete.status, 200);
+
+      // 8. Multi-tenant security check: user2 cannot access user1's images
+      const upload4Res = await fetch(`http://127.0.0.1:${apiPort}/api/anki/media/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: `data:image/png;base64,${REAL_PNG_BUFFER.toString('base64')}`,
+          filename: 'confidencial_u1.png',
+        }),
+      });
+      const upload4Data: any = await upload4Res.json();
+      const u1PrivateFilename = upload4Data.filename;
 
       // Switch auth to user2
       activeUserId = user2.id;

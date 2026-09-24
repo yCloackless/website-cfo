@@ -1513,6 +1513,14 @@ export class AnkiRepository {
 
     if (!row) return false;
 
+    const references = this.db.prepare(`
+      SELECT COUNT(*) as count FROM anki_notes
+      WHERE user_id = ? AND fields_json LIKE ?
+    `).get(userId, `%${safeFilename}%`) as any;
+    if (Number(references?.count || 0) > 0) {
+      throw new Error('MEDIA_IN_USE');
+    }
+
     if (row.storage_path.startsWith('anki-media/')) {
       try {
         await deleteAnkiMedia(row.storage_path);
