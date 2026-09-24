@@ -147,7 +147,7 @@ const trustedProxyEntries = (process.env.TRUSTED_PROXIES || '')
   .split(',').map(value => value.trim()).filter(value => value && value !== '*' && value !== 'true');
 app.set("trust proxy", trustedProxyEntries.length > 0 ? trustedProxyEntries : (isProxyEnvironment ? 1 : false));
 
-const isProduction = process.env.NODE_ENV === 'production' || __filename.includes('dist');
+const isProduction = process.env.NODE_ENV === 'production' || (typeof __filename !== 'undefined' && __filename.includes('dist'));
 
 // Security headers must be registered before public operational/static routes.
 app.use(

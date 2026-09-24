@@ -4,7 +4,7 @@ import path from 'node:path';
 import { getDb } from '../src/db/database.ts';
 import { UserRepository, SessionRepository } from '../src/db/repositories.ts';
 
-const ARTIFACT_DIR = 'C:\\Users\\renas\\.gemini\\antigravity-ide\\brain\\2634b7ea-ca93-467e-9067-ccacc1fe343e';
+const ARTIFACT_DIR = 'C:\\Users\\renas\\.gemini\\antigravity-ide\\brain\\d2a34cfd-1142-476e-8da7-610be51529d1';
 
 async function run() {
   console.log('=====================================================');
@@ -40,14 +40,30 @@ async function run() {
   });
 
   const page = await context.newPage();
+  const cspViolations = [];
+  const uncaughtErrors = [];
+  const tldrawFailedRequests = [];
+
   page.on('console', msg => {
-    console.log(`[Browser ${msg.type()}]`, msg.text());
+    const text = msg.text();
+    console.log(`[Browser ${msg.type()}]`, text);
+    if (text.includes('violates the following Content Security Policy directive') || text.includes('Content Security Policy')) {
+      cspViolations.push(text);
+    }
+    if (text.includes('Failed to fetch') || text.includes('TypeError')) {
+      uncaughtErrors.push(text);
+    }
   });
   page.on('pageerror', err => {
     console.error('[Browser Uncaught Error]', err);
+    uncaughtErrors.push(String(err));
   });
   page.on('requestfailed', request => {
-    console.log(`[Request FAILED] ${request.url()} - ${request.failure()?.errorText}`);
+    const url = request.url();
+    console.log(`[Request FAILED] ${url} - ${request.failure()?.errorText}`);
+    if (url.includes('tldraw')) {
+      tldrawFailedRequests.push(`${url}: ${request.failure()?.errorText}`);
+    }
   });
   page.on('response', response => {
     if (response.status() >= 400) {
@@ -335,8 +351,23 @@ async function run() {
   await browser.close();
   dbService.close();
 
+  console.log('\n--- VERIFICAÇÃO DE INTEGRIDADE CSP E REDE ---');
+  console.log(`Violações de CSP detectadas: ${cspViolations.length}`);
+  console.log(`Erros de runtime não capturados: ${uncaughtErrors.length}`);
+  console.log(`Requisições tldraw com falha: ${tldrawFailedRequests.length}`);
+
+  if (cspViolations.length > 0) {
+    throw new Error(`FALHA DE CSP: ${cspViolations.join(' | ')}`);
+  }
+  if (uncaughtErrors.length > 0) {
+    throw new Error(`FALHA DE RUNTIME: ${uncaughtErrors.join(' | ')}`);
+  }
+  if (tldrawFailedRequests.length > 0) {
+    throw new Error(`FALHA DE ASSETS TLDRAW: ${tldrawFailedRequests.join(' | ')}`);
+  }
+
   console.log('\n=====================================================');
-  console.log('🎉 TODOS OS TESTES E2E EM NAVEGADOR REAL FORAM CONCLUÍDOS COM SUCESSO!');
+  console.log('🎉 TODOS OS TESTES E2E EM NAVEGADOR REAL FORAM CONCLUÍDOS COM SUCESSO (ZERO CSP / ZERO FETCH ERRORS)!');
   console.log('=====================================================');
 }
 
