@@ -64,7 +64,24 @@
   - Painel de Nivelamento com cálculo instantâneo da meta de 80% e mini cartão-resposta.
   - Sincronização em nuvem via `GET/POST /api/leveling/session` e cópia de token em 1 clique no cabeçalho do site (`#btn-extension-token`).
 
-### 1.5 Painel Administrativo & Modo Manutenção
+### 1.5 Cloud Whiteboard & Question Workspace (`WhiteboardWorkspace.tsx`)
+- **Quadro Infinito Black Blackboard**:
+  - Motor oficial tldraw v5.4.2 integrado com React 19, tema escuro tático (#000000 / #121214) e 6 estilos de fundo sensíveis à câmera (preto puro, grafite, pontilhado, grade fina, grade larga e linhas pautadas).
+- **Suporte Nativo a Tablet & Stylus**:
+  - Detecção de `pointerType === 'pen'` com ativação automática do Pen Mode.
+  - Palm rejection nativo: toques de dedos e palma realizam apenas pan/zoom, impedindo traços fantasmas.
+  - Sensibilidade contínua à pressão para caligrafia natural e cálculos detalhados.
+- **Captura Ágil de Questões (PC $\to$ Tablet)**:
+  - Captura direta via Screen Capture API (`getDisplayMedia`) com modal interativo de recorte.
+  - Upload de arquivos de imagem, drag-and-drop e colagem global com `Ctrl+V`.
+  - Recurso "Travar Questão" para imobilizar a imagem do enunciado e permitir resolução livre ao redor.
+- **Armazenamento Privado e Durável**:
+  - Recortes e imagens persistidos no Cloudflare R2 / S3 via AWS SigV4, com validação de magic bytes e isolamento estrito por usuário (zero Base64 no banco de dados).
+- **Sincronização em Nuvem em Tempo Real**:
+  - Notificações SSE (`/api/whiteboards/:id/events`) com controle monotônico de versão (prevenção de conflito 409).
+  - Reconciliação sem sobrescrita via `editor.store.mergeRemoteChanges`: traços locais pendentes são preservados durante atualizações simultâneas de outros dispositivos.
+
+### 1.6 Painel Administrativo & Modo Manutenção
 - **Tela de Manutenção Global (`MaintenanceScreen.tsx`)**:
   - Interceptação de tráfego de usuários com mensagem orientativa durante intervenções técnicas.
   - Sistema de bypass via token criptográfico de emergência para a equipe técnica.
@@ -73,7 +90,7 @@
   - Gestão de banimento e desbanimento de IPs suspeitos.
   - Step-up authentication para operações destrutivas.
 
-### 1.6 Resiliência, Segurança & Dados
+### 1.7 Resiliência, Segurança & Dados
 - **Backup & Restauração (`backupService.ts`)**:
   - Exportação compactada de todo o progresso do cadete.
   - Restauração atômica com validação de esquema JSON e somas de verificação SHA-256.

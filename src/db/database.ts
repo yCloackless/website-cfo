@@ -1533,6 +1533,52 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_anki_decks_user_parent ON anki_decks(user_id, parent_deck_id);
     `,
   },
+  {
+    id: 34,
+    name: '034_whiteboards',
+    sql: `
+      CREATE TABLE IF NOT EXISTS whiteboards (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        background_type TEXT NOT NULL DEFAULT 'black',
+        version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_whiteboards_user ON whiteboards(user_id);
+      CREATE INDEX IF NOT EXISTS idx_whiteboards_user_updated ON whiteboards(user_id, updated_at);
+
+      CREATE TABLE IF NOT EXISTS whiteboard_documents (
+        whiteboard_id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        document_state TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (whiteboard_id) REFERENCES whiteboards(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_whiteboard_docs_user ON whiteboard_documents(user_id);
+
+      CREATE TABLE IF NOT EXISTS whiteboard_assets (
+        id TEXT PRIMARY KEY,
+        whiteboard_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        storage_key TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        file_size INTEGER NOT NULL,
+        width INTEGER,
+        height INTEGER,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (whiteboard_id) REFERENCES whiteboards(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_whiteboard_assets_board ON whiteboard_assets(whiteboard_id);
+      CREATE INDEX IF NOT EXISTS idx_whiteboard_assets_user ON whiteboard_assets(user_id);
+    `,
+  },
 ];
 
 

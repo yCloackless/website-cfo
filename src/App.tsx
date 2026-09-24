@@ -93,6 +93,7 @@ const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard').th
 const MaintenanceScreen = lazy(() => import('./components/MaintenanceScreen').then(({ MaintenanceScreen }) => ({ default: MaintenanceScreen })));
 const NotFound = lazy(() => import('./components/NotFound').then(({ NotFound }) => ({ default: NotFound })));
 const IfriStudyTab = lazy(() => import('./components/IfriStudyTab').then(({ IfriStudyTab }) => ({ default: IfriStudyTab })));
+const WhiteboardWorkspace = lazy(() => import('./components/whiteboard/WhiteboardWorkspace').then(({ WhiteboardWorkspace }) => ({ default: WhiteboardWorkspace })));
 import { ConfirmModal } from './components/ConfirmModal';
 
 export default function App() {
@@ -101,7 +102,13 @@ export default function App() {
 
   // Active Tab derivado diretamente da URL
   const activeTab = useMemo<TabType>(() => {
+    if (location.pathname.startsWith('/whiteboard')) return 'whiteboard';
     return ROUTE_TAB_MAP[location.pathname] || 'table';
+  }, [location.pathname]);
+
+  const whiteboardBoardId = useMemo(() => {
+    const match = location.pathname.match(/^\/whiteboard\/([a-zA-Z0-9_-]+)/);
+    return match ? match[1] : undefined;
   }, [location.pathname]);
 
   const handleSelectTab = useCallback((tab: TabType) => {
@@ -1706,11 +1713,12 @@ export default function App() {
     '/configuracoes',
     '/extensao',
     '/admin',
+    '/whiteboard',
   ];
 
   // 🧭 Verificação de Rotas Válidas e Fallback 404
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
-  const isValidRoute = VALID_APP_ROUTES.includes(normalizedPath) || normalizedPath.startsWith('/admin');
+  const isValidRoute = VALID_APP_ROUTES.includes(normalizedPath) || normalizedPath.startsWith('/admin') || normalizedPath.startsWith('/whiteboard');
 
   if (!isValidRoute) {
     return (
@@ -2452,6 +2460,15 @@ export default function App() {
         {activeTab === 'flashcards' && (
           <ErrorNotebookTab
             theme={theme}
+            showToast={showToast}
+          />
+        )}
+
+        {/* Render Tab: Quadro Branco / Cloud Workspace de Questões */}
+        {activeTab === 'whiteboard' && (
+          <WhiteboardWorkspace
+            boardId={whiteboardBoardId}
+            onNavigateBack={() => handleSelectTab('table')}
             showToast={showToast}
           />
         )}

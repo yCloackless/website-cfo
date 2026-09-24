@@ -27,6 +27,7 @@ import {
   LogOut,
   Puzzle,
   Heart,
+  Presentation,
 } from 'lucide-react';
 import { AppTheme } from '../types';
 
@@ -43,7 +44,8 @@ export type TabType =
   | 'simulations'
   | 'flashcards'
   | 'leveling'
-  | 'ifrij';
+  | 'ifrij'
+  | 'whiteboard';
 
 export const TAB_ROUTE_MAP: Record<TabType, string> = {
   table: '/cronograma',
@@ -59,6 +61,7 @@ export const TAB_ROUTE_MAP: Record<TabType, string> = {
   leveling: '/nivelamento',
   calendar: '/agenda-notion',
   ifrij: '/ifrj',
+  whiteboard: '/whiteboard',
 };
 
 export const ROUTE_TAB_MAP: Record<string, TabType> = {
@@ -77,6 +80,7 @@ export const ROUTE_TAB_MAP: Record<string, TabType> = {
   '/nivelamento': 'leveling',
   '/agenda-notion': 'calendar',
   '/ifrj': 'ifrij',
+  '/whiteboard': 'whiteboard',
 };
 
 interface TacticalSidebarProps {
@@ -351,6 +355,18 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
           badgeClass: {
             dark: 'bg-indigo-950/80 text-indigo-300 border-indigo-800/60',
             light: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+          },
+        },
+        {
+          id: 'whiteboard',
+          label: 'Quadro Branco',
+          icon: Presentation,
+          tabId: 'whiteboard',
+          route: '/whiteboard',
+          badge: 'Stylus',
+          badgeClass: {
+            dark: 'bg-amber-400/20 text-amber-300 border-amber-400/30',
+            light: 'bg-amber-100 text-amber-900 border-amber-200',
           },
         },
         ...(canAccessNotion

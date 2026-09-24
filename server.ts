@@ -100,6 +100,8 @@ import { calculatePriorityScore, classifyPriority, weightedAverage } from "./src
 import { createAnkiRouter } from "./src/routes/ankiRouter";
 import { AnkiRepository } from "./src/db/ankiRepository";
 import { logR2StartupCheck } from "./src/services/anki/ankiMediaStorage";
+import { createWhiteboardRouter } from "./src/routes/whiteboardRouter";
+import { whiteboardRealtimeHub } from "./src/services/whiteboard/whiteboardRealtimeHub";
 
 const app = express();
 app.disable("x-powered-by");
@@ -7970,6 +7972,11 @@ app.post('/api/flashcards/decks/:deckId/cards/batch', requireUserAuth, (req: Req
 // =========================================================================
 app.use('/api/anki', createAnkiRouter(requireUserAuth));
 
+// =========================================================================
+// 🎨 CLOUD WHITEBOARD ROUTER (Infinite canvas, real-time sync, assets)
+// =========================================================================
+app.use('/api', createWhiteboardRouter(requireUserAuth));
+
 // --- ROTA DE COMPATIBILIDADE LEGADA COM SINCRONIZAÇÃO AUTOMÁTICA ---
 app.get('/api/student/flashcards', requireUserAuth, (req: Request, res: Response) => {
   const user = (req as any).user;
@@ -8914,6 +8921,7 @@ async function startServer() {
     examJobWorker.stop();
     stopBackupScheduler();
     adminRealtimeHub.destroy();
+    whiteboardRealtimeHub.destroy();
     server.close(() => {
       try { getDb().close(); } catch (error) { logInternalError('Database shutdown', error); }
       process.exit(0);
