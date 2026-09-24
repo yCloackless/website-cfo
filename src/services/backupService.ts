@@ -3,8 +3,10 @@ import path from 'path';
 import zlib from 'zlib';
 import crypto from 'crypto';
 import os from 'node:os';
-import { DatabaseSync, backup } from 'node:sqlite';
+import { createRequire } from 'node:module';
 import { isDatabaseOpen } from '../db/database';
+
+const dynamicRequire = createRequire(process.cwd() + '/');
 
 export interface BackupMetadata {
   id: string;
@@ -95,6 +97,7 @@ function dataPath(name: string): string {
 
 async function snapshotFile(file: string): Promise<string> {
   if (!/\.(sqlite|db)$/.test(file)) return fs.readFileSync(file).toString('base64');
+  const { DatabaseSync, backup } = dynamicRequire('node:sqlite');
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'cfo-sqlite-backup-'));
   const snapshot = path.join(temporary, 'snapshot.sqlite');
   const source = new DatabaseSync(file, { readOnly: true });

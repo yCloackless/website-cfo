@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import { getDb } from '../db/database';
 import {
   DbBoardIntelligenceExam,

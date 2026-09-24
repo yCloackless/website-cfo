@@ -11,7 +11,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import {
   AnkiCard,
   AnkiCardStateSnapshot,
@@ -37,9 +37,9 @@ import { AnkiSearch } from '../services/anki/ankiSearch';
 import { deleteAnkiMedia, getAnkiMedia, MediaStorageNotConfiguredError, persistentMediaStorageConfigured, putAnkiMedia } from '../services/anki/ankiMediaStorage';
 
 export class AnkiRepository {
-  private db: DatabaseSync;
+  private db: DatabaseSync | any;
 
-  constructor(db: DatabaseSync) {
+  constructor(db: DatabaseSync | any) {
     this.db = db;
   }
 
@@ -1615,17 +1615,23 @@ export class AnkiRepository {
   /**
    * Migrates legacy flashcards, decks, and reviews to the new Anki schema.
    */
-  public static migrateLegacyData(db: DatabaseSync): { decksMigrated: number; cardsMigrated: number } {
+  public static migrateLegacyData(db: DatabaseSync | any): { decksMigrated: number; cardsMigrated: number } {
     let decksMigrated = 0;
     let cardsMigrated = 0;
 
     try {
-      // Check if legacy tables exist
-      const checkTables = db.prepare(`
-        SELECT count(*) as cnt FROM sqlite_master WHERE type='table' AND name IN ('flashcard_decks', 'flashcards')
-      `).get() as any;
+      // Detecta se o dialeto ativo é PostgreSQL para consultar o catálogo correto
+      const isPostgres = Boolean(db?.isPostgres);
+      const checkTablesQuery = isPostgres
+        ? `SELECT count(*) as cnt FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('flashcard_decks', 'flashcards')`
+        : `SELECT count(*) as cnt FROM sqlite_master WHERE type='table' AND name IN ('flashcard_decks', 'flashcards')`;
 
-      if (!checkTables || checkTables.cnt < 2) return { decksMigrated, cardsMigrated };
+      const checkTables = db.prepare(checkTablesQuery).get() as any;
+      if (!checkTables || Number(checkTables.cnt || 0) < 2) return { decksMigrated, cardsMigrated };
+
+      // Se as tabelas legadas existem mas estão vazias, encerra sem operações desnecessárias
+      const legacyCountRow = db.prepare(`SELECT count(*) as cnt FROM flashcard_decks`).get() as any;
+      if (!legacyCountRow || Number(legacyCountRow.cnt || 0) === 0) return { decksMigrated, cardsMigrated };
 
       const legacyDecks = db.prepare(`
         SELECT d.*, s.name as subject_name

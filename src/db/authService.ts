@@ -157,7 +157,7 @@ export class AuthService {
         throw new Error('SUPPORT_PASSWORD_HASH_REQUIRED_IN_PRODUCTION');
       }
       if (!supportHash && !supportPass) {
-        console.warn('[AUTH] Conta de suporte não provisionada: configure SUPPORT_PASSWORD ou SUPPORT_PASSWORD_HASH para habilitá-la.');
+        console.info('[AUTH] (Opcional) Conta de suporte desabilitada por padrão: defina SUPPORT_PASSWORD_HASH para habilitar acesso técnico.');
         return;
       }
       const hash = supportHash || await bcrypt.hash(supportPass!, 12);

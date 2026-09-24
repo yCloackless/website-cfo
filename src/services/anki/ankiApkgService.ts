@@ -13,8 +13,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
+import { createRequire } from 'node:module';
 import JSZip from 'jszip';
+
+const dynamicRequire = createRequire(process.cwd() + '/');
+
+function getSqliteDatabaseSync(): typeof DatabaseSync {
+  return dynamicRequire('node:sqlite').DatabaseSync;
+}
 import {
   AnkiCard,
   AnkiDeck,
@@ -49,7 +56,8 @@ export class AnkiApkgService {
     const dbPath = path.join(tempDir, 'collection.anki2');
 
     try {
-      const db = new DatabaseSync(dbPath);
+      const DatabaseSyncClass = getSqliteDatabaseSync();
+      const db = new DatabaseSyncClass(dbPath);
 
       // Create official Anki collection schema
       db.exec(`
@@ -397,7 +405,8 @@ export class AnkiApkgService {
       const colBuffer = await colFile.async('nodebuffer');
       fs.writeFileSync(tempDbPath, colBuffer);
 
-      const db = new DatabaseSync(tempDbPath);
+      const DatabaseSyncClass = getSqliteDatabaseSync();
+      const db = new DatabaseSyncClass(tempDbPath);
 
       // Extract col metadata
       const colRow = db.prepare('SELECT models, decks FROM col LIMIT 1').get() as any;

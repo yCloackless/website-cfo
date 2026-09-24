@@ -4,10 +4,13 @@
  * ACID-compliant, Zero External Dependencies, Resilient and Auditable
  */
 
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import fs from 'node:fs';
 import { PostgresSyncDatabase } from './postgresSync';
+
+const dynamicRequire = createRequire(process.cwd() + '/');
 
 export interface Migration {
   id: number;
@@ -1561,13 +1564,22 @@ export class DatabaseService {
       }
     }
 
-    this.db = this.postgres ? new PostgresSyncDatabase() : new DatabaseSync(this.dbPath);
-    if (!this.postgres) {
+    if (this.postgres) {
+      this.db = new PostgresSyncDatabase();
+    } else {
+      // Carregamento sob demanda do SQLite apenas quando em modo local/desenvolvimento
+      // Evita o ExperimentalWarning do Node.js em ambientes de produção com PostgreSQL
+      const { DatabaseSync: SQLiteDatabaseSync } = dynamicRequire('node:sqlite');
+      this.db = new SQLiteDatabaseSync(this.dbPath);
       this.configurePragmas();
     }
     // PostgreSQL uses the same versioned schema, but must also be initialized
     // on a brand-new managed database before repositories are used.
     this.runMigrations();
+  }
+
+  public isPostgres(): boolean {
+    return this.postgres;
   }
 
   private configurePragmas(): void {

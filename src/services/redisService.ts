@@ -44,9 +44,10 @@ if (redisUrl) {
     redisClient = null;
   }
 } else {
-  // Modo de desenvolvimento e suíte de testes (sem Redis obrigatório)
+  // Modo de desenvolvimento, suíte de testes e instâncias sem Redis dedicado
+  // As sessões de autenticação dos usuários e travas de segurança persistem de forma ACID no banco de dados.
   if (process.env.NODE_ENV !== 'test') {
-    console.log('ℹ️ [Redis] REDIS_URL não configurada; operando com MemoryStore local.');
+    console.info('ℹ️ [Redis] REDIS_URL não configurada; rate limiting operando com MemoryStore local (sessões e segurança persistem no banco de dados).');
   }
 }
 
@@ -97,4 +98,28 @@ export async function clearCadetLockInRedis(userId: string): Promise<void> {
   try {
     await redisClient.del(`cadet:lock:${userId}`);
   } catch {}
+}
+
+/**
+ * Encerramento gracioso da conexão Redis
+ */
+export async function closeRedisConnection(): Promise<void> {
+  if (redisClient) {
+    try {
+      await redisClient.quit();
+    } catch {
+      redisClient.disconnect();
+    } finally {
+      redisClient = null;
+      isConnected = false;
+    }
+  }
+}
+
+if (typeof process !== 'undefined') {
+  const handleShutdown = () => {
+    void closeRedisConnection();
+  };
+  process.once('SIGTERM', handleShutdown);
+  process.once('SIGINT', handleShutdown);
 }

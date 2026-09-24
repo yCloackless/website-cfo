@@ -138,6 +138,9 @@ export function postgresParams(sql: string, params: unknown[]): { text: string; 
 }
 
 export class PostgresSyncDatabase {
+  public get isPostgres(): boolean {
+    return true;
+  }
   private readonly worker: Worker;
   private readonly port: MessageChannel['port1'];
   private sequence = 0;

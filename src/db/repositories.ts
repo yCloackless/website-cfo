@@ -4,7 +4,7 @@
  */
 
 import crypto from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import {
   DbUser,
   DbProfile,
@@ -4528,15 +4528,17 @@ export class FlashcardRepository {
    * Histórico de revisões para Heatmap de constância (últimos N dias)
    */
   public getHeatmapStats(userId: string, days = 30): Array<{ date: string; count: number }> {
+    const validDays = Math.max(1, Math.min(days, 365));
+    const cutoff = new Date(Date.now() - validDays * 86400000).toISOString();
     const rows = this.db.prepare(`
       SELECT 
-        date(reviewed_at) as review_date,
+        substr(reviewed_at, 1, 10) as review_date,
         COUNT(*) as review_count
       FROM flashcard_reviews
-      WHERE user_id = ? AND reviewed_at >= datetime('now', '-' || ? || ' days')
-      GROUP BY date(reviewed_at)
+      WHERE user_id = ? AND reviewed_at >= ?
+      GROUP BY substr(reviewed_at, 1, 10)
       ORDER BY review_date ASC
-    `).all(userId, Math.max(1, Math.min(days, 365))) as any[];
+    `).all(userId, cutoff) as any[];
 
     return rows.map((r) => ({
       date: r.review_date,

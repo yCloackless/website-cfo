@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 
 export type StudentErrorType =
   | 'CONTENT_GAP' | 'INTERPRETATION' | 'CALCULATION' | 'FORMULA' | 'UNIT'
