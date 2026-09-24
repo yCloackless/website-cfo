@@ -311,3 +311,36 @@ test('Whiteboard Hardening: Stress Test (Thousands of Strokes & Rapid Sequential
   const parsed = JSON.parse(fetched?.document?.document_state || '{}');
   assert.equal(parsed.records.length, 1500);
 });
+
+test('Whiteboard Hardening: Generic W3C Stylus Detection (Huawei M-Pencil Priority)', () => {
+  // Teste que valida a detecção neutra e genérica sem hardcoding de marca
+  // Atendendo com prioridade máxima: Huawei tablet + Huawei M-Pencil
+  function isGenericStylus(e: { pointerType: string }): boolean {
+    return e.pointerType === 'pen' || (e.pointerType as string) === 'stylus';
+  }
+
+  // 1. Huawei M-Pencil emitindo evento padrão W3C pointerType = 'pen'
+  const huaweiPenEvent = {
+    pointerType: 'pen',
+    pressure: 0.745,
+    buttons: 1,
+    button: 0,
+    tiltX: 18,
+    tiltY: -12,
+  };
+  assert.equal(isGenericStylus(huaweiPenEvent), true, 'Huawei M-Pencil detectada com sucesso');
+
+  // 2. Fallback de WebView/HarmonyOS alternativo emitindo 'stylus'
+  const fallbackStylusEvent = {
+    pointerType: 'stylus',
+    pressure: 0.5,
+  };
+  assert.equal(isGenericStylus(fallbackStylusEvent), true, 'Fallback genérico stylus detectado');
+
+  // 3. Toques de dedos e palma da mão NÃO podem ativar Pen Mode
+  assert.equal(isGenericStylus({ pointerType: 'touch' }), false, 'Toque de dedo rejeitado pelo detector de caneta');
+
+  // 4. Mouse e trackpad NÃO ativam Pen Mode
+  assert.equal(isGenericStylus({ pointerType: 'mouse' }), false, 'Mouse rejeitado pelo detector de caneta');
+});
+

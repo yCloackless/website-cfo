@@ -67,12 +67,42 @@ const PEN_SIZES = [
   { name: 'Marcador', value: 'xl', label: 'XL' },
 ];
 
+/**
+ * Detecção Genérica de Caneta via W3C Pointer Events API.
+ * Trata canetas de qualquer fabricante de forma neutra e padronizada:
+ * - Huawei tablet + Huawei M-Pencil (Prioridade Primária de Hardware)
+ * - Samsung Galaxy Tab + S Pen
+ * - iPad + Apple Pencil
+ * - Microsoft Surface + Surface Pen
+ */
+export function isGenericStylusEvent(e: PointerEvent): boolean {
+  return e.pointerType === 'pen' || (e.pointerType as string) === 'stylus';
+}
+
+export interface StylusDiagnostics {
+  eventType: string;
+  pointerType: string;
+  pointerId: number;
+  pressure: number;
+  buttons: number;
+  button: number;
+  tiltX: number;
+  tiltY: number;
+  width: number;
+  height: number;
+  timestamp: number;
+}
+
 export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
   userId: propUserId,
   boardId: propBoardId,
   onNavigateBack,
   showToast,
 }) => {
+  const isStylusDebugActive = typeof window !== 'undefined' && (
+    import.meta.env.DEV || window.location.search.includes('stylus_debug=1')
+  );
+  const [stylusDiag, setStylusDiag] = useState<StylusDiagnostics | null>(null);
   const resolvedUserId = propUserId || (typeof window !== 'undefined' ? localStorage.getItem('cfo_user_id') || 'default_cadet' : 'default_cadet');
   const [boardId, setBoardId] = useState<string>(propBoardId || '');
   const [boardTitle, setBoardTitle] = useState('Quadro Negro de Resolução');
@@ -547,10 +577,28 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
     };
   }, [boardId, boardTitle, backgroundType, resolvedUserId, saveToCloud, checkRemoteVersionAndReconcile]);
 
-  // Escutar eventos de tela/caneta Pointer Events para auto-detectar Stylus
+  // Escutar eventos de tela/caneta Pointer Events para auto-detectar Stylus (Huawei M-Pencil, S Pen, Apple Pencil)
   useEffect(() => {
-    const handlePointerDown = (e: PointerEvent) => {
-      if (e.pointerType === 'pen' && editorRef.current) {
+    const handlePointerEvent = (e: PointerEvent) => {
+      // Coleta telemetria em tempo real se o modo de diagnóstico estiver ativo
+      if (isStylusDebugActive) {
+        setStylusDiag({
+          eventType: e.type,
+          pointerType: e.pointerType,
+          pointerId: e.pointerId,
+          pressure: Number(e.pressure.toFixed(3)),
+          buttons: e.buttons,
+          button: e.button,
+          tiltX: e.tiltX,
+          tiltY: e.tiltY,
+          width: e.width,
+          height: e.height,
+          timestamp: Date.now(),
+        });
+      }
+
+      // Detecção genérica compatível com Huawei M-Pencil, Samsung S Pen, Apple Pencil e Surface Pen
+      if (isGenericStylusEvent(e) && editorRef.current) {
         if (!isPenMode) {
           editorRef.current.updateInstanceState({ isPenMode: true });
           setIsPenMode(true);
@@ -558,9 +606,20 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
       }
     };
 
-    window.addEventListener('pointerdown', handlePointerDown, { passive: true });
-    return () => window.removeEventListener('pointerdown', handlePointerDown);
-  }, [isPenMode]);
+    window.addEventListener('pointerdown', handlePointerEvent, { passive: true });
+    if (isStylusDebugActive) {
+      window.addEventListener('pointermove', handlePointerEvent, { passive: true });
+      window.addEventListener('pointerup', handlePointerEvent, { passive: true });
+    }
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerEvent);
+      if (isStylusDebugActive) {
+        window.removeEventListener('pointermove', handlePointerEvent);
+        window.removeEventListener('pointerup', handlePointerEvent);
+      }
+    };
+  }, [isPenMode, isStylusDebugActive]);
 
   // Listener global de colagem de imagem (Ctrl+V)
   useEffect(() => {
@@ -956,6 +1015,27 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
             onMount={handleMount}
             autoFocus
           />
+        )}
+
+        {/* Painel de Diagnóstico em Tempo Real para Huawei M-Pencil / Stylus (Ativo em Dev ou ?stylus_debug=1) */}
+        {isStylusDebugActive && (
+          <div className="absolute top-3 right-3 z-40 bg-[#0d0e12]/92 border border-slate-700/80 rounded-xl p-3 text-[11px] font-mono text-emerald-400 backdrop-blur-md shadow-2xl pointer-events-none select-none max-w-xs">
+            <div className="flex items-center justify-between text-amber-400 font-bold mb-1 border-b border-slate-800 pb-1">
+              <span>🖊️ Telemetria Huawei M-Pencil / Stylus</span>
+              <span className="text-[10px] text-slate-400">W3C API</span>
+            </div>
+            {stylusDiag ? (
+              <div className="space-y-0.5 text-slate-300">
+                <div><span className="text-slate-400">Evento:</span> <span className="text-white">{stylusDiag.eventType}</span> (<span className="text-emerald-400">{stylusDiag.pointerType}</span>)</div>
+                <div><span className="text-slate-400">Pressão:</span> <span className="text-amber-300">{stylusDiag.pressure.toFixed(3)}</span> | <span className="text-slate-400">Botão:</span> {stylusDiag.buttons} ({stylusDiag.button})</div>
+                <div><span className="text-slate-400">Inclinação:</span> X={stylusDiag.tiltX}° Y={stylusDiag.tiltY}°</div>
+                <div><span className="text-slate-400">Resolução:</span> {stylusDiag.width}x{stylusDiag.height} | ID: {stylusDiag.pointerId}</div>
+                <div className="text-[10px] text-cyan-300 mt-1">Rejeição de Palma: {isPenMode ? 'ATIVADA (Toque apenas navega)' : 'DESATIVADA'}</div>
+              </div>
+            ) : (
+              <div className="text-slate-400 italic">Toque a Huawei M-Pencil ou caneta na tela para inspecionar telemetria...</div>
+            )}
+          </div>
         )}
 
         {/* Barra de Ferramentas Flutuante Tática (Quadro Negro) */}

@@ -67,19 +67,25 @@
 ### 1.5 Cloud Whiteboard & Question Workspace (`WhiteboardWorkspace.tsx`)
 - **Quadro Infinito Black Blackboard**:
   - Motor oficial tldraw v5.4.2 integrado com React 19, tema escuro tático (#000000 / #121214) e 6 estilos de fundo sensíveis à câmera (preto puro, grafite, pontilhado, grade fina, grade larga e linhas pautadas).
-- **Suporte Nativo a Tablet & Stylus**:
-  - Detecção de `pointerType === 'pen'` com ativação automática do Pen Mode.
-  - Palm rejection nativo: toques de dedos e palma realizam apenas pan/zoom, impedindo traços fantasmas.
+- **Suporte Nativo a Tablet & Stylus (Matriz de Compatibilidade de Hardware)**:
+  - Detecção genérica e padronizada via W3C Pointer Events API (`pointerType === 'pen'` ou fallback `'stylus'`), sem hardcoding por fabricante:
+    1. **Huawei tablet + Huawei M-Pencil** (Prioridade Primária #1 de Hardware).
+    2. Samsung Galaxy Tab + S Pen.
+    3. iPad + Apple Pencil.
+    4. Microsoft Surface + Surface Pen.
+  - Palm rejection inteligente: toques de dedos e palma realizam apenas pan/zoom, impedindo traços fantasmas.
   - Sensibilidade contínua à pressão para caligrafia natural e cálculos detalhados.
+  - Painel de telemetria e diagnóstico em tempo real em desenvolvimento ou via URL `?stylus_debug=1` (`pointerType`, `pressure`, `buttons`, `button`, `tiltX`, `tiltY`).
 - **Captura Ágil de Questões (PC $\to$ Tablet)**:
   - Captura direta via Screen Capture API (`getDisplayMedia`) com modal interativo de recorte.
   - Upload de arquivos de imagem, drag-and-drop e colagem global com `Ctrl+V`.
   - Recurso "Travar Questão" para imobilizar a imagem do enunciado e permitir resolução livre ao redor.
 - **Armazenamento Privado e Durável**:
   - Recortes e imagens persistidos no Cloudflare R2 / S3 via AWS SigV4, com validação de magic bytes e isolamento estrito por usuário (zero Base64 no banco de dados).
-- **Sincronização em Nuvem em Tempo Real**:
-  - Notificações SSE (`/api/whiteboards/:id/events`) com controle monotônico de versão (prevenção de conflito 409).
+- **Sincronização em Nuvem em Tempo Real & Offline**:
+  - Notificações SSE (`/api/whiteboards/:id/events`) com controle monotônico de versão (prevenção e auto-reconciliação de conflito 409).
   - Reconciliação sem sobrescrita via `editor.store.mergeRemoteChanges`: traços locais pendentes são preservados durante atualizações simultâneas de outros dispositivos.
+  - Cache local resiliente em IndexedDB (`cfo_whiteboard_offline_v1`) com isolamento estrito por usuário (`${userId}::${boardId}`) e expurgo no logout.
 
 ### 1.6 Painel Administrativo & Modo Manutenção
 - **Tela de Manutenção Global (`MaintenanceScreen.tsx`)**:
