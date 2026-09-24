@@ -67,15 +67,19 @@
 ### 1.5 Cloud Whiteboard & Question Workspace (`WhiteboardWorkspace.tsx`)
 - **Quadro Infinito Black Blackboard**:
   - Motor oficial tldraw v5.4.2 integrado com React 19, tema escuro tático (#000000 / #121214) e 6 estilos de fundo sensíveis à câmera (preto puro, grafite, pontilhado, grade fina, grade larga e linhas pautadas).
-- **Suporte Nativo a Tablet & Stylus (Matriz de Compatibilidade de Hardware)**:
+- **Suporte Nativo a Tablet, Stylus & Mesas Digitalizadoras (Matriz de Compatibilidade de Hardware)**:
   - Detecção genérica e padronizada via W3C Pointer Events API (`pointerType === 'pen'` ou fallback `'stylus'`), sem hardcoding por fabricante:
     1. **Huawei tablet + Huawei M-Pencil** (Prioridade Primária #1 de Hardware).
-    2. Samsung Galaxy Tab + S Pen.
-    3. iPad + Apple Pencil.
-    4. Microsoft Surface + Surface Pen.
+    2. **Mesas digitalizadoras desktop** (Wacom Intuos/Cintiq, Huion Inspiroy/Kamvas, XP-Pen Deco/Artist, Gaomon, Veikk).
+    3. Samsung Galaxy Tab + S Pen.
+    4. iPad + Apple Pencil.
+    5. Microsoft Surface + Surface Pen.
+  - **Roteamento Determinístico da Ferramenta Ativa**:
+    - Ao tocar com caneta/stylus, a ferramenta ativa é sincronizada automaticamente com o contexto de escrita (`draw`), nunca ficando retida na ferramenta Mão (`hand`) devido a toques ou gestos anteriores de navegação.
+    - Preservação estrita de escolhas explícitas do aluno (borracha `eraser`, seleção `select` ou marca-texto `highlight`).
   - Palm rejection inteligente: toques de dedos e palma realizam apenas pan/zoom, impedindo traços fantasmas.
-  - Sensibilidade contínua à pressão para caligrafia natural e cálculos detalhados.
-  - Painel de telemetria e diagnóstico em tempo real em desenvolvimento ou via URL `?stylus_debug=1` (`pointerType`, `pressure`, `buttons`, `button`, `tiltX`, `tiltY`).
+  - Sensibilidade contínua à pressão e inclinação (`tiltX`, `tiltY`) para caligrafia natural e cálculos detalhados.
+  - Painel de telemetria e diagnóstico em tempo real em desenvolvimento ou via URL `?stylus_debug=1` exibindo os 8 campos críticos: `pointerType`, `pressure`, `buttons`, `button`, `inputs.getIsPen()`, `getCurrentToolId()`, `root.getPath()`, `isPenMode`, além de `tiltX` e `tiltY`.
 - **Captura Ágil de Questões (PC $\to$ Tablet)**:
   - Captura direta via Screen Capture API (`getDisplayMedia`) com modal interativo de recorte.
   - Upload de arquivos de imagem, drag-and-drop e colagem global com `Ctrl+V`.

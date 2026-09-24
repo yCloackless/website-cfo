@@ -67,31 +67,17 @@ const PEN_SIZES = [
   { name: 'Marcador', value: 'xl', label: 'XL' },
 ];
 
-/**
- * Detecção Genérica de Caneta via W3C Pointer Events API.
- * Trata canetas de qualquer fabricante de forma neutra e padronizada:
- * - Huawei tablet + Huawei M-Pencil (Prioridade Primária de Hardware)
- * - Samsung Galaxy Tab + S Pen
- * - iPad + Apple Pencil
- * - Microsoft Surface + Surface Pen
- */
-export function isGenericStylusEvent(e: PointerEvent): boolean {
-  return e.pointerType === 'pen' || (e.pointerType as string) === 'stylus';
-}
+import {
+  isGenericStylusEvent,
+  resolveStylusTargetTool,
+  StylusDiagnostics,
+} from '../../utils/whiteboardStylus';
 
-export interface StylusDiagnostics {
-  eventType: string;
-  pointerType: string;
-  pointerId: number;
-  pressure: number;
-  buttons: number;
-  button: number;
-  tiltX: number;
-  tiltY: number;
-  width: number;
-  height: number;
-  timestamp: number;
-}
+export {
+  isGenericStylusEvent,
+  resolveStylusTargetTool,
+  type StylusDiagnostics,
+};
 
 export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
   userId: propUserId,
@@ -115,6 +101,10 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
   const [isCaptureModalOpen, setIsCaptureModalOpen] = useState(false);
   const [isListModalOpen, setIsListModalOpen] = useState(false);
   const [selectedTool, setSelectedTool] = useState<string>('draw');
+  const selectedToolRef = useRef<string>(selectedTool);
+  useEffect(() => {
+    selectedToolRef.current = selectedTool;
+  }, [selectedTool]);
   const [activePenColor, setActivePenColor] = useState('white');
   const [activePenSize, setActivePenSize] = useState('m');
   const [isLockedSelected, setIsLockedSelected] = useState<boolean | null>(null);
@@ -345,6 +335,8 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
         isApplyingRemoteRef.current = true;
         loadSnapshot(editor.store, parsedCached);
         isApplyingRemoteRef.current = false;
+        editor.updateInstanceState({ isPenMode: true });
+        editor.setCurrentTool(selectedToolRef.current || 'draw');
         lastSavedVersionRef.current = cached.version || 1;
         setServerVersion(cached.version || 1);
         if (cached.title) setBoardTitle(cached.title);
@@ -403,6 +395,8 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
           isApplyingRemoteRef.current = true;
           loadSnapshot(editor.store, parsedRemote);
           isApplyingRemoteRef.current = false;
+          editor.updateInstanceState({ isPenMode: true });
+          editor.setCurrentTool(selectedToolRef.current || 'draw');
           lastSavedVersionRef.current = remoteVer;
           lastSavedDocumentStateRef.current = data.document.document_state;
           setServerVersion(remoteVer);
@@ -577,11 +571,39 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
     };
   }, [boardId, boardTitle, backgroundType, resolvedUserId, saveToCloud, checkRemoteVersionAndReconcile]);
 
-  // Escutar eventos de tela/caneta Pointer Events para auto-detectar Stylus (Huawei M-Pencil, S Pen, Apple Pencil)
+  // Escutar eventos Pointer Events em fase de CAPTURA para auto-detectar e rotear Stylus e Mesas Digitalizadoras
   useEffect(() => {
-    const handlePointerEvent = (e: PointerEvent) => {
-      // Coleta telemetria em tempo real se o modo de diagnóstico estiver ativo
+    const handlePointerDownCapture = (e: PointerEvent) => {
+      const editor = editorRef.current;
+      const isStylus = isGenericStylusEvent(e);
+
+      if (isStylus && editor) {
+        // 1. Ativar Pen Mode nativo no tldraw para rejeição estrita de toques acidentais/palma
+        if (!editor.getInstanceState()?.isPenMode) {
+          editor.updateInstanceState({ isPenMode: true });
+        }
+        setIsPenMode(true);
+
+        // 2. Resolver ferramenta ativa: se estiver em 'hand' ou dessincronizado, redireciona para desenhar/escrever
+        const currentTool = editor.getCurrentToolId();
+        const targetTool = resolveStylusTargetTool(selectedToolRef.current, currentTool);
+
+        if (currentTool !== targetTool) {
+          editor.setCurrentTool(targetTool);
+          if (selectedToolRef.current === 'hand' && targetTool === 'draw') {
+            setSelectedTool('draw');
+          }
+        }
+
+        // 3. Cancelar qualquer estado residual de panning para que o arrasto do stylus gere traço imediato
+        if ((editor.inputs as any)?.getIsPanning?.()) {
+          (editor.inputs as any).setIsPanning?.(false);
+        }
+      }
+
+      // 4. Telemetria em tempo real para Huawei M-Pencil, Mesas Digitalizadoras ou Toque
       if (isStylusDebugActive) {
+        const curEditor = editorRef.current;
         setStylusDiag({
           eventType: e.type,
           pointerType: e.pointerType,
@@ -589,34 +611,52 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
           pressure: Number(e.pressure.toFixed(3)),
           buttons: e.buttons,
           button: e.button,
-          tiltX: e.tiltX,
-          tiltY: e.tiltY,
-          width: e.width,
-          height: e.height,
+          tiltX: e.tiltX ?? 0,
+          tiltY: e.tiltY ?? 0,
+          width: e.width ?? 0,
+          height: e.height ?? 0,
           timestamp: Date.now(),
+          isPen: curEditor?.inputs?.getIsPen?.() ?? (e.pointerType === 'pen'),
+          currentToolId: curEditor?.getCurrentToolId() ?? 'draw',
+          rootPath: (curEditor as any)?.root?.getPath?.() || (curEditor as any)?.getPath?.() || '',
+          isPenMode: curEditor?.getInstanceState()?.isPenMode ?? true,
         });
-      }
-
-      // Detecção genérica compatível com Huawei M-Pencil, Samsung S Pen, Apple Pencil e Surface Pen
-      if (isGenericStylusEvent(e) && editorRef.current) {
-        if (!isPenMode) {
-          editorRef.current.updateInstanceState({ isPenMode: true });
-          setIsPenMode(true);
-        }
       }
     };
 
-    window.addEventListener('pointerdown', handlePointerEvent, { passive: true });
+    const handlePointerMoveCapture = (e: PointerEvent) => {
+      if (!isStylusDebugActive) return;
+      const curEditor = editorRef.current;
+      setStylusDiag({
+        eventType: e.type,
+        pointerType: e.pointerType,
+        pointerId: e.pointerId,
+        pressure: Number(e.pressure.toFixed(3)),
+        buttons: e.buttons,
+        button: e.button,
+        tiltX: e.tiltX ?? 0,
+        tiltY: e.tiltY ?? 0,
+        width: e.width ?? 0,
+        height: e.height ?? 0,
+        timestamp: Date.now(),
+        isPen: curEditor?.inputs?.getIsPen?.() ?? (e.pointerType === 'pen'),
+        currentToolId: curEditor?.getCurrentToolId() ?? 'draw',
+        rootPath: (curEditor as any)?.root?.getPath?.() || (curEditor as any)?.getPath?.() || '',
+        isPenMode: curEditor?.getInstanceState()?.isPenMode ?? isPenMode,
+      });
+    };
+
+    window.addEventListener('pointerdown', handlePointerDownCapture, { capture: true, passive: true });
     if (isStylusDebugActive) {
-      window.addEventListener('pointermove', handlePointerEvent, { passive: true });
-      window.addEventListener('pointerup', handlePointerEvent, { passive: true });
+      window.addEventListener('pointermove', handlePointerMoveCapture, { capture: true, passive: true });
+      window.addEventListener('pointerup', handlePointerMoveCapture, { capture: true, passive: true });
     }
 
     return () => {
-      window.removeEventListener('pointerdown', handlePointerEvent);
+      window.removeEventListener('pointerdown', handlePointerDownCapture, { capture: true });
       if (isStylusDebugActive) {
-        window.removeEventListener('pointermove', handlePointerEvent);
-        window.removeEventListener('pointerup', handlePointerEvent);
+        window.removeEventListener('pointermove', handlePointerMoveCapture, { capture: true });
+        window.removeEventListener('pointerup', handlePointerMoveCapture, { capture: true });
       }
     };
   }, [isPenMode, isStylusDebugActive]);
@@ -1017,23 +1057,79 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
           />
         )}
 
-        {/* Painel de Diagnóstico em Tempo Real para Huawei M-Pencil / Stylus (Ativo em Dev ou ?stylus_debug=1) */}
+        {/* Painel de Diagnóstico em Tempo Real para Huawei M-Pencil / Stylus / Graphics Tablet */}
         {isStylusDebugActive && (
-          <div className="absolute top-3 right-3 z-40 bg-[#0d0e12]/92 border border-slate-700/80 rounded-xl p-3 text-[11px] font-mono text-emerald-400 backdrop-blur-md shadow-2xl pointer-events-none select-none max-w-xs">
-            <div className="flex items-center justify-between text-amber-400 font-bold mb-1 border-b border-slate-800 pb-1">
-              <span>🖊️ Telemetria Huawei M-Pencil / Stylus</span>
-              <span className="text-[10px] text-slate-400">W3C API</span>
+          <div className="absolute top-3 right-3 z-40 bg-[#0d0e12]/95 border border-slate-700/80 rounded-xl p-3 text-[11px] font-mono text-emerald-400 backdrop-blur-md shadow-2xl pointer-events-none select-none w-80 max-w-[calc(100vw-1.5rem)]">
+            <div className="flex items-center justify-between text-amber-400 font-bold mb-1.5 border-b border-slate-800 pb-1">
+              <span>🖊️ Telemetria Stylus / Graphics Tablet</span>
+              <span className="text-[10px] text-slate-400 font-normal">W3C API</span>
             </div>
             {stylusDiag ? (
-              <div className="space-y-0.5 text-slate-300">
-                <div><span className="text-slate-400">Evento:</span> <span className="text-white">{stylusDiag.eventType}</span> (<span className="text-emerald-400">{stylusDiag.pointerType}</span>)</div>
-                <div><span className="text-slate-400">Pressão:</span> <span className="text-amber-300">{stylusDiag.pressure.toFixed(3)}</span> | <span className="text-slate-400">Botão:</span> {stylusDiag.buttons} ({stylusDiag.button})</div>
-                <div><span className="text-slate-400">Inclinação:</span> X={stylusDiag.tiltX}° Y={stylusDiag.tiltY}°</div>
-                <div><span className="text-slate-400">Resolução:</span> {stylusDiag.width}x{stylusDiag.height} | ID: {stylusDiag.pointerId}</div>
-                <div className="text-[10px] text-cyan-300 mt-1">Rejeição de Palma: {isPenMode ? 'ATIVADA (Toque apenas navega)' : 'DESATIVADA'}</div>
+              <div className="space-y-1 text-slate-300">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">pointerType:</span>
+                  <span className={`px-1.5 py-0.5 rounded font-bold ${
+                    stylusDiag.pointerType === 'pen' ? 'bg-emerald-950 text-emerald-300 border border-emerald-700' : 'bg-slate-800 text-amber-300'
+                  }`}>
+                    {stylusDiag.pointerType}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">pressure:</span>
+                  <span className="text-amber-300 font-bold">{stylusDiag.pressure.toFixed(3)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">buttons / button:</span>
+                  <span className="text-white">{stylusDiag.buttons} / {stylusDiag.button}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">tiltX / tiltY:</span>
+                  <span className="text-white">X={stylusDiag.tiltX}° | Y={stylusDiag.tiltY}°</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">inputs.getIsPen():</span>
+                  <span className={stylusDiag.isPen ? 'text-emerald-400 font-bold' : 'text-slate-400'}>
+                    {String(stylusDiag.isPen)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">getCurrentToolId():</span>
+                  <span className={stylusDiag.currentToolId === 'draw' ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                    {stylusDiag.currentToolId}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">root.getPath():</span>
+                  <span className="text-cyan-300 font-mono text-[10px] truncate max-w-[170px]" title={stylusDiag.rootPath}>
+                    {stylusDiag.rootPath}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">isPenMode:</span>
+                  <span className={stylusDiag.isPenMode ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                    {String(stylusDiag.isPenMode)}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-500 pt-1.5 border-t border-slate-800/80 flex justify-between">
+                  <span>ID: {stylusDiag.pointerId}</span>
+                  <span>{stylusDiag.eventType}</span>
+                  <span>{stylusDiag.width}x{stylusDiag.height}px</span>
+                </div>
+                {stylusDiag.pointerType === 'pen' && (
+                  <div className="text-[10px] text-emerald-400 bg-emerald-950/40 border border-emerald-900/50 rounded px-1.5 py-0.5 mt-1 text-center font-sans">
+                    Caneta Detectada • Traço Ativo • Rejeição de Palma
+                  </div>
+                )}
+                {stylusDiag.pointerType === 'touch' && (
+                  <div className="text-[10px] text-cyan-400 bg-cyan-950/40 border border-cyan-900/50 rounded px-1.5 py-0.5 mt-1 text-center font-sans">
+                    Toque de Dedo Detectado • Pan/Zoom (Sem Desenho)
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="text-slate-400 italic">Toque a Huawei M-Pencil ou caneta na tela para inspecionar telemetria...</div>
+              <div className="text-slate-400 italic text-[10px]">
+                Toque a Huawei M-Pencil ou caneta da mesa digitalizadora na tela para inspecionar telemetria...
+              </div>
             )}
           </div>
         )}

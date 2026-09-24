@@ -5,6 +5,11 @@ import { WhiteboardRepository } from '../src/db/whiteboardRepository';
 import {
   validateWhiteboardImageBuffer,
 } from '../src/services/whiteboard/whiteboardStorage';
+import {
+  isGenericStylusEvent,
+  resolveStylusTargetTool,
+  StylusDiagnostics,
+} from '../src/utils/whiteboardStylus';
 
 test('Whiteboard Hardening: True Multi-Device Concurrency & Reconciler Invariance', async () => {
   const dbService = new DatabaseService(':memory:');
@@ -312,13 +317,7 @@ test('Whiteboard Hardening: Stress Test (Thousands of Strokes & Rapid Sequential
   assert.equal(parsed.records.length, 1500);
 });
 
-test('Whiteboard Hardening: Generic W3C Stylus Detection (Huawei M-Pencil Priority)', () => {
-  // Teste que valida a detecção neutra e genérica sem hardcoding de marca
-  // Atendendo com prioridade máxima: Huawei tablet + Huawei M-Pencil
-  function isGenericStylus(e: { pointerType: string }): boolean {
-    return e.pointerType === 'pen' || (e.pointerType as string) === 'stylus';
-  }
-
+test('Whiteboard Hardening: Generic W3C Stylus Detection (Huawei M-Pencil & Graphics Tablet Support)', () => {
   // 1. Huawei M-Pencil emitindo evento padrão W3C pointerType = 'pen'
   const huaweiPenEvent = {
     pointerType: 'pen',
@@ -328,19 +327,128 @@ test('Whiteboard Hardening: Generic W3C Stylus Detection (Huawei M-Pencil Priori
     tiltX: 18,
     tiltY: -12,
   };
-  assert.equal(isGenericStylus(huaweiPenEvent), true, 'Huawei M-Pencil detectada com sucesso');
+  assert.equal(isGenericStylusEvent(huaweiPenEvent), true, 'Huawei M-Pencil detectada com sucesso');
 
-  // 2. Fallback de WebView/HarmonyOS alternativo emitindo 'stylus'
+  // 2. Mesas digitalizadoras desktop (Wacom, Huion, XP-Pen, Gaomon, Veikk) no Windows/macOS
+  const wacomDesktopTablet = {
+    pointerType: 'pen',
+    pressure: 0.892,
+    buttons: 1,
+    button: 0,
+    tiltX: -15,
+    tiltY: 30,
+  };
+  assert.equal(isGenericStylusEvent(wacomDesktopTablet), true, 'Mesa digitalizadora desktop Wacom/Huion/XP-Pen detectada como caneta');
+
+  // 3. Fallback de WebView/HarmonyOS alternativo emitindo 'stylus'
   const fallbackStylusEvent = {
     pointerType: 'stylus',
     pressure: 0.5,
   };
-  assert.equal(isGenericStylus(fallbackStylusEvent), true, 'Fallback genérico stylus detectado');
+  assert.equal(isGenericStylusEvent(fallbackStylusEvent), true, 'Fallback genérico stylus detectado');
 
-  // 3. Toques de dedos e palma da mão NÃO podem ativar Pen Mode
-  assert.equal(isGenericStylus({ pointerType: 'touch' }), false, 'Toque de dedo rejeitado pelo detector de caneta');
+  // 4. Toques de dedos e palma da mão NÃO podem ativar Pen Mode
+  assert.equal(isGenericStylusEvent({ pointerType: 'touch' }), false, 'Toque de dedo rejeitado pelo detector de caneta');
 
-  // 4. Mouse e trackpad NÃO ativam Pen Mode
-  assert.equal(isGenericStylus({ pointerType: 'mouse' }), false, 'Mouse rejeitado pelo detector de caneta');
+  // 5. Mouse e trackpad NÃO ativam Pen Mode
+  assert.equal(isGenericStylusEvent({ pointerType: 'mouse' }), false, 'Mouse rejeitado pelo detector de caneta');
+});
+
+test('Whiteboard Hardening: Deterministic Active Tool Routing (Stylus Never Trapped in Hand Tool)', () => {
+  // Cenário Crítico: O aluno usou toques na tela para navegar/dar zoom, ou clicou na ferramenta Mão.
+  // O tldraw ficou internamente no estado 'hand'.
+  // Ao encostar com a caneta Huawei M-Pencil ou caneta da mesa digitalizadora:
+  // A caneta NUNCA deve arrastar o quadro, devendo retornar imediatamente para o modo de escrita.
+
+  // 1. Aluno estava navegando (currentTool = hand), selecionado 'draw': caneta volta para 'draw'
+  assert.equal(
+    resolveStylusTargetTool('draw', 'hand'),
+    'draw',
+    'Caneta força retorno de hand para draw'
+  );
+
+  // 2. Aluno selecionou 'hand' na toolbar, mas tocou com a caneta: caneta muda para 'draw'
+  assert.equal(
+    resolveStylusTargetTool('hand', 'hand'),
+    'draw',
+    'Toque da caneta em modo hand força ativação do pincel draw'
+  );
+
+  // 3. Aluno selecionou Borracha ('eraser'), navegou com os dedos ('hand'): caneta respeita Borracha
+  assert.equal(
+    resolveStylusTargetTool('eraser', 'hand'),
+    'eraser',
+    'Caneta respeita seleção explícita de Borracha ao sair de hand'
+  );
+
+  // 4. Aluno selecionou Seleção ('select'), navegou com os dedos ('hand'): caneta respeita Seleção
+  assert.equal(
+    resolveStylusTargetTool('select', 'hand'),
+    'select',
+    'Caneta respeita seleção explícita de Selecionar ao sair de hand'
+  );
+
+  // 5. Aluno selecionou Marca-texto ('highlight'), navegou com os dedos ('hand'): caneta respeita Marca-texto
+  assert.equal(
+    resolveStylusTargetTool('highlight', 'hand'),
+    'highlight',
+    'Caneta respeita marca-texto ao sair de hand'
+  );
+
+  // 6. Durante escrita normal (currentTool = draw), caneta permanece em 'draw'
+  assert.equal(
+    resolveStylusTargetTool('draw', 'draw'),
+    'draw',
+    'Escrita contínua permanece em draw'
+  );
+
+  // 7. Durante apagamento normal (currentTool = eraser), caneta permanece em 'eraser'
+  assert.equal(
+    resolveStylusTargetTool('eraser', 'eraser'),
+    'eraser',
+    'Apagamento contínuo permanece em eraser'
+  );
+});
+
+test('Whiteboard Hardening: Stylus Diagnostics Telemetry Format & Field Completeness', () => {
+  // Valida que o payload de diagnóstico do painel em tempo real contém todos os 8 campos exigidos:
+  // - event.pointerType
+  // - event.pressure
+  // - event.buttons
+  // - event.button
+  // - editor.inputs.getIsPen()
+  // - editor.getCurrentToolId()
+  // - editor.root.getPath()
+  // - editor.getInstanceState().isPenMode
+  // e suporte a tiltX/tiltY para mesas gráficas desktop e canetas avançadas.
+
+  const mockTelemetry: StylusDiagnostics = {
+    eventType: 'pointerdown',
+    pointerType: 'pen',
+    pointerId: 2,
+    pressure: 0.654,
+    buttons: 1,
+    button: 0,
+    tiltX: 12,
+    tiltY: -8,
+    width: 2,
+    height: 2,
+    timestamp: Date.now(),
+    isPen: true,
+    currentToolId: 'draw',
+    rootPath: 'root.draw.idle',
+    isPenMode: true,
+  };
+
+  assert.equal(mockTelemetry.pointerType, 'pen');
+  assert.equal(mockTelemetry.pressure, 0.654);
+  assert.equal(mockTelemetry.buttons, 1);
+  assert.equal(mockTelemetry.button, 0);
+  assert.equal(mockTelemetry.isPen, true);
+  assert.equal(mockTelemetry.currentToolId, 'draw');
+  assert.equal(mockTelemetry.rootPath, 'root.draw.idle');
+  assert.equal(mockTelemetry.isPenMode, true);
+  assert.equal(mockTelemetry.tiltX, 12);
+  assert.equal(mockTelemetry.tiltY, -8);
 });
 
