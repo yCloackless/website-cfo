@@ -101,6 +101,73 @@ test('1. Media Upload: accepts real image and saves with safe filename and prope
   }
 });
 
+test('Media uses private S3-compatible storage and remains readable from a new repository instance', async () => {
+  const { userRepo, ankiRepo, rawDb, cleanup } = createTempDb();
+  const originalEnv = {
+    endpoint: process.env.BACKUP_S3_ENDPOINT,
+    bucket: process.env.BACKUP_S3_BUCKET,
+    access: process.env.BACKUP_S3_ACCESS_KEY,
+    secret: process.env.BACKUP_S3_SECRET_KEY,
+    region: process.env.BACKUP_S3_REGION,
+  };
+  const objects = new Map<string, Buffer>();
+  const objectServer = http.createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+    req.on('end', () => {
+      assert.match(req.headers.authorization || '', /Credential=test-access\/.+\/auto\/s3\/aws4_request/);
+      const key = new URL(req.url!, 'http://localhost').pathname;
+      if (req.method === 'PUT') {
+        objects.set(key, Buffer.concat(chunks));
+        res.writeHead(200).end();
+      } else if (objects.has(key)) {
+        res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(objects.get(key));
+      } else {
+        res.writeHead(404).end();
+      }
+    });
+  });
+
+  try {
+    const user = userRepo.create({ username: 'anki_s3_user', email: 'anki-s3@cfo.test', passwordHash: 'hash' });
+    delete process.env.BACKUP_S3_ENDPOINT;
+    delete process.env.BACKUP_S3_BUCKET;
+    delete process.env.BACKUP_S3_ACCESS_KEY;
+    delete process.env.BACKUP_S3_SECRET_KEY;
+    delete process.env.BACKUP_S3_REGION;
+    const legacy = await ankiRepo.saveMedia(user.id, 'legacy.png', REAL_PNG_BUFFER, 'image/png');
+    await new Promise<void>((resolve) => objectServer.listen(0, '127.0.0.1', resolve));
+    const port = (objectServer.address() as any).port;
+    process.env.BACKUP_S3_ENDPOINT = `http://127.0.0.1:${port}`;
+    process.env.BACKUP_S3_BUCKET = 'private-test-bucket';
+    process.env.BACKUP_S3_ACCESS_KEY = 'test-access';
+    process.env.BACKUP_S3_SECRET_KEY = 'test-secret';
+    process.env.BACKUP_S3_REGION = 'auto';
+
+    const migrated = await new AnkiRepository(rawDb).getMedia(user.id, legacy.filename);
+    assert.deepEqual(migrated?.buffer, REAL_PNG_BUFFER);
+    assert.equal(rawDb.prepare('SELECT storage_path FROM anki_media WHERE id = ?').get(legacy.id)?.storage_path, `anki-media/${legacy.id}`);
+    assert.deepEqual(objects.get(`/private-test-bucket/anki-media/${legacy.id}`), REAL_PNG_BUFFER);
+
+    const media = await ankiRepo.saveMedia(user.id, 'diagram.png', REAL_PNG_BUFFER, 'image/png');
+    assert.equal(media.storagePath, `anki-media/${media.id}`);
+    assert.equal(rawDb.prepare('SELECT storage_path FROM anki_media WHERE id = ?').get(media.id)?.storage_path, media.storagePath);
+    assert.deepEqual(objects.get(`/private-test-bucket/${media.storagePath}`), REAL_PNG_BUFFER);
+
+    const afterRestart = await new AnkiRepository(rawDb).getMedia(user.id, media.filename);
+    assert.deepEqual(afterRestart?.buffer, REAL_PNG_BUFFER);
+  } finally {
+    objectServer.close();
+    const restore = (key: string, value: string | undefined) => value === undefined ? delete process.env[key] : process.env[key] = value;
+    restore('BACKUP_S3_ENDPOINT', originalEnv.endpoint);
+    restore('BACKUP_S3_BUCKET', originalEnv.bucket);
+    restore('BACKUP_S3_ACCESS_KEY', originalEnv.access);
+    restore('BACKUP_S3_SECRET_KEY', originalEnv.secret);
+    restore('BACKUP_S3_REGION', originalEnv.region);
+    cleanup();
+  }
+});
+
 test('2. Media Upload: rejects invalid magic bytes and oversized payloads (> 5MB)', async () => {
   const { userRepo, ankiRepo, cleanup } = createTempDb();
 

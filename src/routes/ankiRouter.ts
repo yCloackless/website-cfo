@@ -23,6 +23,7 @@ import { AnkiApkgService } from '../services/anki/ankiApkgService';
 import { CardFlag, Rating } from '../services/anki/ankiTypes';
 import { getDb } from '../db/database';
 import { validateImageBuffer } from '../services/avatarService';
+import { MediaStorageNotConfiguredError } from '../services/anki/ankiMediaStorage';
 
 export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () => AnkiRepository): Router {
   const router = Router();
@@ -755,7 +756,6 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       const apkgBuffer = Buffer.from(base64Data, 'base64');
       const parsed = await AnkiApkgService.parseApkg(apkgBuffer);
       const repo = getRepo();
-
       const existingDecks = repo.listDecks(user.userId);
       const currentDeckCount = repo.countDecks(user.userId);
       const newDecksNeeded = parsed.decks.filter(d => !existingDecks.some(ed => ed.name.toLowerCase() === d.name.toLowerCase())).length;
@@ -765,6 +765,16 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
           error: 'MAX_DECKS_EXCEEDED',
           message: `A importação excederia o limite máximo de ${AnkiRepository.MAX_DECKS_PER_USER} baralhos. Você possui ${currentDeckCount} baralhos.`,
         });
+      }
+
+      // Persist all referenced media before creating cards so an upload failure
+      // cannot leave imported notes pointing at missing images.
+      let mediaSavedCount = 0;
+      for (const mf of parsed.mediaFiles) {
+        const ext = path.extname(mf.filename).toLowerCase();
+        const mime = ext === '.png' ? 'image/png' : (ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'application/octet-stream');
+        await repo.saveMedia(user.userId, mf.filename, mf.buffer, mime);
+        mediaSavedCount++;
       }
 
       // Ensure default config
@@ -816,17 +826,6 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         createdCardsCount += res.cards.length;
       }
 
-      // Import media assets
-      let mediaSavedCount = 0;
-      for (const mf of parsed.mediaFiles) {
-        try {
-          const ext = path.extname(mf.filename).toLowerCase();
-          const mime = ext === '.png' ? 'image/png' : (ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'application/octet-stream');
-          repo.saveMedia(user.userId, mf.filename, mf.buffer, mime);
-          mediaSavedCount++;
-        } catch {}
-      }
-
       return res.json({
         success: true,
         message: 'Pacote .apkg importado com sucesso!',
@@ -836,6 +835,9 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         mediaSaved: mediaSavedCount,
       });
     } catch (err: any) {
+      if (err instanceof MediaStorageNotConfiguredError) {
+        return res.status(503).json({ error: 'MEDIA_STORAGE_UNAVAILABLE', message: 'O armazenamento persistente de imagens está indisponível.' });
+      }
       return res.status(500).json({ error: 'IMPORT_FAILED', message: err.message });
     }
   });
@@ -844,7 +846,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
   // 9. USER MEDIA ASSETS (Images in Flashcards)
   // =========================================================================
 
-  const handleMediaUpload = (req: Request, res: Response) => {
+  const handleMediaUpload = async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const { imageBase64, filename } = req.body || {};
@@ -879,7 +881,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         : `img_${Date.now()}_${randomSuffix}.${validation.extension}`;
 
       const repo = getRepo();
-      const media = repo.saveMedia(user.userId, finalFilename, buffer, validation.detectedMime!);
+      const media = await repo.saveMedia(user.userId, finalFilename, buffer, validation.detectedMime!);
 
       return res.json({
         success: true,
@@ -889,6 +891,9 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         sizeBytes: media.fileSize,
       });
     } catch (err: any) {
+      if (err instanceof MediaStorageNotConfiguredError) {
+        return res.status(503).json({ error: 'MEDIA_STORAGE_UNAVAILABLE', message: 'O armazenamento persistente de imagens está indisponível.' });
+      }
       return res.status(500).json({ error: 'UPLOAD_FAILED', message: err.message });
     }
   };
@@ -896,11 +901,11 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
   router.post('/media/upload', requireAuthMiddleware, mediaUploadLimiter, handleMediaUpload);
   router.post('/media', requireAuthMiddleware, mediaUploadLimiter, handleMediaUpload);
 
-  router.get('/media/:filename', requireAuthMiddleware, (req: Request, res: Response) => {
+  router.get('/media/:filename', requireAuthMiddleware, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const repo = getRepo();
-      const asset = repo.getMedia(user.userId, req.params.filename);
+      const asset = await repo.getMedia(user.userId, req.params.filename);
 
       if (!asset) {
         return res.status(404).json({ error: 'MEDIA_NOT_FOUND' });
@@ -909,8 +914,13 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       res.setHeader('Content-Type', asset.media.mimeType);
       res.setHeader('Cache-Control', 'private, max-age=86400');
       res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.vary('Cookie');
+      res.vary('Authorization');
       return res.send(asset.buffer);
     } catch (err: any) {
+      if (err instanceof MediaStorageNotConfiguredError) {
+        return res.status(503).json({ error: 'MEDIA_STORAGE_UNAVAILABLE' });
+      }
       return res.status(500).json({ error: 'GET_MEDIA_FAILED', message: err.message });
     }
   });

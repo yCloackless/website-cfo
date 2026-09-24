@@ -34,6 +34,7 @@ import {
 import { AnkiScheduler } from '../services/anki/ankiScheduler';
 import { AnkiRenderer } from '../services/anki/ankiRenderer';
 import { AnkiSearch } from '../services/anki/ankiSearch';
+import { getAnkiMedia, MediaStorageNotConfiguredError, persistentMediaStorageConfigured, putAnkiMedia } from '../services/anki/ankiMediaStorage';
 
 export class AnkiRepository {
   private db: DatabaseSync;
@@ -1316,17 +1317,9 @@ export class AnkiRepository {
   // 9. MEDIA ASSETS
   // =========================================================================
 
-  public saveMedia(userId: string, filename: string, buffer: Buffer, mimeType: string): AnkiMedia {
+  public async saveMedia(userId: string, filename: string, buffer: Buffer, mimeType: string): Promise<AnkiMedia> {
     const hash = crypto.createHash('sha256').update(buffer).digest('hex');
     const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-
-    const mediaDir = path.join(process.cwd(), 'data', 'anki_media', userId);
-    if (!fs.existsSync(mediaDir)) {
-      fs.mkdirSync(mediaDir, { recursive: true });
-    }
-
-    const storagePath = path.join(mediaDir, `${hash}_${safeFilename}`);
-    fs.writeFileSync(storagePath, buffer);
 
     const existing = this.db.prepare(`
       SELECT * FROM anki_media WHERE user_id = ? AND filename = ?
@@ -1334,6 +1327,18 @@ export class AnkiRepository {
 
     const id = existing ? existing.id : crypto.randomUUID();
     const now = new Date().toISOString();
+    const objectKey = `anki-media/${id}`;
+    const storedRemotely = await putAnkiMedia(objectKey, buffer);
+    if (!storedRemotely && process.env.NODE_ENV === 'production') throw new MediaStorageNotConfiguredError();
+
+    // Local files are retained only for development and isolated tests.
+    let storagePath = objectKey;
+    if (!storedRemotely) {
+      const mediaDir = path.join(process.cwd(), 'data', 'anki_media', userId);
+      fs.mkdirSync(mediaDir, { recursive: true });
+      storagePath = path.join(mediaDir, `${hash}_${safeFilename}`);
+      fs.writeFileSync(storagePath, buffer);
+    }
 
     if (existing) {
       this.db.prepare(`
@@ -1358,15 +1363,32 @@ export class AnkiRepository {
     };
   }
 
-  public getMedia(userId: string, filename: string): { media: AnkiMedia; buffer: Buffer } | null {
+  public async getMedia(userId: string, filename: string): Promise<{ media: AnkiMedia; buffer: Buffer } | null> {
     const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
     const row = this.db.prepare(`
       SELECT * FROM anki_media WHERE user_id = ? AND filename = ?
     `).get(userId, safeFilename) as any;
 
-    if (!row || !fs.existsSync(row.storage_path)) return null;
+    if (!row) return null;
+    if (!row.storage_path.startsWith('anki-media/') && process.env.NODE_ENV === 'production' && !persistentMediaStorageConfigured()) {
+      throw new MediaStorageNotConfiguredError();
+    }
+    let buffer: Buffer | null = row.storage_path.startsWith('anki-media/')
+      ? await getAnkiMedia(row.storage_path)
+      : (fs.existsSync(row.storage_path) ? fs.readFileSync(row.storage_path) : null);
 
-    const buffer = fs.readFileSync(row.storage_path);
+    // Move recoverable pre-migration media to persistent storage on first access.
+    if (buffer && !row.storage_path.startsWith('anki-media/') && persistentMediaStorageConfigured()) {
+      const objectKey = `anki-media/${row.id}`;
+      await putAnkiMedia(objectKey, buffer);
+      this.db.prepare('UPDATE anki_media SET storage_path = ? WHERE id = ? AND user_id = ?')
+        .run(objectKey, row.id, userId);
+      row.storage_path = objectKey;
+    }
+    if (!buffer && row.storage_path.startsWith('anki-media/') && process.env.NODE_ENV === 'production' && !persistentMediaStorageConfigured()) {
+      throw new MediaStorageNotConfiguredError();
+    }
+    if (!buffer) return null;
     return {
       media: {
         id: row.id,
