@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { Request, Response, NextFunction } from "express";
 import path from "path";
 import fs from "fs";
@@ -13,8 +14,6 @@ import cors from "cors";
 import compression from "compression";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import bcrypt from "bcryptjs";
-
-if (process.env.NODE_ENV !== 'test') dotenv.config();
 
 if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL_REQUIRED_IN_PRODUCTION');
@@ -148,7 +147,7 @@ const trustedProxyEntries = (process.env.TRUSTED_PROXIES || '')
   .split(',').map(value => value.trim()).filter(value => value && value !== '*' && value !== 'true');
 app.set("trust proxy", trustedProxyEntries.length > 0 ? trustedProxyEntries : (isProxyEnvironment ? 1 : false));
 
-const isProduction = process.env.NODE_ENV === 'production';
+const isProduction = process.env.NODE_ENV === 'production' || __filename.includes('dist');
 
 // Security headers must be registered before public operational/static routes.
 app.use(
@@ -160,15 +159,16 @@ app.use(
           ? ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com"]
           : ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://challenges.cloudflare.com", "https://accounts.google.com"],
         styleSrc: ["'self'"],
-        styleSrcElem: ["'self'"],
+        styleSrcElem: ["'self'", "'sha256-hii1GvifzLiObm11mxWcUszTcw1MQwk4Xrh9I9h7RwA='"],
         // KaTeX, Motion and Recharts still require runtime style attributes.
         styleSrcAttr: ["'unsafe-inline'"],
-        fontSrc: ["'self'", "data:"],
-        imgSrc: ["'self'", "data:", "blob:"],
+        fontSrc: ["'self'", "data:", "https://cdn.tldraw.com"],
+        imgSrc: ["'self'", "data:", "blob:", "https://cdn.tldraw.com"],
         frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com"],
         connectSrc: isProduction
           ? [
               "'self'",
+              "https://cdn.tldraw.com",
               "https://challenges.cloudflare.com",
               "https://*.googleapis.com",
               "https://generativelanguage.googleapis.com",
@@ -180,6 +180,7 @@ app.use(
               "wss:",
               "http://localhost:*",
               "http://127.0.0.1:*",
+              "https://cdn.tldraw.com",
               "https://challenges.cloudflare.com",
               "https://*.googleapis.com",
               "https://generativelanguage.googleapis.com",
@@ -8846,7 +8847,7 @@ async function startServer() {
   initBackupScheduler();
   examJobWorker.start();
 
-  if (process.env.NODE_ENV !== "production") {
+  if (!isProduction) {
     app.use((req, res, next) => {
       const blocked = ['/package.json', '/package-lock.json', '/bun.lock', '/.env', '/.env.example'];
       if (blocked.some((path) => req.path === path || req.path.startsWith(`${path}.`))) {
@@ -8901,7 +8902,7 @@ async function startServer() {
     });
   }
 
-  const listenHost = process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1';
+  const listenHost = isProduction ? '0.0.0.0' : '127.0.0.1';
   const server = app.listen(PORT, listenHost, () => {
     console.log(`Server running on http://${listenHost}:${PORT}`);
   });

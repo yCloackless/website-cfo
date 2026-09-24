@@ -8,6 +8,7 @@ import {
   loadSnapshot,
   TLRecord,
   createShapeId,
+  DefaultColorStyle,
 } from 'tldraw';
 import 'tldraw/tldraw.css';
 import {
@@ -34,6 +35,10 @@ import {
   FolderOpen,
   Camera,
   FileImage,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Palette,
 } from 'lucide-react';
 import { WhiteboardBackground, WhiteboardBackgroundType } from './WhiteboardBackground';
 import { WhiteboardCaptureModal } from './WhiteboardCaptureModal';
@@ -54,10 +59,21 @@ interface WhiteboardWorkspaceProps {
 
 const PEN_COLORS = [
   { name: 'Branco', value: 'white', hex: '#ffffff' },
+  { name: 'Preto', value: 'black', hex: '#000000' },
   { name: 'Vermelho', value: 'red', hex: '#ef4444' },
   { name: 'Azul', value: 'blue', hex: '#3b82f6' },
   { name: 'Verde', value: 'green', hex: '#10b981' },
   { name: 'Amarelo', value: 'yellow', hex: '#eab308' },
+];
+
+const BACKGROUND_OPTIONS: { type: WhiteboardBackgroundType; label: string; preview: string }[] = [
+  { type: 'pure_black', label: 'Preto Puro', preview: '#000000' },
+  { type: 'dark_gray', label: 'Cinza Escuro', preview: '#121214' },
+  { type: 'white', label: 'Branco / Caderno', preview: '#ffffff' },
+  { type: 'dots', label: 'Pontilhado', preview: '#222226' },
+  { type: 'grid', label: 'Grade Padrão', preview: '#1e293b' },
+  { type: 'large_grid', label: 'Grade Grande', preview: '#0f172a' },
+  { type: 'ruled', label: 'Caderno Pautado', preview: '#18181b' },
 ];
 
 const PEN_SIZES = [
@@ -88,6 +104,20 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
   const isStylusDebugActive = typeof window !== 'undefined' && (
     import.meta.env.DEV || window.location.search.includes('stylus_debug=1')
   );
+
+  // 1. Linha de base pura tldraw para isolamento de input
+  if (typeof window !== 'undefined' && window.location.search.includes('pure_tldraw=1')) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, width: '100vw', height: '100vh', zIndex: 9999, backgroundColor: '#000' }}>
+        <Tldraw
+          onMount={(editor) => {
+            editor.setCurrentTool('draw');
+          }}
+          autoFocus
+        />
+      </div>
+    );
+  }
   const [stylusDiag, setStylusDiag] = useState<StylusDiagnostics | null>(null);
   const resolvedUserId = propUserId || (typeof window !== 'undefined' ? localStorage.getItem('cfo_user_id') || 'default_cadet' : 'default_cadet');
   const [boardId, setBoardId] = useState<string>(propBoardId || '');
@@ -96,8 +126,9 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
   const [serverVersion, setServerVersion] = useState<number>(1);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'offline' | 'pending' | 'error' | 'conflict'>('synced');
   const [lastSyncTime, setLastSyncTime] = useState<string>('agora');
-  const [isPenMode, setIsPenMode] = useState<boolean>(true);
+  const [isPenMode, setIsPenMode] = useState<boolean>(false);
   const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false);
+  const [isBgPickerOpen, setIsBgPickerOpen] = useState(false);
   const [isCaptureModalOpen, setIsCaptureModalOpen] = useState(false);
   const [isListModalOpen, setIsListModalOpen] = useState(false);
   const [selectedTool, setSelectedTool] = useState<string>('draw');
@@ -185,6 +216,10 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
         }
       } catch (err) {
         console.error('[WhiteboardInit]', err);
+      } finally {
+        if (!isCancelled) {
+          setBoardId((current) => current || 'default_offline_board');
+        }
       }
     };
 
@@ -335,7 +370,6 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
         isApplyingRemoteRef.current = true;
         loadSnapshot(editor.store, parsedCached);
         isApplyingRemoteRef.current = false;
-        editor.updateInstanceState({ isPenMode: true });
         editor.setCurrentTool(selectedToolRef.current || 'draw');
         lastSavedVersionRef.current = cached.version || 1;
         setServerVersion(cached.version || 1);
@@ -395,7 +429,6 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
           isApplyingRemoteRef.current = true;
           loadSnapshot(editor.store, parsedRemote);
           isApplyingRemoteRef.current = false;
-          editor.updateInstanceState({ isPenMode: true });
           editor.setCurrentTool(selectedToolRef.current || 'draw');
           lastSavedVersionRef.current = remoteVer;
           lastSavedDocumentStateRef.current = data.document.document_state;
@@ -419,13 +452,13 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
       isSnapMode: false,
     });
 
-    // Iniciar no estilo quadro negro padrão
+    // Iniciar ferramenta caneta padrão
     editor.setCurrentTool('draw');
-    setSelectedTool('draw');
+    setSelectedTool(editor.getCurrentToolId());
 
-    // Ativar Pen Mode nativo por padrão (tablet-first)
-    editor.updateInstanceState({ isPenMode: true });
-    setIsPenMode(true);
+    // Modo Caneta desativado no início (mouse e desktop interagem livremente)
+    editor.updateInstanceState({ isPenMode: false });
+    setIsPenMode(false);
 
     // Carregar estado do banco se disponível
     if (boardId) {
@@ -462,9 +495,27 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
       }
     });
 
+    // Sincronizar ferramenta ativa se o editor mudar internamente
+    const handleEditorEvent = () => {
+      const curTool = editor.getCurrentToolId();
+      if (curTool && curTool !== selectedToolRef.current) {
+        selectedToolRef.current = curTool;
+        setSelectedTool(curTool);
+      }
+    };
+    editor.on('event', handleEditorEvent);
+
+    const cleanupInstanceSync = editor.sideEffects.registerAfterChangeHandler('instance', (prev, next) => {
+      if (prev.isPenMode !== next.isPenMode) {
+        setIsPenMode(next.isPenMode);
+      }
+    });
+
     return () => {
       cleanupListen();
       cleanupSelection();
+      editor.off('event', handleEditorEvent);
+      cleanupInstanceSync();
     };
   }, [boardId, boardTitle, backgroundType, resolvedUserId, loadBoardData, scheduleAutosave]);
 
@@ -571,37 +622,22 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
     };
   }, [boardId, boardTitle, backgroundType, resolvedUserId, saveToCloud, checkRemoteVersionAndReconcile]);
 
-  // Escutar eventos Pointer Events em fase de CAPTURA para auto-detectar e rotear Stylus e Mesas Digitalizadoras
+  // Escutar eventos Pointer Events para auto-detectar Stylus e Mesas Digitalizadoras de forma passiva
   useEffect(() => {
-    const handlePointerDownCapture = (e: PointerEvent) => {
+    const handlePointerDown = (e: PointerEvent) => {
       const editor = editorRef.current;
       const isStylus = isGenericStylusEvent(e);
 
       if (isStylus && editor) {
-        // 1. Ativar Pen Mode nativo no tldraw para rejeição estrita de toques acidentais/palma
+        // Ativar Pen Mode nativo dinamicamente apenas quando caneta real é detectada
+        // Isso ativa rejeição de palma sem trocar a ferramenta ativa!
         if (!editor.getInstanceState()?.isPenMode) {
           editor.updateInstanceState({ isPenMode: true });
-        }
-        setIsPenMode(true);
-
-        // 2. Resolver ferramenta ativa: se estiver em 'hand' ou dessincronizado, redireciona para desenhar/escrever
-        const currentTool = editor.getCurrentToolId();
-        const targetTool = resolveStylusTargetTool(selectedToolRef.current, currentTool);
-
-        if (currentTool !== targetTool) {
-          editor.setCurrentTool(targetTool);
-          if (selectedToolRef.current === 'hand' && targetTool === 'draw') {
-            setSelectedTool('draw');
-          }
-        }
-
-        // 3. Cancelar qualquer estado residual de panning para que o arrasto do stylus gere traço imediato
-        if ((editor.inputs as any)?.getIsPanning?.()) {
-          (editor.inputs as any).setIsPanning?.(false);
+          setIsPenMode(true);
         }
       }
 
-      // 4. Telemetria em tempo real para Huawei M-Pencil, Mesas Digitalizadoras ou Toque
+      // Telemetria em tempo real para Huawei M-Pencil, Mesas Digitalizadoras ou Toque
       if (isStylusDebugActive) {
         const curEditor = editorRef.current;
         setStylusDiag({
@@ -619,12 +655,12 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
           isPen: curEditor?.inputs?.getIsPen?.() ?? (e.pointerType === 'pen'),
           currentToolId: curEditor?.getCurrentToolId() ?? 'draw',
           rootPath: (curEditor as any)?.root?.getPath?.() || (curEditor as any)?.getPath?.() || '',
-          isPenMode: curEditor?.getInstanceState()?.isPenMode ?? true,
+          isPenMode: curEditor?.getInstanceState()?.isPenMode ?? false,
         });
       }
     };
 
-    const handlePointerMoveCapture = (e: PointerEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       if (!isStylusDebugActive) return;
       const curEditor = editorRef.current;
       setStylusDiag({
@@ -646,17 +682,17 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
       });
     };
 
-    window.addEventListener('pointerdown', handlePointerDownCapture, { capture: true, passive: true });
+    window.addEventListener('pointerdown', handlePointerDown, { passive: true });
     if (isStylusDebugActive) {
-      window.addEventListener('pointermove', handlePointerMoveCapture, { capture: true, passive: true });
-      window.addEventListener('pointerup', handlePointerMoveCapture, { capture: true, passive: true });
+      window.addEventListener('pointermove', handlePointerMove, { passive: true });
+      window.addEventListener('pointerup', handlePointerMove, { passive: true });
     }
 
     return () => {
-      window.removeEventListener('pointerdown', handlePointerDownCapture, { capture: true });
+      window.removeEventListener('pointerdown', handlePointerDown);
       if (isStylusDebugActive) {
-        window.removeEventListener('pointermove', handlePointerMoveCapture, { capture: true });
-        window.removeEventListener('pointerup', handlePointerMoveCapture, { capture: true });
+        window.removeEventListener('pointermove', handlePointerMove);
+        window.removeEventListener('pointerup', handlePointerMove);
       }
     };
   }, [isPenMode, isStylusDebugActive]);
@@ -897,10 +933,15 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
     scheduleAutosave();
   };
 
-  // Componentes customizados do tldraw: Fundo dinâmico
+  // Componentes customizados do tldraw: Fundo dinâmico e supressão de menus redundantes padrão
   const customComponents: TLComponents = React.useMemo(() => {
     return {
       Background: () => <WhiteboardBackground backgroundType={backgroundType} />,
+      Toolbar: null,
+      NavigationPanel: null,
+      PageMenu: null,
+      MainMenu: null,
+      StylePanel: null,
     };
   }, [backgroundType]);
 
@@ -908,15 +949,18 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
   const handleSelectTool = (toolId: string) => {
     if (!editorRef.current) return;
     editorRef.current.setCurrentTool(toolId);
-    setSelectedTool(toolId);
+    setSelectedTool(editorRef.current.getCurrentToolId());
   };
 
   const handleSetColor = (colorName: string) => {
     setActivePenColor(colorName);
     if (!editorRef.current) return;
-    editorRef.current.setCurrentTool('draw');
-    setSelectedTool('draw');
-    (editorRef.current as any).setStyleForNextShapes?.('color', colorName);
+    const curTool = editorRef.current.getCurrentToolId();
+    if (curTool !== 'draw' && curTool !== 'highlight') {
+      editorRef.current.setCurrentTool('draw');
+      setSelectedTool('draw');
+    }
+    editorRef.current.setStyleForNextShapes(DefaultColorStyle, colorName as any);
   };
 
   const handleTogglePenMode = () => {
@@ -924,8 +968,51 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
     const nextMode = !isPenMode;
     editorRef.current.updateInstanceState({ isPenMode: nextMode });
     setIsPenMode(nextMode);
-    showToast?.(nextMode ? '🖊️ Modo Caneta Ativado (Toque de dedos apenas navega e dá zoom)' : 'Modo Toque Livre Ativado', 'info');
+    showToast?.(nextMode ? '🖊️ Modo Caneta Ativado (Toque de dedos apenas navega e dá zoom)' : 'Modo Livre Ativado (Mouse/Toque podem desenhar)', 'info');
   };
+
+  const handleZoomIn = () => {
+    if (!editorRef.current) return;
+    editorRef.current.zoomIn();
+  };
+
+  const handleZoomOut = () => {
+    if (!editorRef.current) return;
+    editorRef.current.zoomOut();
+  };
+
+  const handleResetZoom = () => {
+    if (!editorRef.current) return;
+    editorRef.current.resetZoom();
+  };
+
+  const handleChangeBackground = useCallback(async (val: WhiteboardBackgroundType) => {
+    setBackgroundType(val);
+    if (!boardId) return;
+
+    if (editorRef.current) {
+      try {
+        const snapshot = getSnapshot(editorRef.current.store);
+        await saveBoardOffline(resolvedUserId, boardId, {
+          title: boardTitle,
+          backgroundType: val,
+          version: lastSavedVersionRef.current,
+          documentState: JSON.stringify(snapshot),
+          hasPendingSync: true,
+        });
+      } catch (_) {}
+    }
+
+    try {
+      await apiFetch(`/api/whiteboards/${boardId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backgroundType: val }),
+      });
+    } catch (err) {
+      console.warn('[BackgroundSaveError]', err);
+    }
+  }, [boardId, boardTitle, resolvedUserId]);
 
   return (
     <div className="relative w-full h-[calc(100dvh-4rem)] sm:h-[calc(100dvh-4.5rem)] flex flex-col bg-black overflow-hidden select-none">
@@ -951,26 +1038,21 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
             <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           </button>
 
-          {/* Seletor de Tipo de Fundo */}
+          {/* Seletor de Tipo de Fundo (Responsivo para Desktop e Tablet) */}
           <select
             value={backgroundType}
             onChange={(e) => {
               const val = e.target.value as WhiteboardBackgroundType;
-              setBackgroundType(val);
-              apiFetch(`/api/whiteboards/${boardId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ backgroundType: val }),
-              }).catch(() => {});
+              handleChangeBackground(val);
             }}
-            className="hidden sm:block px-2 py-1 text-xs rounded-lg bg-slate-900 border border-slate-700 text-slate-300 focus:outline-none focus:border-amber-400 cursor-pointer"
+            className="px-2 py-1 text-xs rounded-lg bg-slate-900 border border-slate-700 text-slate-300 focus:outline-none focus:border-amber-400 cursor-pointer max-w-[110px] sm:max-w-none truncate"
+            title="Escolha o Fundo do Quadro / Caderno"
           >
-            <option value="pure_black">Preto Puro</option>
-            <option value="dark_gray">Cinza Escuro</option>
-            <option value="dots">Pontilhado</option>
-            <option value="grid">Grade Padrão</option>
-            <option value="large_grid">Grade Grande</option>
-            <option value="ruled">Caderno Pautado</option>
+            {BACKGROUND_OPTIONS.map((bg) => (
+              <option key={bg.type} value={bg.type}>
+                {bg.label}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -1136,7 +1218,7 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
 
         {/* Barra de Ferramentas Flutuante Tática (Quadro Negro) */}
         <div
-          className={`absolute left-1/2 -translate-x-1/2 bottom-5 z-30 flex items-center gap-1 p-1.5 rounded-2xl border border-slate-800 bg-[#121216]/95 backdrop-blur-xl shadow-2xl transition-all duration-200 ${
+          className={`absolute left-1/2 -translate-x-1/2 bottom-5 z-50 flex items-center gap-1 p-1.5 rounded-2xl border border-slate-800 bg-[#121216]/95 backdrop-blur-xl shadow-2xl transition-all duration-200 ${
             isToolbarCollapsed ? 'translate-y-16 opacity-30 hover:opacity-100 hover:translate-y-0' : 'opacity-100'
           }`}
         >
@@ -1221,6 +1303,69 @@ export const WhiteboardWorkspace: React.FC<WhiteboardWorkspaceProps> = ({
               />
             ))}
           </div>
+
+          {/* Seletor Rápido de Fundo do Quadro */}
+          <div className="relative">
+            <button
+              onClick={() => setIsBgPickerOpen((prev) => !prev)}
+              title="Estilos de Fundo e Caderno"
+              className={`p-2 rounded-xl transition-all ${
+                isBgPickerOpen ? 'bg-amber-500 text-black font-bold shadow-lg shadow-amber-500/20' : 'text-slate-300 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Palette className="w-4 h-4" />
+            </button>
+            {isBgPickerOpen && (
+              <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 bg-[#121216] border border-slate-700 rounded-xl p-1.5 shadow-2xl flex flex-col gap-1 min-w-[160px] z-50">
+                <div className="text-[10px] font-semibold text-slate-400 px-2 py-0.5 uppercase tracking-wider">Fundo do Quadro</div>
+                {BACKGROUND_OPTIONS.map((bg) => (
+                  <button
+                    key={bg.type}
+                    onClick={() => {
+                      handleChangeBackground(bg.type);
+                      setIsBgPickerOpen(false);
+                    }}
+                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                      backgroundType === bg.type
+                        ? 'bg-amber-500 text-black font-semibold'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    }`}
+                  >
+                    <span
+                      className="w-3.5 h-3.5 rounded-full border border-slate-600 shrink-0"
+                      style={{ backgroundColor: bg.preview }}
+                    />
+                    <span className="truncate">{bg.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="w-[1px] h-6 bg-slate-800 mx-1" />
+
+          {/* Controles Oficiais de Zoom */}
+          <button
+            onClick={handleZoomIn}
+            title="Aumentar Zoom (+)"
+            className="p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-xl transition-colors"
+          >
+            <ZoomIn className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleZoomOut}
+            title="Diminuir Zoom (-)"
+            className="p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-xl transition-colors"
+          >
+            <ZoomOut className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleResetZoom}
+            title="Ajustar / Redefinir Zoom (100%)"
+            className="p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-xl transition-colors"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
 
           <div className="w-[1px] h-6 bg-slate-800 mx-1" />
 

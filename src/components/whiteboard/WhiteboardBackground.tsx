@@ -4,6 +4,7 @@ import { useEditor, useValue } from 'tldraw';
 export type WhiteboardBackgroundType =
   | 'pure_black'
   | 'dark_gray'
+  | 'white'
   | 'dots'
   | 'grid'
   | 'large_grid'
@@ -18,6 +19,12 @@ export const WhiteboardBackground: React.FC<WhiteboardBackgroundProps> = ({ back
   const camera = useValue('camera', () => editor.getCamera(), [editor]);
 
   const bgStyle = React.useMemo(() => {
+    if (backgroundType === 'white') {
+      return {
+        backgroundColor: '#ffffff',
+      };
+    }
+
     const baseColor = backgroundType === 'dark_gray' ? '#121214' : '#000000';
 
     if (backgroundType === 'pure_black' || backgroundType === 'dark_gray') {
@@ -82,7 +89,7 @@ export const WhiteboardBackground: React.FC<WhiteboardBackgroundProps> = ({ back
   return (
     <div
       className="absolute inset-0 pointer-events-none select-none transition-colors duration-150"
-      style={bgStyle}
+      style={{ ...bgStyle, pointerEvents: 'none' }}
       aria-hidden="true"
     />
   );
