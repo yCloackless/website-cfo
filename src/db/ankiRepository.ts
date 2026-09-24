@@ -34,7 +34,7 @@ import {
 import { AnkiScheduler } from '../services/anki/ankiScheduler';
 import { AnkiRenderer } from '../services/anki/ankiRenderer';
 import { AnkiSearch } from '../services/anki/ankiSearch';
-import { getAnkiMedia, MediaStorageNotConfiguredError, persistentMediaStorageConfigured, putAnkiMedia } from '../services/anki/ankiMediaStorage';
+import { deleteAnkiMedia, getAnkiMedia, MediaStorageNotConfiguredError, persistentMediaStorageConfigured, putAnkiMedia } from '../services/anki/ankiMediaStorage';
 
 export class AnkiRepository {
   private db: DatabaseSync;
@@ -598,10 +598,27 @@ export class AnkiRepository {
     }
 
     // Purge orphaned notes whose cards were deleted with the decks
+    const orphanNotes = this.db.prepare(`
+      SELECT fields_json FROM anki_notes
+      WHERE user_id = ? AND id NOT IN (SELECT DISTINCT note_id FROM anki_cards WHERE user_id = ?)
+    `).all(userId, userId) as any[];
+
+    const orphanMedia: string[] = [];
+    for (const note of orphanNotes) {
+      try {
+        const fields = JSON.parse(note.fields_json || '[]');
+        orphanMedia.push(...AnkiRepository.extractMediaFilenames(fields));
+      } catch {}
+    }
+
     this.db.prepare(`
       DELETE FROM anki_notes
       WHERE user_id = ? AND id NOT IN (SELECT DISTINCT note_id FROM anki_cards WHERE user_id = ?)
     `).run(userId, userId);
+
+    if (orphanMedia.length > 0) {
+      void this.cleanupUnreferencedMedia(userId, orphanMedia);
+    }
 
     return true;
   }
@@ -768,9 +785,13 @@ export class AnkiRepository {
     };
   }
 
-  public updateNote(userId: string, noteId: string, fields: string[], tags?: string[]): AnkiNote | null {
+  public async updateNote(userId: string, noteId: string, fields: string[], tags?: string[]): Promise<AnkiNote | null> {
     const existing = this.getNote(userId, noteId);
     if (!existing) return null;
+
+    const oldMedia = AnkiRepository.extractMediaFilenames(existing.fields);
+    const newMedia = AnkiRepository.extractMediaFilenames(fields);
+    const removedMedia = oldMedia.filter(m => !newMedia.includes(m));
 
     const now = new Date().toISOString();
     const tagsStr = Array.isArray(tags) ? tags.filter(Boolean).join(' ') : existing.tags.join(' ');
@@ -780,6 +801,14 @@ export class AnkiRepository {
       SET fields_json = ?, tags = ?, updated_at = ?
       WHERE user_id = ? AND id = ?
     `).run(JSON.stringify(fields), tagsStr, now, userId, noteId);
+
+    if (removedMedia.length > 0) {
+      try {
+        await this.cleanupUnreferencedMedia(userId, removedMedia);
+      } catch (err) {
+        console.error('[AnkiRepository] Falha ao limpar mídias órfãs após updateNote:', err);
+      }
+    }
 
     return this.getNote(userId, noteId);
   }
@@ -1177,10 +1206,27 @@ export class AnkiRepository {
       if (res.changes) deleted += 1;
     }
     if (deleted > 0) {
+      const orphanNotes = this.db.prepare(`
+        SELECT fields_json FROM anki_notes
+        WHERE user_id = ? AND id NOT IN (SELECT DISTINCT note_id FROM anki_cards WHERE user_id = ?)
+      `).all(userId, userId) as any[];
+
+      const orphanMedia: string[] = [];
+      for (const note of orphanNotes) {
+        try {
+          const fields = JSON.parse(note.fields_json || '[]');
+          orphanMedia.push(...AnkiRepository.extractMediaFilenames(fields));
+        } catch {}
+      }
+
       this.db.prepare(`
         DELETE FROM anki_notes
         WHERE user_id = ? AND id NOT IN (SELECT DISTINCT note_id FROM anki_cards WHERE user_id = ?)
       `).run(userId, userId);
+
+      if (orphanMedia.length > 0) {
+        void this.cleanupUnreferencedMedia(userId, orphanMedia);
+      }
     }
     return deleted;
   }
@@ -1321,20 +1367,48 @@ export class AnkiRepository {
     const hash = crypto.createHash('sha256').update(buffer).digest('hex');
     const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
 
+    let extension = 'png';
+    if (mimeType === 'image/jpeg') extension = 'jpg';
+    else if (mimeType === 'image/webp') extension = 'webp';
+    else if (mimeType === 'image/gif') extension = 'gif';
+    else {
+      const ext = path.extname(safeFilename).replace(/^\./, '').toLowerCase();
+      if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
+        extension = ext === 'jpeg' ? 'jpg' : ext;
+      }
+    }
+
     const existing = this.db.prepare(`
       SELECT * FROM anki_media WHERE user_id = ? AND filename = ?
     `).get(userId, safeFilename) as any;
 
     const id = existing ? existing.id : crypto.randomUUID();
     const now = new Date().toISOString();
-    const objectKey = `anki-media/${id}`;
-    const storedRemotely = await putAnkiMedia(objectKey, buffer);
-    if (!storedRemotely && process.env.NODE_ENV === 'production') throw new MediaStorageNotConfiguredError();
 
-    // Local files are retained only for development and isolated tests.
+    const sanitizedUserId = userId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const objectKey = existing?.storage_path && existing.storage_path.startsWith('anki-media/')
+      ? existing.storage_path
+      : `anki-media/${sanitizedUserId}/${id}.${extension}`;
+
+    let storedRemotely = false;
+    try {
+      storedRemotely = await putAnkiMedia(objectKey, buffer, mimeType);
+    } catch (err: any) {
+      console.error(`[AnkiRepository] Falha ao enviar mídia para o Cloudflare R2 (${objectKey}):`, err?.message || err);
+      if (process.env.NODE_ENV === 'production' || persistentMediaStorageConfigured()) {
+        throw err;
+      }
+    }
+
+    if (!storedRemotely && process.env.NODE_ENV === 'production') {
+      throw new MediaStorageNotConfiguredError();
+    }
+
+    // O banco de dados armazena a chave persistente do objeto no R2.
+    // O fallback para disco local só é aceito em ambiente de teste/offline isolado quando o R2 não estiver configurado.
     let storagePath = objectKey;
-    if (!storedRemotely) {
-      const mediaDir = path.join(process.cwd(), 'data', 'anki_media', userId);
+    if (!storedRemotely && !persistentMediaStorageConfigured()) {
+      const mediaDir = path.join(process.cwd(), 'data', 'anki_media', sanitizedUserId);
       fs.mkdirSync(mediaDir, { recursive: true });
       storagePath = path.join(mediaDir, `${hash}_${safeFilename}`);
       fs.writeFileSync(storagePath, buffer);
@@ -1373,35 +1447,121 @@ export class AnkiRepository {
     if (!row.storage_path.startsWith('anki-media/') && process.env.NODE_ENV === 'production' && !persistentMediaStorageConfigured()) {
       throw new MediaStorageNotConfiguredError();
     }
-    let buffer: Buffer | null = row.storage_path.startsWith('anki-media/')
-      ? await getAnkiMedia(row.storage_path)
-      : (fs.existsSync(row.storage_path) ? fs.readFileSync(row.storage_path) : null);
 
-    // Move recoverable pre-migration media to persistent storage on first access.
-    if (buffer && !row.storage_path.startsWith('anki-media/') && persistentMediaStorageConfigured()) {
-      const objectKey = `anki-media/${row.id}`;
-      await putAnkiMedia(objectKey, buffer);
-      this.db.prepare('UPDATE anki_media SET storage_path = ? WHERE id = ? AND user_id = ?')
-        .run(objectKey, row.id, userId);
-      row.storage_path = objectKey;
+    let buffer: Buffer | null = null;
+    let detectedMime = row.mime_type;
+
+    if (row.storage_path.startsWith('anki-media/')) {
+      try {
+        const res = await getAnkiMedia(row.storage_path);
+        if (res) {
+          buffer = res.buffer;
+          if (res.contentType) detectedMime = res.contentType;
+        } else {
+          console.warn(`[AnkiRepository] Objeto R2 ausente para ${row.storage_path}`);
+        }
+      } catch (err: any) {
+        console.error(`[AnkiRepository] Erro ao obter mídia do Cloudflare R2 (${row.storage_path}):`, err?.message || err);
+        throw err;
+      }
+    } else if (fs.existsSync(row.storage_path)) {
+      // Migração de mídia legada em disco para o R2 no primeiro acesso
+      try {
+        buffer = fs.readFileSync(row.storage_path);
+        if (persistentMediaStorageConfigured()) {
+          const sanitizedUserId = userId.replace(/[^a-zA-Z0-9_-]/g, '_');
+          const ext = path.extname(row.filename).replace(/^\./, '').toLowerCase() || 'png';
+          const objectKey = `anki-media/${sanitizedUserId}/${row.id}.${ext}`;
+          const uploaded = await putAnkiMedia(objectKey, buffer, row.mime_type);
+          if (uploaded) {
+            this.db.prepare('UPDATE anki_media SET storage_path = ? WHERE id = ? AND user_id = ?')
+              .run(objectKey, row.id, userId);
+            row.storage_path = objectKey;
+          }
+        }
+      } catch (fsErr: any) {
+        console.warn(`[AnkiRepository] Falha ao ler mídia legada em disco (${row.storage_path}):`, fsErr?.message);
+      }
     }
+
     if (!buffer && row.storage_path.startsWith('anki-media/') && process.env.NODE_ENV === 'production' && !persistentMediaStorageConfigured()) {
       throw new MediaStorageNotConfiguredError();
     }
+
     if (!buffer) return null;
+
     return {
       media: {
         id: row.id,
         userId: row.user_id,
         filename: row.filename,
         hash: row.hash,
-        mimeType: row.mime_type,
+        mimeType: detectedMime,
         fileSize: row.file_size,
         storagePath: row.storage_path,
         createdAt: row.created_at,
       },
       buffer,
     };
+  }
+
+  public async deleteMedia(userId: string, filename: string): Promise<boolean> {
+    const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const row = this.db.prepare(`
+      SELECT * FROM anki_media WHERE user_id = ? AND filename = ?
+    `).get(userId, safeFilename) as any;
+
+    if (!row) return false;
+
+    if (row.storage_path.startsWith('anki-media/')) {
+      try {
+        await deleteAnkiMedia(row.storage_path);
+      } catch (err: any) {
+        console.error(`[AnkiRepository] Falha ao deletar objeto no R2 (${row.storage_path}):`, err?.message || err);
+      }
+    } else if (fs.existsSync(row.storage_path)) {
+      try {
+        fs.unlinkSync(row.storage_path);
+      } catch {}
+    }
+
+    this.db.prepare(`DELETE FROM anki_media WHERE id = ? AND user_id = ?`).run(row.id, userId);
+    return true;
+  }
+
+  public async cleanupUnreferencedMedia(userId: string, candidateFilenames: string[]): Promise<string[]> {
+    if (!candidateFilenames || candidateFilenames.length === 0) return [];
+    const cleaned: string[] = [];
+
+    for (const filename of candidateFilenames) {
+      if (!filename || typeof filename !== 'string') continue;
+      const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+      const refCheck = this.db.prepare(`
+        SELECT COUNT(*) as count FROM anki_notes
+        WHERE user_id = ? AND fields_json LIKE ?
+      `).get(userId, `%${safeFilename}%`) as any;
+
+      if (!refCheck || refCheck.count === 0) {
+        const deleted = await this.deleteMedia(userId, safeFilename);
+        if (deleted) cleaned.push(safeFilename);
+      }
+    }
+
+    return cleaned;
+  }
+
+  public static extractMediaFilenames(fields: string[]): string[] {
+    const filenames: string[] = [];
+    if (!Array.isArray(fields)) return filenames;
+    const mediaRegex = /(?:\/api\/anki\/media\/|src=["'](?:(?:\/api\/anki\/media\/)?))([a-zA-Z0-9._-]+)(?:["']|\b)/gi;
+    for (const field of fields) {
+      if (!field || typeof field !== 'string') continue;
+      for (const match of field.matchAll(mediaRegex)) {
+        if (match[1]) filenames.push(match[1]);
+      }
+    }
+    return [...new Set(filenames)];
   }
 
   /**

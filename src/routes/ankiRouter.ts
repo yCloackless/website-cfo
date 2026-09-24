@@ -373,7 +373,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
     }
   });
 
-  router.patch('/notes/:id', requireAuthMiddleware, noteMutationLimiter, (req: Request, res: Response) => {
+  router.patch('/notes/:id', requireAuthMiddleware, noteMutationLimiter, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const { fields, tags } = req.body || {};
@@ -381,7 +381,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'Array de campos (fields) é obrigatório.' });
       }
       const repo = getRepo();
-      const updated = repo.updateNote(user.userId, req.params.id, fields.map(f => String(f ?? '')), tags);
+      const updated = await repo.updateNote(user.userId, req.params.id, fields.map(f => String(f ?? '')), tags);
       if (!updated) {
         return res.status(404).json({ error: 'NOTE_NOT_FOUND' });
       }
@@ -922,6 +922,20 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         return res.status(503).json({ error: 'MEDIA_STORAGE_UNAVAILABLE' });
       }
       return res.status(500).json({ error: 'GET_MEDIA_FAILED', message: err.message });
+    }
+  });
+
+  router.delete('/media/:filename', requireAuthMiddleware, noteMutationLimiter, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const repo = getRepo();
+      const deleted = await repo.deleteMedia(user.userId, req.params.filename);
+      if (!deleted) {
+        return res.status(404).json({ error: 'MEDIA_NOT_FOUND', message: 'Mídia não encontrada ou não pertence ao usuário.' });
+      }
+      return res.json({ success: true, message: 'Mídia excluída com sucesso.' });
+    } catch (err: any) {
+      return res.status(500).json({ error: 'DELETE_MEDIA_FAILED', message: err.message });
     }
   });
 

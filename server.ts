@@ -99,6 +99,7 @@ import { StudentStudyRepository } from "./src/db/studentStudyRepository";
 import { calculatePriorityScore, classifyPriority, weightedAverage } from "./src/services/studentStudyPriority";
 import { createAnkiRouter } from "./src/routes/ankiRouter";
 import { AnkiRepository } from "./src/db/ankiRepository";
+import { logR2StartupCheck } from "./src/services/anki/ankiMediaStorage";
 
 const app = express();
 app.disable("x-powered-by");
@@ -8821,6 +8822,9 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
 });
 
 async function startServer() {
+  // Valida variáveis de ambiente para armazenamento persistente R2 (sem expor segredos)
+  logR2StartupCheck();
+
   // Inicializa e assegura contas no banco de dados
   await authServiceInstance.ensureDefaultAccounts();
 
