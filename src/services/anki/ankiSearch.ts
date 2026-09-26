@@ -17,6 +17,7 @@ export interface ParsedSearchTokens {
   deckPatterns: Array<{ pattern: string; negated: boolean }>;
   tagPatterns: Array<{ pattern: string; negated: boolean }>;
   isFilters: Array<{ status: string; negated: boolean }>;
+  importanceFilters: Array<{ importance: string; negated: boolean }>;
   flags: Array<{ flag: number; negated: boolean }>;
   addedDays?: number;
   ratedDays?: number;
@@ -32,6 +33,7 @@ export class AnkiSearch {
       deckPatterns: [],
       tagPatterns: [],
       isFilters: [],
+      importanceFilters: [],
       flags: [],
       keywords: [],
     };
@@ -55,8 +57,18 @@ export class AnkiSearch {
           tokens.deckPatterns.push({ pattern: value.toLowerCase(), negated });
         } else if (key === 'tag') {
           tokens.tagPatterns.push({ pattern: value.toLowerCase(), negated });
+        } else if (key === 'importance' || key === 'importancia') {
+          const lower = value.toLowerCase();
+          const mapped = lower === 'baixa' ? 'low' : lower === 'alta' ? 'high' : lower === 'essencial' ? 'essential' : lower;
+          tokens.importanceFilters.push({ importance: mapped, negated });
         } else if (key === 'is') {
-          tokens.isFilters.push({ status: value.toLowerCase(), negated });
+          const lower = value.toLowerCase();
+          if (['low', 'normal', 'high', 'essential', 'baixa', 'alta', 'essencial'].includes(lower)) {
+            const mapped = lower === 'baixa' ? 'low' : lower === 'alta' ? 'high' : lower === 'essencial' ? 'essential' : lower;
+            tokens.importanceFilters.push({ importance: mapped, negated });
+          } else {
+            tokens.isFilters.push({ status: lower, negated });
+          }
         } else if (key === 'flag') {
           const f = parseInt(value, 10);
           if (!isNaN(f)) tokens.flags.push({ flag: f, negated });
@@ -138,7 +150,13 @@ export class AnkiSearch {
       if (isF.negated ? isMatch : !isMatch) return false;
     }
 
-    // 4. Flag filters
+    // 4. Importance filters
+    for (const impF of tokens.importanceFilters) {
+      const match = card.importance === impF.importance;
+      if (impF.negated ? match : !match) return false;
+    }
+
+    // 5. Flag filters
     for (const fl of tokens.flags) {
       const match = card.flags === fl.flag;
       if (fl.negated ? match : !match) return false;

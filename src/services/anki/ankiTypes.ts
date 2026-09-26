@@ -142,6 +142,8 @@ export interface AnkiCardTemplate {
   createdAt: string;
 }
 
+export type FlashcardImportance = 'low' | 'normal' | 'high' | 'essential';
+
 export interface AnkiNote {
   id: string;
   userId: string;
@@ -149,6 +151,7 @@ export interface AnkiNote {
   guid: string;
   fields: string[]; // Values in field ordinal order
   tags: string[]; // Parsed tag array
+  importance: FlashcardImportance;
   createdAt: string;
   updatedAt: string;
   notetype?: AnkiNoteType;
@@ -173,6 +176,8 @@ export interface AnkiCard {
   lastReviewAt?: string | null;
   flags: CardFlag;
   isMarked: boolean;
+  importance: FlashcardImportance;
+  priority?: number; // Calculated dynamic review priority
   createdAt: string;
   updatedAt: string;
   // Hydrated references
@@ -238,6 +243,7 @@ export interface AnkiBrowserQuery {
   search?: string;
   deckId?: string;
   tag?: string;
+  importance?: FlashcardImportance;
   cardType?: CardType;
   queue?: CardQueue;
   flag?: CardFlag;
@@ -265,6 +271,7 @@ export interface AnkiStatsSummary {
   hardPercent: number;
   goodPercent: number;
   easyPercent: number;
+  cardsByImportance?: Record<FlashcardImportance, number>;
   futureWorkload: Array<{ dayOffset: number; date: string; dueCount: number }>;
   intervalDistribution: Array<{ intervalRange: string; count: number }>;
   studyHeatmap: Array<{ date: string; count: number }>;

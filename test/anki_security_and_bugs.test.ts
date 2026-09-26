@@ -102,6 +102,7 @@ function createMockDb(): DatabaseSync {
       guid TEXT NOT NULL,
       fields_json TEXT NOT NULL,
       tags TEXT NOT NULL DEFAULT '',
+      importance TEXT NOT NULL DEFAULT 'normal',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -217,6 +218,7 @@ test('1. Security: Stored XSS defense via deck name in card templates', () => {
       guid: 'g1',
       fields: ['Pergunta', 'Resposta'],
       tags: [],
+      importance: 'normal',
       createdAt: '',
       updatedAt: '',
     },
@@ -402,8 +404,8 @@ test('5. APKG Export: Subdeck cards and full hierarchy included in export', asyn
     decks: exportDecks,
     notetypes: nts,
     notes: [
-      { id: 'n1', userId: 'u1', notetypeId: nts[0].id, guid: 'g1', fields: ['Q1', 'A1'], tags: [], createdAt: '', updatedAt: '' },
-      { id: 'n2', userId: 'u1', notetypeId: nts[0].id, guid: 'g2', fields: ['Q2', 'A2'], tags: [], createdAt: '', updatedAt: '' },
+      { id: 'n1', userId: 'u1', notetypeId: nts[0].id, guid: 'g1', fields: ['Q1', 'A1'], tags: [], importance: 'normal', createdAt: '', updatedAt: '' },
+      { id: 'n2', userId: 'u1', notetypeId: nts[0].id, guid: 'g2', fields: ['Q2', 'A2'], tags: [], importance: 'normal', createdAt: '', updatedAt: '' },
     ],
     cards,
   });

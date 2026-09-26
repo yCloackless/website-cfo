@@ -644,6 +644,8 @@ export interface DbFlashcardDeck {
   updatedAt: string;
 }
 
+export type FlashcardImportance = 'low' | 'normal' | 'high' | 'essential';
+
 export interface DbFlashcard {
   id: string;
   userId: string;
@@ -660,6 +662,7 @@ export interface DbFlashcard {
   reviewCount: number;
   lapses: number;
   status: FlashcardStatus;
+  importance: FlashcardImportance;
   createdAt: string;
   updatedAt: string;
 }

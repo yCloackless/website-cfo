@@ -29,11 +29,13 @@ import {
   CardType,
   DeckConfigOptions,
   DEFAULT_DECK_CONFIG,
+  FlashcardImportance,
   Rating,
 } from '../services/anki/ankiTypes';
 import { AnkiScheduler } from '../services/anki/ankiScheduler';
 import { AnkiRenderer } from '../services/anki/ankiRenderer';
 import { AnkiSearch } from '../services/anki/ankiSearch';
+import { calculateCardPriority, normalizeImportance } from '../services/anki/ankiImportance';
 import { deleteAnkiMedia, getAnkiMedia, MediaStorageNotConfiguredError, persistentMediaStorageConfigured, putAnkiMedia } from '../services/anki/ankiMediaStorage';
 
 export class AnkiRepository {
@@ -698,6 +700,7 @@ export class AnkiRepository {
     notetypeId: string;
     fields: string[];
     tags?: string[];
+    importance?: FlashcardImportance;
   }): { note: AnkiNote; cards: AnkiCard[] } {
     // 1. Verify deck ownership
     const deck = this.getDeck(userId, data.deckId);
@@ -711,11 +714,12 @@ export class AnkiRepository {
     const guid = crypto.randomUUID();
     const now = new Date().toISOString();
     const tagsStr = (data.tags || []).filter(Boolean).join(' ');
+    const importance = normalizeImportance(data.importance);
 
     this.db.prepare(`
-      INSERT INTO anki_notes (id, user_id, notetype_id, guid, fields_json, tags, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(noteId, userId, notetype.id, guid, JSON.stringify(data.fields), tagsStr, now, now);
+      INSERT INTO anki_notes (id, user_id, notetype_id, guid, fields_json, tags, importance, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(noteId, userId, notetype.id, guid, JSON.stringify(data.fields), tagsStr, importance, now, now);
 
     // 3. Generate Cards based on NoteType kind
     const generatedCards: AnkiCard[] = [];
@@ -774,6 +778,7 @@ export class AnkiRepository {
     try { fields = JSON.parse(row.fields_json); } catch {}
 
     const tags = typeof row.tags === 'string' ? row.tags.trim().split(/\s+/).filter(Boolean) : [];
+    const importance = normalizeImportance(row.importance);
 
     return {
       id: row.id,
@@ -782,12 +787,19 @@ export class AnkiRepository {
       guid: row.guid,
       fields,
       tags,
+      importance,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
   }
 
-  public async updateNote(userId: string, noteId: string, fields: string[], tags?: string[]): Promise<AnkiNote | null> {
+  public async updateNote(
+    userId: string,
+    noteId: string,
+    fields: string[],
+    tags?: string[],
+    importance?: FlashcardImportance
+  ): Promise<AnkiNote | null> {
     const existing = this.getNote(userId, noteId);
     if (!existing) return null;
 
@@ -797,12 +809,13 @@ export class AnkiRepository {
 
     const now = new Date().toISOString();
     const tagsStr = Array.isArray(tags) ? tags.filter(Boolean).join(' ') : existing.tags.join(' ');
+    const finalImportance = importance ? normalizeImportance(importance) : existing.importance;
 
     this.db.prepare(`
       UPDATE anki_notes
-      SET fields_json = ?, tags = ?, updated_at = ?
+      SET fields_json = ?, tags = ?, importance = ?, updated_at = ?
       WHERE user_id = ? AND id = ?
-    `).run(JSON.stringify(fields), tagsStr, now, userId, noteId);
+    `).run(JSON.stringify(fields), tagsStr, finalImportance, now, userId, noteId);
 
     // Synchronize cards for Cloze notes
     const notetype = this.getNoteType(userId, existing.notetypeId);
@@ -853,7 +866,7 @@ export class AnkiRepository {
 
   public getCard(userId: string, cardId: string): AnkiCard | null {
     const row = this.db.prepare(`
-      SELECT c.*, n.fields_json, n.tags, n.notetype_id, d.name as deck_name
+      SELECT c.*, n.fields_json, n.tags, n.notetype_id, n.importance, d.name as deck_name
       FROM anki_cards c
       JOIN anki_notes n ON n.id = c.note_id AND n.user_id = c.user_id
       JOIN anki_decks d ON d.id = c.deck_id AND d.user_id = c.user_id
@@ -869,7 +882,7 @@ export class AnkiRepository {
     if (!deckIds || deckIds.length === 0) return [];
     const placeholders = deckIds.map(() => '?').join(', ');
     const rows = this.db.prepare(`
-      SELECT c.*, n.fields_json, n.tags, n.notetype_id, d.name as deck_name
+      SELECT c.*, n.fields_json, n.tags, n.notetype_id, n.importance, d.name as deck_name
       FROM anki_cards c
       JOIN anki_notes n ON n.id = c.note_id AND n.user_id = c.user_id
       JOIN anki_decks d ON d.id = c.deck_id AND d.user_id = c.user_id
@@ -885,6 +898,7 @@ export class AnkiRepository {
     try { fields = JSON.parse(row.fields_json); } catch {}
 
     const tags = typeof row.tags === 'string' ? row.tags.trim().split(/\s+/).filter(Boolean) : [];
+    const importance = normalizeImportance(row.importance);
 
     return {
       id: row.id,
@@ -904,6 +918,7 @@ export class AnkiRepository {
       lastReviewAt: row.last_review_at,
       flags: row.flags as CardFlag,
       isMarked: Boolean(row.is_marked),
+      importance,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       note: {
@@ -913,6 +928,7 @@ export class AnkiRepository {
         guid: '',
         fields,
         tags,
+        importance,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       },
@@ -936,7 +952,7 @@ export class AnkiRepository {
     const nowSeconds = Math.floor(Date.now() / 1000);
 
     let query = `
-      SELECT c.*, n.fields_json, n.tags, n.notetype_id, d.name as deck_name
+      SELECT c.*, n.fields_json, n.tags, n.notetype_id, n.importance, d.name as deck_name
       FROM anki_cards c
       JOIN anki_notes n ON n.id = c.note_id AND n.user_id = c.user_id
       JOIN anki_decks d ON d.id = c.deck_id AND d.user_id = c.user_id
@@ -975,12 +991,23 @@ export class AnkiRepository {
       }
     }
 
-    // Prioritize learning cards, then reviews, then new cards
+    // Candidate pool: fetch up to 3x limit (or minimum 200) candidates for priority sorting
+    const candidateLimit = Math.max(limit * 3, 200);
     query += ` ORDER BY CASE WHEN c.queue IN (1, 3) THEN 0 WHEN c.queue = 2 THEN 1 ELSE 2 END ASC, c.due ASC LIMIT ?`;
-    params.push(limit);
+    params.push(candidateLimit);
 
     const rows = this.db.prepare(query).all(...params) as any[];
-    return rows.map(r => this.mapCard(r));
+    const candidates = rows.map(r => this.mapCard(r));
+
+    const now = new Date();
+    for (const card of candidates) {
+      card.priority = calculateCardPriority(card, now);
+    }
+
+    // Multi-dimensional sort: highest priority first
+    candidates.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+
+    return candidates.slice(0, limit);
   }
 
   public rateCard(
@@ -1166,11 +1193,17 @@ export class AnkiRepository {
   // 7. BROWSER, SEARCH & BULK ACTIONS
   // =========================================================================
 
-  public listBrowserCards(userId: string, queryStr: string = '', limit: number = 100, offset: number = 0): { cards: AnkiCard[]; total: number } {
+  public listBrowserCards(
+    userId: string,
+    queryStr: string = '',
+    limit: number = 100,
+    offset: number = 0,
+    importanceFilter?: FlashcardImportance
+  ): { cards: AnkiCard[]; total: number } {
     const tokens = AnkiSearch.parseQuery(queryStr);
 
     const rows = this.db.prepare(`
-      SELECT c.*, n.fields_json, n.tags, n.notetype_id, d.name as deck_name
+      SELECT c.*, n.fields_json, n.tags, n.notetype_id, n.importance, d.name as deck_name
       FROM anki_cards c
       JOIN anki_notes n ON n.id = c.note_id AND n.user_id = c.user_id
       JOIN anki_decks d ON d.id = c.deck_id AND d.user_id = c.user_id
@@ -1180,6 +1213,9 @@ export class AnkiRepository {
 
     const allCards = rows.map(r => this.mapCard(r));
     const filtered = allCards.filter(card => {
+      if (importanceFilter && card.importance !== importanceFilter) {
+        return false;
+      }
       const noteFields = card.note?.fields || [];
       const noteTags = card.note?.tags || [];
       const deckName = card.deck?.name || '';
@@ -1191,6 +1227,25 @@ export class AnkiRepository {
       cards: paginated,
       total: filtered.length,
     };
+  }
+
+  public bulkSetImportance(userId: string, cardIds: string[], importance: FlashcardImportance): number {
+    if (!cardIds || cardIds.length === 0) return 0;
+    const norm = normalizeImportance(importance);
+    const now = new Date().toISOString();
+    const placeholders = cardIds.map(() => '?').join(', ');
+
+    // Multi-tenant safe update of note importance for the selected cards
+    const res = this.db.prepare(`
+      UPDATE anki_notes
+      SET importance = ?, updated_at = ?
+      WHERE user_id = ?
+        AND id IN (
+          SELECT DISTINCT note_id FROM anki_cards WHERE user_id = ? AND id IN (${placeholders})
+        )
+    `).run(norm, now, userId, userId, ...cardIds) as any;
+
+    return res.changes || 0;
   }
 
   public bulkMoveCards(userId: string, cardIds: string[], targetDeckId: string): number {
@@ -1279,14 +1334,19 @@ export class AnkiRepository {
     const todayEpochDays = Math.floor(Date.now() / 86400000);
     const todayIso = new Date().toISOString().split('T')[0];
 
-    let cardWhere = `WHERE user_id = ?`;
+    let cardWhere = `WHERE c.user_id = ?`;
     const cardParams: any[] = [userId];
     if (deckId) {
-      cardWhere += ` AND deck_id = ?`;
+      cardWhere += ` AND c.deck_id = ?`;
       cardParams.push(deckId);
     }
 
-    const cards = this.db.prepare(`SELECT * FROM anki_cards ${cardWhere}`).all(...cardParams) as any[];
+    const cards = this.db.prepare(`
+      SELECT c.*, n.importance
+      FROM anki_cards c
+      JOIN anki_notes n ON n.id = c.note_id AND n.user_id = c.user_id
+      ${cardWhere}
+    `).all(...cardParams) as any[];
 
     let totalCards = cards.length;
     let newCards = 0;
@@ -1298,9 +1358,19 @@ export class AnkiRepository {
     let matureCards = 0;
     let youngCards = 0;
 
+    const cardsByImportance: Record<FlashcardImportance, number> = {
+      low: 0,
+      normal: 0,
+      high: 0,
+      essential: 0,
+    };
+
     const futureMap = new Map<number, number>();
 
     for (const c of cards) {
+      const imp = normalizeImportance(c.importance);
+      cardsByImportance[imp] = (cardsByImportance[imp] || 0) + 1;
+
       if (c.queue === CardQueue.Suspended) suspendedCards++;
       else if (c.queue === CardQueue.UserBuried || c.queue === CardQueue.SchedBuried) buriedCards++;
       else if (c.queue === CardQueue.New) newCards++;
@@ -1388,6 +1458,7 @@ export class AnkiRepository {
       hardPercent,
       goodPercent,
       easyPercent,
+      cardsByImportance,
       futureWorkload,
       intervalDistribution: [
         { intervalRange: '1-7d', count: cards.filter(c => c.interval_days >= 1 && c.interval_days <= 7).length },

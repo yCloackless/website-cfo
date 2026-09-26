@@ -1579,6 +1579,19 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_whiteboard_assets_user ON whiteboard_assets(user_id);
     `,
   },
+  {
+    id: 35,
+    name: '035_flashcard_importance',
+    sql: `
+      -- 1. Importância do conteúdo na nota Anki (única fonte de verdade para o motor Anki)
+      ALTER TABLE anki_notes ADD COLUMN importance TEXT NOT NULL DEFAULT 'normal';
+      CREATE INDEX IF NOT EXISTS idx_anki_notes_user_importance ON anki_notes(user_id, importance);
+
+      -- 2. Tabela legada flashcards para retrocompatibilidade total
+      ALTER TABLE flashcards ADD COLUMN importance TEXT NOT NULL DEFAULT 'normal';
+      CREATE INDEX IF NOT EXISTS idx_flashcards_user_importance ON flashcards(user_id, importance);
+    `,
+  },
 ];
 
 

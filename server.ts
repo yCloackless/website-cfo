@@ -99,6 +99,7 @@ import { calculatePriorityScore, classifyPriority, weightedAverage } from "./src
 import { createAnkiRouter } from "./src/routes/ankiRouter";
 import { AnkiRepository } from "./src/db/ankiRepository";
 import { logR2StartupCheck } from "./src/services/anki/ankiMediaStorage";
+import { isValidImportance, normalizeImportance } from "./src/services/anki/ankiImportance";
 import { createWhiteboardRouter } from "./src/routes/whiteboardRouter";
 import { whiteboardRealtimeHub } from "./src/services/whiteboard/whiteboardRealtimeHub";
 
@@ -7770,7 +7771,12 @@ app.get('/api/flashcards/cards', requireUserAuth, (req: Request, res: Response) 
 app.post('/api/flashcards/cards', requireUserAuth, (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { deckId, front, back, frontImage, backImage } = req.body || {};
+    const { deckId, front, back, frontImage, backImage, importance } = req.body || {};
+
+    if (importance !== undefined && !isValidImportance(importance)) {
+      return res.status(400).json({ error: 'INVALID_IMPORTANCE', message: 'Importância deve ser baixa, normal, alta ou essencial.' });
+    }
+
     if (!deckId || typeof deckId !== 'string') {
       return res.status(400).json({ error: 'MISSING_DECK_ID', message: 'ID do baralho é obrigatório.' });
     }
@@ -7791,6 +7797,7 @@ app.post('/api/flashcards/cards', requireUserAuth, (req: Request, res: Response)
         back: cleanBack || '(Imagem)',
         frontImage: typeof frontImage === 'string' ? frontImage : null,
         backImage: typeof backImage === 'string' ? backImage : null,
+        importance: importance ? normalizeImportance(importance) : 'normal',
       });
       return res.status(201).json({ success: true, card });
     } catch (createErr: any) {
@@ -7820,7 +7827,11 @@ app.get('/api/flashcards/cards/:id', requireUserAuth, (req: Request, res: Respon
 app.patch('/api/flashcards/cards/:id', requireUserAuth, (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { front, back, frontImage, backImage, deckId } = req.body || {};
+    const { front, back, frontImage, backImage, deckId, importance } = req.body || {};
+
+    if (importance !== undefined && !isValidImportance(importance)) {
+      return res.status(400).json({ error: 'INVALID_IMPORTANCE', message: 'Importância deve ser baixa, normal, alta ou essencial.' });
+    }
 
     try {
       const updated = flashcardRepoInstance.updateCard(user.userId, req.params.id, {
@@ -7829,6 +7840,7 @@ app.patch('/api/flashcards/cards/:id', requireUserAuth, (req: Request, res: Resp
         frontImage: typeof frontImage === 'string' ? frontImage : frontImage === null ? null : undefined,
         backImage: typeof backImage === 'string' ? backImage : backImage === null ? null : undefined,
         deckId: typeof deckId === 'string' ? deckId : undefined,
+        importance: importance ? normalizeImportance(importance) : undefined,
       });
       if (!updated) {
         return res.status(404).json({ error: 'FLASHCARD_NOT_FOUND', message: 'Flashcard não encontrado.' });

@@ -14,7 +14,7 @@ import {
   Image as ImageIcon,
   Loader2,
 } from 'lucide-react';
-import { AnkiDeck, AnkiNoteType } from '../../services/anki/ankiTypes';
+import { AnkiDeck, AnkiNoteType, FlashcardImportance } from '../../services/anki/ankiTypes';
 import { apiFetch } from '../../services/apiFetch';
 import { ClozeLatexCard } from '../flashcards/ClozeLatexCard';
 
@@ -40,6 +40,7 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
   const [selectedDeckId, setSelectedDeckId] = useState<string>('');
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [tagsInput, setTagsInput] = useState<string>('');
+  const [importance, setImportance] = useState<FlashcardImportance>('normal');
   const [isPreview, setIsPreview] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isUploadingImage, setIsUploadingImage] = useState<boolean>(false);
@@ -270,6 +271,7 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
           notetypeId: activeNotetype.id,
           fields: orderedFields,
           tags,
+          importance,
         }),
       });
 
@@ -277,6 +279,7 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
         const data = await res.json();
         showToast?.(`Nota adicionada com sucesso! (${data.cardsCount} card(s) gerados)`, 'success');
         setFieldValues({});
+        setImportance('normal');
         onNoteAdded();
       } else {
         showToast?.('Falha ao salvar nota no Anki.', 'error');
@@ -312,7 +315,7 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
           </button>
         </div>
 
-        {/* Top Controls: Type & Deck Selectors */}
+        {/* Top Controls: Type, Deck & Importance Selectors */}
         <div className="p-4 border-b border-zinc-800 grid grid-cols-1 sm:grid-cols-2 gap-3 bg-zinc-900/50">
           <div>
             <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
@@ -349,6 +352,44 @@ export const AnkiAddNoteModal: React.FC<AnkiAddNoteModalProps> = ({
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* Importance Control */}
+          <div className="sm:col-span-2 pt-2 border-t border-zinc-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                Importância
+              </span>
+              <span className="text-[11px] text-zinc-500">
+                Prioriza o card na fila de revisão sem violar a calibração do FSRS
+              </span>
+            </div>
+            <div className="inline-flex p-0.5 bg-zinc-950 border border-zinc-800 rounded-lg self-start sm:self-auto">
+              {(
+                [
+                  { id: 'low', label: 'Baixa', activeClass: 'bg-zinc-800 text-zinc-200 shadow-sm' },
+                  { id: 'normal', label: 'Normal', activeClass: 'bg-zinc-700/90 text-white shadow-sm font-semibold' },
+                  { id: 'high', label: 'Alta', activeClass: 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm font-semibold' },
+                  { id: 'essential', label: 'Essencial', activeClass: 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm font-semibold' },
+                ] as const
+              ).map((opt) => {
+                const isSelected = importance === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setImportance(opt.id)}
+                    className={`px-3 py-1 text-xs rounded-md transition-all ${
+                      isSelected
+                        ? opt.activeClass
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 

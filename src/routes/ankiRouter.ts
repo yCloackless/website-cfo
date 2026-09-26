@@ -20,7 +20,8 @@ import { AnkiRepository } from '../db/ankiRepository';
 import { AnkiRenderer } from '../services/anki/ankiRenderer';
 import { AnkiScheduler } from '../services/anki/ankiScheduler';
 import { AnkiApkgService } from '../services/anki/ankiApkgService';
-import { CardFlag, Rating } from '../services/anki/ankiTypes';
+import { CardFlag, FlashcardImportance, Rating } from '../services/anki/ankiTypes';
+import { isValidImportance, normalizeImportance } from '../services/anki/ankiImportance';
 import { getDb } from '../db/database';
 import { validateImageBuffer } from '../services/avatarService';
 import { MediaStorageNotConfiguredError } from '../services/anki/ankiMediaStorage';
@@ -300,7 +301,14 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
   router.post('/notes', requireAuthMiddleware, noteMutationLimiter, (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { deckId, notetypeId, fields, tags } = req.body || {};
+      const { deckId, notetypeId, fields, tags, importance } = req.body || {};
+
+      if (importance !== undefined && !isValidImportance(importance)) {
+        return res.status(400).json({
+          error: 'INVALID_IMPORTANCE',
+          message: 'Importância deve ser baixa, normal, alta ou essencial.',
+        });
+      }
 
       if (!deckId || !notetypeId || !Array.isArray(fields) || fields.length === 0) {
         return res.status(400).json({
@@ -323,6 +331,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         notetypeId,
         fields: cleanFields,
         tags: Array.isArray(tags) ? tags : [],
+        importance: importance ? normalizeImportance(importance) : undefined,
       });
 
       return res.status(201).json({
@@ -341,7 +350,14 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
   router.post('/notes/batch', requireAuthMiddleware, noteMutationLimiter, (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { deckId, notetypeId, notes } = req.body || {};
+      const { deckId, notetypeId, notes, importance: batchImportance } = req.body || {};
+
+      if (batchImportance !== undefined && !isValidImportance(batchImportance)) {
+        return res.status(400).json({
+          error: 'INVALID_IMPORTANCE',
+          message: 'Importância deve ser baixa, normal, alta ou essencial.',
+        });
+      }
 
       if (!deckId || !Array.isArray(notes) || notes.length === 0) {
         return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'deckId e lista de notas são obrigatórios.' });
@@ -365,11 +381,21 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         const fields = Array.isArray(item.fields) ? item.fields : [String(item.front || item.question || ''), String(item.back || item.answer || '')];
         if (!fields[0]?.trim() && !fields[1]?.trim()) continue;
 
+        const rawImp = item.importance !== undefined ? item.importance : batchImportance;
+        if (rawImp !== undefined && !isValidImportance(rawImp)) {
+          return res.status(400).json({
+            error: 'INVALID_IMPORTANCE',
+            message: 'Importância deve ser baixa, normal, alta ou essencial.',
+          });
+        }
+        const itemImportance = rawImp ? normalizeImportance(rawImp) : undefined;
+
         const resItem = repo.createNote(user.userId, {
           deckId,
           notetypeId: targetNtId,
           fields,
           tags: Array.isArray(item.tags) ? item.tags : [],
+          importance: itemImportance,
         });
         createdNotes++;
         createdCards += resItem.cards.length;
@@ -384,12 +410,30 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
   router.patch('/notes/:id', requireAuthMiddleware, noteMutationLimiter, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { fields, tags } = req.body || {};
-      if (!Array.isArray(fields) || fields.length === 0) {
-        return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'Array de campos (fields) é obrigatório.' });
+      const { fields, tags, importance } = req.body || {};
+
+      if (importance !== undefined && !isValidImportance(importance)) {
+        return res.status(400).json({
+          error: 'INVALID_IMPORTANCE',
+          message: 'Importância deve ser baixa, normal, alta ou essencial.',
+        });
       }
+
+      if ((!Array.isArray(fields) || fields.length === 0) && tags === undefined && importance === undefined) {
+        return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'Campos, tags ou importância devem ser informados.' });
+      }
+
       const repo = getRepo();
-      const updated = await repo.updateNote(user.userId, req.params.id, fields.map(f => String(f ?? '')), tags);
+      const existing = repo.getNote(user.userId, req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: 'NOTE_NOT_FOUND' });
+      }
+
+      const targetFields = Array.isArray(fields) && fields.length > 0 ? fields.map(f => String(f ?? '')) : existing.fields;
+      const targetTags = tags !== undefined ? tags : existing.tags;
+      const targetImportance = importance !== undefined ? normalizeImportance(importance) : existing.importance;
+
+      const updated = await repo.updateNote(user.userId, req.params.id, targetFields, targetTags, targetImportance);
       if (!updated) {
         return res.status(404).json({ error: 'NOTE_NOT_FOUND' });
       }
@@ -591,11 +635,19 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
     try {
       const user = (req as any).user;
       const queryStr = req.query.query ? String(req.query.query) : '';
+      const importanceParam = req.query.importance ? String(req.query.importance).toLowerCase() : undefined;
+      let importanceFilter: FlashcardImportance | undefined = undefined;
+      if (importanceParam) {
+        if (!isValidImportance(importanceParam)) {
+          return res.status(400).json({ error: 'INVALID_IMPORTANCE', message: 'Filtro de importância inválido.' });
+        }
+        importanceFilter = normalizeImportance(importanceParam);
+      }
       const limit = req.query.limit ? Math.min(200, Math.max(1, parseInt(String(req.query.limit), 10))) : 50;
       const offset = req.query.offset ? Math.max(0, parseInt(String(req.query.offset), 10)) : 0;
 
       const repo = getRepo();
-      const result = repo.listBrowserCards(user.userId, queryStr, limit, offset);
+      const result = repo.listBrowserCards(user.userId, queryStr, limit, offset, importanceFilter);
 
       return res.json({
         success: true,
@@ -612,11 +664,11 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
   router.post('/browser/bulk', requireAuthMiddleware, noteMutationLimiter, (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { action, cardIds, targetDeckId, suspend } = req.body || {};
+      const { action, cardIds, targetDeckId, suspend, importance } = req.body || {};
 
-      const validActions = ['move', 'suspend', 'delete'];
+      const validActions = ['move', 'suspend', 'delete', 'set_importance', 'importance'];
       if (!action || !validActions.includes(action)) {
-        return res.status(400).json({ error: 'INVALID_ACTION', message: 'Ação deve ser move, suspend ou delete.' });
+        return res.status(400).json({ error: 'INVALID_ACTION', message: 'Ação deve ser move, suspend, delete ou set_importance.' });
       }
 
       if (!Array.isArray(cardIds) || cardIds.length === 0) {
@@ -647,6 +699,11 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         affectedCount = repo.bulkSuspendCards(user.userId, cardIds, suspend !== false);
       } else if (action === 'delete') {
         affectedCount = repo.bulkDeleteCards(user.userId, cardIds);
+      } else if (action === 'set_importance' || action === 'importance') {
+        if (!importance || !isValidImportance(importance)) {
+          return res.status(400).json({ error: 'INVALID_IMPORTANCE', message: 'Importância deve ser baixa, normal, alta ou essencial.' });
+        }
+        affectedCount = repo.bulkSetImportance(user.userId, cardIds, normalizeImportance(importance));
       }
 
       return res.json({ success: true, affectedCount });
@@ -655,6 +712,31 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         return res.status(404).json({ error: 'TARGET_DECK_NOT_FOUND', message: 'Baralho de destino não encontrado.' });
       }
       return res.status(500).json({ error: 'BULK_ACTION_FAILED', message: err.message });
+    }
+  });
+
+  router.patch('/cards/:id/importance', requireAuthMiddleware, noteMutationLimiter, (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const cardId = req.params.id;
+      const { importance } = req.body || {};
+
+      if (!importance || !isValidImportance(importance)) {
+        return res.status(400).json({ error: 'INVALID_IMPORTANCE', message: 'Importância deve ser baixa, normal, alta ou essencial.' });
+      }
+
+      const repo = getRepo();
+      const card = repo.getCard(user.userId, cardId);
+      if (!card) {
+        return res.status(404).json({ error: 'CARD_NOT_FOUND', message: 'Cartão não encontrado.' });
+      }
+
+      repo.bulkSetImportance(user.userId, [cardId], normalizeImportance(importance));
+      const updatedCard = repo.getCard(user.userId, cardId);
+
+      return res.json({ success: true, card: updatedCard });
+    } catch (err: any) {
+      return res.status(500).json({ error: 'SET_IMPORTANCE_FAILED', message: err.message });
     }
   });
 

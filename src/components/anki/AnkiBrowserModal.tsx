@@ -17,7 +17,7 @@ import {
   Edit3,
   Image as ImageIcon,
 } from 'lucide-react';
-import { AnkiCard, AnkiDeck } from '../../services/anki/ankiTypes';
+import { AnkiCard, AnkiDeck, FlashcardImportance } from '../../services/anki/ankiTypes';
 import { apiFetch } from '../../services/apiFetch';
 import { ConfirmModal } from '../ConfirmModal';
 
@@ -35,6 +35,7 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
   showToast,
 }) => {
   const [query, setQuery] = useState<string>('');
+  const [importanceFilter, setImportanceFilter] = useState<string>('');
   const [cards, setCards] = useState<AnkiCard[]>([]);
   const [total, setTotal] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
@@ -43,12 +44,14 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
   // Bulk action modals/dropdowns
   const [targetDeckId, setTargetDeckId] = useState<string>('');
   const [isMoveOpen, setIsMoveOpen] = useState<boolean>(false);
+  const [isImportanceOpen, setIsImportanceOpen] = useState<boolean>(false);
   const [draggedCardId, setDraggedCardId] = useState<string | null>(null);
   const [dropDeckId, setDropDeckId] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<AnkiCard | null>(null);
   const [editFields, setEditFields] = useState<string[]>([]);
   const [editTags, setEditTags] = useState('');
+  const [editImportance, setEditImportance] = useState<FlashcardImportance>('normal');
   const [uploadField, setUploadField] = useState(0);
   const [savingEdit, setSavingEdit] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -57,7 +60,10 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
   const fetchCards = useCallback(async () => {
     try {
       setLoading(true);
-      const url = `/api/anki/browser?query=${encodeURIComponent(query)}&limit=100`;
+      let url = `/api/anki/browser?query=${encodeURIComponent(query)}&limit=100`;
+      if (importanceFilter) {
+        url += `&importance=${encodeURIComponent(importanceFilter)}`;
+      }
       const res = await apiFetch(url);
       if (res.ok) {
         const data = await res.json();
@@ -70,7 +76,7 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [query, showToast]);
+  }, [query, importanceFilter, showToast]);
 
   useEffect(() => {
     if (isOpen) {
@@ -210,23 +216,72 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
     }
   };
 
+  const handleBulkImportance = async (importance: FlashcardImportance) => {
+    if (selectedIds.size === 0) return;
+    try {
+      const res = await apiFetch('/api/anki/browser/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'set_importance',
+          cardIds: Array.from(selectedIds),
+          importance,
+        }),
+      });
+      if (res.ok) {
+        const labels: Record<FlashcardImportance, string> = {
+          low: 'Baixa',
+          normal: 'Normal',
+          high: 'Alta',
+          essential: 'Essencial',
+        };
+        showToast?.(`Importância alterada para "${labels[importance]}" em ${selectedIds.size} cartão(ões).`, 'success');
+        setIsImportanceOpen(false);
+        void fetchCards();
+      }
+    } catch {
+      showToast?.('Erro ao alterar importância dos cartões.', 'error');
+    }
+  };
+
   const saveEdit = async () => {
     if (savingEdit) return;
     if (!editingCard?.note) return;
     setSavingEdit(true);
     try {
       const res = await apiFetch(`/api/anki/notes/${editingCard.note.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: editFields, tags: editTags.split(/\s+/).filter(Boolean) }),
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fields: editFields,
+          tags: editTags.split(/\s+/).filter(Boolean),
+          importance: editImportance,
+        }),
       });
       if (!res.ok) throw new Error();
-      setCards((prev) => prev.map((card) => card.note?.id === editingCard.note?.id
-        ? { ...card, note: { ...card.note, fields: editFields, tags: editTags.split(/\s+/).filter(Boolean) } } : card));
+      setCards((prev) =>
+        prev.map((card) =>
+          card.note?.id === editingCard.note?.id
+            ? {
+                ...card,
+                importance: editImportance,
+                note: {
+                  ...card.note,
+                  fields: editFields,
+                  tags: editTags.split(/\s+/).filter(Boolean),
+                  importance: editImportance,
+                },
+              }
+            : card
+        )
+      );
       setEditingCard(null);
       showToast?.('Flashcard atualizado.', 'success');
     } catch {
       showToast?.('Não foi possível salvar o flashcard.', 'error');
-    } finally { setSavingEdit(false); }
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const uploadEditImage = async (file?: File, fieldIndex = uploadField) => {
@@ -265,6 +320,20 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
     return <span className="text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded text-[11px]">Revisão</span>;
   };
 
+  const getImportanceBadge = (importance?: FlashcardImportance) => {
+    switch (importance) {
+      case 'essential':
+        return <span className="text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded text-[11px] font-medium">Essencial</span>;
+      case 'high':
+        return <span className="text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded text-[11px] font-medium">Alta</span>;
+      case 'low':
+        return <span className="text-zinc-400 bg-zinc-800/80 px-2 py-0.5 rounded text-[11px] font-medium">Baixa</span>;
+      case 'normal':
+      default:
+        return <span className="text-zinc-300 bg-zinc-800/50 px-2 py-0.5 rounded text-[11px] font-medium">Normal</span>;
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-6 animate-in fade-in duration-150"
@@ -299,7 +368,7 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && void fetchCards()}
-              placeholder='Sintaxe Anki: deck:"Matemática" tag:biologia is:due is:new is:suspended...'
+              placeholder='Sintaxe Anki: deck:"Matemática" tag:biologia is:due is:new is:essential...'
               className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-9 pr-24 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-sky-500 font-mono"
             />
             <button
@@ -310,6 +379,19 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
               Buscar
             </button>
           </div>
+
+          {/* Importance Filter Dropdown */}
+          <select
+            value={importanceFilter}
+            onChange={(e) => setImportanceFilter(e.target.value)}
+            className="w-full sm:w-auto bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-2 text-xs text-zinc-300 focus:outline-none focus:border-sky-500 shrink-0 font-medium"
+          >
+            <option value="">Todas as importâncias</option>
+            <option value="essential">Essencial</option>
+            <option value="high">Alta</option>
+            <option value="normal">Normal</option>
+            <option value="low">Baixa</option>
+          </select>
 
           {/* Quick Syntax Chips */}
           <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto py-1 text-xs shrink-0">
@@ -326,6 +408,13 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
               className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-300 font-mono"
             >
               is:new
+            </button>
+            <button
+              type="button"
+              onClick={() => setQuery('importance:essential')}
+              className="px-2 py-1 bg-rose-500/10 text-rose-300 border border-rose-500/20 hover:bg-rose-500/20 rounded font-mono"
+            >
+              is:essential
             </button>
             <button
               type="button"
@@ -374,6 +463,39 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
                     >
                       Confirmar Mudança
                     </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Set Importance Bulk */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsImportanceOpen(!isImportanceOpen)}
+                  className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center gap-1.5 transition-colors"
+                >
+                  <Tag className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Importância...</span>
+                </button>
+                {isImportanceOpen && (
+                  <div className="absolute right-0 mt-1 w-36 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-1 z-20 flex flex-col gap-0.5">
+                    {(
+                      [
+                        { id: 'essential', label: 'Essencial', color: 'text-rose-400 hover:bg-rose-500/10' },
+                        { id: 'high', label: 'Alta', color: 'text-amber-400 hover:bg-amber-500/10' },
+                        { id: 'normal', label: 'Normal', color: 'text-zinc-200 hover:bg-zinc-800' },
+                        { id: 'low', label: 'Baixa', color: 'text-zinc-400 hover:bg-zinc-800' },
+                      ] as const
+                    ).map((imp) => (
+                      <button
+                        key={imp.id}
+                        type="button"
+                        onClick={() => void handleBulkImportance(imp.id)}
+                        className={`w-full text-left px-2.5 py-1.5 text-xs rounded transition-colors font-medium ${imp.color}`}
+                      >
+                        {imp.label}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
@@ -471,6 +593,7 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
                 <th className="p-3 min-w-[200px]">Resposta / Verso</th>
                 <th className="p-3 min-w-[140px]">Baralho</th>
                 <th className="p-3 w-28">Status</th>
+                <th className="p-3 w-24">Importância</th>
                 <th className="p-3 w-20 text-right">Intervalo</th>
                 <th className="p-3 w-20 text-right">Revisões</th>
                 <th className="p-3 w-24">Tags</th>
@@ -480,13 +603,13 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
             <tbody className="divide-y divide-zinc-800/60">
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-zinc-500">
+                  <td colSpan={10} className="p-8 text-center text-zinc-500">
                     Carregando tabela de cartões...
                   </td>
                 </tr>
               ) : cards.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-zinc-500">
+                  <td colSpan={10} className="p-8 text-center text-zinc-500">
                     Nenhum cartão corresponde aos critérios de busca.
                   </td>
                 </tr>
@@ -535,6 +658,7 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
                         {card.deck?.name}
                       </td>
                       <td className="p-3">{getQueueBadge(card.queue)}</td>
+                      <td className="p-3">{getImportanceBadge(card.importance)}</td>
                       <td className="p-3 text-right font-mono text-zinc-300">
                         {card.intervalDays > 0 ? `${card.intervalDays}d` : '-'}
                       </td>
@@ -544,7 +668,12 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
                       </td>
                       <td className="p-2" onClick={(e) => e.stopPropagation()}>
                         <button type="button" title="Editar flashcard" aria-label="Editar flashcard" disabled={!card.note}
-                          onClick={() => { setEditingCard(card); setEditFields([...card.note!.fields]); setEditTags((card.note!.tags || []).join(' ')); }}
+                          onClick={() => {
+                            setEditingCard(card);
+                            setEditFields([...card.note!.fields]);
+                            setEditTags((card.note!.tags || []).join(' '));
+                            setEditImportance(card.importance || card.note?.importance || 'normal');
+                          }}
                           className="p-1.5 rounded-lg text-zinc-400 hover:text-sky-300 hover:bg-sky-400/10 disabled:opacity-40">
                           <Edit3 className="w-4 h-4" />
                         </button>
@@ -592,6 +721,32 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
                 </div>
               ))}
               <input ref={editFileInput} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { void uploadEditImage(e.target.files?.[0]); e.currentTarget.value = ''; }} />
+              <div>
+                <label className="block text-xs uppercase tracking-wider text-zinc-400 mb-1.5">Importância</label>
+                <div className="inline-flex p-0.5 bg-zinc-950 border border-zinc-700 rounded-lg">
+                  {(
+                    [
+                      { id: 'low', label: 'Baixa', activeClass: 'bg-zinc-800 text-zinc-200 shadow-sm' },
+                      { id: 'normal', label: 'Normal', activeClass: 'bg-zinc-700 text-white font-semibold shadow-sm' },
+                      { id: 'high', label: 'Alta', activeClass: 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold shadow-sm' },
+                      { id: 'essential', label: 'Essencial', activeClass: 'bg-rose-500/20 text-rose-300 border border-rose-500/40 font-semibold shadow-sm' },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setEditImportance(opt.id)}
+                      className={`px-3 py-1 text-xs rounded-md transition-all ${
+                        editImportance === opt.id
+                          ? opt.activeClass
+                          : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <label className="block"><span className="text-xs uppercase tracking-wider text-zinc-400">Tags</span><input value={editTags} onChange={(e) => setEditTags(e.target.value)} placeholder="Separe tags com espaços" className="mt-1.5 w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-sky-500" /></label>
             </div>
             <footer className="px-5 py-4 border-t border-zinc-800 flex justify-end gap-2"><button type="button" onClick={() => setEditingCard(null)} className="px-4 py-2 rounded-lg text-sm text-zinc-300 hover:bg-zinc-800">Cancelar</button><button type="button" disabled={savingEdit} onClick={() => void saveEdit()} className="px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold text-sm disabled:opacity-50">{savingEdit ? 'Salvando…' : 'Salvar alterações'}</button></footer>

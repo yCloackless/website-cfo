@@ -63,7 +63,9 @@ import {
   DbFlashcardReview,
   FlashcardStatus,
   FlashcardRating,
+  FlashcardImportance,
 } from './schema';
+import { normalizeImportance } from '../services/anki/ankiImportance';
 import { HoneypotMetrics } from '../services/honeypot/honeypotTypes';
 
 function normalizeExamOptions(raw: unknown): ExamOption[] {
@@ -4177,6 +4179,7 @@ export class FlashcardRepository {
     back: string;
     frontImage?: string | null;
     backImage?: string | null;
+    importance?: FlashcardImportance;
   }): DbFlashcard {
     // Validação estrita de autorização em relacionamentos: Deck deve pertencer ao usuário autenticado
     const deck = this.db.prepare(`
@@ -4190,12 +4193,13 @@ export class FlashcardRepository {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     const today = now.split('T')[0];
+    const importance = data.importance ? normalizeImportance(data.importance) : 'normal';
 
     this.db.prepare(`
       INSERT INTO flashcards (
         id, user_id, subject_id, deck_id, front, back, front_image, back_image,
-        last_reviewed_at, next_review_at, interval_days, ease_factor, review_count, lapses, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        last_reviewed_at, next_review_at, interval_days, ease_factor, review_count, lapses, status, importance, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       userId,
@@ -4212,6 +4216,7 @@ export class FlashcardRepository {
       0,
       0,
       'new',
+      importance,
       now,
       now
     );
@@ -4232,6 +4237,7 @@ export class FlashcardRepository {
       reviewCount: 0,
       lapses: 0,
       status: 'new',
+      importance,
       createdAt: now,
       updatedAt: now,
     };
@@ -4243,6 +4249,7 @@ export class FlashcardRepository {
     frontImage?: string | null;
     backImage?: string | null;
     deckId?: string;
+    importance?: FlashcardImportance;
   }): DbFlashcard | null {
     const existing = this.getCard(userId, id);
     if (!existing) return null;
@@ -4264,12 +4271,13 @@ export class FlashcardRepository {
     const back = data.back !== undefined ? data.back.trim() : existing.back;
     const frontImage = data.frontImage !== undefined ? data.frontImage : existing.frontImage;
     const backImage = data.backImage !== undefined ? data.backImage : existing.backImage;
+    const importance = data.importance !== undefined ? normalizeImportance(data.importance) : existing.importance;
 
     this.db.prepare(`
       UPDATE flashcards
-      SET front = ?, back = ?, front_image = ?, back_image = ?, deck_id = ?, subject_id = ?, updated_at = ?
+      SET front = ?, back = ?, front_image = ?, back_image = ?, deck_id = ?, subject_id = ?, importance = ?, updated_at = ?
       WHERE user_id = ? AND id = ?
-    `).run(front, back, frontImage, backImage, targetDeckId, targetSubjectId, now, userId, id);
+    `).run(front, back, frontImage, backImage, targetDeckId, targetSubjectId, importance, now, userId, id);
 
     return {
       ...existing,
@@ -4279,6 +4287,7 @@ export class FlashcardRepository {
       backImage,
       deckId: targetDeckId,
       subjectId: targetSubjectId,
+      importance,
       updatedAt: now,
     };
   }
@@ -4552,7 +4561,7 @@ export class FlashcardRepository {
   public createCardsBatch(
     userId: string,
     deckId: string,
-    items: Array<{ front: string; back: string; frontImage?: string | null; backImage?: string | null }>
+    items: Array<{ front: string; back: string; frontImage?: string | null; backImage?: string | null; importance?: FlashcardImportance }>
   ): DbFlashcard[] {
     const deck = this.db.prepare(`
       SELECT id, subject_id FROM flashcard_decks WHERE user_id = ? AND id = ?
@@ -4569,8 +4578,8 @@ export class FlashcardRepository {
     const insertStmt = this.db.prepare(`
       INSERT INTO flashcards (
         id, user_id, subject_id, deck_id, front, back, front_image, back_image,
-        last_reviewed_at, next_review_at, interval_days, ease_factor, review_count, lapses, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        last_reviewed_at, next_review_at, interval_days, ease_factor, review_count, lapses, status, importance, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
@@ -4580,6 +4589,8 @@ export class FlashcardRepository {
         const front = String(item.front || '').trim();
         const back = String(item.back || '').trim();
         if (!front && !item.frontImage) continue;
+
+        const importance = item.importance ? normalizeImportance(item.importance) : 'normal';
 
         insertStmt.run(
           id,
@@ -4597,6 +4608,7 @@ export class FlashcardRepository {
           0,
           0,
           'new',
+          importance,
           now,
           now
         );
@@ -4617,6 +4629,7 @@ export class FlashcardRepository {
           reviewCount: 0,
           lapses: 0,
           status: 'new',
+          importance,
           createdAt: now,
           updatedAt: now,
         });
@@ -4810,6 +4823,7 @@ export class FlashcardRepository {
       reviewCount: Number(r.review_count || 0),
       lapses: Number(r.lapses || 0),
       status: r.status as FlashcardStatus,
+      importance: (r.importance ? normalizeImportance(r.importance) : 'normal') as FlashcardImportance,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };
