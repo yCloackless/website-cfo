@@ -724,6 +724,8 @@ const allowedOriginsList = [
   "http://127.0.0.1:3000",
   "http://localhost:5173",
   "http://127.0.0.1:5173",
+  "tauri://localhost",
+  "http://tauri.localhost",
   "https://cfo-oficial-agorasim.onrender.com",
   APP_URL,
   process.env.RENDER_EXTERNAL_URL,
@@ -1844,7 +1846,10 @@ app.use('/api/timer', requireUserAuth, (_req: Request, res: Response, next: Next
 
 // As sessões de estudo pertencem ao usuário autenticado. Este middleware
 // precisa ser aplicado antes das rotas de gravação e consulta do banco de horas.
-app.use('/api/study-sessions', requireUserAuth, (_req: Request, res: Response, next: NextFunction) => {
+app.use('/api/study-sessions', (req: Request, res: Response, next: NextFunction) => {
+  if (req.path !== '/desktop') {
+    return requireUserAuth(req, res, () => next());
+  }
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
@@ -2148,6 +2153,68 @@ app.post("/api/timer/reset", (req: Request, res: Response) => {
 
 // 5. Salvar Sessão do Cronômetro diretamente no Banco de Dados (SQLite)
 const studySessionRepoInstance = new StudySessionRepository(getDb().getRawDb());
+
+const desktopSubjects: Record<string, { id: string; name: string }> = {
+  'Matemática': { id: 'matematica', name: 'Matemática & Raciocínio Lógico' },
+  'Física': { id: 'fisica', name: 'Física Aplicada' },
+  'Química': { id: 'quimica', name: 'Química Geral & Orgânica' },
+  'Biologia': { id: 'biologia', name: 'Biologia' },
+  'Português': { id: 'portugues', name: 'Língua Portuguesa & Literatura' },
+  'História': { id: 'historia', name: 'História Geral & do Brasil' },
+  'Geografia': { id: 'geografia', name: 'Geografia Geral & do Brasil' },
+  'Outro': { id: 'geral', name: 'Estudo Geral' },
+};
+
+app.post('/api/study-sessions/desktop', (req: Request, res: Response) => {
+  const expectedKey = process.env.DESKTOP_TIMER_API_KEY || '';
+  const suppliedKey = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  const expectedBuffer = Buffer.from(expectedKey);
+  const suppliedBuffer = Buffer.from(suppliedKey);
+  if (!expectedKey || expectedBuffer.length !== suppliedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, suppliedBuffer)) {
+    return res.status(401).json({ error: 'UNAUTHORIZED' });
+  }
+
+  const userId = process.env.DESKTOP_TIMER_USER_ID;
+  if (!userId || !new UserRepository(getDb().getRawDb()).findById(userId)) {
+    return res.status(503).json({ error: 'DESKTOP_TIMER_USER_NOT_CONFIGURED' });
+  }
+
+  const { localSessionId, subject, startedAt, endedAt, durationSeconds } = req.body || {};
+  const mapping = typeof subject === 'string' ? desktopSubjects[subject] : undefined;
+  const start = typeof startedAt === 'string' ? new Date(startedAt) : null;
+  const end = typeof endedAt === 'string' ? new Date(endedAt) : null;
+  const duration = Number(durationSeconds);
+  if (typeof localSessionId !== 'string' || !/^[\w-]{1,100}$/.test(localSessionId)
+      || !mapping || !start || !end || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())
+      || end < start || !Number.isInteger(duration) || duration < 1 || duration > 86400
+      || duration > Math.floor((end.getTime() - start.getTime()) / 1000)) {
+    return res.status(400).json({ error: 'INVALID_STUDY_SESSION' });
+  }
+
+  try {
+    const db = getDb().getRawDb();
+    const id = crypto.createHash('sha256').update(`${userId}:desktop_timer:${localSessionId}`).digest('hex');
+    const dateParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: process.env.APP_TIME_ZONE || 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(end);
+    const date = Object.fromEntries(dateParts.map(({ type, value }) => [type, value]));
+    const dateStr = `${date.year}-${date.month}-${date.day}`;
+    db.prepare(`INSERT INTO study_sessions (
+      id, user_id, subject_id, subject_name, topic, date_str, duration_seconds,
+      started_at, ended_at, notes, created_at, source, local_session_id
+    ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, NULL, ?, 'desktop_timer', ?)
+    ON CONFLICT(user_id, source, local_session_id) DO NOTHING`).run(
+      id, userId, mapping.id, mapping.name, dateStr, duration,
+      start.toISOString(), end.toISOString(), new Date().toISOString(), localSessionId,
+    );
+    const session = db.prepare('SELECT * FROM study_sessions WHERE user_id = ? AND source = ? AND local_session_id = ?')
+      .get(userId, 'desktop_timer', localSessionId);
+    return res.status(200).json({ success: true, session });
+  } catch (err) {
+    console.error('Erro ao importar sessão do cronômetro desktop:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
 
 app.post("/api/timer/save-session", (req: Request, res: Response) => {
   try {

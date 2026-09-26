@@ -1592,6 +1592,16 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_flashcards_user_importance ON flashcards(user_id, importance);
     `,
   },
+  {
+    id: 36,
+    name: '036_desktop_study_session_idempotency',
+    sql: `
+      ALTER TABLE study_sessions ADD COLUMN source TEXT;
+      ALTER TABLE study_sessions ADD COLUMN local_session_id TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_study_sessions_desktop_idempotency
+        ON study_sessions(user_id, source, local_session_id);
+    `,
+  },
 ];
 
 
