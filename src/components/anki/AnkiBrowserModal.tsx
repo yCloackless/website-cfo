@@ -48,6 +48,8 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
   const [draggedCardId, setDraggedCardId] = useState<string | null>(null);
   const [dropDeckId, setDropDeckId] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [cardToDelete, setCardToDelete] = useState<AnkiCard | null>(null);
   const [editingCard, setEditingCard] = useState<AnkiCard | null>(null);
   const [editFields, setEditFields] = useState<string[]>([]);
   const [editTags, setEditTags] = useState('');
@@ -194,25 +196,54 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
     }
   };
 
-  const handleBulkDelete = async () => {
-    if (selectedIds.size === 0) return;
+  const handleDeleteConfirm = async () => {
+    if (isDeleting) return;
+    const targetIds = cardToDelete ? [cardToDelete.id] : Array.from(selectedIds);
+    if (targetIds.length === 0) return;
 
     try {
+      setIsDeleting(true);
       const res = await apiFetch('/api/anki/browser/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'delete',
-          cardIds: Array.from(selectedIds),
+          cardIds: targetIds,
         }),
       });
-      if (res.ok) {
-        showToast?.('Cartões excluídos com sucesso.', 'success');
-        setDeleteConfirmOpen(false);
-        void fetchCards();
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast?.(data.message || 'Erro ao apagar flashcard permanentemente.', 'error');
+        return;
       }
+
+      const count = data.affectedCount || targetIds.length;
+      showToast?.(
+        count === 1
+          ? 'Flashcard apagado permanentemente.'
+          : `${count} flashcards apagados permanentemente.`,
+        'success'
+      );
+
+      setDeleteConfirmOpen(false);
+      setCardToDelete(null);
+
+      if (editingCard && targetIds.includes(editingCard.id)) {
+        setEditingCard(null);
+      }
+
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of targetIds) next.delete(id);
+        return next;
+      });
+
+      void fetchCards();
     } catch {
-      showToast?.('Erro ao excluir cartões.', 'error');
+      showToast?.('Erro de conexão ao apagar flashcard.', 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -521,11 +552,15 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
               {/* Delete */}
               <button
                 type="button"
-                onClick={() => setDeleteConfirmOpen(true)}
-                className="px-2.5 py-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 flex items-center gap-1.5 transition-colors"
+                disabled={isDeleting}
+                onClick={() => {
+                  setCardToDelete(null);
+                  setDeleteConfirmOpen(true);
+                }}
+                className="px-2.5 py-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 flex items-center gap-1.5 transition-colors disabled:opacity-50"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>Excluir</span>
+                <span>Apagar permanentemente</span>
               </button>
             </div>
           </div>
@@ -597,7 +632,7 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
                 <th className="p-3 w-20 text-right">Intervalo</th>
                 <th className="p-3 w-20 text-right">Revisões</th>
                 <th className="p-3 w-24">Tags</th>
-                <th className="p-3 w-16">Editar</th>
+                <th className="p-3 w-20 text-center">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60">
@@ -666,17 +701,37 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
                       <td className="p-3 text-zinc-500 truncate max-w-[120px]">
                         {(card.note?.tags || []).join(', ') || '-'}
                       </td>
-                      <td className="p-2" onClick={(e) => e.stopPropagation()}>
-                        <button type="button" title="Editar flashcard" aria-label="Editar flashcard" disabled={!card.note}
-                          onClick={() => {
-                            setEditingCard(card);
-                            setEditFields([...card.note!.fields]);
-                            setEditTags((card.note!.tags || []).join(' '));
-                            setEditImportance(card.importance || card.note?.importance || 'normal');
-                          }}
-                          className="p-1.5 rounded-lg text-zinc-400 hover:text-sky-300 hover:bg-sky-400/10 disabled:opacity-40">
-                          <Edit3 className="w-4 h-4" />
-                        </button>
+                      <td className="p-2 text-center" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            title="Editar flashcard"
+                            aria-label="Editar flashcard"
+                            disabled={!card.note || isDeleting}
+                            onClick={() => {
+                              setEditingCard(card);
+                              setEditFields([...card.note!.fields]);
+                              setEditTags((card.note!.tags || []).join(' '));
+                              setEditImportance(card.importance || card.note?.importance || 'normal');
+                            }}
+                            className="p-1.5 rounded-lg text-zinc-400 hover:text-sky-300 hover:bg-sky-400/10 disabled:opacity-40 transition-colors"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Apagar permanentemente"
+                            aria-label="Apagar permanentemente"
+                            disabled={isDeleting}
+                            onClick={() => {
+                              setCardToDelete(card);
+                              setDeleteConfirmOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-40 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -686,11 +741,28 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
           </table>
         </div>
       </div>
-      <ConfirmModal isOpen={deleteConfirmOpen} title="Excluir flashcards?"
-        description={`Esta ação removerá ${selectedIds.size} cartão(ões) selecionado(s) e não pode ser desfeita.`}
-        badgeText={`${selectedIds.size} selecionado(s)`} confirmLabel="Excluir cartões" cancelLabel="Manter cartões"
-        variant="danger" iconType="danger" isDestructive onConfirm={() => void handleBulkDelete()}
-        onClose={() => setDeleteConfirmOpen(false)} />
+      <ConfirmModal
+        isOpen={deleteConfirmOpen}
+        title={cardToDelete || selectedIds.size === 1 ? 'Apagar flashcard permanentemente?' : `Apagar ${selectedIds.size} flashcards permanentemente?`}
+        description={
+          cardToDelete || selectedIds.size === 1
+            ? 'Esta ação removerá o flashcard permanentemente do banco de dados e não pode ser desfeita.'
+            : `Esta ação removerá ${selectedIds.size} flashcards selecionados permanentemente do banco de dados e não pode ser desfeita.`
+        }
+        badgeText={cardToDelete ? '1 flashcard' : `${selectedIds.size} selecionado(s)`}
+        confirmLabel={isDeleting ? 'Apagando...' : 'Apagar permanentemente'}
+        cancelLabel="Cancelar"
+        variant="danger"
+        iconType="danger"
+        isDestructive
+        onConfirm={() => void handleDeleteConfirm()}
+        onClose={() => {
+          if (!isDeleting) {
+            setDeleteConfirmOpen(false);
+            setCardToDelete(null);
+          }
+        }}
+      />
       {editingCard && (
         <div className="fixed inset-0 z-[60] bg-zinc-950/85 backdrop-blur-md flex items-center justify-center p-3" onClick={() => setEditingCard(null)}>
           <section role="dialog" aria-modal="true" aria-label="Editar flashcard" onClick={(e) => e.stopPropagation()}
@@ -749,7 +821,24 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
               </div>
               <label className="block"><span className="text-xs uppercase tracking-wider text-zinc-400">Tags</span><input value={editTags} onChange={(e) => setEditTags(e.target.value)} placeholder="Separe tags com espaços" className="mt-1.5 w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-sky-500" /></label>
             </div>
-            <footer className="px-5 py-4 border-t border-zinc-800 flex justify-end gap-2"><button type="button" onClick={() => setEditingCard(null)} className="px-4 py-2 rounded-lg text-sm text-zinc-300 hover:bg-zinc-800">Cancelar</button><button type="button" disabled={savingEdit} onClick={() => void saveEdit()} className="px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold text-sm disabled:opacity-50">{savingEdit ? 'Salvando…' : 'Salvar alterações'}</button></footer>
+            <footer className="px-5 py-4 border-t border-zinc-800 flex justify-between items-center">
+              <button
+                type="button"
+                disabled={isDeleting || savingEdit}
+                onClick={() => {
+                  setCardToDelete(editingCard);
+                  setDeleteConfirmOpen(true);
+                }}
+                className="px-3 py-2 rounded-lg text-xs font-semibold text-red-400 hover:bg-red-500/10 border border-red-500/20 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Apagar permanentemente</span>
+              </button>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setEditingCard(null)} className="px-4 py-2 rounded-lg text-sm text-zinc-300 hover:bg-zinc-800">Cancelar</button>
+                <button type="button" disabled={savingEdit || isDeleting} onClick={() => void saveEdit()} className="px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold text-sm disabled:opacity-50">{savingEdit ? 'Salvando…' : 'Salvar alterações'}</button>
+              </div>
+            </footer>
           </section>
         </div>
       )}

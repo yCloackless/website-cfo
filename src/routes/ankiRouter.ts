@@ -747,12 +747,34 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       const repo = getRepo();
       const card = repo.getCard(user.userId, cardId);
       if (!card) {
-        return res.status(404).json({ error: 'CARD_NOT_FOUND', message: 'Cartão não encontrado.' });
+        return res.status(404).json({ error: 'CARD_NOT_FOUND', message: 'Cartão não encontrado ou não pertence a você.' });
       }
-      repo.bulkDeleteCards(user.userId, [cardId]);
-      return res.json({ success: true, message: 'Cartão excluído com sucesso.' });
+      const affected = repo.bulkDeleteCards(user.userId, [cardId]);
+      if (affected === 0) {
+        return res.status(404).json({ error: 'CARD_NOT_FOUND', message: 'Cartão não encontrado ou não pertence a você.' });
+      }
+      return res.json({ success: true, message: 'Flashcard apagado permanentemente.' });
     } catch (err: any) {
       return res.status(500).json({ error: 'DELETE_CARD_FAILED', message: err.message });
+    }
+  });
+
+  router.delete('/notes/:id', requireAuthMiddleware, noteMutationLimiter, (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const noteId = req.params.id;
+      const repo = getRepo();
+      const note = repo.getNote(user.userId, noteId);
+      if (!note) {
+        return res.status(404).json({ error: 'NOTE_NOT_FOUND', message: 'Nota não encontrada ou não pertence a você.' });
+      }
+      const deleted = repo.deleteNote(user.userId, noteId);
+      if (!deleted) {
+        return res.status(404).json({ error: 'NOTE_NOT_FOUND', message: 'Nota não encontrada ou não pertence a você.' });
+      }
+      return res.json({ success: true, message: 'Nota apagada permanentemente.' });
+    } catch (err: any) {
+      return res.status(500).json({ error: 'DELETE_NOTE_FAILED', message: err.message });
     }
   });
 

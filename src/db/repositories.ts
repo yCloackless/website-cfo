@@ -3786,6 +3786,19 @@ export interface DeckWithStats extends DbFlashcardDeck {
 export class FlashcardRepository {
   constructor(private db: DatabaseSync | any) {}
 
+  private hasTable(tableName: string): boolean {
+    try {
+      const isPostgres = Boolean((this.db as any)?.isPostgres);
+      const query = isPostgres
+        ? `SELECT count(*) as cnt FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?`
+        : `SELECT count(*) as cnt FROM sqlite_master WHERE type='table' AND name = ?`;
+      const row = this.db.prepare(query).get(tableName) as any;
+      return Number(row?.cnt || 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
   // ==========================================
   // DISCIPLINAS (SUBJECTS)
   // ==========================================
@@ -4091,9 +4104,60 @@ export class FlashcardRepository {
     const stats = this.getDeckCascadeStats(userId, id);
     if (!stats) return { deleted: false, cardCount: 0 };
 
-    this.db.prepare(`
-      DELETE FROM flashcard_decks WHERE user_id = ? AND id = ?
-    `).run(userId, id);
+    this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+    try {
+      if (this.hasTable('flashcard_reviews')) {
+        this.db.prepare(`
+          DELETE FROM flashcard_reviews WHERE user_id = ? AND flashcard_id IN (SELECT id FROM flashcards WHERE user_id = ? AND deck_id = ?)
+        `).run(userId, userId, id);
+      }
+
+      if (this.hasTable('flashcards')) {
+        this.db.prepare(`
+          DELETE FROM flashcards WHERE user_id = ? AND deck_id = ?
+        `).run(userId, id);
+      }
+
+      if (this.hasTable('flashcard_decks')) {
+        this.db.prepare(`
+          DELETE FROM flashcard_decks WHERE user_id = ? AND id = ?
+        `).run(userId, id);
+      }
+
+      // Also purge from anki tables if present
+      if (this.hasTable('anki_revlog') && this.hasTable('anki_cards')) {
+        this.db.prepare(`
+          DELETE FROM anki_revlog WHERE user_id = ? AND card_id IN (SELECT id FROM anki_cards WHERE user_id = ? AND deck_id = ?)
+        `).run(userId, userId, id);
+      }
+
+      if (this.hasTable('anki_cards')) {
+        this.db.prepare(`
+          DELETE FROM anki_cards WHERE user_id = ? AND deck_id = ?
+        `).run(userId, id);
+      }
+
+      if (this.hasTable('anki_decks')) {
+        this.db.prepare(`
+          DELETE FROM anki_decks WHERE user_id = ? AND id = ?
+        `).run(userId, id);
+      }
+
+      if (this.hasTable('anki_notes') && this.hasTable('anki_cards')) {
+        this.db.prepare(`
+          DELETE FROM anki_notes
+          WHERE user_id = ?
+            AND NOT EXISTS (
+              SELECT 1 FROM anki_cards c WHERE c.note_id = anki_notes.id AND c.user_id = anki_notes.user_id
+            )
+        `).run(userId);
+      }
+
+      this.db.exec('COMMIT;');
+    } catch (err) {
+      this.db.exec('ROLLBACK;');
+      throw err;
+    }
 
     return {
       deleted: true,
@@ -4293,10 +4357,52 @@ export class FlashcardRepository {
   }
 
   public deleteCard(userId: string, id: string): boolean {
-    const res = this.db.prepare(`
-      DELETE FROM flashcards WHERE user_id = ? AND id = ?
-    `).run(userId, id);
-    return Number(res.changes) > 0;
+    this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+    try {
+      if (this.hasTable('flashcard_reviews')) {
+        this.db.prepare(`
+          DELETE FROM flashcard_reviews WHERE user_id = ? AND flashcard_id = ?
+        `).run(userId, id);
+      }
+
+      let resChanges = 0;
+      if (this.hasTable('flashcards')) {
+        const res = this.db.prepare(`
+          DELETE FROM flashcards WHERE user_id = ? AND id = ?
+        `).run(userId, id);
+        resChanges = Number(res.changes || 0);
+      }
+
+      if (this.hasTable('anki_revlog')) {
+        this.db.prepare(`
+          DELETE FROM anki_revlog WHERE user_id = ? AND card_id = ?
+        `).run(userId, id);
+      }
+
+      let ankiChanges = 0;
+      if (this.hasTable('anki_cards')) {
+        const ankiRes = this.db.prepare(`
+          DELETE FROM anki_cards WHERE user_id = ? AND id = ?
+        `).run(userId, id);
+        ankiChanges = Number(ankiRes.changes || 0);
+      }
+
+      if (this.hasTable('anki_notes') && this.hasTable('anki_cards')) {
+        this.db.prepare(`
+          DELETE FROM anki_notes
+          WHERE user_id = ?
+            AND NOT EXISTS (
+              SELECT 1 FROM anki_cards c WHERE c.note_id = anki_notes.id AND c.user_id = anki_notes.user_id
+            )
+        `).run(userId);
+      }
+
+      this.db.exec('COMMIT;');
+      return resChanges > 0 || ankiChanges > 0;
+    } catch (err) {
+      this.db.exec('ROLLBACK;');
+      throw err;
+    }
   }
 
   /**

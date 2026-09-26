@@ -212,6 +212,23 @@ export class AnkiRepository {
     return this.listNoteTypes(userId);
   }
 
+  public static checkTableExists(db: any, tableName: string): boolean {
+    try {
+      const isPostgres = Boolean(db?.isPostgres);
+      const query = isPostgres
+        ? `SELECT count(*) as cnt FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?`
+        : `SELECT count(*) as cnt FROM sqlite_master WHERE type='table' AND name = ?`;
+      const row = db.prepare(query).get(tableName) as any;
+      return Number(row?.cnt || 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  private hasTable(tableName: string): boolean {
+    return AnkiRepository.checkTableExists(this.db, tableName);
+  }
+
   private insertField(userId: string, notetypeId: string, name: string, ordinal: number): void {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -593,30 +610,91 @@ export class AnkiRepository {
 
     // Get all descendant deck IDs to cascade delete cleanly
     const descendantIds = this.getDescendantDeckIds(userId, deckId);
+    const allDeckIds = [...descendantIds, deckId];
+    const deckPlaceholders = allDeckIds.map(() => '?').join(', ');
 
-    // Delete from leaves up so foreign keys and dependencies are purged cleanly
-    for (const dId of descendantIds.reverse()) {
-      this.db.prepare(`DELETE FROM anki_decks WHERE user_id = ? AND id = ?`).run(userId, dId);
+    let orphanMedia: string[] = [];
+
+    this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+    try {
+      // 1. Collect cards in these decks to clean up revlogs and legacy cards
+      const deckCards = this.db.prepare(`
+        SELECT id FROM anki_cards WHERE user_id = ? AND deck_id IN (${deckPlaceholders})
+      `).all(userId, ...allDeckIds) as any[];
+      const cardIds = deckCards.map(c => c.id);
+
+      if (cardIds.length > 0) {
+        const cardPlaceholders = cardIds.map(() => '?').join(', ');
+
+        this.db.prepare(`
+          DELETE FROM anki_revlog WHERE user_id = ? AND card_id IN (${cardPlaceholders})
+        `).run(userId, ...cardIds);
+
+        this.db.prepare(`
+          DELETE FROM anki_cards WHERE user_id = ? AND id IN (${cardPlaceholders})
+        `).run(userId, ...cardIds);
+
+        if (this.hasTable('flashcard_reviews')) {
+          this.db.prepare(`
+            DELETE FROM flashcard_reviews WHERE user_id = ? AND flashcard_id IN (${cardPlaceholders})
+          `).run(userId, ...cardIds);
+        }
+
+        if (this.hasTable('flashcards')) {
+          this.db.prepare(`
+            DELETE FROM flashcards WHERE user_id = ? AND id IN (${cardPlaceholders})
+          `).run(userId, ...cardIds);
+        }
+      }
+
+      // Purge from legacy tables by deck ID as well
+      if (this.hasTable('flashcards')) {
+        this.db.prepare(`
+          DELETE FROM flashcards WHERE user_id = ? AND deck_id IN (${deckPlaceholders})
+        `).run(userId, ...allDeckIds);
+      }
+
+      if (this.hasTable('flashcard_decks')) {
+        this.db.prepare(`
+          DELETE FROM flashcard_decks WHERE user_id = ? AND id IN (${deckPlaceholders})
+        `).run(userId, ...allDeckIds);
+      }
+
+      // 2. Delete anki_decks from leaves up
+      for (const dId of descendantIds.reverse()) {
+        this.db.prepare(`DELETE FROM anki_decks WHERE user_id = ? AND id = ?`).run(userId, dId);
+      }
+      this.db.prepare(`DELETE FROM anki_decks WHERE user_id = ? AND id = ?`).run(userId, deckId);
+
+      // 3. Purge orphaned notes whose cards were deleted with the decks
+      const orphanNotes = this.db.prepare(`
+        SELECT fields_json FROM anki_notes
+        WHERE user_id = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM anki_cards c WHERE c.note_id = anki_notes.id AND c.user_id = anki_notes.user_id
+          )
+      `).all(userId) as any[];
+
+      for (const note of orphanNotes) {
+        try {
+          const fields = JSON.parse(note.fields_json || '[]');
+          orphanMedia.push(...AnkiRepository.extractMediaFilenames(fields));
+        } catch {}
+      }
+
+      this.db.prepare(`
+        DELETE FROM anki_notes
+        WHERE user_id = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM anki_cards c WHERE c.note_id = anki_notes.id AND c.user_id = anki_notes.user_id
+          )
+      `).run(userId);
+
+      this.db.exec('COMMIT;');
+    } catch (err) {
+      this.db.exec('ROLLBACK;');
+      throw err;
     }
-
-    // Purge orphaned notes whose cards were deleted with the decks
-    const orphanNotes = this.db.prepare(`
-      SELECT fields_json FROM anki_notes
-      WHERE user_id = ? AND id NOT IN (SELECT DISTINCT note_id FROM anki_cards WHERE user_id = ?)
-    `).all(userId, userId) as any[];
-
-    const orphanMedia: string[] = [];
-    for (const note of orphanNotes) {
-      try {
-        const fields = JSON.parse(note.fields_json || '[]');
-        orphanMedia.push(...AnkiRepository.extractMediaFilenames(fields));
-      } catch {}
-    }
-
-    this.db.prepare(`
-      DELETE FROM anki_notes
-      WHERE user_id = ? AND id NOT IN (SELECT DISTINCT note_id FROM anki_cards WHERE user_id = ?)
-    `).run(userId, userId);
 
     if (orphanMedia.length > 0) {
       void this.cleanupUnreferencedMedia(userId, orphanMedia).catch((err) => {
@@ -862,6 +940,70 @@ export class AnkiRepository {
     }
 
     return this.getNote(userId, noteId);
+  }
+
+  public deleteNote(userId: string, noteId: string): boolean {
+    const existing = this.getNote(userId, noteId);
+    if (!existing) return false;
+
+    const cards = this.db.prepare(`
+      SELECT id FROM anki_cards WHERE user_id = ? AND note_id = ?
+    `).all(userId, noteId) as any[];
+    const cardIds = cards.map(c => c.id);
+    const mediaFilenames = AnkiRepository.extractMediaFilenames(existing.fields);
+
+    this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+    try {
+      if (cardIds.length > 0) {
+        const placeholders = cardIds.map(() => '?').join(', ');
+        this.db.prepare(`
+          DELETE FROM anki_revlog WHERE user_id = ? AND card_id IN (${placeholders})
+        `).run(userId, ...cardIds);
+
+        this.db.prepare(`
+          DELETE FROM anki_cards WHERE user_id = ? AND id IN (${placeholders})
+        `).run(userId, ...cardIds);
+
+        if (this.hasTable('flashcard_reviews')) {
+          this.db.prepare(`
+            DELETE FROM flashcard_reviews WHERE user_id = ? AND flashcard_id IN (${placeholders})
+          `).run(userId, ...cardIds);
+        }
+
+        if (this.hasTable('flashcards')) {
+          this.db.prepare(`
+            DELETE FROM flashcards WHERE user_id = ? AND id IN (${placeholders})
+          `).run(userId, ...cardIds);
+        }
+      }
+
+      this.db.prepare(`
+        DELETE FROM anki_notes WHERE user_id = ? AND id = ?
+      `).run(userId, noteId);
+
+      if (this.hasTable('flashcards')) {
+        this.db.prepare(`
+          DELETE FROM flashcards WHERE user_id = ? AND id = ?
+        `).run(userId, noteId);
+      }
+
+      this.db.exec('COMMIT;');
+    } catch (err) {
+      this.db.exec('ROLLBACK;');
+      throw err;
+    }
+
+    if (mediaFilenames.length > 0) {
+      void this.cleanupUnreferencedMedia(userId, mediaFilenames).catch((err) => {
+        console.error('[AnkiRepository] Falha ao limpar mídias órfãs após deleteNote:', err);
+      });
+    }
+
+    return true;
+  }
+
+  public deleteCard(userId: string, cardId: string): boolean {
+    return this.bulkDeleteCards(userId, [cardId]) > 0;
   }
 
   public getCard(userId: string, cardId: string): AnkiCard | null {
@@ -1293,18 +1435,74 @@ export class AnkiRepository {
   }
 
   public bulkDeleteCards(userId: string, cardIds: string[]): number {
-    let deleted = 0;
-    for (const cid of cardIds) {
-      const res = this.db.prepare(`DELETE FROM anki_cards WHERE user_id = ? AND id = ?`).run(userId, cid) as any;
-      if (res.changes) deleted += 1;
+    if (!cardIds || cardIds.length === 0) return 0;
+
+    // Filter only valid non-empty IDs
+    const cleanIds = Array.from(new Set(cardIds.filter(id => typeof id === 'string' && id.trim().length > 0)));
+    if (cleanIds.length === 0) return 0;
+
+    const placeholders = cleanIds.map(() => '?').join(', ');
+
+    // Multi-tenant check: identify which cards actually belong to this user in anki_cards
+    const userCards = this.db.prepare(`
+      SELECT id, note_id FROM anki_cards WHERE user_id = ? AND id IN (${placeholders})
+    `).all(userId, ...cleanIds) as any[];
+
+    // Also check if any card exists in legacy flashcards belonging to this user
+    let legacyIds: string[] = [];
+    if (this.hasTable('flashcards')) {
+      const legacyUserCards = this.db.prepare(`
+        SELECT id FROM flashcards WHERE user_id = ? AND id IN (${placeholders})
+      `).all(userId, ...cleanIds) as any[];
+      legacyIds = legacyUserCards.map(c => c.id);
     }
-    if (deleted > 0) {
+
+    if (userCards.length === 0 && legacyIds.length === 0) {
+      return 0;
+    }
+
+    const targetCardIds = userCards.map(c => c.id);
+    const allDeletedIds = Array.from(new Set([...targetCardIds, ...legacyIds]));
+    const targetPlaceholders = allDeletedIds.map(() => '?').join(', ');
+
+    let orphanMedia: string[] = [];
+
+    this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+    try {
+      if (allDeletedIds.length > 0) {
+        // 1. Remove dependent review logs
+        this.db.prepare(`
+          DELETE FROM anki_revlog WHERE user_id = ? AND card_id IN (${targetPlaceholders})
+        `).run(userId, ...allDeletedIds);
+
+        // 2. Remove cards from anki_cards
+        this.db.prepare(`
+          DELETE FROM anki_cards WHERE user_id = ? AND id IN (${targetPlaceholders})
+        `).run(userId, ...allDeletedIds);
+
+        // 3. Delete from legacy tables (so startup / deploy never brings them back)
+        if (this.hasTable('flashcard_reviews')) {
+          this.db.prepare(`
+            DELETE FROM flashcard_reviews WHERE user_id = ? AND flashcard_id IN (${targetPlaceholders})
+          `).run(userId, ...allDeletedIds);
+        }
+
+        if (this.hasTable('flashcards')) {
+          this.db.prepare(`
+            DELETE FROM flashcards WHERE user_id = ? AND id IN (${targetPlaceholders})
+          `).run(userId, ...allDeletedIds);
+        }
+      }
+
+      // 4. Identify orphaned notes (notes of this user with 0 remaining cards in anki_cards)
       const orphanNotes = this.db.prepare(`
         SELECT fields_json FROM anki_notes
-        WHERE user_id = ? AND id NOT IN (SELECT DISTINCT note_id FROM anki_cards WHERE user_id = ?)
-      `).all(userId, userId) as any[];
+        WHERE user_id = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM anki_cards c WHERE c.note_id = anki_notes.id AND c.user_id = anki_notes.user_id
+          )
+      `).all(userId) as any[];
 
-      const orphanMedia: string[] = [];
       for (const note of orphanNotes) {
         try {
           const fields = JSON.parse(note.fields_json || '[]');
@@ -1312,18 +1510,28 @@ export class AnkiRepository {
         } catch {}
       }
 
+      // 5. Purge orphaned notes
       this.db.prepare(`
         DELETE FROM anki_notes
-        WHERE user_id = ? AND id NOT IN (SELECT DISTINCT note_id FROM anki_cards WHERE user_id = ?)
-      `).run(userId, userId);
+        WHERE user_id = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM anki_cards c WHERE c.note_id = anki_notes.id AND c.user_id = anki_notes.user_id
+          )
+      `).run(userId);
 
-      if (orphanMedia.length > 0) {
-        void this.cleanupUnreferencedMedia(userId, orphanMedia).catch((err) => {
-          console.error('[AnkiRepository] Falha ao limpar mídias órfãs após bulkDeleteCards:', err);
-        });
-      }
+      this.db.exec('COMMIT;');
+    } catch (err) {
+      this.db.exec('ROLLBACK;');
+      throw err;
     }
-    return deleted;
+
+    if (orphanMedia.length > 0) {
+      void this.cleanupUnreferencedMedia(userId, orphanMedia).catch((err) => {
+        console.error('[AnkiRepository] Falha ao limpar mídias órfãs após bulkDeleteCards:', err);
+      });
+    }
+
+    return allDeletedIds.length;
   }
 
   // =========================================================================
@@ -1723,12 +1931,15 @@ export class AnkiRepository {
           SELECT * FROM anki_decks WHERE user_id = ? AND (id = ? OR name = ?)
         `).get(ld.user_id, ld.id, deckFullName) as any;
 
+        const isDeckAlreadyMigrated = Boolean(targetDeck);
+
         if (!targetDeck) {
           db.prepare(`
             INSERT INTO anki_decks (id, user_id, name, description, config_id, is_collapsed, created_at, updated_at)
             VALUES (?, ?, ?, ?, NULL, 0, ?, ?)
           `).run(ld.id, ld.user_id, deckFullName, ld.description || null, ld.created_at, ld.updated_at);
           decksMigrated++;
+          targetDeck = { id: ld.id };
         }
 
         // Migrate cards
@@ -1738,50 +1949,71 @@ export class AnkiRepository {
 
         for (const lc of legacyCards) {
           const cardExists = db.prepare(`SELECT id FROM anki_cards WHERE user_id = ? AND id = ?`).get(lc.user_id, lc.id);
+          
           if (!cardExists) {
-            const noteId = crypto.randomUUID();
-            const now = lc.created_at || new Date().toISOString();
+            // Only migrate into anki_cards if this deck was never migrated before.
+            // If the deck WAS already migrated and this card is missing from anki_cards,
+            // it means the user deliberately deleted it in the Anki interface!
+            // We must NEVER resurrect a card that the user deleted.
+            if (!isDeckAlreadyMigrated) {
+              const noteId = crypto.randomUUID();
+              const now = lc.created_at || new Date().toISOString();
 
-            db.prepare(`
-              INSERT INTO anki_notes (id, user_id, notetype_id, guid, fields_json, tags, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, '', ?, ?)
-            `).run(noteId, lc.user_id, basicNt.id, crypto.randomUUID(), JSON.stringify([lc.front, lc.back]), now, lc.updated_at || now);
+              db.prepare(`
+                INSERT INTO anki_notes (id, user_id, notetype_id, guid, fields_json, tags, importance, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, '', ?, ?, ?)
+              `).run(noteId, lc.user_id, basicNt.id, crypto.randomUUID(), JSON.stringify([lc.front, lc.back]), lc.importance || 'normal', now, lc.updated_at || now);
 
-            let queue = CardQueue.New;
-            let cardType = CardType.New;
-            if (lc.status === 'learning') {
-              queue = CardQueue.Learn;
-              cardType = CardType.Learn;
-            } else if (lc.status === 'review' || lc.status === 'mastered') {
-              queue = CardQueue.Review;
-              cardType = CardType.Review;
+              let queue = CardQueue.New;
+              let cardType = CardType.New;
+              if (lc.status === 'learning') {
+                queue = CardQueue.Learn;
+                cardType = CardType.Learn;
+              } else if (lc.status === 'review' || lc.status === 'mastered') {
+                queue = CardQueue.Review;
+                cardType = CardType.Review;
+              }
+
+              const dueDays = lc.next_review_at ? Math.floor(new Date(lc.next_review_at).getTime() / 86400000) : 0;
+
+              db.prepare(`
+                INSERT INTO anki_cards (
+                  id, user_id, note_id, deck_id, template_ord, queue, card_type, due,
+                  interval_days, ease_factor, reps, lapses, difficulty, stability,
+                  flags, is_marked, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 0.0, 0.0, 0, 0, ?, ?)
+              `).run(
+                lc.id,
+                lc.user_id,
+                noteId,
+                targetDeck.id,
+                queue,
+                cardType,
+                dueDays,
+                lc.interval_days || 0,
+                lc.ease_factor || 2.5,
+                lc.review_count || 0,
+                lc.lapses || 0,
+                now,
+                lc.updated_at || now
+              );
+              cardsMigrated++;
             }
-
-            const dueDays = lc.next_review_at ? Math.floor(new Date(lc.next_review_at).getTime() / 86400000) : 0;
-
-            db.prepare(`
-              INSERT INTO anki_cards (
-                id, user_id, note_id, deck_id, template_ord, queue, card_type, due,
-                interval_days, ease_factor, reps, lapses, difficulty, stability,
-                flags, is_marked, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 0.0, 0.0, 0, 0, ?, ?)
-            `).run(
-              lc.id,
-              lc.user_id,
-              noteId,
-              ld.id,
-              queue,
-              cardType,
-              dueDays,
-              lc.interval_days || 0,
-              lc.ease_factor || 2.5,
-              lc.review_count || 0,
-              lc.lapses || 0,
-              now,
-              lc.updated_at || now
-            );
-            cardsMigrated++;
           }
+
+          // Once processed (either migrated or confirmed already existing/deleted in anki),
+          // clean up this legacy card from flashcards so it never lingers or duplicates!
+          if (AnkiRepository.checkTableExists(db, 'flashcard_reviews')) {
+            db.prepare(`DELETE FROM flashcard_reviews WHERE user_id = ? AND flashcard_id = ?`).run(lc.user_id, lc.id);
+          }
+          if (AnkiRepository.checkTableExists(db, 'flashcards')) {
+            db.prepare(`DELETE FROM flashcards WHERE user_id = ? AND id = ?`).run(lc.user_id, lc.id);
+          }
+        }
+
+        // Once all cards for this legacy deck have been processed, clean up the legacy deck
+        if (AnkiRepository.checkTableExists(db, 'flashcard_decks')) {
+          db.prepare(`DELETE FROM flashcard_decks WHERE user_id = ? AND id = ?`).run(ld.user_id, ld.id);
         }
       }
     } catch (err) {

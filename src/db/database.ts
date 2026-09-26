@@ -1651,7 +1651,7 @@ export class DatabaseService {
     this.db.exec('PRAGMA synchronous = NORMAL;');
   }
 
-  private runMigrations(): void {
+  public runMigrations(): void {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS _migrations (
         id INTEGER PRIMARY KEY,
