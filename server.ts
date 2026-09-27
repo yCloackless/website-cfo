@@ -793,6 +793,11 @@ app.use(
         return callback(null, true);
       }
 
+      // Tauri's custom scheme has an opaque URL origin in browser runtimes, so compare its exact trusted origin.
+      if (origin === 'tauri://localhost' || origin === 'https://tauri.localhost') {
+        return callback(null, true);
+      }
+
       // Permite comunicação segura com extensões de navegador (Chrome, Edge, Brave, Firefox)
       if (origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://')) {
         return callback(null, true);
@@ -1823,6 +1828,7 @@ interface TimerInterval {
 
 interface TimerState {
   status: "STOPPED" | "RUNNING" | "PAUSED";
+  studySessionId?: string;
   accumulatedTime: number; // milissegundos acumulados de estudo
   startTime: number | null; // timestamp de início da última contagem de estudo
   activeSubjectId?: string;
@@ -1934,6 +1940,7 @@ function saveTimerState(userId: string, state: TimerState): void {
 app.get("/api/timer/status", (req: Request, res: Response) => {
   const state = readTimerState((req as any).user.userId);
   const now = Date.now();
+
   let totalElapsedMs = state.accumulatedTime;
   let totalRestMs = state.restAccumulatedMs || 0;
 
@@ -1966,6 +1973,8 @@ app.post("/api/timer/start", (req: Request, res: Response) => {
   const { subjectId, subjectName, accumulatedTime, resetAccumulated, restAccumulatedMs } = req.body || {};
   const state = readTimerState((req as any).user.userId);
   const now = Date.now();
+  const startsNewSession = state.status === "STOPPED" || resetAccumulated === true;
+  if (startsNewSession || !state.studySessionId) state.studySessionId = crypto.randomUUID();
 
   // Sincronização explícita de tempo acumulado enviada pelo cliente (evita ressuscitar tempos residuais)
   if (resetAccumulated === true) {
@@ -2135,6 +2144,7 @@ app.post("/api/timer/reset", (req: Request, res: Response) => {
     restAccumulatedMs: 0,
     restStartTime: null,
     intervals: [],
+    studySessionId: undefined,
     updatedAt: new Date().toISOString(),
     resetAt: now,
     version: (current.version || 0) + 1,
@@ -2250,42 +2260,102 @@ app.post("/api/timer/save-session", (req: Request, res: Response) => {
     const userId = (req as any).user?.userId;
     if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
 
-    const { subjectId, subjectName, topic, durationSeconds, notes } = req.body || {};
-
-    const cleanSubjectId = String(subjectId || "geral").slice(0, 80);
-    const cleanSubjectName = String(subjectName || "Estudo Geral").slice(0, 120);
-    const cleanTopic = topic ? String(topic).slice(0, 200) : null;
-    const cleanNotes = notes ? String(notes).slice(0, 1000) : null;
-
-    // Converte e valida durationSeconds
-    const parsedDuration = Math.round(Number(durationSeconds) || 0);
-    if (parsedDuration <= 0) {
-      return res.status(400).json({ error: "INVALID_DURATION", message: "A sessão precisa ter pelo menos 1 segundo." });
+    const { topic, notes, studySessionId: requestedSessionId, localSessionId, durationSeconds } = req.body || {};
+    const current = readTimerState(userId);
+    const sessionId = String(requestedSessionId || localSessionId || current.studySessionId || "");
+    if (!/^[a-f\d-]{36}$/i.test(sessionId)) {
+      return res.status(400).json({ error: "INVALID_STUDY_SESSION_ID" });
     }
 
-    // Limite razoável de segurança: máx 24 horas por sessão (86400s)
-    if (parsedDuration > 86400) {
+    const db = getDb().getRawDb();
+    const existing = db.prepare(`SELECT * FROM study_sessions
+      WHERE user_id = ? AND source = 'website_timer' AND local_session_id LIKE ?
+      ORDER BY date_str, subject_id`).all(userId, `${sessionId}:%`) as any[];
+    if (existing.length) {
+      return res.status(200).json({
+        success: true,
+        duplicate: true,
+        session: existing[0],
+        sessions: existing,
+        timerState: current,
+      });
+    }
+    if (current.studySessionId && current.studySessionId !== sessionId) {
+      return res.status(409).json({ error: "STUDY_SESSION_MISMATCH" });
+    }
+
+    const now = Date.now();
+    const intervals = (current.intervals || []).filter((item) => item.type === "study" && item.durationMs > 0);
+    if (current.status === "RUNNING" && current.startTime && now > current.startTime) {
+      intervals.push({
+        type: "study",
+        durationMs: now - current.startTime,
+        startTime: current.startTime,
+        endTime: now,
+        subjectId: current.activeSubjectId,
+      });
+    }
+
+    const requestedDuration = Math.round(Number(durationSeconds) || 0);
+    if (!intervals.length && requestedDuration > 0 && current.accumulatedTime > 0) {
+      intervals.push({
+        type: "study",
+        durationMs: Math.min(current.accumulatedTime, requestedDuration) * 1000,
+        startTime: now - Math.min(current.accumulatedTime, requestedDuration) * 1000,
+        endTime: now,
+        subjectId: current.activeSubjectId || req.body?.subjectId,
+      });
+    }
+
+    const totalSeconds = Math.floor(intervals.reduce((sum, interval) => sum + interval.durationMs, 0) / 1000);
+    if (totalSeconds <= 0) {
+      return res.status(400).json({ error: "INVALID_DURATION", message: "A sessão precisa ter pelo menos 1 segundo." });
+    }
+    if (totalSeconds > 86400) {
       return res.status(400).json({ error: "DURATION_EXCEEDS_MAX", message: "Duração máxima por sessão é de 24 horas." });
     }
 
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    const dateStr = `${y}-${m}-${d}`;
+    const subjects = getDesktopSubjects(userId);
+    const grouped = new Map<string, { subjectId: string; subjectName: string; dateStr: string; durationSeconds: number; startedAt: number; endedAt: number }>();
+    for (const interval of intervals) {
+      const subject = subjects.find((item) => item.id === interval.subjectId);
+      if (!subject) return res.status(400).json({ error: "INVALID_SUBJECT" });
+      const end = Number(interval.endTime) || now;
+      const dateParts = new Intl.DateTimeFormat("en-US", {
+        timeZone: process.env.APP_TIME_ZONE || "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
+      }).formatToParts(end);
+      const date = Object.fromEntries(dateParts.map(({ type, value }) => [type, value]));
+      const dateStr = `${date.year}-${date.month}-${date.day}`;
+      const key = `${subject.id}:${dateStr}`;
+      const group = grouped.get(key) || {
+        subjectId: subject.id, subjectName: subject.name, dateStr, durationSeconds: 0,
+        startedAt: Number(interval.startTime) || end, endedAt: end,
+      };
+      group.durationSeconds += interval.durationMs / 1000;
+      group.startedAt = Math.min(group.startedAt, Number(interval.startTime) || end);
+      group.endedAt = Math.max(group.endedAt, end);
+      grouped.set(key, group);
+    }
 
-    const session = studySessionRepoInstance.create({
-      userId,
-      subjectId: cleanSubjectId,
-      subjectName: cleanSubjectName,
-      topic: cleanTopic,
-      dateStr,
-      durationSeconds: parsedDuration,
-      endedAt: now.toISOString(),
-      notes: cleanNotes,
-    });
+    const cleanTopic = topic ? String(topic).slice(0, 200) : null;
+    const cleanNotes = notes ? String(notes).slice(0, 1000) : null;
+    const inserted: any[] = [];
+    for (const group of grouped.values()) {
+      const localId = `${sessionId}:${crypto.createHash("sha256").update(`${group.subjectId}:${group.dateStr}`).digest("hex").slice(0, 16)}`;
+      const id = crypto.createHash("sha256").update(`${userId}:website_timer:${localId}`).digest("hex");
+      db.prepare(`INSERT INTO study_sessions (
+        id, user_id, subject_id, subject_name, topic, date_str, duration_seconds,
+        started_at, ended_at, notes, created_at, source, local_session_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'website_timer', ?)
+      ON CONFLICT(user_id, source, local_session_id) DO NOTHING`).run(
+        id, userId, group.subjectId, group.subjectName, cleanTopic, group.dateStr,
+        Math.floor(group.durationSeconds), new Date(group.startedAt).toISOString(),
+        new Date(group.endedAt).toISOString(), cleanNotes, new Date(now).toISOString(), localId,
+      );
+      const saved = db.prepare("SELECT * FROM study_sessions WHERE user_id = ? AND source = 'website_timer' AND local_session_id = ?").get(userId, localId);
+      if (saved) inserted.push(saved);
+    }
 
-    // Ao salvar a sessão com sucesso, reseta o cronômetro ativo e descanso
     const state: TimerState = {
       status: "STOPPED",
       accumulatedTime: 0,
@@ -2293,9 +2363,15 @@ app.post("/api/timer/save-session", (req: Request, res: Response) => {
       restAccumulatedMs: 0,
       restStartTime: null,
       intervals: [],
-      updatedAt: now.toISOString(),
+      studySessionId: undefined,
+      updatedAt: new Date(now).toISOString(),
+      resetAt: now,
+      version: (current.version || 0) + 1,
+      lastAction: "save-session",
+      activeSubjectId: current.activeSubjectId,
+      activeSubjectName: current.activeSubjectName,
     };
-    saveTimerState(userId, state);
+    if (current.studySessionId === sessionId) saveTimerState(userId, state);
 
     logAuditEvent({
       action: "STUDY_SESSION_SAVED",
@@ -2304,16 +2380,17 @@ app.post("/api/timer/save-session", (req: Request, res: Response) => {
       status: "SUCCESS",
       ip: getClientIp(req),
       details: {
-        sessionId: session.id,
-        subjectId: cleanSubjectId,
-        durationSeconds: parsedDuration,
-        dateStr,
+        sessionId,
+        subjectIds: [...new Set(inserted.map((session) => session.subject_id))],
+        durationSeconds: totalSeconds,
+        dates: [...new Set(inserted.map((session) => session.date_str))],
       },
     });
 
     return res.status(201).json({
       success: true,
-      session,
+      session: inserted[0],
+      sessions: inserted,
       timerState: state,
     });
   } catch (err: any) {

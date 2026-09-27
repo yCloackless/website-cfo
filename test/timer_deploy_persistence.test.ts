@@ -2,10 +2,12 @@ process.env.NODE_ENV = 'test';
 process.env.ADMIN_PASSWORD ||= 'fixture-admin-password-2026';
 process.env.CADET_PASSWORD ||= 'fixture-cadet-password-2026';
 process.env.SESSION_SECRET ||= 'timer-deploy-persistence-test-session-secret';
+process.env.DESKTOP_TIMER_API_KEY = 'desktop-timer-test-key';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -31,6 +33,7 @@ async function request(path: string, options: RequestInit = {}) {
 
 test.before(async () => {
   await new AuthService(getDb()).ensureDefaultAccounts();
+  process.env.DESKTOP_TIMER_USER_ID = (getDb().getRawDb().prepare("SELECT id FROM users WHERE username = 'cadete'").get() as { id: string }).id;
   server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as any).port}`;
@@ -103,14 +106,76 @@ test('30 transições autenticadas de Start/Pause/Resume/Stop mantêm o status e
 
 test('finalizar e gravar a sessão deixa o cronômetro parado no servidor', async () => {
   const headers = { Authorization: `Bearer ${token}` };
-  await request('/api/timer/start', { method: 'POST', headers, body: JSON.stringify({ subjectId: 'fisica', subjectName: 'Física' }) });
+  const started = await request('/api/timer/start', { method: 'POST', headers, body: JSON.stringify({ subjectId: 'fisica', subjectName: 'Física', resetAccumulated: true }) });
+  const studySessionId = started.body.studySessionId;
+  assert.match(studySessionId, /^[a-f\d-]{36}$/i);
+  await new Promise((resolve) => setTimeout(resolve, 1100));
   const saved = await request('/api/timer/save-session', {
     method: 'POST',
     headers,
-    body: JSON.stringify({ subjectId: 'fisica', subjectName: 'Física', durationSeconds: 1 }),
+    body: JSON.stringify({ studySessionId, durationSeconds: 1 }),
   });
   assert.equal(saved.response.status, 201);
+  assert.equal(saved.body.session.subject_id, 'fisica');
+  assert.ok(saved.body.session.duration_seconds >= 1);
   assert.equal(saved.body.timerState.status, 'STOPPED');
+  const duplicate = await request('/api/timer/save-session', {
+    method: 'POST', headers, body: JSON.stringify({ studySessionId, durationSeconds: 1 }),
+  });
+  assert.equal(duplicate.response.status, 200);
+  assert.equal(duplicate.body.duplicate, true);
+  const stored = getDb().getRawDb().prepare("SELECT COUNT(*) AS count FROM study_sessions WHERE source = 'website_timer' AND local_session_id LIKE ?").get(`${studySessionId}:%`) as { count: number };
+  assert.equal(stored.count, 1);
+  const range = await request(`/api/study-sessions/range?startDate=${saved.body.session.date_str}&endDate=${saved.body.session.date_str}`, { headers });
+  const physics = range.body.summary[saved.body.session.date_str].subjects.find((subject: any) => subject.subjectId === 'fisica');
+  assert.equal(physics.durationSeconds, saved.body.session.duration_seconds);
   const status = await request('/api/timer/status', { headers });
   assert.equal(status.body.status, 'STOPPED');
+});
+
+test('a integração desktop autentica, persiste por matéria e é idempotente', async () => {
+  const preflight = await fetch(`${baseUrl}/api/study-sessions/desktop/subjects`, {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'http://tauri.localhost',
+      'Access-Control-Request-Method': 'GET',
+      'Access-Control-Request-Headers': 'authorization',
+    },
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'), 'http://tauri.localhost');
+
+  const linuxPreflight = await fetch(`${baseUrl}/api/study-sessions/desktop/subjects`, {
+    method: 'OPTIONS', headers: { Origin: 'tauri://localhost', 'Access-Control-Request-Method': 'GET' },
+  });
+  assert.equal(linuxPreflight.status, 204);
+  assert.equal(linuxPreflight.headers.get('access-control-allow-origin'), 'tauri://localhost');
+
+  const unauthorized = await fetch(`${baseUrl}/api/study-sessions/desktop/subjects`, {
+    headers: { Authorization: 'Bearer chave-incorreta' },
+  });
+  assert.equal(unauthorized.status, 401);
+
+  const headers = { Authorization: `Bearer ${process.env.DESKTOP_TIMER_API_KEY}` };
+  const subjectList = await request('/api/study-sessions/desktop/subjects', { headers });
+  assert.equal(subjectList.response.status, 200);
+  const physics = subjectList.body.subjects.find((subject: any) => subject.id === 'fisica');
+  assert.ok(physics, 'Física deve vir da lista real associada ao usuário');
+
+  const endedAt = new Date();
+  const startedAt = new Date(endedAt.getTime() - 60_000);
+  const localSessionId = randomUUID();
+  const payload = { localSessionId, subjectId: physics.id, startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString(), durationSeconds: 60 };
+  const saved = await request('/api/study-sessions/desktop', { method: 'POST', headers, body: JSON.stringify(payload) });
+  assert.equal(saved.response.status, 200);
+  assert.equal(saved.body.session.subject_id, 'fisica');
+  assert.equal(saved.body.session.duration_seconds, 60);
+
+  const duplicate = await request('/api/study-sessions/desktop', { method: 'POST', headers, body: JSON.stringify(payload) });
+  assert.equal(duplicate.response.status, 200);
+  const count = getDb().getRawDb().prepare("SELECT COUNT(*) AS count FROM study_sessions WHERE source = 'desktop_timer' AND local_session_id = ?").get(localSessionId) as { count: number };
+  assert.equal(count.count, 1);
+  const range = await request(`/api/study-sessions/range?startDate=${saved.body.session.date_str}&endDate=${saved.body.session.date_str}`, { headers: { Authorization: `Bearer ${token}` } });
+  const subjectSummary = range.body.summary[saved.body.session.date_str].subjects.find((subject: any) => subject.subjectId === 'fisica');
+  assert.ok(subjectSummary.durationSeconds >= 60);
 });

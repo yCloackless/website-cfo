@@ -331,4 +331,27 @@ test.describe('E2E: Estabilização Completa do Cronômetro e Troca de Disciplin
       await expect(page.getByRole('button', { name: /RETOMAR ESTUDO/i })).toBeVisible();
     }
   });
+
+  test('A lista de matérias do cronograma rola dentro do painel em telas estreitas e largas', async ({ page }) => {
+    await page.locator('#sidebar-tab-addSubject').evaluate((button: HTMLButtonElement) => button.click());
+    const heading = page.getByRole('heading', { name: 'Gerenciar Matérias do Cronograma' });
+    await expect(heading).toBeVisible();
+    const panel = heading.locator('xpath=../../..');
+    const scrollArea = panel.locator('div.overflow-y-auto').first();
+    const initial = await scrollArea.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      touchAction: getComputedStyle(element).touchAction,
+    }));
+    expect(initial.scrollHeight).toBeGreaterThan(initial.clientHeight);
+    expect(initial.touchAction).toContain('pan-y');
+
+    await scrollArea.hover();
+    await page.mouse.wheel(0, 1200);
+    await expect.poll(() => scrollArea.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await scrollArea.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await expect(scrollArea.getByText('Língua Estrangeira (Inglês)', { exact: true })).toBeVisible();
+    const pageScroll = await page.evaluate(() => document.scrollingElement?.scrollTop || 0);
+    expect(pageScroll).toBe(0);
+  });
 });

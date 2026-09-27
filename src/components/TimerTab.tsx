@@ -47,6 +47,7 @@ interface TimerInterval {
 
 interface TimerState {
   status: 'STOPPED' | 'RUNNING' | 'PAUSED';
+  studySessionId?: string;
   accumulatedTime: number;
   startTime: number | null;
   activeSubjectId?: string;
@@ -60,7 +61,6 @@ interface TimerState {
 export const TimerTab: React.FC<TimerTabProps> = ({
   theme,
   subjects,
-  onLogStudySession,
   onOpenStudyModal,
   isFloating = false,
   onNavigateToTimer,
@@ -606,7 +606,11 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   const handleSaveToDatabase = async () => {
     const durationSeconds = Math.max(1, Math.round(displayMs / 1000));
     const mins = Math.round(durationSeconds / 60);
-    const preciseMinutes = Number((durationSeconds / 60).toFixed(2));
+    const studySessionId = timerStateRef.current.studySessionId || timerState.studySessionId;
+    if (!studySessionId) {
+      alert('Não foi possível identificar esta sessão. Inicie o cronômetro novamente antes de salvar.');
+      return;
+    }
 
     try {
       setIsSavingDb(true);
@@ -618,8 +622,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          subjectId: activeSubject?.id || 'geral',
-          subjectName: activeSubject?.name || 'Estudo Geral',
+          studySessionId,
           durationSeconds,
           notes: `Sessão cronometrada em ${activeSubject?.name || 'Estudo Geral'}`,
         }),
@@ -637,10 +640,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       setDisplayMs(0);
       setRestDisplayMs(0);
 
-      // Notifica cronograma com precisão proporcional
-      if (onLogStudySession && activeSubject) {
-        onLogStudySession(activeSubject.id, preciseMinutes, `Estudo registrado via Cronômetro de Foco`);
-      }
+      window.dispatchEvent(new Event('cfo:study-sessions-saved'));
 
       setSessionSuccessMsg(
         durationSeconds < 60

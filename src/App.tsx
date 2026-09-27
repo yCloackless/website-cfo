@@ -1333,55 +1333,6 @@ export default function App() {
     showToast(`Matéria "${newSubject.name}" adicionada ao cronograma!`, 'success');
   };
 
-  // Handle logging study time from dedicated Timer Tab
-  const handleLogTimerStudySession = useCallback(
-    (subjectId: string, minutes: number, notes?: string) => {
-      if (!currentCycle) return;
-      const todayISO = toISODate(new Date());
-      const matchedDay = weekDays.find((d) => d.dateStr === todayISO);
-      const dayIndex = matchedDay
-        ? matchedDay.index
-        : new Date().getDay() === 0
-        ? 6
-        : new Date().getDay() - 1;
-      const dateStr = matchedDay ? matchedDay.dateStr : todayISO;
-      const cellKey = `${subjectId}_${dayIndex}`;
-      const existing = currentCycle.entries[cellKey];
-
-      const newEntry: StudyEntry = {
-        id: existing?.id || `study_${Date.now()}`,
-        subjectId,
-        dayIndex,
-        dateStr,
-        durationMinutes: (existing?.durationMinutes || 0) + minutes,
-        completed: true,
-        completedAt: existing?.completedAt || new Date().toISOString(),
-        topic: existing?.topic || 'Sessão via Cronômetro de Foco',
-        notes: notes || existing?.notes || 'Sessão registrada via Cronômetro de Foco',
-        googleCalendarSynced: existing?.googleCalendarSynced || false,
-        revisionScheduled: existing?.revisionScheduled || false,
-      };
-
-      const updatedCycle: WeeklyCycle = {
-        ...currentCycle,
-        entries: {
-          ...currentCycle.entries,
-          [cellKey]: newEntry,
-        },
-        updatedAt: new Date().toISOString(),
-      };
-
-      setCurrentCycle(updatedCycle);
-      saveActiveCycle(updatedCycle);
-      const secs = Math.round(minutes * 60);
-      const toastMsg = minutes < 1 && secs < 60
-        ? `Sessão de ${secs}s registrada no cronograma de hoje!`
-        : `Sessão de ${Math.round(minutes)} min registrada no cronograma de hoje!`;
-      showToast(toastMsg, 'success');
-    },
-    [currentCycle, weekDays, showToast]
-  );
-
   // Handle study session logged from Agenda de Horas (Heatmap Mensal)
   const handleStudySessionLoggedFromAgenda = useCallback(
     (entry: {
@@ -1510,7 +1461,7 @@ export default function App() {
         for (const sub of dayData.subjects || []) {
           const cellKey = `${sub.subjectId}_${matchedDay.index}`;
           const existing = updatedEntries[cellKey];
-          const dbMinutes = Math.round(sub.durationSeconds / 60);
+          const dbMinutes = sub.durationSeconds / 60;
 
           if (dbMinutes > 0) {
             const currentMins = existing?.durationMinutes || 0;
@@ -1554,6 +1505,19 @@ export default function App() {
       syncWeeklyStudySessionsWithBackend();
     }
   }, [isTerminalUnlocked, currentCycle?.startDate, syncWeeklyStudySessionsWithBackend, activeTab]);
+
+  useEffect(() => {
+    if (!isTerminalUnlocked) return;
+    const sync = () => syncWeeklyStudySessionsWithBackend();
+    const interval = window.setInterval(sync, 20_000);
+    window.addEventListener('focus', sync);
+    window.addEventListener('cfo:study-sessions-saved', sync);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', sync);
+      window.removeEventListener('cfo:study-sessions-saved', sync);
+    };
+  }, [isTerminalUnlocked, syncWeeklyStudySessionsWithBackend]);
 
   // Delete/remove subject handler (supports removing default subjects like Química or custom ones)
   const handleDeleteCustomSubject = (subjectId: string) => {
@@ -2389,7 +2353,6 @@ export default function App() {
         <TimerTab
           theme={theme}
           subjects={subjects}
-          onLogStudySession={handleLogTimerStudySession}
           onOpenStudyModal={handleOpenStudyDetailFromTimer}
           isFloating={activeTab !== 'timer'}
           onNavigateToTimer={() => handleSelectTab('timer')}

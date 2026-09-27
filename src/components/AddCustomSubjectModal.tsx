@@ -88,7 +88,7 @@ export const AddCustomSubjectModal: React.FC<AddCustomSubjectModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
       <div
-        className="bg-[#111218] rounded-2xl max-w-lg w-full shadow-2xl border border-slate-800 overflow-hidden text-slate-100 flex flex-col max-h-[90vh]"
+        className="bg-[#111218] rounded-2xl max-w-lg w-full shadow-2xl border border-slate-800 overflow-hidden text-slate-100 flex flex-col max-h-[90dvh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -137,7 +137,7 @@ export const AddCustomSubjectModal: React.FC<AddCustomSubjectModalProps> = ({
 
         {/* Tab 1: Manage & Remove Subjects */}
         {activeTab === 'manage' ? (
-          <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch] p-4 sm:p-6 space-y-4">
             <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-xs text-slate-300 flex items-start gap-2.5">
               <span className="text-base">💡</span>
               <p className="leading-relaxed text-[11px]">
@@ -219,7 +219,7 @@ export const AddCustomSubjectModal: React.FC<AddCustomSubjectModalProps> = ({
           </div>
         ) : (
           /* Tab 2: Add Custom Subject */
-          <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
+          <form onSubmit={handleSubmit} className="min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch] p-4 sm:p-6 space-y-4" >
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
                 Nome da Matéria / Módulo:
