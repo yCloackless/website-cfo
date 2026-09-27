@@ -102,6 +102,7 @@ import { logR2StartupCheck } from "./src/services/anki/ankiMediaStorage";
 import { isValidImportance, normalizeImportance } from "./src/services/anki/ankiImportance";
 import { createWhiteboardRouter } from "./src/routes/whiteboardRouter";
 import { whiteboardRealtimeHub } from "./src/services/whiteboard/whiteboardRealtimeHub";
+import { DEFAULT_CFO_SUBJECTS } from "./src/data/cfoSubjects";
 
 const app = express();
 app.disable("x-powered-by");
@@ -1847,7 +1848,7 @@ app.use('/api/timer', requireUserAuth, (_req: Request, res: Response, next: Next
 // As sessões de estudo pertencem ao usuário autenticado. Este middleware
 // precisa ser aplicado antes das rotas de gravação e consulta do banco de horas.
 app.use('/api/study-sessions', (req: Request, res: Response, next: NextFunction) => {
-  if (req.path !== '/desktop') {
+  if (req.path !== '/desktop' && req.path !== '/desktop/subjects') {
     return requireUserAuth(req, res, () => next());
   }
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
@@ -2154,33 +2155,59 @@ app.post("/api/timer/reset", (req: Request, res: Response) => {
 // 5. Salvar Sessão do Cronômetro diretamente no Banco de Dados (SQLite)
 const studySessionRepoInstance = new StudySessionRepository(getDb().getRawDb());
 
-const desktopSubjects: Record<string, { id: string; name: string }> = {
-  'Matemática': { id: 'matematica', name: 'Matemática & Raciocínio Lógico' },
-  'Física': { id: 'fisica', name: 'Física Aplicada' },
-  'Química': { id: 'quimica', name: 'Química Geral & Orgânica' },
-  'Biologia': { id: 'biologia', name: 'Biologia' },
-  'Português': { id: 'portugues', name: 'Língua Portuguesa & Literatura' },
-  'História': { id: 'historia', name: 'História Geral & do Brasil' },
-  'Geografia': { id: 'geografia', name: 'Geografia Geral & do Brasil' },
-  'Outro': { id: 'geral', name: 'Estudo Geral' },
-};
+function getDesktopSubjects(userId: string) {
+  const user = userRepoInstance.findById(userId);
+  const suffix = user?.username?.toLowerCase() === 'admin'
+    ? ''
+    : `_${String(user?.username || '').toLowerCase().replace(/[^a-z0-9_]/g, '_')}`;
+  const key = `cfo_cbmerj_subjects_v1${suffix}`;
+  const raw = userStateRepoInstance.get(userId)?.payload[key];
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const subjects = parsed.filter((subject) => subject && typeof subject.id === 'string'
+          && typeof subject.name === 'string' && subject.id.length <= 100 && subject.name.length <= 160);
+        if (subjects.length) return subjects.map(({ id, name }) => ({ id, name }));
+      }
+    } catch { /* fall back to website defaults when the saved subject list is malformed */ }
+  }
+  return DEFAULT_CFO_SUBJECTS.map(({ id, name }) => ({ id, name }));
+}
 
-app.post('/api/study-sessions/desktop', (req: Request, res: Response) => {
+function desktopAuthorizedUser(req: Request): string | null {
   const expectedKey = process.env.DESKTOP_TIMER_API_KEY || '';
   const suppliedKey = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '');
   const expectedBuffer = Buffer.from(expectedKey);
   const suppliedBuffer = Buffer.from(suppliedKey);
   if (!expectedKey || expectedBuffer.length !== suppliedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, suppliedBuffer)) {
+    console.warn('[Desktop study sync] unauthorized');
+    return null;
+  }
+  const userId = process.env.DESKTOP_TIMER_USER_ID;
+  if (!userId || !userRepoInstance.findById(userId)) {
+    console.error('[Desktop study sync] authorized account is not configured');
+    return null;
+  }
+  return userId;
+}
+
+app.get('/api/study-sessions/desktop/subjects', (req: Request, res: Response) => {
+  const userId = desktopAuthorizedUser(req);
+  if (!userId) return res.status(401).json({ error: 'UNAUTHORIZED' });
+  return res.json({ subjects: getDesktopSubjects(userId) });
+});
+
+app.post('/api/study-sessions/desktop', (req: Request, res: Response) => {
+  const userId = desktopAuthorizedUser(req);
+  if (!userId) {
     return res.status(401).json({ error: 'UNAUTHORIZED' });
   }
 
-  const userId = process.env.DESKTOP_TIMER_USER_ID;
-  if (!userId || !new UserRepository(getDb().getRawDb()).findById(userId)) {
-    return res.status(503).json({ error: 'DESKTOP_TIMER_USER_NOT_CONFIGURED' });
-  }
-
-  const { localSessionId, subject, startedAt, endedAt, durationSeconds } = req.body || {};
-  const mapping = typeof subject === 'string' ? desktopSubjects[subject] : undefined;
+  const { localSessionId, subjectId, startedAt, endedAt, durationSeconds } = req.body || {};
+  const mapping = typeof subjectId === 'string'
+    ? getDesktopSubjects(userId).find((subject) => subject.id === subjectId)
+    : undefined;
   const start = typeof startedAt === 'string' ? new Date(startedAt) : null;
   const end = typeof endedAt === 'string' ? new Date(endedAt) : null;
   const duration = Number(durationSeconds);
@@ -2188,6 +2215,7 @@ app.post('/api/study-sessions/desktop', (req: Request, res: Response) => {
       || !mapping || !start || !end || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())
       || end < start || !Number.isInteger(duration) || duration < 1 || duration > 86400
       || duration > Math.floor((end.getTime() - start.getTime()) / 1000)) {
+    console.warn('[Desktop study sync] invalid session payload');
     return res.status(400).json({ error: 'INVALID_STUDY_SESSION' });
   }
 
@@ -2199,7 +2227,7 @@ app.post('/api/study-sessions/desktop', (req: Request, res: Response) => {
     }).formatToParts(end);
     const date = Object.fromEntries(dateParts.map(({ type, value }) => [type, value]));
     const dateStr = `${date.year}-${date.month}-${date.day}`;
-    db.prepare(`INSERT INTO study_sessions (
+    const insert = db.prepare(`INSERT INTO study_sessions (
       id, user_id, subject_id, subject_name, topic, date_str, duration_seconds,
       started_at, ended_at, notes, created_at, source, local_session_id
     ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, NULL, ?, 'desktop_timer', ?)
@@ -2209,6 +2237,7 @@ app.post('/api/study-sessions/desktop', (req: Request, res: Response) => {
     );
     const session = db.prepare('SELECT * FROM study_sessions WHERE user_id = ? AND source = ? AND local_session_id = ?')
       .get(userId, 'desktop_timer', localSessionId);
+    console.info('[Desktop study sync]', { result: insert.changes ? 'inserted' : 'duplicate', userId, subjectId: mapping.id, durationSeconds: duration, sessionId: (session as any)?.id });
     return res.status(200).json({ success: true, session });
   } catch (err) {
     console.error('Erro ao importar sessão do cronômetro desktop:', err);
