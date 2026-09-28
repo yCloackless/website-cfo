@@ -290,3 +290,129 @@ test('EB-08: Exclusão Segura de Prova em Cascata', async () => {
   });
   assert.equal(getRes.response.status, 404);
 });
+
+// Helper para gerar buffers de arquivos PDF sintéticos válidos
+function createValidPdfBuffer(pageCount = 1): Buffer {
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    `<< /Type /Pages /Kids [${Array.from({ length: pageCount }, (_, index) => `${index + 3} 0 R`).join(' ')}] /Count ${pageCount} >>`,
+    ...Array.from({ length: pageCount }, () => '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>'),
+  ];
+  let content = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(content));
+    content += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = Buffer.byteLength(content);
+  content += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  content += offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  content += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return Buffer.from(content, 'utf-8');
+}
+
+test('EB-09: Endpoint GET /api/exams/:id/pdf deve entregar PDF binário com headers de segurança e inline disposition', async () => {
+  const pdfBuffer = createValidPdfBuffer(3);
+  const uploadRes = await request('/api/exams/upload-and-process', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cadetToken}` },
+    body: JSON.stringify({
+      title: 'Prova UERJ 2026 - Leitor Interno',
+      institution: 'UERJ',
+      examYear: 2026,
+      fileName: 'uerj_2026_oficial.pdf',
+      declaredMime: 'application/pdf',
+      contentBase64: pdfBuffer.toString('base64'),
+    }),
+  });
+
+  assert.equal(uploadRes.response.status, 201);
+  const examId = uploadRes.body.paper.id;
+  assert.ok(uploadRes.body.paper.fileId, 'Deve possuir fileId associado');
+
+  // Requisição autenticada do PDF para o visualizador interno
+  const pdfRes = await fetch(`${baseUrl}/api/exams/${examId}/pdf`, {
+    headers: { Authorization: `Bearer ${cadetToken}` },
+  });
+
+  assert.equal(pdfRes.status, 200);
+  assert.equal(pdfRes.headers.get('content-type'), 'application/pdf');
+  assert.ok(pdfRes.headers.get('content-disposition')?.includes('inline; filename='));
+  assert.equal(pdfRes.headers.get('x-content-type-options'), 'nosniff');
+
+  const arrayBuf = await pdfRes.arrayBuffer();
+  const returnedBuffer = Buffer.from(arrayBuf);
+  assert.equal(returnedBuffer.length, pdfBuffer.length);
+  assert.deepEqual(returnedBuffer, pdfBuffer);
+});
+
+test('EB-10: IDOR Defense em GET /api/exams/:id/pdf - Usuário B não pode baixar PDF de prova do Usuário A', async () => {
+  const pdfBuffer = createValidPdfBuffer(1);
+  const uploadRes = await request('/api/exams/upload-and-process', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cadetToken}` },
+    body: JSON.stringify({
+      title: 'Prova Secreta Cadete A',
+      institution: 'UERJ',
+      examYear: 2026,
+      fileName: 'prova_secreta.pdf',
+      declaredMime: 'application/pdf',
+      contentBase64: pdfBuffer.toString('base64'),
+    }),
+  });
+
+  assert.equal(uploadRes.response.status, 201);
+  const examId = uploadRes.body.paper.id;
+
+  // Usuário B tenta acessar o PDF do Usuário A -> DEVE RETORNAR 403
+  const idorRes = await request(`/api/exams/${examId}/pdf`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${otherUserToken}` },
+  });
+
+  assert.equal(idorRes.response.status, 403);
+  assert.equal(idorRes.body.error, 'ACCESS_DENIED');
+});
+
+test('EB-11: GET /api/exams/:id/pdf sem autenticação deve retornar 401', async () => {
+  const unauthRes = await request('/api/exams/some-id/pdf', {
+    method: 'GET',
+  });
+
+  assert.equal(unauthRes.response.status, 401);
+});
+
+test('EB-12: GET /api/exams/:id/pdf com ID inexistente deve retornar 404 EXAM_NOT_FOUND', async () => {
+  const notFoundRes = await request('/api/exams/id-que-nao-existe-9999/pdf', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${cadetToken}` },
+  });
+
+  assert.equal(notFoundRes.response.status, 404);
+  assert.equal(notFoundRes.body.error, 'EXAM_NOT_FOUND');
+});
+
+test('EB-13: GET /api/exams/:id/pdf em prova sem arquivo anexado deve retornar 404 NO_PDF_ATTACHED', async () => {
+  // Cria prova sem arquivo PDF (apenas metadados/questões)
+  const noFileRes = await request('/api/exams/upload-and-process', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cadetToken}` },
+    body: JSON.stringify({
+      title: 'Prova Sem Arquivo Anexo',
+      institution: 'VUNESP',
+      examYear: 2024,
+    }),
+  });
+
+  assert.equal(noFileRes.response.status, 201);
+  const examId = noFileRes.body.paper.id;
+
+  const getPdfRes = await request(`/api/exams/${examId}/pdf`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${cadetToken}` },
+  });
+
+  assert.equal(getPdfRes.response.status, 404);
+  assert.equal(getPdfRes.body.error, 'NO_PDF_ATTACHED');
+});
+

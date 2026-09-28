@@ -104,6 +104,7 @@ export default function App() {
   // Active Tab derivado diretamente da URL
   const activeTab = useMemo<TabType>(() => {
     if (location.pathname.startsWith('/whiteboard')) return 'whiteboard';
+    if (location.pathname.startsWith('/banco-de-provas')) return 'examBank';
     return ROUTE_TAB_MAP[location.pathname] || 'table';
   }, [location.pathname]);
 
@@ -1686,7 +1687,10 @@ export default function App() {
 
   // 🧭 Verificação de Rotas Válidas e Fallback 404
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
-  const isValidRoute = VALID_APP_ROUTES.includes(normalizedPath) || normalizedPath.startsWith('/admin') || normalizedPath.startsWith('/whiteboard');
+  const isValidRoute = VALID_APP_ROUTES.includes(normalizedPath)
+    || normalizedPath.startsWith('/admin')
+    || normalizedPath.startsWith('/whiteboard')
+    || normalizedPath.startsWith('/banco-de-provas');
 
   if (!isValidRoute) {
     return (

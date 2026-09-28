@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   FileText,
   UploadCloud,
@@ -16,7 +17,6 @@ import {
   Award,
   BookOpen,
   Calendar,
-  ExternalLink,
   Pencil,
   Check,
   Flame,
@@ -25,6 +25,8 @@ import {
   Maximize2
 } from 'lucide-react';
 import { AppTheme } from '../types';
+import { apiFetch } from '../services/apiFetch';
+import { PdfViewer } from './provas/PdfViewer';
 
 export interface ExamPaper {
   id: string;
@@ -88,20 +90,24 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
 
   // Visualizador de PDF Embutido
   const [viewingPaper, setViewingPaper] = useState<ExamPaper | null>(null);
-  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
-  const [isLoadingPdf, setIsLoadingPdf] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  // Carrega as provas do backend
+  // Detecta se a URL atual aponta para uma prova específica: /banco-de-provas/:id ou ?prova=:id
+  const routeExamId = useMemo(() => {
+    const pathMatch = location.pathname.match(/^\/banco-de-provas\/([a-zA-Z0-9_-]+)/);
+    if (pathMatch && pathMatch[1]) return pathMatch[1];
+    const params = new URLSearchParams(location.search);
+    return params.get('prova') || params.get('id') || null;
+  }, [location.pathname, location.search]);
+
+  // Carrega as provas do backend com apiFetch
   const fetchPapers = async () => {
     try {
       setIsLoading(true);
-      const token = getAuthToken();
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const res = await fetch('/api/exams?limit=100', { headers });
+      const res = await apiFetch('/api/exams?limit=100');
       if (res.ok) {
         const data = await res.json();
         setPapers(data.papers || []);
@@ -118,6 +124,46 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
   useEffect(() => {
     fetchPapers();
   }, []);
+
+  // Sincronização automática com a URL: se a rota possuir ID (ex: F5 ou link direto), abre o leitor
+  useEffect(() => {
+    if (!routeExamId) {
+      if (viewingPaper && !location.pathname.startsWith('/banco-de-provas/')) {
+        setViewingPaper(null);
+      }
+      return;
+    }
+
+    if (viewingPaper?.id === routeExamId) return;
+
+    // Busca na lista local primeiro
+    const localPaper = papers.find((p) => p.id === routeExamId);
+    if (localPaper) {
+      setViewingPaper(localPaper);
+      return;
+    }
+
+    // Se não estiver na lista local (ex: refresh ou acesso direto por URL), busca os dados na API
+    let isMounted = true;
+    const fetchDirect = async () => {
+      try {
+        const res = await apiFetch(`/api/exams/${routeExamId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted && data.paper) {
+            setViewingPaper(data.paper);
+          }
+        }
+      } catch (err) {
+        console.warn('[Direct Exam Route Fetch Error]:', err);
+      }
+    };
+    fetchDirect();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [routeExamId, papers, viewingPaper, location.pathname]);
 
   // Helper para verificar se a prova foi marcada como concluída/resolvida
   const isPaperCompleted = (paper: ExamPaper): boolean => {
@@ -142,13 +188,9 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
       const newCompleted = !currentMeta.completed;
       const updatedMeta = { ...currentMeta, completed: newCompleted, completedAt: newCompleted ? new Date().toISOString() : null };
 
-      const token = getAuthToken();
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const res = await fetch(`/api/exams/${paper.id}`, {
+      const res = await apiFetch(`/api/exams/${paper.id}`, {
         method: 'PATCH',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ metadata: updatedMeta }),
       });
 
@@ -216,13 +258,9 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
         reader.readAsDataURL(uploadFile);
       });
 
-      const token = getAuthToken();
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const res = await fetch('/api/exams/upload-and-process', {
+      const res = await apiFetch('/api/exams/upload-and-process', {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: uploadTitle.trim(),
           institution: uploadInstitution.trim() || 'Banca Examinadora',
@@ -255,13 +293,9 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
     if (!editingPaper || !editTitle.trim()) return;
     try {
       setIsSavingEdit(true);
-      const token = getAuthToken();
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const res = await fetch(`/api/exams/${editingPaper.id}`, {
+      const res = await apiFetch(`/api/exams/${editingPaper.id}`, {
         method: 'PATCH',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: editTitle.trim(),
           institution: editInstitution.trim() || 'Banca',
@@ -294,19 +328,17 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
     if (!deletingPaper) return;
     try {
       setIsDeleting(true);
-      const token = getAuthToken();
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const res = await fetch(`/api/exams/${deletingPaper.id}`, {
+      const res = await apiFetch(`/api/exams/${deletingPaper.id}`, {
         method: 'DELETE',
-        headers,
       });
 
       if (res.ok) {
         showToast?.('Prova removida do acervo.', 'success');
         setPapers((prev) => prev.filter((p) => p.id !== deletingPaper.id));
         setDeletingPaper(null);
+        if (viewingPaper?.id === deletingPaper.id) {
+          closePdfViewer();
+        }
       } else {
         showToast?.('Não foi possível excluir a prova.', 'error');
       }
@@ -317,41 +349,22 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
     }
   };
 
-  // Visualização e Download do PDF
-  const handleOpenPdf = async (paper: ExamPaper) => {
+  // Abertura do Leitor de PDF Nativo e Navegação na URL
+  const handleOpenPdf = (paper: ExamPaper) => {
     if (!paper.fileId) {
       showToast?.('Esta prova não possui arquivo PDF anexado.', 'warning');
       return;
     }
-    try {
-      setIsLoadingPdf(true);
-      setViewingPaper(paper);
-      const token = getAuthToken();
-      const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const res = await fetch(`/api/files/${paper.fileId}`, { headers });
-      if (!res.ok) throw new Error('PDF indisponível');
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      setPdfBlobUrl(url);
-    } catch {
-      showToast?.('Não foi possível carregar o arquivo PDF.', 'error');
-      setViewingPaper(null);
-    } finally {
-      setIsLoadingPdf(false);
-    }
+    setViewingPaper(paper);
+    navigate(`/banco-de-provas/${paper.id}`);
   };
 
   const closePdfViewer = () => {
-    if (pdfBlobUrl) {
-      URL.revokeObjectURL(pdfBlobUrl);
-      setPdfBlobUrl(null);
-    }
     setViewingPaper(null);
+    navigate('/banco-de-provas');
   };
 
+  // Download Seguro do PDF Original
   const handleDownloadPdf = async (paper: ExamPaper, e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (!paper.fileId) {
@@ -359,11 +372,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
       return;
     }
     try {
-      const token = getAuthToken();
-      const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const res = await fetch(`/api/files/${paper.fileId}`, { headers });
+      const res = await apiFetch(`/api/exams/${paper.id}/pdf`);
       if (!res.ok) throw new Error('Download falhou');
 
       const blob = await res.blob();
@@ -375,7 +384,7 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 30_000);
-      showToast?.('Download iniciado.', 'info');
+      showToast?.('Download iniciado com sucesso.', 'info');
     } catch {
       showToast?.('Erro ao baixar arquivo da prova.', 'error');
     }
@@ -1119,78 +1128,17 @@ export const ExamBankTab: React.FC<ExamBankTabProps> = ({ theme, showToast }) =>
         </div>
       )}
 
-      {/* VISUALIZADOR DE PDF EM TELA CHEIA / MODAL IMERSIVO */}
+      {/* VISUALIZADOR DE PDF NATIVO EM TELA CHEIA / MODAL IMERSIVO */}
       {viewingPaper && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/95 animate-fadeIn">
-          {/* Topbar do Leitor */}
-          <div className="flex items-center justify-between px-6 py-3.5 border-b border-white/10 bg-[#080d14] text-white">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-rose-600/20 text-rose-400 flex items-center justify-center flex-shrink-0">
-                <FileText className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-sm font-bold truncate">{viewingPaper.title}</h3>
-                <span className="text-xs text-gray-400">
-                  {viewingPaper.institution} · Ano {viewingPaper.examYear}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {/* Baixar PDF */}
-              <button
-                type="button"
-                onClick={() => handleDownloadPdf(viewingPaper)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white/10 hover:bg-white/20 transition-all text-gray-200"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Baixar</span>
-              </button>
-
-              {/* Abrir em Nova Aba */}
-              {pdfBlobUrl && (
-                <a
-                  href={pdfBlobUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white/10 hover:bg-white/20 transition-all text-gray-200"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Nova Guia</span>
-                </a>
-              )}
-
-              {/* Fechar Leitor */}
-              <button
-                type="button"
-                onClick={closePdfViewer}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 ml-2"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Área do Documento PDF */}
-          <div className="flex-1 w-full bg-[#111] relative">
-            {isLoadingPdf ? (
-              <div className="h-full flex flex-col items-center justify-center gap-3 text-gray-400">
-                <Loader2 className="w-8 h-8 animate-spin text-rose-500" />
-                <span className="text-sm font-semibold">Carregando PDF da prova...</span>
-              </div>
-            ) : pdfBlobUrl ? (
-              <iframe
-                src={pdfBlobUrl}
-                title={viewingPaper.title}
-                className="w-full h-full border-0"
-              />
-            ) : (
-              <div className="h-full flex items-center justify-center text-gray-400 text-sm">
-                Não foi possível exibir o PDF nesta janela. Use o botão de baixar ou abrir em nova guia.
-              </div>
-            )}
-          </div>
-        </div>
+        <PdfViewer
+          pdfUrl={viewingPaper.fileId ? `/api/exams/${viewingPaper.id}/pdf` : ''}
+          title={viewingPaper.title}
+          institution={viewingPaper.institution}
+          examYear={viewingPaper.examYear}
+          theme={theme}
+          onClose={closePdfViewer}
+          onDownload={() => handleDownloadPdf(viewingPaper)}
+        />
       )}
     </div>
   );

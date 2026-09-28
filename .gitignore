@@ -20,4 +20,5 @@ public/avatars/*
 !public/avatars/.gitkeep
 test-results/
 playwright-report/
+Python/
 

@@ -192,7 +192,7 @@ app.use(
         baseUri: ["'self'"],
         formAction: ["'self'"],
         frameAncestors: ["'self'"],
-        workerSrc: ["'self'"],
+        workerSrc: ["'self'", "blob:"],
         manifestSrc: ["'self'"],
         reportTo: ["csp-violations"],
         upgradeInsecureRequests: isProduction ? [] : null,
@@ -1854,7 +1854,7 @@ app.use('/api/timer', requireUserAuth, (_req: Request, res: Response, next: Next
 // As sessões de estudo pertencem ao usuário autenticado. Este middleware
 // precisa ser aplicado antes das rotas de gravação e consulta do banco de horas.
 app.use('/api/study-sessions', (req: Request, res: Response, next: NextFunction) => {
-  if (req.path !== '/desktop' && req.path !== '/desktop/subjects') {
+  if (req.path !== '/desktop' && req.path !== '/desktop/subjects' && req.path !== '/desktop/history') {
     return requireUserAuth(req, res, () => next());
   }
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
@@ -2206,6 +2206,37 @@ app.get('/api/study-sessions/desktop/subjects', (req: Request, res: Response) =>
   const userId = desktopAuthorizedUser(req);
   if (!userId) return res.status(401).json({ error: 'UNAUTHORIZED' });
   return res.json({ subjects: getDesktopSubjects(userId) });
+});
+
+app.get('/api/study-sessions/desktop/history', (req: Request, res: Response) => {
+  const userId = desktopAuthorizedUser(req);
+  if (!userId) return res.status(401).json({ error: 'UNAUTHORIZED' });
+  try {
+    const rawLimit = Number(req.query.limit);
+    const limit = Number.isInteger(rawLimit) ? Math.max(1, Math.min(50, rawLimit)) : 50;
+    const rows = getDb().getRawDb().prepare(`
+      SELECT id, subject_id, subject_name, duration_seconds, started_at, ended_at,
+        created_at, source, local_session_id
+      FROM study_sessions
+      WHERE user_id = ?
+      ORDER BY COALESCE(ended_at, created_at) DESC, id DESC
+      LIMIT ?
+    `).all(userId, limit) as any[];
+    return res.json({ sessions: rows.map((row) => ({
+      id: row.id,
+      subjectId: row.subject_id,
+      subjectName: row.subject_name,
+      durationSeconds: Number(row.duration_seconds),
+      startedAt: row.started_at,
+      endedAt: row.ended_at,
+      createdAt: row.created_at,
+      source: row.source,
+      localSessionId: row.local_session_id,
+    })) });
+  } catch (error) {
+    console.error('[Desktop study sync] history query failed', error);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
 });
 
 app.post('/api/study-sessions/desktop', (req: Request, res: Response) => {
@@ -8537,6 +8568,51 @@ app.get("/api/exams/:id", requireUserAuth, (req: Request, res: Response) => {
     return res.status(500).json({
       error: "GET_EXAM_FAILED",
       message: "Falha ao obter detalhes da prova.",
+    });
+  }
+});
+
+// 4.1. Entrega Segura do PDF da Prova (para Leitor Interno): GET /api/exams/:id/pdf
+app.get("/api/exams/:id/pdf", requireUserAuth, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const examId = req.params.id;
+
+    if (!examId || typeof examId !== 'string') {
+      return res.status(400).json({ error: "INVALID_EXAM_ID", message: "Identificador de prova inválido." });
+    }
+
+    const paper = examPaperRepoInstance.findById(examId);
+    if (!paper) {
+      return res.status(404).json({ error: "EXAM_NOT_FOUND", message: "Prova não encontrada." });
+    }
+
+    if (paper.userId !== user.userId && user.role !== 'admin') {
+      return res.status(403).json({ error: "ACCESS_DENIED", message: "Você não possui permissão para acessar o PDF desta prova." });
+    }
+
+    if (!paper.fileId) {
+      return res.status(404).json({ error: "NO_PDF_ATTACHED", message: "Esta prova não possui arquivo PDF anexado." });
+    }
+
+    const access = secureUploadService.getAuthorizedFile(paper.fileId, user.userId, user.role === 'admin');
+    if (!access.authorized || !access.file || !access.buffer) {
+      return res.status(404).json({ error: "PDF_FILE_NOT_FOUND", message: access.error || "Arquivo físico do PDF não encontrado." });
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', access.buffer.length);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+    const sanitizedFilename = (paper.title || 'prova').replace(/[^a-zA-Z0-9._-]/g, '_');
+    res.setHeader('Content-Disposition', `inline; filename="${sanitizedFilename}.pdf"`);
+
+    return res.send(access.buffer);
+  } catch (err: any) {
+    logInternalError("Exam PDF Delivery Error", err);
+    return res.status(500).json({
+      error: "PDF_DELIVERY_FAILED",
+      message: "Falha ao recuperar o arquivo PDF da prova.",
     });
   }
 });
