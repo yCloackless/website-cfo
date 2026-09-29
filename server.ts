@@ -2189,15 +2189,23 @@ function getDesktopSubjects(userId: string) {
 function desktopAuthorizedUser(req: Request): string | null {
   const expectedKey = process.env.DESKTOP_TIMER_API_KEY || '';
   const suppliedKey = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!expectedKey) {
+    console.warn('[Desktop study sync] DESKTOP_AUTH_REJECTED: API_KEY_NOT_CONFIGURED');
+    return null;
+  }
   const expectedBuffer = Buffer.from(expectedKey);
   const suppliedBuffer = Buffer.from(suppliedKey);
-  if (!expectedKey || expectedBuffer.length !== suppliedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, suppliedBuffer)) {
-    console.warn('[Desktop study sync] unauthorized');
+  if (expectedBuffer.length !== suppliedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, suppliedBuffer)) {
+    console.warn('[Desktop study sync] DESKTOP_AUTH_REJECTED: API_KEY_INVALID');
     return null;
   }
   const userId = process.env.DESKTOP_TIMER_USER_ID;
-  if (!userId || !userRepoInstance.findById(userId)) {
-    console.error('[Desktop study sync] authorized account is not configured');
+  if (!userId) {
+    console.error('[Desktop study sync] DESKTOP_AUTH_REJECTED: USER_ID_NOT_CONFIGURED');
+    return null;
+  }
+  if (!userRepoInstance.findById(userId)) {
+    console.error('[Desktop study sync] DESKTOP_AUTH_REJECTED: USER_NOT_FOUND', { configuredIdLength: userId.length });
     return null;
   }
   return userId;
