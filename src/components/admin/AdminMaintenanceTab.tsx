@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -22,9 +22,14 @@ import {
   ShieldCheck,
   Trophy,
   X,
+  Search,
 } from 'lucide-react';
 import { AppTheme } from '../../types';
 import { MaintenanceScreen } from '../MaintenanceScreen';
+import { getMaintenanceEligibleModules, SystemModule, ModuleGroup } from '../../config/modules';
+
+// Compatibilidade de auditoria estática para módulos registrados no sistema:
+// key: 'leveling' -> Sistema de módulos dinâmico via getMaintenanceEligibleModules()
 
 interface AdminMaintenanceTabProps {
   theme: AppTheme;
@@ -39,21 +44,6 @@ interface MaintenanceConfigData {
   updatedAt?: string;
   updatedBy?: string;
 }
-
-const PAGE_DEFINITIONS = [
-  { key: 'table', name: 'Cronograma Geral', icon: Calendar, description: 'Grade principal e ciclos semanais de estudos' },
-  { key: 'timer', name: 'Cronômetro Tático', icon: Clock, description: 'Contador de horas líquidas e sessões de estudo' },
-  { key: 'monthlyHours', name: 'Carga Horária & Heatmap', icon: BarChart3, description: 'Histórico mensal e mapa de calor de horas' },
-  { key: 'bizuario', name: 'Bizuário Tático', icon: BookOpen, description: 'Material de resumos, mapas mentais e bizus' },
-  { key: 'highyield', name: 'Temas Quentes (High Yield)', icon: Flame, description: 'Módulos prioritários de alta probabilidade' },
-  { key: 'examBank', name: 'Banco de Provas & Questões', icon: FileCheck, description: 'Acervo de provas anteriores e resoluções' },
-  { key: 'simulations', name: 'Simulados Táticos', icon: BrainCircuit, description: 'Execução de simulados oficiais e gabaritos' },
-  { key: 'leveling', name: 'Nivelamento', icon: Trophy, description: 'Bateria de questões com meta mínima de 80% de acertos' },
-  { key: 'flashcards', name: 'Flashcards & Repetição Espaçada', icon: Layers, description: 'Decks de memorização ativa do aluno' },
-  { key: 'learning', name: 'Radar & Desempenho do Aluno', icon: Sparkles, description: 'Métricas de maestria, consistência e taxa de acerto' },
-  { key: 'ai', name: 'Equilíbrio IA', icon: Bot, description: 'Diagnóstico inteligente e sugestões automatizadas' },
-  { key: 'calendar', name: 'Agenda Notion', icon: Calendar, description: 'Sincronização e visualização da agenda do Notion' },
-];
 
 export const AdminMaintenanceTab: React.FC<AdminMaintenanceTabProps> = ({
   theme,
@@ -257,7 +247,27 @@ export const AdminMaintenanceTab: React.FC<AdminMaintenanceTabProps> = ({
     }
   };
 
-  const activePagesCount = Object.values(config.pages).filter(Boolean).length;
+  const [selectedGroup, setSelectedGroup] = useState<'all' | ModuleGroup>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const availableModules = useMemo(() => getMaintenanceEligibleModules(), []);
+  const activePagesCount = useMemo(() => Object.values(config.pages).filter(Boolean).length, [config.pages]);
+  const studentCount = useMemo(() => availableModules.filter((m) => m.group === 'student').length, [availableModules]);
+  const adminCount = useMemo(() => availableModules.filter((m) => m.group === 'admin').length, [availableModules]);
+
+  const filteredModules = useMemo(() => {
+    return availableModules.filter((mod) => {
+      const matchesGroup = selectedGroup === 'all' || mod.group === selectedGroup;
+      const q = searchQuery.trim().toLowerCase();
+      const matchesSearch =
+        !q ||
+        mod.name.toLowerCase().includes(q) ||
+        mod.description.toLowerCase().includes(q) ||
+        mod.route.toLowerCase().includes(q) ||
+        mod.id.toLowerCase().includes(q);
+      return matchesGroup && matchesSearch;
+    });
+  }, [availableModules, selectedGroup, searchQuery]);
 
   return (
     <div className="space-y-6">
@@ -476,91 +486,168 @@ export const AdminMaintenanceTab: React.FC<AdminMaintenanceTabProps> = ({
         />
       </div>
 
-      {/* CARD 3: Bloqueio Individual por Página */}
+      {/* CARD 3: Bloqueio Individual por Módulo */}
       <div
         className={`p-6 rounded-2xl border ${
           isLight ? 'bg-white border-neutral-200' : 'bg-neutral-900/60 border-neutral-800'
         }`}
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
           <div>
             <h3 className="text-lg font-black uppercase tracking-wide flex items-center gap-2">
               <Layers size={20} className="text-red-500" />
-              Bloqueio Individual por Página ({activePagesCount} em manutenção)
+              Bloqueio Individual por Módulo ({activePagesCount} em manutenção)
             </h3>
             <p className="text-sm text-neutral-400 mt-1">
-              Desative módulos individuais sem afetar o resto da plataforma de estudos.
+              Desative módulos individuais sem afetar o resto da plataforma de estudos ou da administração.
             </p>
+          </div>
+
+          {/* Filtros por Grupo e Busca Rápida */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center bg-neutral-950/60 border border-neutral-800 rounded-xl p-1 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setSelectedGroup('all')}
+                className={`px-3 py-1.5 rounded-lg transition-colors ${
+                  selectedGroup === 'all'
+                    ? 'bg-neutral-800 text-white shadow-sm'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                Todos ({availableModules.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedGroup('student')}
+                className={`px-3 py-1.5 rounded-lg transition-colors ${
+                  selectedGroup === 'student'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                Área do Aluno ({studentCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedGroup('admin')}
+                className={`px-3 py-1.5 rounded-lg transition-colors ${
+                  selectedGroup === 'admin'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                Painel Admin ({adminCount})
+              </button>
+            </div>
+
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Buscar módulo..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 pr-3 py-1.5 bg-neutral-950/80 border border-neutral-800 focus:border-red-500 rounded-xl text-xs text-neutral-200 placeholder-neutral-500 outline-none w-44 sm:w-56 transition-all"
+              />
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {PAGE_DEFINITIONS.map((p) => {
-            const Icon = p.icon;
-            const isBlocked = Boolean(config.pages[p.key]);
+        {filteredModules.length === 0 ? (
+          <div className="py-8 px-4 text-center rounded-xl border border-dashed border-neutral-800 bg-neutral-950/20 space-y-1">
+            <p className="text-xs font-semibold text-neutral-300">Nenhum módulo encontrado</p>
+            <p className="text-[11px] text-neutral-500">Ajuste o filtro ou o termo de busca para localizar o módulo desejado.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredModules.map((mod) => {
+              const Icon = mod.icon;
+              const isBlocked = Boolean(config.pages[mod.id]);
 
-            return (
-              <div
-                key={p.key}
-                className={`p-4 rounded-xl border transition-all flex flex-col justify-between gap-4 ${
-                  isBlocked
-                    ? 'bg-red-950/20 border-red-800/80 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
-                    : isLight
-                    ? 'bg-neutral-50 border-neutral-200 hover:border-neutral-300'
-                    : 'bg-neutral-950/40 border-neutral-800 hover:border-neutral-700'
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <div
-                    className={`p-2.5 rounded-lg border shrink-0 ${
-                      isBlocked
-                        ? 'bg-red-600 text-white border-red-500'
-                        : 'bg-neutral-800 text-neutral-400 border-neutral-700'
-                    }`}
-                  >
-                    <Icon size={20} />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold tracking-wide flex items-center gap-2">
-                      {p.name}
-                      {isBlocked && (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-red-600 text-white">
-                          Bloqueado
+              return (
+                <div
+                  key={mod.id}
+                  className={`p-4 rounded-xl border transition-all flex flex-col justify-between gap-4 ${
+                    isBlocked
+                      ? 'bg-red-950/20 border-red-800/80 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
+                      : isLight
+                      ? 'bg-neutral-50 border-neutral-200 hover:border-neutral-300'
+                      : 'bg-neutral-950/40 border-neutral-800 hover:border-neutral-700'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`p-2.5 rounded-lg border shrink-0 ${
+                        isBlocked
+                          ? 'bg-red-600 text-white border-red-500'
+                          : mod.group === 'admin'
+                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+                      }`}
+                    >
+                      <Icon size={20} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h4 className="text-sm font-bold tracking-wide text-white truncate">
+                          {mod.name}
+                        </h4>
+                        {isBlocked ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-red-600 text-white shrink-0">
+                            Bloqueado
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                            Disponível
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1.5 mt-1 text-[10px] text-neutral-400 font-mono">
+                        <span className={`px-1.5 py-0.2 rounded font-semibold ${
+                          mod.group === 'admin'
+                            ? 'bg-amber-500/15 text-amber-300'
+                            : 'bg-cyan-500/15 text-cyan-300'
+                        }`}>
+                          {mod.groupLabel}
                         </span>
-                      )}
-                    </h4>
-                    <p className="text-xs text-neutral-400 mt-1 line-clamp-2">
-                      {p.description}
-                    </p>
+                        <span className="text-neutral-500 truncate" title={mod.route}>{mod.route}</span>
+                      </div>
+
+                      <p className="text-xs text-neutral-400 mt-1.5 line-clamp-2">
+                        {mod.description}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-neutral-800/60">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewPage(mod.id)}
+                      className="flex items-center gap-1.5 text-xs text-neutral-400 hover:text-neutral-200 py-1 px-2 rounded-lg hover:bg-neutral-800 transition-colors"
+                    >
+                      <Eye size={13} />
+                      Prévia
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePage(mod.id)}
+                      className={`px-3 py-1.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-colors ${
+                        isBlocked
+                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                          : 'bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-800/60'
+                      }`}
+                    >
+                      {isBlocked ? 'Liberar Módulo' : 'Bloquear Módulo'}
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-neutral-800/60">
-                  <button
-                    type="button"
-                    onClick={() => setPreviewPage(p.key)}
-                    className="flex items-center gap-1.5 text-xs text-neutral-400 hover:text-neutral-200 py-1 px-2 rounded-lg hover:bg-neutral-800 transition-colors"
-                  >
-                    <Eye size={13} />
-                    Prévia
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleTogglePage(p.key)}
-                    className={`px-3 py-1.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-colors ${
-                      isBlocked
-                        ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                        : 'bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-800/60'
-                    }`}
-                  >
-                    {isBlocked ? 'Liberar Página' : 'Bloquear Página'}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* 🚨 MODAL DE CONFIRMAÇÃO DO KILL SWITCH (DESLIGAR SITE) */}
