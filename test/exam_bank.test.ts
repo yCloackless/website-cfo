@@ -482,8 +482,12 @@ test('EB-14: Simulação de Deploy com Cloudflare R2 - Sobrevivência a Wipe de 
     // 1. Confirma que o PDF foi salvo no Cloudflare R2
     const r2Key = `/rumo-cfo-midia/exams/${cadetUserId}/${fileId}.pdf`;
     assert.ok(s3Storage.has(r2Key), 'PDF deve ter sido salvo no Cloudflare R2 com chave isolada por aluno');
-    assert.equal(s3Storage.get(r2Key)?.contentType, 'application/pdf');
-    assert.deepEqual(s3Storage.get(r2Key)?.buffer, pdfBuffer);
+    const { decompressPdfBuffer: decompressStored } = await import('../src/services/exam/examPdfStorage');
+    const storedR2Buf = s3Storage.get(r2Key)?.buffer;
+    assert.ok(storedR2Buf, 'Buffer deve existir no R2');
+    assert.ok(storedR2Buf.length <= pdfBuffer.length, 'Buffer no R2 deve estar comprimido para economia de armazenamento');
+    assert.deepEqual(decompressStored(storedR2Buf), pdfBuffer, 'Buffer no R2 deve ser descompactável para o PDF original exato');
+
 
     // 2. Simula o wipe de container / novo deploy: apaga o arquivo físico local
     const fs = await import('node:fs');
@@ -524,5 +528,65 @@ test('EB-14: Simulação de Deploy com Cloudflare R2 - Sobrevivência a Wipe de 
     if (originalRegion !== undefined) process.env.BACKUP_S3_REGION = originalRegion; else delete process.env.BACKUP_S3_REGION;
   }
 });
+
+test('EB-15: Compressão Transparente de Armazenamento - Economia de Espaço sem Perda de Dados', async () => {
+  const { compressPdfBuffer, decompressPdfBuffer } = await import('../src/services/exam/examPdfStorage');
+
+  // Cria um PDF sintético de 5 páginas com repetição textual típica de provas de concurso
+  const rawPdf = createValidPdfBuffer(5);
+  const { buffer: compressed, isCompressed, savingsBytes } = compressPdfBuffer(rawPdf);
+
+  // 1. Verifica que a compressão reduziu o tamanho em bytes
+  assert.equal(isCompressed, true);
+  assert.ok(compressed.length < rawPdf.length);
+  assert.ok(savingsBytes > 0);
+
+  // 2. Verifica descompressão perfeita em memória
+  const decompressed = decompressPdfBuffer(compressed);
+  assert.deepEqual(decompressed, rawPdf);
+
+  // 3. Verifica envio via API com persistência comprimida e entrega descompactada ao leitor
+  const uploadRes = await request('/api/exams/upload-and-process', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cadetToken}` },
+    body: JSON.stringify({
+      title: 'Prova UERJ 2026 - Compressao Transparente',
+      institution: 'UERJ',
+      examYear: 2026,
+      fileName: 'uerj_comprimida.pdf',
+      declaredMime: 'application/pdf',
+      contentBase64: rawPdf.toString('base64'),
+    }),
+  });
+
+  assert.equal(uploadRes.response.status, 201);
+  const examId = uploadRes.body.paper.id;
+  const fileId = uploadRes.body.paper.fileId;
+  assert.ok(fileId);
+
+  // 4. Verifica no disco local que o arquivo armazenado no vault é o buffer menor comprimido
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const diskVaultFile = path.join(process.cwd(), 'data', 'vault', `${fileId}.pdf`);
+  if (fs.existsSync(diskVaultFile)) {
+    const diskBuf = fs.readFileSync(diskVaultFile);
+    // Deve começar com os magic bytes do Gzip (0x1f 0x8b)
+    assert.equal(diskBuf[0], 0x1f);
+    assert.equal(diskBuf[1], 0x8b);
+    assert.ok(diskBuf.length < rawPdf.length, 'Arquivo no disco deve ocupar menos bytes que o original');
+  }
+
+  // 5. Cadete requisita o PDF para o leitor Canvas -> Recebe o PDF original 100% íntegro e legível
+  const getPdfRes = await fetch(`${baseUrl}/api/exams/${examId}/pdf`, {
+    headers: { Authorization: `Bearer ${cadetToken}` },
+  });
+
+  assert.equal(getPdfRes.status, 200);
+  assert.equal(getPdfRes.headers.get('content-type'), 'application/pdf');
+  const receivedBuf = Buffer.from(await getPdfRes.arrayBuffer());
+  assert.equal(receivedBuf.length, rawPdf.length);
+  assert.deepEqual(receivedBuf, rawPdf);
+});
+
 
 

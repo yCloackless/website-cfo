@@ -8600,17 +8600,11 @@ app.get("/api/exams/:id/pdf", requireUserAuth, async (req: Request, res: Respons
       return res.status(404).json({ error: "NO_PDF_ATTACHED", message: "Esta prova não possui arquivo PDF anexado." });
     }
 
-    let pdfBuffer: Buffer | null = null;
-    const access = secureUploadService.getAuthorizedFile(paper.fileId, user.userId, user.role === 'admin');
-    if (access.authorized && access.file && access.buffer) {
-      pdfBuffer = access.buffer;
-    } else {
-      // Se não encontrado localmente (cenário pós-deploy com disco efêmero), recupera do Cloudflare R2
-      pdfBuffer = await getExamPdf(paper.userId, paper.fileId);
-    }
+    // Recupera o PDF (lê do cache local com descompressão transparente ou restaura do R2)
+    const pdfBuffer = await getExamPdf(paper.userId, paper.fileId);
 
     if (!pdfBuffer) {
-      return res.status(404).json({ error: "PDF_FILE_NOT_FOUND", message: access.error || "Arquivo físico do PDF não encontrado." });
+      return res.status(404).json({ error: "PDF_FILE_NOT_FOUND", message: "Arquivo físico do PDF não encontrado." });
     }
 
     res.setHeader('Content-Type', 'application/pdf');

@@ -7,6 +7,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { getConfig, MediaStorageNotConfiguredError } from '../anki/ankiMediaStorage';
 
 const localVaultDir = path.join(process.cwd(), 'data', 'vault');
@@ -16,13 +17,51 @@ function hmac(key: Buffer | string, value: string): Buffer {
 }
 
 /**
+ * Tenta comprimir o buffer do PDF usando Gzip no nível máximo (9).
+ * Se o buffer comprimido for comprovadamente menor que o original, retorna o comprimido.
+ * Caso contrário (ex: PDF que já possui compressão interna pesada), mantém o original.
+ */
+export function compressPdfBuffer(buffer: Buffer): { buffer: Buffer; isCompressed: boolean; savingsBytes: number } {
+  try {
+    const compressed = zlib.gzipSync(buffer, { level: 9 });
+    if (compressed.length < buffer.length) {
+      return {
+        buffer: compressed,
+        isCompressed: true,
+        savingsBytes: buffer.length - compressed.length,
+      };
+    }
+  } catch (err) {
+    console.warn('[Exam Storage] Falha na compressão do PDF, mantendo original:', err);
+  }
+  return { buffer, isCompressed: false, savingsBytes: 0 };
+}
+
+/**
+ * Detecta se o buffer está comprimido em Gzip (magic bytes 0x1f 0x8b)
+ * e o descomprime em tempo real. Se já for o PDF descompactado (%PDF-),
+ * retorna intacto com 100% de compatibilidade retroativa.
+ */
+export function decompressPdfBuffer(buffer: Buffer): Buffer {
+  if (buffer && buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
+    try {
+      return zlib.gunzipSync(buffer);
+    } catch (err) {
+      console.warn('[Exam Storage] Falha ao descompactar buffer Gzip, retornando buffer bruto:', err);
+    }
+  }
+  return buffer;
+}
+
+/**
  * Executa requisição assinada via AWS Signature V4 para o Cloudflare R2
  */
 async function requestExamR2Object(
   method: 'GET' | 'PUT' | 'DELETE' | 'HEAD',
   key: string,
   body?: Buffer,
-  contentType?: string
+  contentType?: string,
+  contentEncoding?: string
 ): Promise<Response | null> {
   const config = getConfig();
   if (!config) {
@@ -49,6 +88,9 @@ async function requestExamR2Object(
   };
   if (contentType && method === 'PUT') {
     headers['content-type'] = contentType;
+  }
+  if (contentEncoding && method === 'PUT') {
+    headers['content-encoding'] = contentEncoding;
   }
 
   const signedHeaderKeys = Object.keys(headers).sort();
@@ -94,14 +136,17 @@ export function getExamR2StorageKey(userId: string, fileId: string): string {
 }
 
 /**
- * Salva o PDF da prova no Cloudflare R2 (durabilidade permanente de deploy) e em cache local
+ * Salva o PDF da prova com compressão transparente no Cloudflare R2 e em cache local
  */
 export async function putExamPdf(
   userId: string,
   fileId: string,
   buffer: Buffer
-): Promise<void> {
+): Promise<{ isCompressed: boolean; savingsBytes: number; storedBytes: number }> {
   const storageKey = getExamR2StorageKey(userId, fileId);
+
+  // Comprime o buffer se houver economia real de espaço
+  const { buffer: storedBuffer, isCompressed, savingsBytes } = compressPdfBuffer(buffer);
 
   // 1. Grava no cache local em disco (para leituras ultra-rápidas)
   try {
@@ -109,19 +154,27 @@ export async function putExamPdf(
       fs.mkdirSync(localVaultDir, { recursive: true });
     }
     const localFilePath = path.join(localVaultDir, `${fileId}.pdf`);
-    fs.writeFileSync(localFilePath, buffer);
+    fs.writeFileSync(localFilePath, storedBuffer);
   } catch (err) {
     console.warn('[Exam Storage] Falha ao gravar cache local do PDF:', err);
   }
 
   // 2. Persiste no Cloudflare R2
-  const r2Response = await requestExamR2Object('PUT', storageKey, buffer, 'application/pdf');
+  const r2Response = await requestExamR2Object(
+    'PUT',
+    storageKey,
+    storedBuffer,
+    'application/pdf',
+    isCompressed ? 'gzip' : undefined
+  );
   if (r2Response) {
     if (!r2Response.ok) {
       const errText = await r2Response.text().catch(() => '');
       throw new Error(`R2_EXAM_UPLOAD_FAILED: ${r2Response.status} ${errText}`);
     }
   }
+
+  return { isCompressed, savingsBytes, storedBytes: storedBuffer.length };
 }
 
 /**
@@ -129,6 +182,7 @@ export async function putExamPdf(
  * 1. Primeiro verifica o cache local em disco.
  * 2. Se não estiver no disco local (ex: após novo deploy ou reinicialização de container),
  *    busca no Cloudflare R2 e restaura o cache local.
+ * 3. Descomprime automaticamente em memória antes de entregar ao leitor.
  */
 export async function getExamPdf(userId: string, fileId: string): Promise<Buffer | null> {
   const localFilePath = path.join(localVaultDir, `${fileId}.pdf`);
@@ -138,7 +192,7 @@ export async function getExamPdf(userId: string, fileId: string): Promise<Buffer
     try {
       const localBuf = fs.readFileSync(localFilePath);
       if (localBuf && localBuf.length > 0) {
-        return localBuf;
+        return decompressPdfBuffer(localBuf);
       }
     } catch {}
   }
@@ -154,19 +208,20 @@ export async function getExamPdf(userId: string, fileId: string): Promise<Buffer
     }
 
     const arrayBuffer = await r2Response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const storedBuffer = Buffer.from(arrayBuffer);
 
     // Restaura o arquivo no cache local para que as próximas leituras sejam instantâneas
     try {
       if (!fs.existsSync(localVaultDir)) {
         fs.mkdirSync(localVaultDir, { recursive: true });
       }
-      fs.writeFileSync(localFilePath, buffer);
+      fs.writeFileSync(localFilePath, storedBuffer);
     } catch (cacheErr) {
       console.warn('[Exam Storage] Falha ao recriar cache local após busca no R2:', cacheErr);
     }
 
-    return buffer;
+    // Descomprime se foi armazenado comprimido
+    return decompressPdfBuffer(storedBuffer);
   }
 
   return null;
