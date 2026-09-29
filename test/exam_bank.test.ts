@@ -416,3 +416,113 @@ test('EB-13: GET /api/exams/:id/pdf em prova sem arquivo anexado deve retornar 4
   assert.equal(getPdfRes.body.error, 'NO_PDF_ATTACHED');
 });
 
+test('EB-14: Simulação de Deploy com Cloudflare R2 - Sobrevivência a Wipe de Container e Auto-Restauração', async () => {
+  const s3Storage = new Map<string, { buffer: Buffer; contentType?: string }>();
+  const mockS3Server = http.createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      const url = new URL(req.url!, 'http://localhost');
+      const key = decodeURIComponent(url.pathname);
+      if (req.method === 'PUT') {
+        const ct = req.headers['content-type'] as string | undefined;
+        s3Storage.set(key, { buffer: Buffer.concat(chunks), contentType: ct });
+        res.writeHead(200).end();
+      } else if (req.method === 'DELETE') {
+        s3Storage.delete(key);
+        res.writeHead(204).end();
+      } else if (req.method === 'GET') {
+        if (s3Storage.has(key)) {
+          const item = s3Storage.get(key)!;
+          res.writeHead(200, { 'content-type': item.contentType || 'application/pdf' }).end(item.buffer);
+        } else {
+          res.writeHead(404).end();
+        }
+      } else {
+        res.writeHead(405).end();
+      }
+    });
+  });
+
+  await new Promise<void>((resolve) => mockS3Server.listen(0, '127.0.0.1', resolve));
+  const s3Port = (mockS3Server.address() as any).port;
+
+  const originalEndpoint = process.env.BACKUP_S3_ENDPOINT;
+  const originalBucket = process.env.BACKUP_S3_BUCKET;
+  const originalAccessKey = process.env.BACKUP_S3_ACCESS_KEY;
+  const originalSecretKey = process.env.BACKUP_S3_SECRET_KEY;
+  const originalRegion = process.env.BACKUP_S3_REGION;
+
+  process.env.BACKUP_S3_ENDPOINT = `http://127.0.0.1:${s3Port}`;
+  process.env.BACKUP_S3_BUCKET = 'rumo-cfo-midia';
+  process.env.BACKUP_S3_ACCESS_KEY = 'test-r2-access-key';
+  process.env.BACKUP_S3_SECRET_KEY = 'test-r2-secret-key';
+  process.env.BACKUP_S3_REGION = 'auto';
+
+  try {
+    const pdfBuffer = createValidPdfBuffer(2);
+    const uploadRes = await request('/api/exams/upload-and-process', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${cadetToken}` },
+      body: JSON.stringify({
+        title: 'Prova UERJ 2026 - R2 Deploy Test',
+        institution: 'UERJ',
+        examYear: 2026,
+        fileName: 'r2_deploy_test.pdf',
+        declaredMime: 'application/pdf',
+        contentBase64: pdfBuffer.toString('base64'),
+      }),
+    });
+
+    assert.equal(uploadRes.response.status, 201);
+    const examId = uploadRes.body.paper.id;
+    const fileId = uploadRes.body.paper.fileId;
+    assert.ok(fileId);
+
+    // 1. Confirma que o PDF foi salvo no Cloudflare R2
+    const r2Key = `/rumo-cfo-midia/exams/${cadetUserId}/${fileId}.pdf`;
+    assert.ok(s3Storage.has(r2Key), 'PDF deve ter sido salvo no Cloudflare R2 com chave isolada por aluno');
+    assert.equal(s3Storage.get(r2Key)?.contentType, 'application/pdf');
+    assert.deepEqual(s3Storage.get(r2Key)?.buffer, pdfBuffer);
+
+    // 2. Simula o wipe de container / novo deploy: apaga o arquivo físico local
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const localVaultFile = path.join(process.cwd(), 'data', 'vault', `${fileId}.pdf`);
+    if (fs.existsSync(localVaultFile)) {
+      fs.unlinkSync(localVaultFile);
+    }
+    assert.equal(fs.existsSync(localVaultFile), false, 'Arquivo local apagado pelo novo deploy');
+
+    // 3. Cadete abre a prova pós-deploy -> Backend busca no R2 com sucesso e reaquece o cache local
+    const pdfRes = await fetch(`${baseUrl}/api/exams/${examId}/pdf`, {
+      headers: { Authorization: `Bearer ${cadetToken}` },
+    });
+    assert.equal(pdfRes.status, 200);
+    assert.equal(pdfRes.headers.get('content-type'), 'application/pdf');
+    const restoredBuf = Buffer.from(await pdfRes.arrayBuffer());
+    assert.deepEqual(restoredBuf, pdfBuffer);
+
+    // Confirma que o arquivo local foi auto-reconstituído
+    assert.equal(fs.existsSync(localVaultFile), true, 'Cache local deve ter sido restaurado a partir do R2');
+
+    // 4. Ao excluir a prova, deve purgar do R2
+    const delRes = await request(`/api/exams/${examId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${cadetToken}` },
+    });
+    assert.equal(delRes.response.status, 200);
+    // Dá tempo ao background cleanup
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(s3Storage.has(r2Key), false, 'Objeto no R2 deve ter sido excluído na remoção da prova');
+  } finally {
+    await new Promise<void>((r) => mockS3Server.close(() => r()));
+    if (originalEndpoint !== undefined) process.env.BACKUP_S3_ENDPOINT = originalEndpoint; else delete process.env.BACKUP_S3_ENDPOINT;
+    if (originalBucket !== undefined) process.env.BACKUP_S3_BUCKET = originalBucket; else delete process.env.BACKUP_S3_BUCKET;
+    if (originalAccessKey !== undefined) process.env.BACKUP_S3_ACCESS_KEY = originalAccessKey; else delete process.env.BACKUP_S3_ACCESS_KEY;
+    if (originalSecretKey !== undefined) process.env.BACKUP_S3_SECRET_KEY = originalSecretKey; else delete process.env.BACKUP_S3_SECRET_KEY;
+    if (originalRegion !== undefined) process.env.BACKUP_S3_REGION = originalRegion; else delete process.env.BACKUP_S3_REGION;
+  }
+});
+
+

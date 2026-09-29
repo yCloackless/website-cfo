@@ -86,6 +86,7 @@ import { honeypotRouter, honeytokenDetectionMiddleware } from "./src/services/ho
 import { UserRole, DbUser, DbExamPaper } from "./src/db/schema";
 import { validateImageBuffer } from "./src/services/avatarService";
 import { secureUploadService, SecureUploadService } from "./src/services/secureUploadService";
+import { putExamPdf, getExamPdf, deleteExamPdf } from "./src/services/exam/examPdfStorage";
 import { ExamService } from "./src/services/examService";
 import { ExamJobWorker } from "./src/services/examJobWorker";
 import { StudentLearningService } from "./src/services/studentLearningService";
@@ -8360,6 +8361,10 @@ app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async 
       }
 
       fileId = uploadRes.file.id;
+      // Salva no Cloudflare R2 para garantir sobrevivência a novos deploys e containers efêmeros
+      await putExamPdf(user.userId, fileId, buffer).catch((err) => {
+        console.warn('[Exam R2 Storage Warning]:', err?.message || err);
+      });
     }
 
     let result: { paper: any; questions: any[] };
@@ -8595,19 +8600,27 @@ app.get("/api/exams/:id/pdf", requireUserAuth, async (req: Request, res: Respons
       return res.status(404).json({ error: "NO_PDF_ATTACHED", message: "Esta prova não possui arquivo PDF anexado." });
     }
 
+    let pdfBuffer: Buffer | null = null;
     const access = secureUploadService.getAuthorizedFile(paper.fileId, user.userId, user.role === 'admin');
-    if (!access.authorized || !access.file || !access.buffer) {
+    if (access.authorized && access.file && access.buffer) {
+      pdfBuffer = access.buffer;
+    } else {
+      // Se não encontrado localmente (cenário pós-deploy com disco efêmero), recupera do Cloudflare R2
+      pdfBuffer = await getExamPdf(paper.userId, paper.fileId);
+    }
+
+    if (!pdfBuffer) {
       return res.status(404).json({ error: "PDF_FILE_NOT_FOUND", message: access.error || "Arquivo físico do PDF não encontrado." });
     }
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Length', access.buffer.length);
+    res.setHeader('Content-Length', pdfBuffer.length);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
     const sanitizedFilename = (paper.title || 'prova').replace(/[^a-zA-Z0-9._-]/g, '_');
     res.setHeader('Content-Disposition', `inline; filename="${sanitizedFilename}.pdf"`);
 
-    return res.send(access.buffer);
+    return res.send(pdfBuffer);
   } catch (err: any) {
     logInternalError("Exam PDF Delivery Error", err);
     return res.status(500).json({
@@ -8751,6 +8764,12 @@ app.delete("/api/exams/:id", requireUserAuth, (req: Request, res: Response) => {
 
     if (paper.userId !== user.userId && user.role !== 'admin') {
       return res.status(403).json({ error: "ACCESS_DENIED", message: "Permissão negada para excluir esta prova." });
+    }
+
+    // Exclui arquivo físico, objeto no Cloudflare R2 e registro de upload se houver
+    if (paper.fileId) {
+      deleteExamPdf(paper.userId, paper.fileId).catch(() => {});
+      uploadedFileRepoInstance.delete(paper.fileId);
     }
 
     // Exclui questões e prova em cascata
