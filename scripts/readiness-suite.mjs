@@ -29,6 +29,7 @@ files.push('timer_deploy_persistence');
 files.push('stopwatch_state_machine');
 files.push('timer_extension_sync');
 files.push('timer_subject_switching');
+files.push('study_time_ssot');
 files.push('anki_add_note_selection');
 files.push('sidebar_interaction');
 files.push('postgres_runtime_audit');

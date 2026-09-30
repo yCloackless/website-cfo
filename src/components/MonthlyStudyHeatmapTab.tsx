@@ -317,6 +317,7 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
             headers: { 'Cache-Control': 'no-cache, no-store' },
           });
           await fetchMonthlyData();
+          window.dispatchEvent(new Event('cfo:study-sessions-saved'));
         } catch (err) {
           console.warn('Falha ao excluir horas no backend:', err);
         } finally {
@@ -385,6 +386,7 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
             headers: { 'Cache-Control': 'no-cache, no-store' },
           });
           await fetchMonthlyData();
+          window.dispatchEvent(new Event('cfo:study-sessions-saved'));
         } catch (err) {
           console.warn('Falha ao limpar dia no backend:', err);
         } finally {
@@ -578,6 +580,7 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
 
       // Revalida em background com o banco
       await fetchMonthlyData();
+      window.dispatchEvent(new Event('cfo:study-sessions-saved'));
     } catch (error: any) {
       console.warn('Persistência remota em processamento ou offline:', error);
     } finally {

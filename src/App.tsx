@@ -1316,12 +1316,26 @@ export default function App() {
       description: 'Tem certeza de que deseja apagar TODOS os estudos marcados nesta semana? Esta ação limpará os tópicos e horas registradas.',
       confirmLabel: 'Apagar Tudo',
       isDestructive: true,
-      onConfirm: () => {
+      onConfirm: async () => {
         setAppConfirmState(null);
         const updatedCycle = { ...currentCycle, entries: {}, updatedAt: new Date().toISOString() };
         setCurrentCycle(updatedCycle);
         saveActiveCycle(updatedCycle);
         showToast('Todos os registros de estudo do cronograma foram limpos!', 'info');
+
+        try {
+          await Promise.all(
+            weekDays.map((d) =>
+              apiFetch(`/api/study-sessions/day/${d.dateStr}`, {
+                method: 'DELETE',
+                headers: { 'Cache-Control': 'no-cache, no-store' },
+              }).catch(() => null)
+            )
+          );
+          window.dispatchEvent(new Event('cfo:study-sessions-saved'));
+        } catch (err) {
+          console.warn('Falha ao limpar sessões semanais no banco de dados:', err);
+        }
       },
     });
   };
@@ -1356,7 +1370,7 @@ export default function App() {
           subjectId: entry.subjectId,
           dayIndex,
           dateStr: entry.dateStr,
-          durationMinutes: (existing?.durationMinutes || 0) + entry.durationMinutes,
+          durationMinutes: entry.durationMinutes,
           completed: true,
           completedAt: existing?.completedAt || new Date().toISOString(),
           topic: existing?.topic || entry.topic || 'Sessão via Agenda de Horas',
@@ -1442,7 +1456,7 @@ export default function App() {
       if (!res.ok) return;
 
       const data = await res.json();
-      const dailySummary = data.summary as Record<
+      const dailySummary = (data.summary || {}) as Record<
         string,
         {
           dateStr: string;
@@ -1450,37 +1464,59 @@ export default function App() {
           subjects: Array<{ subjectId: string; subjectName: string; durationSeconds: number }>;
         }
       >;
-      if (!dailySummary || Object.keys(dailySummary).length === 0) return;
 
       let hasChanges = false;
       const updatedEntries = { ...(currentCycle.entries || {}) };
 
-      for (const [dateStr, dayData] of Object.entries(dailySummary)) {
-        const matchedDay = weekDays.find((d) => d.dateStr === dateStr);
-        if (!matchedDay) continue;
+      // Reconciliação autorizativa estrita: study_sessions no banco é a autoridade máxima
+      for (const day of weekDays) {
+        const dayData = dailySummary[day.dateStr];
+        const dbSubjectDurations = new Map<string, number>();
+        if (dayData?.subjects) {
+          for (const s of dayData.subjects) {
+            dbSubjectDurations.set(s.subjectId, s.durationSeconds / 60);
+          }
+        }
 
-        for (const sub of dayData.subjects || []) {
-          const cellKey = `${sub.subjectId}_${matchedDay.index}`;
+        for (const sub of subjects) {
+          const cellKey = `${sub.id}_${day.index}`;
           const existing = updatedEntries[cellKey];
-          const dbMinutes = sub.durationSeconds / 60;
+          const dbMinutes = dbSubjectDurations.get(sub.id) || 0;
 
           if (dbMinutes > 0) {
-            const currentMins = existing?.durationMinutes || 0;
-            if (!existing || currentMins < dbMinutes || !existing.completed) {
+            const roundedDbMinutes = Math.round(dbMinutes * 10) / 10;
+            if (!existing || existing.durationMinutes !== roundedDbMinutes || !existing.completed) {
               hasChanges = true;
               updatedEntries[cellKey] = {
-                id: existing?.id || `study_db_${dateStr}_${sub.subjectId}`,
-                subjectId: sub.subjectId,
-                dayIndex: matchedDay.index,
-                dateStr,
-                durationMinutes: Math.max(currentMins, dbMinutes),
+                id: existing?.id || `study_db_${day.dateStr}_${sub.id}`,
+                subjectId: sub.id,
+                dayIndex: day.index,
+                dateStr: day.dateStr,
+                durationMinutes: roundedDbMinutes,
                 completed: true,
                 completedAt: existing?.completedAt || new Date().toISOString(),
-                topic: existing?.topic || 'Sessão registrada na Agenda de Horas',
+                entryType: existing?.entryType || 'studied',
+                topic: existing?.topic || 'Sessão registrada',
                 notes: existing?.notes || 'Sincronizado do banco de horas',
                 googleCalendarSynced: existing?.googleCalendarSynced || false,
                 revisionScheduled: existing?.revisionScheduled || false,
               };
+            }
+          } else {
+            // Se o banco não possui mais horas para esta matéria neste dia,
+            // remove a conclusão e zera o tempo (revertendo horas excluídas)
+            if (existing && (existing.completed || (existing.durationMinutes || 0) > 0)) {
+              hasChanges = true;
+              if (existing.topic && existing.topic !== 'Sessão registrada' && existing.notes !== 'Sincronizado do banco de horas') {
+                updatedEntries[cellKey] = {
+                  ...existing,
+                  completed: false,
+                  durationMinutes: 0,
+                  completedAt: undefined,
+                };
+              } else {
+                delete updatedEntries[cellKey];
+              }
             }
           }
         }
@@ -1498,7 +1534,7 @@ export default function App() {
     } catch (err) {
       console.warn('[Sync] Falha ao sincronizar horas do banco com ciclo semanal:', err);
     }
-  }, [currentCycle, isTerminalUnlocked, weekDays]);
+  }, [currentCycle, isTerminalUnlocked, weekDays, subjects]);
 
   // Sincroniza sessões de estudo da semana com o backend ao inicializar ou alternar abas
   useEffect(() => {

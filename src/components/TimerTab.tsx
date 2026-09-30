@@ -83,6 +83,59 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [sessionSuccessMsg, setSessionSuccessMsg] = useState<string | null>(null);
+  const [todayTotalSeconds, setTodayTotalSeconds] = useState(0);
+  const [todayPerSubject, setTodayPerSubject] = useState<Record<string, number>>({});
+
+  const formatDurationHMS = (totalSec: number) => {
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
+  const fetchTodayStudySessions = useCallback(async () => {
+    try {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+      const today = `${y}-${m}-${d}`;
+      const res = await apiFetch(`/api/study-sessions/day/${today}?_t=${Date.now()}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (typeof data.totalSeconds === 'number') {
+        setTodayTotalSeconds(data.totalSeconds);
+      }
+      if (data.bySubject) {
+        const perSub: Record<string, number> = {};
+        for (const [subId, val] of Object.entries(data.bySubject as Record<string, any>)) {
+          perSub[subId] = Number(val.durationSeconds) || 0;
+        }
+        setTodayPerSubject(perSub);
+      } else if (Array.isArray(data.sessions)) {
+        const totalSec = data.sessions.reduce((acc: number, s: any) => acc + (Number(s.durationSeconds) || 0), 0);
+        const perSub: Record<string, number> = {};
+        for (const s of data.sessions) {
+          perSub[s.subjectId] = (perSub[s.subjectId] || 0) + (Number(s.durationSeconds) || 0);
+        }
+        setTodayTotalSeconds(totalSec);
+        setTodayPerSubject(perSub);
+      }
+    } catch {
+      // offline fallback
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTodayStudySessions();
+    const handleSync = () => fetchTodayStudySessions();
+    window.addEventListener('cfo:study-sessions-saved', handleSync);
+    window.addEventListener('focus', handleSync);
+    return () => {
+      window.removeEventListener('cfo:study-sessions-saved', handleSync);
+      window.removeEventListener('focus', handleSync);
+    };
+  }, [fetchTodayStudySessions]);
 
   // Offset entre o relógio local do cliente e o relógio do servidor
   const serverOffsetRef = useRef<number>(0);
@@ -606,7 +659,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
   const handleSaveToDatabase = async () => {
     const durationSeconds = Math.max(1, Math.round(displayMs / 1000));
     const mins = Math.round(durationSeconds / 60);
-    const studySessionId = timerStateRef.current.studySessionId || timerState.studySessionId;
+    const studySessionId = timerStateRef.current.studySessionId || timerState.studySessionId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : undefined);
     if (!studySessionId) {
       alert('Não foi possível identificar esta sessão. Inicie o cronômetro novamente antes de salvar.');
       return;
@@ -624,6 +677,8 @@ export const TimerTab: React.FC<TimerTabProps> = ({
         body: JSON.stringify({
           studySessionId,
           durationSeconds,
+          subjectId: activeSubject?.id,
+          subjectName: activeSubject?.name,
           notes: `Sessão cronometrada em ${activeSubject?.name || 'Estudo Geral'}`,
         }),
       });
@@ -640,6 +695,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
       setDisplayMs(0);
       setRestDisplayMs(0);
 
+      await fetchTodayStudySessions();
       window.dispatchEvent(new Event('cfo:study-sessions-saved'));
 
       setSessionSuccessMsg(
@@ -883,8 +939,38 @@ export const TimerTab: React.FC<TimerTabProps> = ({
           </div>
         </div>
 
+        {/* Métricas Consolidadas do Dia (Single Source of Truth) */}
+        <div className="mb-4 w-full max-w-md grid grid-cols-2 gap-2.5 relative z-10">
+          <div
+            className={`p-2.5 rounded-xl border flex flex-col items-center justify-center transition-all ${
+              isDark ? 'bg-[#0B1528]/80 border-blue-900/40 text-slate-200' : 'bg-white border-slate-200 text-slate-700 shadow-xs'
+            }`}
+          >
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Estudado Hoje</span>
+            <span className="font-mono font-extrabold text-sm sm:text-base text-blue-400 mt-0.5">
+              {formatDurationHMS(todayTotalSeconds)}
+            </span>
+          </div>
+
+          <div
+            className={`p-2.5 rounded-xl border flex flex-col items-center justify-center transition-all ${
+              isDark ? 'bg-[#0B1528]/80 border-blue-900/40 text-slate-200' : 'bg-white border-slate-200 text-slate-700 shadow-xs'
+            }`}
+          >
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 truncate max-w-[160px]">
+              {activeSubject?.name || 'Matéria'} Hoje
+            </span>
+            <span className="font-mono font-extrabold text-sm sm:text-base text-emerald-400 mt-0.5">
+              {formatDurationHMS(todayPerSubject[selectedSubjectId] || 0)}
+            </span>
+          </div>
+        </div>
+
         {/* Big Digital Display */}
         <div className="relative my-4 z-10 select-none w-full">
+          <div className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">
+            Tempo da Sessão Atual
+          </div>
           <div
             className={`font-mono font-extrabold tracking-tight text-3xl min-[360px]:text-4xl min-[420px]:text-5xl sm:text-7xl md:text-8xl flex items-baseline justify-center drop-shadow-lg ${
               isRunning
@@ -1094,7 +1180,7 @@ export const TimerTab: React.FC<TimerTabProps> = ({
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 sm:px-7 py-3.5 sm:py-4 rounded-2xl bg-[#0056D2] hover:bg-[#0047B3] text-white text-xs font-extrabold uppercase tracking-wider shadow-[0_10px_25px_rgba(0,86,210,0.5)] hover:shadow-[0_15px_35px_rgba(0,86,210,0.7)] transition-all cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <CheckCircle2 className="w-4 h-4 text-sky-300" />
-            <span>{isSavingDb ? 'GRAVANDO...' : 'CONCLUIR & SALVAR HORAS'}</span>
+            <span>{isSavingDb ? 'GRAVANDO...' : 'SALVAR SESSÃO'}</span>
           </button>
         </div>
 

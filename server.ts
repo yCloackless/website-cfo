@@ -2300,9 +2300,9 @@ app.post("/api/timer/save-session", (req: Request, res: Response) => {
     const userId = (req as any).user?.userId;
     if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
 
-    const { topic, notes, studySessionId: requestedSessionId, localSessionId, durationSeconds } = req.body || {};
+    const { topic, notes, studySessionId: requestedSessionId, localSessionId, sessionId: rawSessionId, durationSeconds } = req.body || {};
     const current = readTimerState(userId);
-    const sessionId = String(requestedSessionId || localSessionId || current.studySessionId || "");
+    const sessionId = String(requestedSessionId || localSessionId || rawSessionId || current.studySessionId || "");
     if (!/^[a-f\d-]{36}$/i.test(sessionId)) {
       return res.status(400).json({ error: "INVALID_STUDY_SESSION_ID" });
     }
@@ -2337,13 +2337,14 @@ app.post("/api/timer/save-session", (req: Request, res: Response) => {
     }
 
     const requestedDuration = Math.round(Number(durationSeconds) || 0);
-    if (!intervals.length && requestedDuration > 0 && current.accumulatedTime > 0) {
+    if (!intervals.length && requestedDuration > 0) {
+      const durSeconds = current.accumulatedTime > 0 ? Math.min(current.accumulatedTime, requestedDuration) : requestedDuration;
       intervals.push({
         type: "study",
-        durationMs: Math.min(current.accumulatedTime, requestedDuration) * 1000,
-        startTime: now - Math.min(current.accumulatedTime, requestedDuration) * 1000,
+        durationMs: durSeconds * 1000,
+        startTime: now - durSeconds * 1000,
         endTime: now,
-        subjectId: current.activeSubjectId || req.body?.subjectId,
+        subjectId: req.body?.subjectId || current.activeSubjectId,
       });
     }
 
@@ -2358,7 +2359,10 @@ app.post("/api/timer/save-session", (req: Request, res: Response) => {
     const subjects = getDesktopSubjects(userId);
     const grouped = new Map<string, { subjectId: string; subjectName: string; dateStr: string; durationSeconds: number; startedAt: number; endedAt: number }>();
     for (const interval of intervals) {
-      const subject = subjects.find((item) => item.id === interval.subjectId);
+      let subject = subjects.find((item) => item.id === interval.subjectId);
+      if (!subject && interval.subjectId && (req.body?.subjectName || current.activeSubjectName)) {
+        subject = { id: interval.subjectId, name: req.body?.subjectName || current.activeSubjectName || interval.subjectId };
+      }
       if (!subject) return res.status(400).json({ error: "INVALID_SUBJECT" });
       const end = Number(interval.endTime) || now;
       const dateParts = new Intl.DateTimeFormat("en-US", {
@@ -2380,20 +2384,27 @@ app.post("/api/timer/save-session", (req: Request, res: Response) => {
     const cleanTopic = topic ? String(topic).slice(0, 200) : null;
     const cleanNotes = notes ? String(notes).slice(0, 1000) : null;
     const inserted: any[] = [];
-    for (const group of grouped.values()) {
-      const localId = `${sessionId}:${crypto.createHash("sha256").update(`${group.subjectId}:${group.dateStr}`).digest("hex").slice(0, 16)}`;
-      const id = crypto.createHash("sha256").update(`${userId}:website_timer:${localId}`).digest("hex");
-      db.prepare(`INSERT INTO study_sessions (
-        id, user_id, subject_id, subject_name, topic, date_str, duration_seconds,
-        started_at, ended_at, notes, created_at, source, local_session_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'website_timer', ?)
-      ON CONFLICT(user_id, source, local_session_id) DO NOTHING`).run(
-        id, userId, group.subjectId, group.subjectName, cleanTopic, group.dateStr,
-        Math.floor(group.durationSeconds), new Date(group.startedAt).toISOString(),
-        new Date(group.endedAt).toISOString(), cleanNotes, new Date(now).toISOString(), localId,
-      );
-      const saved = db.prepare("SELECT * FROM study_sessions WHERE user_id = ? AND source = 'website_timer' AND local_session_id = ?").get(userId, localId);
-      if (saved) inserted.push(saved);
+    databaseService.getRawDb().exec('BEGIN TRANSACTION;');
+    try {
+      for (const group of grouped.values()) {
+        const localId = `${sessionId}:${crypto.createHash("sha256").update(`${group.subjectId}:${group.dateStr}`).digest("hex").slice(0, 16)}`;
+        const id = crypto.createHash("sha256").update(`${userId}:website_timer:${localId}`).digest("hex");
+        db.prepare(`INSERT INTO study_sessions (
+          id, user_id, subject_id, subject_name, topic, date_str, duration_seconds,
+          started_at, ended_at, notes, created_at, source, local_session_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'website_timer', ?)
+        ON CONFLICT(user_id, source, local_session_id) DO NOTHING`).run(
+          id, userId, group.subjectId, group.subjectName, cleanTopic, group.dateStr,
+          Math.floor(group.durationSeconds), new Date(group.startedAt).toISOString(),
+          new Date(group.endedAt).toISOString(), cleanNotes, new Date(now).toISOString(), localId,
+        );
+        const saved = db.prepare("SELECT * FROM study_sessions WHERE user_id = ? AND source = 'website_timer' AND local_session_id = ?").get(userId, localId);
+        if (saved) inserted.push(saved);
+      }
+      databaseService.getRawDb().exec('COMMIT;');
+    } catch (txErr) {
+      try { databaseService.getRawDb().exec('ROLLBACK;'); } catch {}
+      throw txErr;
     }
 
     const state: TimerState = {
@@ -2582,7 +2593,23 @@ app.get("/api/study-sessions/day/:dateStr", (req: Request, res: Response) => {
     }
 
     const sessions = studySessionRepoInstance.getSessionsByDate(userId, dateStr);
-    return res.json({ success: true, dateStr, sessions });
+    const totalSeconds = sessions.reduce((acc, s) => acc + (s.durationSeconds || 0), 0);
+    const bySubject: Record<string, { durationSeconds: number; durationHours: number; subjectName: string }> = {};
+    for (const s of sessions) {
+      if (!bySubject[s.subjectId]) {
+        bySubject[s.subjectId] = { durationSeconds: 0, durationHours: 0, subjectName: s.subjectName };
+      }
+      bySubject[s.subjectId].durationSeconds += s.durationSeconds || 0;
+      bySubject[s.subjectId].durationHours = Math.round((bySubject[s.subjectId].durationSeconds / 3600) * 10) / 10;
+    }
+    return res.json({
+      success: true,
+      dateStr,
+      sessions,
+      totalSeconds,
+      totalHours: Math.round((totalSeconds / 3600) * 10) / 10,
+      bySubject,
+    });
   } catch (err: any) {
     console.error("Erro ao obter sessões do dia:", err);
     return res.status(500).json({ error: "INTERNAL_ERROR" });
@@ -2646,6 +2673,51 @@ app.delete("/api/study-sessions/day/:dateStr", (req: Request, res: Response) => 
   } catch (err: any) {
     console.error("Erro ao limpar horas do dia:", err);
     return res.status(500).json({ error: "INTERNAL_ERROR", message: "Falha ao limpar horas do dia." });
+  }
+});
+
+// 9b. Excluir uma sessão de estudo individual por ID (com validação estrita de ownership)
+app.delete("/api/study-sessions/:id", (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+
+    const id = String(req.params.id || "").trim();
+    if (!id || id.length > 200) {
+      return res.status(400).json({ error: "INVALID_SESSION_ID" });
+    }
+
+    const existing = getDb().getRawDb().prepare("SELECT * FROM study_sessions WHERE id = ?").get(id) as any;
+    if (!existing) {
+      return res.status(404).json({ error: "SESSION_NOT_FOUND" });
+    }
+    if (existing.user_id !== userId) {
+      logAuditEvent({
+        action: "UNAUTHORIZED_STUDY_SESSION_DELETE_ATTEMPT",
+        actor: (req as any).user?.username || userId,
+        resource: "study_sessions",
+        status: "FAILED",
+        ip: getClientIp(req),
+        details: { targetSessionId: id },
+      });
+      return res.status(403).json({ error: "FORBIDDEN", message: "Acesso negado a esta sessão de estudo." });
+    }
+
+    studySessionRepoInstance.deleteByIdForUser(id, userId);
+
+    logAuditEvent({
+      action: "STUDY_SESSION_DELETED",
+      actor: (req as any).user?.username || userId,
+      resource: "study_sessions",
+      status: "SUCCESS",
+      ip: getClientIp(req),
+      details: { sessionId: id, dateStr: existing.date_str, subjectId: existing.subject_id },
+    });
+
+    return res.json({ success: true, removed: true, id, dateStr: existing.date_str, subjectId: existing.subject_id });
+  } catch (err: any) {
+    console.error("Erro ao excluir sessão de estudo:", err);
+    return res.status(500).json({ error: "INTERNAL_ERROR", message: "Falha ao excluir sessão de estudo." });
   }
 });
 
