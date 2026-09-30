@@ -2679,7 +2679,7 @@ app.delete("/api/study-sessions/day/:dateStr", (req: Request, res: Response) => 
 // 9b. Excluir uma sessão de estudo individual por ID (com validação estrita de ownership)
 app.delete("/api/study-sessions/:id", (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.userId;
+    const userId = (req as any).user?.userId || desktopAuthorizedUser(req);
     if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
 
     const id = String(req.params.id || "").trim();
@@ -2687,7 +2687,9 @@ app.delete("/api/study-sessions/:id", (req: Request, res: Response) => {
       return res.status(400).json({ error: "INVALID_SESSION_ID" });
     }
 
-    const existing = getDb().getRawDb().prepare("SELECT * FROM study_sessions WHERE id = ?").get(id) as any;
+    const existing = getDb().getRawDb().prepare(
+      "SELECT * FROM study_sessions WHERE id = ? OR (user_id = ? AND local_session_id = ?)"
+    ).get(id, userId, id) as any;
     if (!existing) {
       return res.status(404).json({ error: "SESSION_NOT_FOUND" });
     }
@@ -2703,7 +2705,7 @@ app.delete("/api/study-sessions/:id", (req: Request, res: Response) => {
       return res.status(403).json({ error: "FORBIDDEN", message: "Acesso negado a esta sessão de estudo." });
     }
 
-    studySessionRepoInstance.deleteByIdForUser(id, userId);
+    studySessionRepoInstance.deleteByIdForUser(existing.id, userId);
 
     logAuditEvent({
       action: "STUDY_SESSION_DELETED",
@@ -2711,10 +2713,10 @@ app.delete("/api/study-sessions/:id", (req: Request, res: Response) => {
       resource: "study_sessions",
       status: "SUCCESS",
       ip: getClientIp(req),
-      details: { sessionId: id, dateStr: existing.date_str, subjectId: existing.subject_id },
+      details: { sessionId: existing.id, dateStr: existing.date_str, subjectId: existing.subject_id },
     });
 
-    return res.json({ success: true, removed: true, id, dateStr: existing.date_str, subjectId: existing.subject_id });
+    return res.json({ success: true, removed: true, id: existing.id, dateStr: existing.date_str, subjectId: existing.subject_id });
   } catch (err: any) {
     console.error("Erro ao excluir sessão de estudo:", err);
     return res.status(500).json({ error: "INTERNAL_ERROR", message: "Falha ao excluir sessão de estudo." });
