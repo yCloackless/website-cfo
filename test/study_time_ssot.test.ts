@@ -13,7 +13,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 const tempDir = mkdtempSync(path.join(tmpdir(), 'cfo-study-ssot-'));
+const originalCwd = process.cwd();
 process.env.SQLITE_DB_PATH = path.join(tempDir, 'study_ssot.sqlite');
+process.chdir(tempDir);
 
 const { app } = await import('../server');
 const { AuthService } = await import('../src/db/authService');
@@ -27,7 +29,11 @@ let otherUserToken = '';
 let cadetUserId = '';
 let otherUserId = '';
 
-const testDateStr = '2026-09-30';
+const dateParts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+  timeZone: process.env.APP_TIME_ZONE || 'America/Sao_Paulo',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+}).formatToParts(new Date()).map(({ type, value }) => [type, value]));
+const testDateStr = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
 
 async function request(pathUrl: string, options: RequestInit = {}) {
   const response = await fetch(baseUrl + pathUrl, {
@@ -85,7 +91,8 @@ test.before(async () => {
 test.after(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   getDb().close();
-  rmSync(tempDir, { recursive: true, force: true });
+  process.chdir(originalCwd);
+  rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 let session1PhysicsId = '';
@@ -102,7 +109,6 @@ test('1. First saved session: Physics 1h -> Save. Hour Bank = 1h, Schedule = 1h,
     headers,
     body: JSON.stringify({
       sessionId: session1PhysicsId,
-      dateStr: testDateStr,
       subjectId: 'fisica',
       subjectName: 'Física',
       durationSeconds: 3600,
@@ -111,6 +117,7 @@ test('1. First saved session: Physics 1h -> Save. Hour Bank = 1h, Schedule = 1h,
 
   assert.ok([200, 201].includes(res.response.status), `Esperado 200/201, obtido ${res.response.status}`);
   assert.equal(res.body.success, true);
+  assert.equal(res.body.session.date_str, testDateStr, 'A data da sessão deve vir do fim do intervalo no fuso da aplicação');
 
   // Check GET /api/study-sessions/day/:dateStr (authoritative aggregate)
   const dayRes = await request(`/api/study-sessions/day/${testDateStr}`, { headers });
@@ -141,7 +148,6 @@ test('2. Same subject again: Physics +2h -> Save. Physics aggregate = 3h, Daily 
     headers,
     body: JSON.stringify({
       sessionId: session2PhysicsId,
-      dateStr: testDateStr,
       subjectId: 'fisica',
       subjectName: 'Física',
       durationSeconds: 7200,
@@ -172,7 +178,6 @@ test('3. Different subject: Mathematics 2h -> Save. Physics = 3h, Mathematics = 
     headers,
     body: JSON.stringify({
       sessionId: session3MathId,
-      dateStr: testDateStr,
       subjectId: 'matematica',
       subjectName: 'Matemática',
       durationSeconds: 7200,
@@ -284,7 +289,6 @@ test('7. Double Save: Burst save requests with same sessionId persist exactly on
     headers,
     body: JSON.stringify({
       sessionId: doubleSaveSessionId,
-      dateStr: testDateStr,
       subjectId: 'quimica',
       subjectName: 'Química',
       durationSeconds: 1800, // 30 min
@@ -296,7 +300,6 @@ test('7. Double Save: Burst save requests with same sessionId persist exactly on
     headers,
     body: JSON.stringify({
       sessionId: doubleSaveSessionId,
-      dateStr: testDateStr,
       subjectId: 'quimica',
       subjectName: 'Química',
       durationSeconds: 1800,
@@ -328,9 +331,14 @@ test('8. Unauthorized ownership attempt: User B cannot delete User A study sessi
     headers: otherHeaders,
   });
 
-  // Must be rejected with 403 Forbidden
-  assert.equal(deleteAttempt.response.status, 403, 'Acesso não autorizado deve retornar 403');
-  assert.equal(deleteAttempt.body.error, 'FORBIDDEN');
+  // A foreign ID must be indistinguishable from a missing ID.
+  assert.equal(deleteAttempt.response.status, 404, 'Sessão alheia não deve revelar sua existência');
+  assert.equal(deleteAttempt.body.error, 'SESSION_NOT_FOUND');
+  const missingAttempt = await request(`/api/study-sessions/${crypto.randomUUID()}`, {
+    method: 'DELETE', headers: otherHeaders,
+  });
+  assert.equal(missingAttempt.response.status, deleteAttempt.response.status);
+  assert.equal(missingAttempt.body.error, deleteAttempt.body.error);
 
   // Verify User A's session still exists untouched
   const dayResAfter = await request(`/api/study-sessions/day/${testDateStr}`, { headers: cadetHeaders });

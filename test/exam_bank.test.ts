@@ -1,8 +1,21 @@
 process.env.NODE_ENV = 'test';
+process.env.ADMIN_PASSWORD ||= 'exam-test-admin-password';
+process.env.CADET_PASSWORD ||= 'exam-test-cadet-password';
+process.env.SESSION_SECRET ||= 'exam-test-session-secret';
+process.env.DATA_ENCRYPTION_KEY ||= 'exam-test-data-encryption-key-not-for-production';
+for (const key of ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'RESEND_API_KEY', 'BACKUP_S3_ACCESS_KEY', 'BACKUP_S3_SECRET_KEY']) delete process.env[key];
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
+
+const tempDir = fs.mkdtempSync(path.join(tmpdir(), 'cfo-exam-security-'));
+const originalCwd = process.cwd();
+process.env.SQLITE_DB_PATH = path.join(tempDir, 'exams.sqlite');
+process.chdir(tempDir);
 
 const { app } = await import('../server');
 const { getDb } = await import('../src/db/database');
@@ -102,6 +115,9 @@ test.before(async () => {
 
 test.after(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  getDb().close();
+  process.chdir(originalCwd);
+  fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 });
 
 // ============================================================================
@@ -165,23 +181,43 @@ test('EB-03: IDOR Defense - Usuário B não pode acessar nem listar prova privad
   assert.equal(createRes.response.status, 201);
   const examId = createRes.body.paper.id;
 
-  // Usuário B tenta consultar diretamente a prova do Usuário A -> DEVE RETORNAR 403 ACCESS_DENIED
+  // A prova privada não pode ser distinguida de um ID inexistente.
   const accessRes = await request(`/api/exams/${examId}`, {
     method: 'GET',
     headers: { Authorization: `Bearer ${otherUserToken}` },
   });
 
-  assert.equal(accessRes.response.status, 403);
-  assert.equal(accessRes.body.error, 'ACCESS_DENIED');
+  assert.equal(accessRes.response.status, 404);
+  assert.equal(accessRes.body.error, 'EXAM_NOT_FOUND');
 
-  // Usuário B tenta listar questões da prova do Usuário A -> DEVE RETORNAR 403 ACCESS_DENIED
+  // O mesmo vale para as questões e mutações por ID.
   const questionsRes = await request(`/api/exams/${examId}/questions`, {
     method: 'GET',
     headers: { Authorization: `Bearer ${otherUserToken}` },
   });
 
-  assert.equal(questionsRes.response.status, 403);
-  assert.equal(questionsRes.body.error, 'ACCESS_DENIED');
+  assert.equal(questionsRes.response.status, 404);
+  assert.equal(questionsRes.body.error, 'EXAM_NOT_FOUND');
+  for (const [method, suffix, body] of [
+    ['PATCH', '', { title: 'Título de B' }],
+    ['DELETE', '', undefined],
+    ['POST', '/review', undefined],
+    ['POST', '/publish', undefined],
+  ] as const) {
+    const denied = await request(`/api/exams/${examId}${suffix}`, {
+      method, headers: { Authorization: `Bearer ${otherUserToken}` },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    assert.equal(denied.response.status, 404);
+    assert.equal(denied.body.error, 'EXAM_NOT_FOUND');
+  }
+  const missing = await request('/api/exams/not-a-real-id', { headers: { Authorization: `Bearer ${otherUserToken}` } });
+  assert.equal(missing.response.status, accessRes.response.status);
+  assert.deepEqual(missing.body, accessRes.body);
+  const listed = await request('/api/exams', { headers: { Authorization: `Bearer ${otherUserToken}` } });
+  assert.equal(listed.response.status, 200);
+  assert.equal(listed.body.papers.some((paper: any) => paper.id === examId), false);
+  assert.equal((await request(`/api/exams/${examId}`, { headers: { Authorization: `Bearer ${cadetToken}` } })).response.status, 200);
 });
 
 test('EB-04: Deve REJEITAR tentativa de correção por IA com mais de 10 questões (Regra de Negócio & Proteção de Carga)', async () => {
@@ -399,14 +435,16 @@ test('EB-10: IDOR Defense em GET /api/exams/:id/pdf - Usuário B não pode baixa
   assert.equal(uploadRes.response.status, 201);
   const examId = uploadRes.body.paper.id;
 
-  // Usuário B tenta acessar o PDF do Usuário A -> DEVE RETORNAR 403
+  // O PDF privado deve ter a mesma resposta de um ID inexistente.
   const idorRes = await request(`/api/exams/${examId}/pdf`, {
     method: 'GET',
     headers: { Authorization: `Bearer ${otherUserToken}` },
   });
 
-  assert.equal(idorRes.response.status, 403);
-  assert.equal(idorRes.body.error, 'ACCESS_DENIED');
+  assert.equal(idorRes.response.status, 404);
+  assert.equal(idorRes.body.error, 'EXAM_NOT_FOUND');
+  const missingPdf = await request('/api/exams/not-a-real-id/pdf', { headers: { Authorization: `Bearer ${otherUserToken}` } });
+  assert.deepEqual(missingPdf.body, idorRes.body);
 });
 
 test('EB-11: GET /api/exams/:id/pdf sem autenticação deve retornar 401', async () => {

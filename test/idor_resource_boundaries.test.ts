@@ -19,6 +19,7 @@ process.chdir(tempDir);
 const { app } = await import('../server');
 const { getDb } = await import('../src/db/database');
 const { SessionRepository, UserRepository } = await import('../src/db/repositories');
+const { AuthService } = await import('../src/db/authService');
 
 let server: http.Server;
 let baseUrl = '';
@@ -60,7 +61,7 @@ test.after(async () => {
   if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
   getDb().close();
   process.chdir(originalCwd);
-  rmSync(tempDir, { recursive: true, force: true });
+  rmSync(tempDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 });
 
 test('two authenticated users cannot read, mutate, or delete each other’s private resources by ID', async () => {
@@ -143,6 +144,16 @@ test('repeated reset requests keep a generic response and do not replace the act
   assert.equal(first.status, 200);
   assert.equal(firstBody.success, true);
 
+  const unknown = await fetch(`${baseUrl}/api/auth/forgot-password`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: `unknown-${Date.now()}@example.test` }),
+  });
+  const unknownBody: any = await unknown.json();
+  assert.equal(unknown.status, first.status);
+  assert.equal(unknownBody.success, firstBody.success);
+  assert.equal(unknownBody.message, firstBody.message);
+  assert.equal(unknownBody.debugCode, undefined);
+
   const before = getDb().getRawDb().prepare(
     'SELECT id, is_used FROM password_resets WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
   ).get(userAId) as any;
@@ -165,6 +176,10 @@ test('repeated reset requests keep a generic response and do not replace the act
 });
 
 test('email and username login attempts share the same distributed-account backoff bucket', async () => {
+  const auth = new AuthService(getDb());
+  for (const alias of ['idor_user_a', '  IDOR_USER_A  ', 'idor-a@example.test', '  IDOR-A@EXAMPLE.TEST  ', 'idor-a']) {
+    assert.equal(auth.resolveAccountId(alias), userAId);
+  }
   const attempt = async (body: unknown) => {
     const start = Date.now();
     const response = await fetch(`${baseUrl}/api/auth/check-credentials`, {
@@ -174,7 +189,7 @@ test('email and username login attempts share the same distributed-account backo
     assert.equal(response.status, 401);
     return Date.now() - start;
   };
-  await attempt({ username: 'idor_user_a', password: 'wrong-password' });
+  await attempt({ username: '  IDOR_USER_A  ', password: 'wrong-password' });
   await attempt({ email: 'idor-a@example.test', password: 'wrong-password' });
-  assert.ok(await attempt({ username: 'idor_user_a', password: 'wrong-password' }) >= 200);
+  assert.ok(await attempt({ email: '  IDOR-A@EXAMPLE.TEST  ', password: 'wrong-password' }) >= 200);
 });

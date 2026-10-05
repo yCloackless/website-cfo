@@ -11,6 +11,56 @@ import { postgresConnectionOptions } from '../src/db/postgresTls';
 import { AnkiRepository } from '../src/db/ankiRepository';
 import { FlashcardRepository, UserRepository } from '../src/db/repositories';
 import { isRedisAvailable, createRateLimitRedisStore } from '../src/services/redisService';
+import pg from 'pg';
+
+const localPostgresUrl = process.env.LOCAL_POSTGRES_TEST_URL;
+
+test('9. Local PostgreSQL application role has restricted privileges and can run CRUD/DDL', { skip: !localPostgresUrl }, async () => {
+  const target = new URL(localPostgresUrl!);
+  assert.ok(['localhost', '127.0.0.1', '::1'].includes(target.hostname), 'Only a local PostgreSQL target is allowed');
+  const client = new pg.Client({ connectionString: localPostgresUrl, connectionTimeoutMillis: 5000 });
+  await client.connect();
+  try {
+    const bootstrapUser = process.env.LOCAL_POSTGRES_BOOTSTRAP_USER || 'cfo_bootstrap';
+    const { rows: [role] } = await client.query(`
+      SELECT current_user AS name, current_database() AS database,
+             rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls
+      FROM pg_roles WHERE rolname = current_user
+    `);
+    assert.ok(role, 'Application role must exist');
+    assert.notEqual(role.name, bootstrapUser);
+    for (const key of ['rolsuper', 'rolcreatedb', 'rolcreaterole', 'rolreplication', 'rolbypassrls']) {
+      assert.equal(role[key], false, `Application role must not have ${key}`);
+    }
+    const { rows: [access] } = await client.query(`
+      SELECT has_database_privilege(current_user, current_database(), 'CONNECT') AS db_connect,
+             has_schema_privilege(current_user, 'public', 'USAGE') AS schema_usage,
+             has_schema_privilege(current_user, 'public', 'CREATE') AS schema_create,
+             (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE pg_get_userbyid(c.relowner) = current_user AND n.nspname IN ('pg_catalog', 'information_schema')) AS system_owned
+    `);
+    assert.equal(access.db_connect, true);
+    assert.equal(access.schema_usage, true);
+    assert.equal(access.schema_create, true, 'Application schema migrations require CREATE');
+    assert.equal(access.system_owned, 0);
+    const { rows: [bootstrap] } = await client.query('SELECT rolname FROM pg_roles WHERE rolname = $1', [bootstrapUser]);
+    assert.ok(bootstrap, 'Separate bootstrap role must exist');
+    await assert.rejects(client.query(`SET ROLE "${bootstrapUser.replaceAll('"', '""')}"`), { code: '42501' });
+    await client.query('BEGIN');
+    try {
+      await client.query('CREATE TABLE public.cfo_privilege_probe (id integer PRIMARY KEY, value text)');
+      await client.query("INSERT INTO public.cfo_privilege_probe VALUES (1, 'created')");
+      await client.query("UPDATE public.cfo_privilege_probe SET value = 'updated' WHERE id = 1");
+      const { rows } = await client.query('SELECT value FROM public.cfo_privilege_probe WHERE id = 1');
+      assert.equal(rows[0]?.value, 'updated');
+      await client.query('DELETE FROM public.cfo_privilege_probe WHERE id = 1');
+    } finally {
+      await client.query('ROLLBACK');
+    }
+  } finally {
+    await client.end();
+  }
+});
 
 test('1. Database Detection: PostgresSyncDatabase and DatabaseService expose dialect safely', () => {
   const db = getDb();

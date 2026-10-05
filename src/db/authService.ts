@@ -229,6 +229,10 @@ export class AuthService {
     return user;
   }
 
+  public resolveAccountId(identifier: string): string | undefined {
+    return this.findUserByIdentifier(identifier)?.id;
+  }
+
   /**
    * Universal Login: accepts e-mail, username or handle prefix with password.
    */

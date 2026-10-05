@@ -15,7 +15,7 @@ import compression from "compression";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import bcrypt from "bcryptjs";
 import { loginIdentifierProtection } from "./src/services/authAbuseProtection";
-import { assertTurnstileProductionConfig, isTurnstileRequired } from "./src/services/turnstilePolicy";
+import { assertTurnstileProductionConfig, isTurnstileRequired, verifyTurnstileToken } from "./src/services/turnstilePolicy";
 
 if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL_REQUIRED_IN_PRODUCTION');
@@ -628,42 +628,6 @@ async function getIpGeoLocation(
   // Não transmite o IP do cliente a terceiros. Geolocalização somente por
   // cabeçalhos autenticados da borda; sem borda confiável, falha como UNKNOWN.
   return { country: "UNKNOWN", region: "UNKNOWN", isRJ: false };
-}
-
-// Verificação do Token do Cloudflare Turnstile
-async function verifyTurnstileToken(token?: string, remoteip?: string): Promise<boolean> {
-  const secretKey =
-    process.env.TURNSTILE_SECRET_KEY || "";
-  if (!secretKey) return false;
-  if (!token) return false;
-
-  // Chave de teste oficial da Cloudflare que sempre passa em desenvolvimento
-  if (secretKey === "1x0000000000000000000000000000000AA") {
-    return true;
-  }
-
-  try {
-    const formData = new URLSearchParams();
-    formData.append("secret", secretKey);
-    formData.append("response", token);
-    if (remoteip) formData.append("remoteip", remoteip);
-
-    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-      method: "POST",
-      body: formData,
-    });
-
-    if (res.ok) {
-      const result = (await res.json()) as any;
-      if (!result.success && result["error-codes"]) {
-        console.warn("[Turnstile] Validação falhou:", result["error-codes"]);
-      }
-      return Boolean(result.success);
-    }
-  } catch (err) {
-    console.error("[Turnstile] Erro ao validar token com Cloudflare:", err);
-  }
-  return false;
 }
 
 // 🛑 MIDDLEWARE GLOBAL DE BLOQUEIO DE IPs BANIDOS E BLOQUEIOS TEMPORÁRIOS
@@ -2716,21 +2680,10 @@ app.delete("/api/study-sessions/:id", (req: Request, res: Response) => {
     }
 
     const existing = getDb().getRawDb().prepare(
-      "SELECT * FROM study_sessions WHERE id = ? OR (user_id = ? AND local_session_id = ?)"
-    ).get(id, userId, id) as any;
+      "SELECT * FROM study_sessions WHERE user_id = ? AND (id = ? OR local_session_id = ?)"
+    ).get(userId, id, id) as any;
     if (!existing) {
       return res.status(404).json({ error: "SESSION_NOT_FOUND" });
-    }
-    if (existing.user_id !== userId) {
-      logAuditEvent({
-        action: "UNAUTHORIZED_STUDY_SESSION_DELETE_ATTEMPT",
-        actor: (req as any).user?.username || userId,
-        resource: "study_sessions",
-        status: "FAILED",
-        ip: getClientIp(req),
-        details: { targetSessionId: id },
-      });
-      return res.status(403).json({ error: "FORBIDDEN", message: "Acesso negado a esta sessão de estudo." });
     }
 
     studySessionRepoInstance.deleteByIdForUser(existing.id, userId);
@@ -2872,8 +2825,8 @@ app.post("/api/auth/register", registrationLimiter, async (req: Request, res: Re
 });
 
 const resolveLoginAccountKey = (identifier: string) => {
-  const user = userRepoInstance.findByEmail(identifier) || userRepoInstance.findByUsername(identifier) || userRepoInstance.findByEmailPrefix(identifier);
-  return user ? `user:${user.id}` : undefined;
+  const userId = authServiceInstance.resolveAccountId(identifier);
+  return userId ? `user:${userId}` : undefined;
 };
 
 app.post("/api/auth/check-credentials", authLimiter, (req, res, next) => loginIdentifierProtection(req, res, next, resolveLoginAccountKey), async (req: Request, res: Response) => {
@@ -5569,13 +5522,13 @@ app.post("/api/calendar/create-event", requireAdminWriteAuth, calendarLimiter, a
       throw apiErr;
     }
   } catch (error: any) {
+    logInternalError('Calendar event sync', error);
     const isApiDisabled = error?.googleError?.error?.message?.includes('Google Calendar API has not been used') ||
                           error?.message?.includes('Google Calendar API has not been used');
-    const projectNumber = (GOOGLE_CLIENT_ID || "").split("-")[0] || "1077493396610";
     const message = isApiDisabled
-      ? `A Google Calendar API precisa ser ativada no seu Google Cloud Console: https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=${projectNumber}`
-      : (error?.googleError?.error?.message || error?.message || (error?.status === 401 ? "A autorização do Google Agenda expirou." : "Falha ao criar evento na Google Agenda"));
-    return res.status(error?.status || 500).json({
+      ? 'A Google Calendar API precisa ser ativada no Google Cloud Console.'
+      : 'Falha ao criar evento na Google Agenda.';
+    return res.status(502).json({
       error: isApiDisabled ? "GOOGLE_CALENDAR_API_DISABLED" : "CALENDAR_SYNC_FAILED",
       message,
     });
@@ -5657,13 +5610,13 @@ app.post("/api/calendar/batch-sync", requireAdminWriteAuth, calendarLimiter, asy
       throw syncErr;
     }
   } catch (error: any) {
+    logInternalError('Calendar batch sync', error);
     const isApiDisabled = error?.googleError?.error?.message?.includes('Google Calendar API has not been used') ||
                           error?.message?.includes('Google Calendar API has not been used');
-    const projectNumber = (GOOGLE_CLIENT_ID || "").split("-")[0] || "1077493396610";
     const message = isApiDisabled
-      ? `A Google Calendar API precisa ser ativada no seu Google Cloud Console: https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=${projectNumber}`
-      : (error?.googleError?.error?.message || error?.message || (error?.status === 401 ? "A autorização do Google Agenda expirou." : "Falha ao sincronizar eventos com Google Agenda"));
-    return res.status(error?.status || 500).json({
+      ? 'A Google Calendar API precisa ser ativada no Google Cloud Console.'
+      : 'Falha ao sincronizar eventos com Google Agenda.';
+    return res.status(502).json({
       error: isApiDisabled ? "GOOGLE_CALENDAR_API_DISABLED" : "CALENDAR_SYNC_FAILED",
       message,
     });
@@ -8403,7 +8356,11 @@ app.post('/api/student/simulations/reinforcement', requireUserAuth, (req: Reques
     const questionIds = Array.isArray(req.body?.questionIds) ? req.body.questionIds.map(String) : [];
     return res.status(201).json({ success: true, simulation: studentLearningService.createReinforcementSimulation(user.userId, questionIds) });
   } catch (error: any) {
-    return res.status(422).json({ error: error?.message || 'NO_REINFORCEMENT_QUESTIONS' });
+    if (error?.message === 'NO_REINFORCEMENT_QUESTIONS') {
+      return res.status(422).json({ error: 'NO_REINFORCEMENT_QUESTIONS' });
+    }
+    logInternalError('Reinforcement simulation', error);
+    return res.status(500).json({ error: 'SIMULATION_CREATE_FAILED' });
   }
 });
 
@@ -8537,9 +8494,8 @@ app.patch("/api/exams/:id", requireUserAuth, (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     const paper = examPaperRepoInstance.findById(req.params.id);
-    if (!paper) return res.status(404).json({ error: "EXAM_NOT_FOUND" });
-    if (paper.userId !== user.userId && user.role !== 'admin') {
-      return res.status(403).json({ error: "ACCESS_DENIED" });
+    if (!paper || (paper.userId !== user.userId && user.role !== 'admin')) {
+      return res.status(404).json({ error: "EXAM_NOT_FOUND" });
     }
 
     const { title, institution, examYear, metadata } = req.body || {};
@@ -8561,8 +8517,7 @@ app.post("/api/exams/:id/review", requireUserAuth, (req: Request, res: Response)
   try {
     const user = (req as any).user;
     const paper = examPaperRepoInstance.findById(req.params.id);
-    if (!paper) return res.status(404).json({ error: 'EXAM_NOT_FOUND' });
-    if (paper.userId !== user.userId && user.role !== 'admin') return res.status(403).json({ error: 'ACCESS_DENIED' });
+    if (!paper || (paper.userId !== user.userId && user.role !== 'admin')) return res.status(404).json({ error: 'EXAM_NOT_FOUND' });
     const questions = examQuestionRepoInstance.findByExamId(paper.id);
     if (questions.length === 0) return res.status(422).json({ error: 'NO_QUESTIONS_TO_REVIEW' });
     for (const question of questions) {
@@ -8582,8 +8537,7 @@ app.post("/api/exams/:id/publish", requireUserAuth, (req: Request, res: Response
   try {
     const user = (req as any).user;
     const paper = examPaperRepoInstance.findById(req.params.id);
-    if (!paper) return res.status(404).json({ error: 'EXAM_NOT_FOUND' });
-    if (paper.userId !== user.userId && user.role !== 'admin') return res.status(403).json({ error: 'ACCESS_DENIED' });
+    if (!paper || (paper.userId !== user.userId && user.role !== 'admin')) return res.status(404).json({ error: 'EXAM_NOT_FOUND' });
     const questions = examQuestionRepoInstance.findByExamId(paper.id);
     if (questions.length === 0 || questions.some((question) => question.reviewStatus !== 'APPROVED')) return res.status(409).json({ error: 'REVIEW_REQUIRED' });
     const updated = examPaperRepoInstance.setPublicationStatus(paper.id, 'PUBLISHED');
@@ -8666,13 +8620,8 @@ app.get("/api/exams/:id", requireUserAuth, (req: Request, res: Response) => {
     const examId = req.params.id;
 
     const paper = examPaperRepoInstance.findById(examId);
-    if (!paper) {
+    if (!paper || (paper.userId !== user.userId && user.role !== 'admin')) {
       return res.status(404).json({ error: "EXAM_NOT_FOUND", message: "Prova não encontrada." });
-    }
-
-    // Validação estrita de Ownership (IDOR Defense)
-    if (paper.userId !== user.userId && user.role !== 'admin') {
-      return res.status(403).json({ error: "ACCESS_DENIED", message: "Você não possui permissão para acessar esta prova." });
     }
 
     const questions = examQuestionRepoInstance.findByExamId(examId);
@@ -8701,12 +8650,8 @@ app.get("/api/exams/:id/pdf", requireUserAuth, async (req: Request, res: Respons
     }
 
     const paper = examPaperRepoInstance.findById(examId);
-    if (!paper) {
+    if (!paper || (paper.userId !== user.userId && user.role !== 'admin')) {
       return res.status(404).json({ error: "EXAM_NOT_FOUND", message: "Prova não encontrada." });
-    }
-
-    if (paper.userId !== user.userId && user.role !== 'admin') {
-      return res.status(403).json({ error: "ACCESS_DENIED", message: "Você não possui permissão para acessar o PDF desta prova." });
     }
 
     if (!paper.fileId) {
@@ -8745,12 +8690,8 @@ app.get("/api/exams/:id/questions", requireUserAuth, (req: Request, res: Respons
     const discipline = req.query.discipline ? String(req.query.discipline).trim() : undefined;
 
     const paper = examPaperRepoInstance.findById(examId);
-    if (!paper) {
+    if (!paper || (paper.userId !== user.userId && user.role !== 'admin')) {
       return res.status(404).json({ error: "EXAM_NOT_FOUND", message: "Prova não encontrada." });
-    }
-
-    if (paper.userId !== user.userId && user.role !== 'admin') {
-      return res.status(403).json({ error: "ACCESS_DENIED", message: "Acesso não autorizado." });
     }
 
     const questions = examQuestionRepoInstance.findByExamId(examId, discipline);
@@ -8865,12 +8806,8 @@ app.delete("/api/exams/:id", requireUserAuth, (req: Request, res: Response) => {
     const examId = req.params.id;
 
     const paper = examPaperRepoInstance.findById(examId);
-    if (!paper) {
+    if (!paper || (paper.userId !== user.userId && user.role !== 'admin')) {
       return res.status(404).json({ error: "EXAM_NOT_FOUND", message: "Prova não encontrada." });
-    }
-
-    if (paper.userId !== user.userId && user.role !== 'admin') {
-      return res.status(403).json({ error: "ACCESS_DENIED", message: "Permissão negada para excluir esta prova." });
     }
 
     // Exclui arquivo físico, objeto no Cloudflare R2 e registro de upload se houver
@@ -8922,8 +8859,8 @@ app.get("/api/exams/assets/:assetId", requireUserAuth, (req: Request, res: Respo
     }
 
     const paper = examPaperRepoInstance.findById(question.examId);
-    if (paper && paper.userId !== user.userId && user.role !== 'admin') {
-      return res.status(403).json({ error: "ACCESS_DENIED", message: "Acesso não autorizado a este recorte." });
+    if (!paper || (paper.userId !== user.userId && user.role !== 'admin')) {
+      return res.status(404).json({ error: "ASSET_NOT_FOUND", message: "Asset de imagem não encontrado." });
     }
 
     if (!fs.existsSync(asset.filePath)) {
@@ -8959,7 +8896,7 @@ app.get("/api/exams/assets/file/:filename", requireUserAuth, (req: Request, res:
       return Boolean(paper && (paper.userId === user.userId || user.role === 'admin'));
     });
     if (!hasAccess) {
-      return res.status(403).json({ error: "ACCESS_DENIED", message: "Acesso nao autorizado a este recorte." });
+      return res.status(404).json({ error: "IMAGE_NOT_FOUND", message: "Imagem nao encontrada no banco de provas." });
     }
 
     // Busca nas pastas permitidas
@@ -9014,17 +8951,13 @@ app.get("/api/exams/:id/pages/:pageNumber/preview", requireUserAuth, async (req:
     }
 
     const paper = examPaperRepoInstance.findById(examId);
-    if (!paper) {
+    if (!paper || (paper.userId !== user.userId && user.role !== 'admin')) {
       return res.status(404).json({ error: "EXAM_NOT_FOUND", message: "Prova não encontrada." });
-    }
-
-    if (paper.userId !== user.userId && user.role !== 'admin') {
-      return res.status(403).json({ error: "ACCESS_DENIED", message: "Acesso não autorizado a esta prova." });
     }
 
     const renderResult = await examServiceInstance.renderFullPageForReview(examId, pageNum);
     if (!renderResult.success) {
-      return res.status(500).json({ error: "PAGE_RENDER_FAILED", message: renderResult.error || "Falha ao renderizar página do PDF." });
+      return res.status(500).json({ error: "PAGE_RENDER_FAILED", message: "Falha ao renderizar página do PDF." });
     }
 
     return res.json({
@@ -9047,9 +8980,8 @@ app.get("/api/exams/:id/pages/:pageNumber/preview/image", requireUserAuth, async
     const user = (req as any).user;
     const pageNum = Number(req.params.pageNumber);
     const paper = examPaperRepoInstance.findById(req.params.id);
-    if (!paper) return res.status(404).json({ error: "EXAM_NOT_FOUND" });
-    if (paper.userId !== user.userId && user.role !== 'admin') {
-      return res.status(403).json({ error: "ACCESS_DENIED" });
+    if (!paper || (paper.userId !== user.userId && user.role !== 'admin')) {
+      return res.status(404).json({ error: "EXAM_NOT_FOUND" });
     }
     if (!Number.isInteger(pageNum) || pageNum < 1) {
       return res.status(400).json({ error: "INVALID_PAGE" });
@@ -9078,8 +9010,8 @@ app.get("/api/exams/questions/:questionId/review", requireUserAuth, (req: Reques
     }
 
     const paper = examPaperRepoInstance.findById(data.question.examId);
-    if (paper && paper.userId !== user.userId && user.role !== 'admin') {
-      return res.status(403).json({ error: "ACCESS_DENIED", message: "Acesso não autorizado a esta questão." });
+    if (!paper || (paper.userId !== user.userId && user.role !== 'admin')) {
+      return res.status(404).json({ error: "QUESTION_NOT_FOUND", message: "Questão não encontrada." });
     }
 
     return res.json({
@@ -9120,8 +9052,8 @@ app.put("/api/exams/questions/:questionId/crop", requireUserAuth, async (req: Re
     }
 
     const paper = examPaperRepoInstance.findById(question.examId);
-    if (paper && paper.userId !== user.userId && user.role !== 'admin') {
-      return res.status(403).json({ error: "ACCESS_DENIED", message: "Acesso negado para modificar o recorte." });
+    if (!paper || (paper.userId !== user.userId && user.role !== 'admin')) {
+      return res.status(404).json({ error: "QUESTION_NOT_FOUND", message: "Questão não encontrada." });
     }
 
     const result = await examServiceInstance.cropQuestionSegment({
@@ -9173,8 +9105,8 @@ app.delete("/api/exams/segments/:segmentId", requireUserAuth, (req: Request, res
     }
 
     const paper = examPaperRepoInstance.findById(segment.examId);
-    if (paper && paper.userId !== user.userId && user.role !== 'admin') {
-      return res.status(403).json({ error: "ACCESS_DENIED", message: "Acesso não autorizado para excluir este segmento." });
+    if (!paper || (paper.userId !== user.userId && user.role !== 'admin')) {
+      return res.status(404).json({ error: "SEGMENT_NOT_FOUND", message: "Segmento não encontrado." });
     }
 
     examServiceInstance.deleteSegment(segmentId);

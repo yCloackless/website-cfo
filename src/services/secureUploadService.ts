@@ -473,7 +473,7 @@ export class SecureUploadService {
 
     // Verificação Estrita de Ownership
     if (!isAdmin && file.userId !== requestingUserId) {
-      return { authorized: false, error: 'Acesso não autorizado a este arquivo.' };
+      return { authorized: false, error: 'Arquivo não encontrado.' };
     }
 
     // Apenas arquivos READY podem ser baixados

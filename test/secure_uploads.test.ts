@@ -139,7 +139,7 @@ test.after(async () => {
   if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
   getDb().close();
   process.chdir(originalCwd);
-  fs.rmSync(tempDir, { recursive: true, force: true });
+  fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 });
 
 // ============================================================================
@@ -415,6 +415,11 @@ test('SEC-UP-15: Controle de Acesso e Ownership: Usuário B não pode acessar ar
   });
   assert.equal(unauthorizedRes.response.status, 403);
   assert.equal(unauthorizedRes.body.error, 'ACCESS_DENIED');
+  const missingRes = await request(`/api/files/${crypto.randomUUID()}`, {
+    headers: { Authorization: `Bearer ${otherUserToken}` },
+  });
+  assert.equal(missingRes.response.status, unauthorizedRes.response.status);
+  assert.deepEqual(missingRes.body, unauthorizedRes.body);
 
   // 3. Usuário A acessa o próprio arquivo -> DEVE TER SUCESSO (200 OK com headers seguros)
   const authorizedRes = await request(`/api/files/${fileId}`, {

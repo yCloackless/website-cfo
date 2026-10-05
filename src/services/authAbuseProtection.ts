@@ -41,16 +41,24 @@ cleanupTimer.unref?.();
 async function getFailureCount(identifier: string): Promise<number> {
   if (!identifier) return 0;
   const key = scopedKey('login', identifier);
-  if (isRedisAvailable()) {
-    try { return Number(await getRedisClient()!.get(key)) || 0; } catch { /* use bounded local fallback */ }
-  }
   pruneAuthAbuseState();
-  return failures.get(key)?.count || 0;
+  const localCount = failures.get(key)?.count || 0;
+  if (isRedisAvailable()) {
+    try { return Math.max(localCount, Number(await getRedisClient()!.get(key)) || 0); }
+    catch { /* use bounded local fallback */ }
+  }
+  return localCount;
 }
 
 async function recordFailure(identifier: string): Promise<void> {
   if (!identifier) return;
   const key = scopedKey('login', identifier);
+  pruneAuthAbuseState();
+  const current = failures.get(key);
+  failures.set(key, current && current.expiresAt > Date.now()
+    ? { count: current.count + 1, expiresAt: current.expiresAt }
+    : { count: 1, expiresAt: Date.now() + WINDOW_MS });
+  pruneAuthAbuseState();
   if (isRedisAvailable()) {
     try {
       await getRedisClient()!.eval(
@@ -60,12 +68,6 @@ async function recordFailure(identifier: string): Promise<void> {
       return;
     } catch { /* use bounded local fallback */ }
   }
-  pruneAuthAbuseState();
-  const current = failures.get(key);
-  failures.set(key, current && current.expiresAt > Date.now()
-    ? { count: current.count + 1, expiresAt: current.expiresAt }
-    : { count: 1, expiresAt: Date.now() + WINDOW_MS });
-  pruneAuthAbuseState();
 }
 
 async function clearFailures(identifier: string): Promise<void> {
@@ -106,15 +108,17 @@ export async function claimPasswordResetRequest(identifier: string, userId?: str
   const normalized = normalizeAuthIdentifier(userId ? `user:${userId}` : `identifier:${identifier}`);
   if (!normalized) return false;
   const key = scopedKey('password-reset', normalized);
-  if (isRedisAvailable()) {
-    try { return (await getRedisClient()!.set(key, '1', 'EX', WINDOW_SECONDS, 'NX')) === 'OK'; }
-    catch { /* use bounded local fallback */ }
-  }
   pruneAuthAbuseState();
   const expiry = resetClaims.get(key);
   if (expiry && expiry > Date.now()) return false;
   resetClaims.set(key, Date.now() + WINDOW_MS);
   pruneAuthAbuseState();
+  if (isRedisAvailable()) {
+    try {
+      return (await getRedisClient()!.set(key, '1', 'EX', WINDOW_SECONDS, 'NX')) === 'OK';
+    }
+    catch { /* use bounded local fallback */ }
+  }
   return true;
 }
 
