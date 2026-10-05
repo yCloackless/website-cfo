@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { Pool } from 'pg';
 import fs from 'node:fs';
+import { postgresConnectionOptions } from '../src/db/postgresTls';
 
 const sourcePath = process.env.SQLITE_PATH || 'data/cfo_app.sqlite';
 const databaseUrl = process.env.DATABASE_URL;
@@ -13,17 +14,10 @@ if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 5000) throw new
 
 const source = new DatabaseSync(sourcePath, { readOnly: true });
 const target = new Pool({
-  connectionString: databaseUrl,
+  ...postgresConnectionOptions(databaseUrl),
   max: 5,
   connectionTimeoutMillis: 10_000,
   idleTimeoutMillis: 30_000,
-  ssl: databaseUrl.includes('sslmode=require') ||
-    process.env.NODE_ENV === 'production' ||
-    databaseUrl.includes('neon.tech') ||
-    databaseUrl.includes('render.com') ||
-    databaseUrl.includes('supabase.co')
-    ? { rejectUnauthorized: false }
-    : undefined,
 });
 const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
 const tables = source.prepare("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> '_migrations' ORDER BY name").all() as { name: string; sql: string }[];

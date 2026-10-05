@@ -14,6 +14,8 @@ import cors from "cors";
 import compression from "compression";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import bcrypt from "bcryptjs";
+import { loginIdentifierProtection } from "./src/services/authAbuseProtection";
+import { assertTurnstileProductionConfig, isTurnstileRequired } from "./src/services/turnstilePolicy";
 
 if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL_REQUIRED_IN_PRODUCTION');
@@ -22,6 +24,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL) {
 if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
   throw new Error('SESSION_SECRET e obrigatoria em producao; inicializacao abortada para evitar sessoes e arquivos irrecuperaveis.');
 }
+assertTurnstileProductionConfig();
 
 // ============================================================================
 // 🛑 VALIDAÇÃO DE SEGURANÇA E SECRETS NO STARTUP
@@ -631,7 +634,7 @@ async function getIpGeoLocation(
 async function verifyTurnstileToken(token?: string, remoteip?: string): Promise<boolean> {
   const secretKey =
     process.env.TURNSTILE_SECRET_KEY || "";
-  if (!secretKey) return true;
+  if (!secretKey) return false;
   if (!token) return false;
 
   // Chave de teste oficial da Cloudflare que sempre passa em desenvolvimento
@@ -696,6 +699,39 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // Middleware Global de Detecção de Honeytokens em todas as requisições
 app.use(honeytokenDetectionMiddleware);
 
+const LARGE_UPLOAD_JSON_LIMIT_BYTES = 75 * 1024 * 1024;
+const AVATAR_JSON_LIMIT_BYTES = 5 * 1024 * 1024;
+
+function isLargeJsonBodyRoute(req: Request): boolean {
+  if (req.method !== 'POST') return false;
+
+  const pathname = String(req.originalUrl || req.url).split('?')[0];
+  return pathname === '/api/uploads/file'
+    || pathname === '/api/user/avatar'
+    || pathname === '/api/exams/upload-and-process'
+    || /^\/api\/admin\/board-intelligence\/profiles\/[^/]+\/import-exam\/?$/.test(pathname);
+}
+
+const largeUploadJsonBodyParser = express.json({ limit: LARGE_UPLOAD_JSON_LIMIT_BYTES });
+const avatarJsonBodyParser = express.json({ limit: AVATAR_JSON_LIMIT_BYTES });
+
+function rejectOversizedJsonBody(limitBytes: number) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const contentLength = Number(req.headers['content-length']);
+    if (Number.isFinite(contentLength) && contentLength > limitBytes) {
+      return res.status(413).json({
+        success: false,
+        error: 'PAYLOAD_TOO_LARGE',
+        message: 'O corpo da requisição excede o limite permitido.',
+        requestId: (req as any).requestId,
+      });
+    }
+    return next();
+  };
+}
+const rejectOversizedUploadJsonBody = rejectOversizedJsonBody(LARGE_UPLOAD_JSON_LIMIT_BYTES);
+const rejectOversizedAvatarJsonBody = rejectOversizedJsonBody(AVATAR_JSON_LIMIT_BYTES);
+
 // Evita cache de dados autenticados, indexacao de APIs e payloads abusivos
 // antes que o parser JSON aloque memoria. Uploads conhecidos mantem o limite maior.
 app.use("/api", (req: Request, res: Response, next: NextFunction) => {
@@ -704,10 +740,9 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   res.setHeader("Expires", "0");
   res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
 
-  const largePayloadRoute = /^\/(uploads|exams)(\/|$)/.test(req.path)
-    || /^\/admin\/board-intelligence(\/|$)/.test(req.path)
-    || /\/avatar(\/|$)/.test(req.path);
-  const maxBytes = largePayloadRoute ? 75 * 1024 * 1024 : 2 * 1024 * 1024;
+  if (isLargeJsonBodyRoute(req)) return next();
+
+  const maxBytes = 2 * 1024 * 1024;
   const contentLength = Number(req.headers["content-length"] || 0);
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     return res.status(413).json({
@@ -929,6 +964,7 @@ const calendarLimiter = rateLimit({
 const uploadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30, // 30 uploads por 15 min por IP/usuário
+  store: createRateLimitRedisStore('upload'),
   validate: { xForwardedForHeader: false },
   standardHeaders: true,
   legacyHeaders: false,
@@ -1024,20 +1060,12 @@ app.post("/api/telemetry/vitals", telemetryLimiter, express.json({ limit: '16kb'
   return res.status(204).end();
 });
 
-// Body parser JSON: 2 MiB global. Rotas de upload têm guard pré-parser em /api
-// (linhas acima) que já permite até 75 MiB antes de alocar memória (suporta PDFs de até 50MB em Base64).
-// Parse payloads grandes somente nas rotas que realmente os aceitam. O parser
-// de 75 MiB roda antes do limite global para que o serviço de upload possa
-// devolver sua resposta de validação (400) em vez de um erro genérico (413).
-app.use("/api", (req: Request, res: Response, next: NextFunction) => {
-  const largePayloadRoute = /^\/(uploads|exams)(\/|$)/.test(req.path)
-    || /^\/admin\/board-intelligence(\/|$)/.test(req.path)
-    || /\/avatar(\/|$)/.test(req.path);
-
-  if (!largePayloadRoute) return next();
-  return express.json({ limit: "85mb" })(req, res, next);
+// Large JSON bodies are parsed only by the individual authenticated upload
+// routes below. Every other route keeps the conservative 2 MiB body limit.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (isLargeJsonBodyRoute(req)) return next();
+  return express.json({ limit: 2 * 1024 * 1024 })(req, res, next);
 });
-app.use(express.json({ limit: "2mb" }));
 
 // Google OAuth 2.0 Credentials & Storage Configuration
 let defaultClientId = "";
@@ -2731,13 +2759,12 @@ app.delete("/api/study-sessions/:id", (req: Request, res: Response) => {
 app.get("/api/auth/security-status", (req: Request, res: Response) => {
   const clientIp = getClientIp(req);
   const isAdm = isAdminIp(clientIp);
-  const hasSecret = Boolean(process.env.TURNSTILE_SECRET_KEY);
   const siteKey =
     process.env.TURNSTILE_SITE_KEY || "0x4AAAAAAEq86txU4BLgFVmp";
 
   return res.json({
     // Não expor clientIp nem isAdminIp — revelaria lógica interna de bypass
-    turnstileRequired: hasSecret && !isAdm,
+    turnstileRequired: isTurnstileRequired() && !isAdm,
     siteKey,
   });
 });
@@ -2844,7 +2871,12 @@ app.post("/api/auth/register", registrationLimiter, async (req: Request, res: Re
   }
 });
 
-app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: Response) => {
+const resolveLoginAccountKey = (identifier: string) => {
+  const user = userRepoInstance.findByEmail(identifier) || userRepoInstance.findByUsername(identifier) || userRepoInstance.findByEmailPrefix(identifier);
+  return user ? `user:${user.id}` : undefined;
+};
+
+app.post("/api/auth/check-credentials", authLimiter, (req, res, next) => loginIdentifierProtection(req, res, next, resolveLoginAccountKey), async (req: Request, res: Response) => {
   try {
     const { username, email, password, turnstileToken } = req.body || {};
     const inputUser = (email || username || "").trim().toLowerCase();
@@ -2860,8 +2892,7 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
     }
 
     // 1. Verificação Cloudflare Turnstile (Bypass automático se não configurado ou para IP do Admin)
-    const hasSecret = Boolean(process.env.TURNSTILE_SECRET_KEY);
-    if (hasSecret && !isAdmIp) {
+    if (isTurnstileRequired() && !isAdmIp) {
       const token = turnstileToken || (req.headers["cf-turnstile-response"] as string);
       const isTurnstileValid = await verifyTurnstileToken(token, clientIp);
       if (!isTurnstileValid) {
@@ -2967,10 +2998,10 @@ app.post("/api/auth/check-credentials", authLimiter, async (req: Request, res: R
 });
 
 // 3. Rota de Validação de Código Authenticator / Recovery Code (com twoFactorLimiter anti-força bruta)
-app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Response) => {
+app.post("/api/auth/verify-2fa", twoFactorLimiter, (req, res, next) => loginIdentifierProtection(req, res, next, resolveLoginAccountKey), async (req: Request, res: Response) => {
   try {
     const { username, email, password, token, recoveryCode, rememberMe, turnstileToken, challenge } = req.body || {};
-    const inputUser = (username || email || "").trim().toLowerCase();
+    const inputUser = (email || username || "").trim().toLowerCase();
     const clientIp = getClientIp(req);
     const challengedUser = verifyLoginChallenge(challenge);
     const isAdmIp = isAdminIp(clientIp) || Boolean(challengedUser);
@@ -2983,7 +3014,7 @@ app.post("/api/auth/verify-2fa", twoFactorLimiter, async (req: Request, res: Res
     }
 
     // 1. Verificação Cloudflare Turnstile (Bypass para Admin IP)
-    if (!isAdmIp) {
+    if (isTurnstileRequired() && !isAdmIp) {
       const turnstile = turnstileToken || (req.headers["cf-turnstile-response"] as string);
       const isTurnstileValid = await verifyTurnstileToken(turnstile, clientIp);
       if (!isTurnstileValid) {
@@ -4924,7 +4955,7 @@ app.patch("/api/user/profile", requireUserAuth, (req: Request, res: Response) =>
 });
 
 // 3. Upload e Atualização Segura de Foto de Perfil (Validação Real de Magic Bytes e Ownership)
-app.post("/api/user/avatar", requireUserAuth, uploadLimiter, (req: Request, res: Response) => {
+app.post("/api/user/avatar", requireUserAuth, uploadLimiter, rejectOversizedAvatarJsonBody, avatarJsonBodyParser, (req: Request, res: Response) => {
   try {
     const sessionUser = (req as any).user;
     const user = userRepoInstance.findById(sessionUser.userId) || userRepoInstance.findByUsername(sessionUser.username);
@@ -7237,7 +7268,7 @@ app.get("/api/admin/audit-logs", requireAdminOnlyAuth, (req: Request, res: Respo
 // 1. Rate Limiter Dedicado para Uploads (definido no topo do servidor)
 
 // 2. Endpoint de Upload Seguro: POST /api/uploads/file
-app.post("/api/uploads/file", requireUserAuth, uploadLimiter, async (req: Request, res: Response) => {
+app.post("/api/uploads/file", requireUserAuth, uploadLimiter, rejectOversizedUploadJsonBody, largeUploadJsonBodyParser, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     if (!user || !user.userId) {
@@ -7458,7 +7489,7 @@ app.get("/api/admin/board-intelligence/profiles/:id", requireAdminAuth, (req: Re
   return res.json({ success: true, ...overview });
 });
 
-app.post("/api/admin/board-intelligence/profiles/:id/import-exam", requireAdminWriteAuth, uploadLimiter, async (req: Request, res: Response) => {
+app.post("/api/admin/board-intelligence/profiles/:id/import-exam", requireAdminWriteAuth, uploadLimiter, rejectOversizedUploadJsonBody, largeUploadJsonBodyParser, async (req: Request, res: Response) => {
   if (!ensureBoardIntelligenceEnabled(res)) return;
   try {
     const user = (req as any).user;
@@ -8401,7 +8432,7 @@ app.post('/api/student/simulations/:id/adapt', requireUserAuth, (req: Request, r
 });
 
 // 1. Upload Seguro de Prova e Registro Estruturado: POST /api/exams/upload-and-process
-app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, async (req: Request, res: Response) => {
+app.post("/api/exams/upload-and-process", requireUserAuth, uploadLimiter, rejectOversizedUploadJsonBody, largeUploadJsonBodyParser, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     const { title, institution, examYear, fileName, declaredMime, contentBase64, rawTextContent, metadata } = req.body || {};
@@ -9177,6 +9208,14 @@ app.all(["/api", "/api/*"], (_req: Request, res: Response) => {
 
 // Middleware Centralizado de Tratamento de Erros (Evita vazamento de stacktrace)
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+  if (err?.type === 'entity.too.large' || err?.status === 413) {
+    return res.status(413).json({
+      error: 'PAYLOAD_TOO_LARGE',
+      message: 'O conteudo enviado excede o limite permitido.',
+      requestId: (req as any).requestId,
+    });
+  }
+
   logInternalError("Unhandled Server Exception", err);
   return res.status(err?.status || 500).json({
     error: "INTERNAL_SERVER_ERROR",

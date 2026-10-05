@@ -9,6 +9,41 @@ const { getDb } = await import('../src/db/database');
 const { AuthService } = await import('../src/db/authService');
 const { UserRepository, SessionRepository, ExamPaperRepository, ExamQuestionRepository } = await import('../src/db/repositories');
 
+function requestWithDeclaredLength(path: string, declaredLength: number, token: string): Promise<{ status: number; body: any }> {
+  return new Promise((resolve, reject) => {
+    const endpoint = new URL(path, baseUrl);
+    const request = http.request(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Content-Length': String(declaredLength),
+      },
+    }, (response) => {
+      let responseBody = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { responseBody += chunk; });
+      response.on('end', () => {
+        clearTimeout(timeout);
+        try {
+          resolve({ status: response.statusCode || 0, body: JSON.parse(responseBody) });
+        } catch {
+          reject(new Error(`Expected JSON response, received: ${responseBody.slice(0, 200)}`));
+        }
+      });
+    });
+    const timeout = setTimeout(() => {
+      request.destroy();
+      reject(new Error('Server did not reject the declared oversized request promptly.'));
+    }, 5000);
+    request.on('error', error => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    request.write('{}');
+  });
+}
+
 let server: http.Server;
 let baseUrl: string;
 let cadetToken = '';
@@ -588,5 +623,46 @@ test('EB-15: Compressão Transparente de Armazenamento - Economia de Espaço sem
   assert.deepEqual(receivedBuf, rawPdf);
 });
 
+test('EB-16: Rejeita corpo grande não autenticado antes de tentar interpretar JSON', async () => {
+  const malformedLargeJson = `{"payload":"${'x'.repeat(2 * 1024 * 1024)}"`;
+  const response = await fetch(`${baseUrl}/api/exams/upload-and-process`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: malformedLargeJson,
+  });
+
+  assert.equal(response.status, 401);
+  const body = await response.json();
+  assert.equal(body.error, 'UNAUTHORIZED');
+});
+
+test('EB-17: Upload autenticado aceita corpo JSON acima do limite global', async () => {
+  const contentBase64 = Buffer.alloc(1600 * 1024, 0x41).toString('base64');
+  const response = await request('/api/exams/upload-and-process', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cadetToken}` },
+    body: JSON.stringify({
+      title: 'Teste de corpo ampliado',
+      fileName: 'invalid.pdf',
+      declaredMime: 'application/pdf',
+      contentBase64,
+    }),
+  });
+
+  assert.equal(response.response.status, 400);
+  assert.equal(response.body.error, 'UPLOAD_REJECTED');
+});
+
+test('EB-18: Parser do endpoint autenticado rejeita Content-Length acima de 75 MiB com 413 seguro', async () => {
+  const response = await requestWithDeclaredLength(
+    '/api/exams/upload-and-process',
+    75 * 1024 * 1024 + 1,
+    cadetToken,
+  );
+
+  assert.equal(response.status, 413);
+  assert.equal(response.body.error, 'PAYLOAD_TOO_LARGE');
+  assert.doesNotMatch(JSON.stringify(response.body), /server\.ts|stack|Error:/i);
+});
 
 

@@ -38,13 +38,35 @@ function extractClientIp(req: Request): string {
 
 // Middleware dedicado de Rate Limiting para as rotas Honeypot (Proteção contra Exaustão / DoS)
 const honeypotIpHitTracker = new Map<string, { count: number; resetAt: number }>();
+const HONEYPOT_RATE_LIMIT_WINDOW_MS = 60_000;
+const HONEYPOT_RATE_LIMIT_CLEANUP_INTERVAL_MS = 60_000;
+
+export function cleanupExpiredHoneypotRateLimitEntries(now = Date.now()): number {
+  let removed = 0;
+  for (const [ip, entry] of honeypotIpHitTracker) {
+    if (now > entry.resetAt) {
+      honeypotIpHitTracker.delete(ip);
+      removed++;
+    }
+  }
+  return removed;
+}
+
+const honeypotCleanupTimer = setInterval(
+  cleanupExpiredHoneypotRateLimitEntries,
+  HONEYPOT_RATE_LIMIT_CLEANUP_INTERVAL_MS,
+);
+if ('unref' in honeypotCleanupTimer && typeof honeypotCleanupTimer.unref === 'function') {
+  honeypotCleanupTimer.unref();
+}
+
 export function honeypotRateLimiter(req: Request, res: Response, next: NextFunction) {
   const ip = extractClientIp(req);
   const now = Date.now();
   const entry = honeypotIpHitTracker.get(ip);
 
   if (!entry || now > entry.resetAt) {
-    honeypotIpHitTracker.set(ip, { count: 1, resetAt: now + 60_000 }); // Janela de 1 minuto
+    honeypotIpHitTracker.set(ip, { count: 1, resetAt: now + HONEYPOT_RATE_LIMIT_WINDOW_MS });
     return next();
   }
 

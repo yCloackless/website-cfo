@@ -246,7 +246,7 @@ export async function fetchRevisoesFromNotion(): Promise<{
     return {
       items: fallbackItems,
       source: "local_cache",
-      error: err.message || "Erro de rede ao conectar com o Notion",
+      error: "NOTION_UNAVAILABLE",
     };
   }
 }

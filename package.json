@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "overrides": {
+    "@grpc/grpc-js": "1.14.5",
     "qs": "^6.16.0"
   },
   "scripts": {
@@ -38,7 +39,6 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "express-rate-limit": "^8.7.0",
-    "firebase": "^12.18.0",
     "helmet": "^8.3.0",
     "ioredis": "^6.0.0",
     "jszip": "^3.10.2",
@@ -55,7 +55,7 @@
     "react-router-dom": "^7.18.3",
     "recharts": "^3.10.1",
     "resend": "^6.26.0",
-    "shadcn": "^4.21.0",
+    "sanitize-html": "^2.18.0",
     "three": "^0.186.0",
     "tldraw": "^5.4.2",
     "ts-fsrs": "^5.4.2",
@@ -73,8 +73,11 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/sanitize-html": "^2.16.2",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
+    "firebase": "^12.18.0",
+    "shadcn": "^4.21.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",

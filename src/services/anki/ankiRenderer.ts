@@ -13,9 +13,55 @@
  */
 
 import katex from 'katex';
+import sanitizeHtml from 'sanitize-html';
 import { AnkiField, AnkiNote, AnkiNoteType, RenderedCardContent } from './ankiTypes';
 
 export class AnkiRenderer {
+  /** Sanitizes untrusted imported/user-authored card markup before API delivery. */
+  public static sanitizeCardHtml(html: string): string {
+    return sanitizeHtml(html, {
+      allowedTags: [
+        'a', 'b', 'blockquote', 'br', 'caption', 'center', 'code', 'dd', 'del', 'div', 'dl', 'dt',
+        'em', 'font', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img', 'li', 'ol', 'p',
+        'pre', 's', 'small', 'span', 'strike', 'strong', 'sub', 'sup', 'table', 'tbody', 'td',
+        'tfoot', 'th', 'thead', 'tr', 'u', 'ul',
+      ],
+      allowedAttributes: {
+        a: ['href', 'title', 'target', 'rel'],
+        img: ['src', 'alt', 'title', 'width', 'height'],
+        '*': ['class', 'style'],
+      },
+      allowedSchemes: ['http', 'https', 'mailto'],
+      allowedSchemesByTag: { img: [] },
+      allowProtocolRelative: false,
+      disallowedTagsMode: 'discard',
+      nonTextTags: ['script', 'style', 'textarea', 'option', 'iframe', 'object', 'embed', 'svg', 'math', 'noscript'],
+      allowedStyles: {
+        '*': {
+          color: [/^(#[\da-f]{3,8}|rgba?\([\d.,%\s]+\)|[a-z]{1,20})$/i],
+          'background-color': [/^(#[\da-f]{3,8}|rgba?\([\d.,%\s]+\)|[a-z]{1,20})$/i],
+          'font-size': [/^-?(\d+(\.\d+)?)(px|em|rem|ex|%)$/i],
+          'font-weight': [/^(normal|bold|[1-9]00)$/i],
+          'font-style': [/^(normal|italic|oblique)$/i],
+          'text-align': [/^(left|right|center|justify)$/i],
+          'text-decoration': [/^(none|underline|line-through)$/i],
+          'white-space': [/^(normal|nowrap|pre|pre-wrap|pre-line)$/i],
+          display: [/^(inline|block|inline-block|table|table-row|table-cell)$/i],
+          width: [/^-?\d+(\.\d+)?(px|em|rem|ex|%)$/i],
+          height: [/^-?\d+(\.\d+)?(px|em|rem|ex|%)$/i],
+          'vertical-align': [/^(baseline|sub|super|middle|top|bottom|-?\d+(\.\d+)?(px|em|rem|ex|%))$/i],
+          'margin-left': [/^-?\d+(\.\d+)?(px|em|rem|ex|%)$/i],
+          'margin-right': [/^-?\d+(\.\d+)?(px|em|rem|ex|%)$/i],
+          'padding-left': [/^-?\d+(\.\d+)?(px|em|rem|ex|%)$/i],
+          'padding-right': [/^-?\d+(\.\d+)?(px|em|rem|ex|%)$/i],
+        },
+      },
+      transformTags: {
+        a: sanitizeHtml.simpleTransform('a', { rel: 'noopener noreferrer' }, true),
+      },
+    });
+  }
+
   /**
    * Renders LaTeX / MathJax formulas into HTML strings via KaTeX.
    */

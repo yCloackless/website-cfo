@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
+import { createRateLimitRedisStore } from '../services/redisService';
 import { WhiteboardRepository } from '../db/whiteboardRepository';
 import {
   validateWhiteboardImageBuffer,
@@ -22,6 +23,7 @@ export function createWhiteboardRouter(
   const whiteboardLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 600, // 600 requests per 15 min
+    store: createRateLimitRedisStore('whiteboard'),
     standardHeaders: true,
     legacyHeaders: false,
     skip: () => process.env.NODE_ENV === 'test',
@@ -36,6 +38,7 @@ export function createWhiteboardRouter(
   const uploadLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 120, // 120 uploads per 15 min
+    store: createRateLimitRedisStore('whiteboard_upload'),
     standardHeaders: true,
     legacyHeaders: false,
     skip: () => process.env.NODE_ENV === 'test',
@@ -57,7 +60,7 @@ export function createWhiteboardRouter(
       const boards = repo.listWhiteboards(userId);
       res.json({ boards });
     } catch (err: any) {
-      res.status(500).json({ error: 'FAILED_TO_LIST_WHITEBOARDS', message: err.message });
+      res.status(500).json({ error: 'FAILED_TO_LIST_WHITEBOARDS', message: 'Falha interna.' });
     }
   });
 
@@ -74,7 +77,7 @@ export function createWhiteboardRouter(
       const board = repo.createWhiteboard(userId, id, title || 'Novo Quadro', backgroundType || 'pure_black');
       res.status(201).json({ board });
     } catch (err: any) {
-      res.status(500).json({ error: 'FAILED_TO_CREATE_WHITEBOARD', message: err.message });
+      res.status(500).json({ error: 'FAILED_TO_CREATE_WHITEBOARD', message: 'Falha interna.' });
     }
   });
 
@@ -93,7 +96,7 @@ export function createWhiteboardRouter(
 
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ error: 'FAILED_TO_GET_WHITEBOARD', message: err.message });
+      res.status(500).json({ error: 'FAILED_TO_GET_WHITEBOARD', message: 'Falha interna.' });
     }
   });
 
@@ -114,7 +117,7 @@ export function createWhiteboardRouter(
 
       res.json({ board: updated });
     } catch (err: any) {
-      res.status(500).json({ error: 'FAILED_TO_UPDATE_WHITEBOARD', message: err.message });
+      res.status(500).json({ error: 'FAILED_TO_UPDATE_WHITEBOARD', message: 'Falha interna.' });
     }
   });
 
@@ -140,7 +143,7 @@ export function createWhiteboardRouter(
 
       res.json({ success: true, message: 'WHITEBOARD_DELETED' });
     } catch (err: any) {
-      res.status(500).json({ error: 'FAILED_TO_DELETE_WHITEBOARD', message: err.message });
+      res.status(500).json({ error: 'FAILED_TO_DELETE_WHITEBOARD', message: 'Falha interna.' });
     }
   });
 
@@ -200,7 +203,7 @@ export function createWhiteboardRouter(
       if (err.message === 'WHITEBOARD_NOT_FOUND') {
         return res.status(404).json({ error: 'WHITEBOARD_NOT_FOUND' });
       }
-      res.status(500).json({ error: 'FAILED_TO_SAVE_DOCUMENT', message: err.message });
+      res.status(500).json({ error: 'FAILED_TO_SAVE_DOCUMENT', message: 'Falha interna.' });
     }
   });
 
@@ -269,7 +272,7 @@ export function createWhiteboardRouter(
       });
     } catch (err: any) {
       console.error('[WhiteboardAssetUpload]', err);
-      res.status(500).json({ error: 'FAILED_TO_UPLOAD_ASSET', message: err.message });
+      res.status(500).json({ error: 'FAILED_TO_UPLOAD_ASSET', message: 'Falha interna.' });
     }
   });
 
@@ -297,7 +300,7 @@ export function createWhiteboardRouter(
       res.setHeader('Cache-Control', 'private, max-age=86400, immutable');
       res.send(media.buffer);
     } catch (err: any) {
-      res.status(500).json({ error: 'FAILED_TO_SERVE_ASSET', message: err.message });
+      res.status(500).json({ error: 'FAILED_TO_SERVE_ASSET', message: 'Falha interna.' });
     }
   });
 

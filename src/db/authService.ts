@@ -21,6 +21,7 @@ import {
 } from './repositories';
 import { DbUser, DbSession, UserRole, DbSecurityNotification } from './schema';
 import { setCadetLockInRedis, clearCadetLockInRedis } from '../services/redisService';
+import { claimPasswordResetRequest, normalizeAuthIdentifier } from '../services/authAbuseProtection';
 
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 12);
 
@@ -632,12 +633,18 @@ export class AuthService {
     email: string,
     ip?: string
   ): Promise<{ success: boolean; message: string; debugCode?: string }> {
-    const cleanEmail = (email || '').toLowerCase().trim();
+    const cleanEmail = normalizeAuthIdentifier(email);
     if (!cleanEmail) {
       return { success: false, message: 'Informe um e-mail válido.' };
     }
 
     const user = this.findUserByIdentifier(cleanEmail);
+    if (!await claimPasswordResetRequest(cleanEmail, user?.id)) {
+      return {
+        success: true,
+        message: 'Se este e-mail estiver cadastrado, você receberá um código de recuperação.',
+      };
+    }
     if (!user) {
       // Não revelar se o e-mail existe (anti-enumeração)
       return {

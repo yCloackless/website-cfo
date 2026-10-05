@@ -1,35 +1,21 @@
 import { MessageChannel, Worker, receiveMessageOnPort } from 'node:worker_threads';
+import { postgresConnectionOptions } from './postgresTls';
 
 type PgResult = { rows?: Record<string, unknown>[]; rowCount?: number; command?: string };
 
 const workerSource = `
-const { parentPort } = require('node:worker_threads');
+const { parentPort, workerData } = require('node:worker_threads');
 const { Pool } = require('pg');
 
-let databaseUrl = process.env.DATABASE_URL || '';
-if (databaseUrl && !process.env.RENDER) {
-  databaseUrl = databaseUrl.replace(/@(dpg-[a-z0-9]+)(:[0-9]+|[\\/?]|$)/i, (match, host, rest) => {
-    if (!host.includes('.')) {
-      return '@' + host + '.oregon-postgres.render.com' + rest;
-    }
-    return match;
-  });
-}
-const needsSsl = databaseUrl.includes('sslmode=require') ||
-  process.env.NODE_ENV === 'production' ||
-  databaseUrl.includes('neon.tech') ||
-  databaseUrl.includes('render.com') ||
-  databaseUrl.includes('supabase.co');
-
 const pool = new Pool({
-  connectionString: databaseUrl,
+  connectionString: workerData.connectionString,
   max: 10,
   connectionTimeoutMillis: 10000,
   idleTimeoutMillis: 30000,
   statement_timeout: 30000,
   query_timeout: 30000,
   application_name: 'cfo-cbmerj-pool',
-  ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
+  ssl: workerData.ssl,
 });
 
 const pending = [];
@@ -149,7 +135,7 @@ export class PostgresSyncDatabase {
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL_REQUIRED');
     const channel = new MessageChannel();
     this.port = channel.port1;
-    this.worker = new Worker(workerSource, { eval: true });
+    this.worker = new Worker(workerSource, { eval: true, workerData: postgresConnectionOptions(process.env.DATABASE_URL) });
     this.worker.postMessage({ port: channel.port2 }, [channel.port2]);
   }
 

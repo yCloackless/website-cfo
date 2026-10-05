@@ -2,8 +2,12 @@ process.env.NODE_ENV = 'test';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getDb, DatabaseService } from '../src/db/database';
 import { PostgresSyncDatabase } from '../src/db/postgresSync';
+import { postgresConnectionOptions } from '../src/db/postgresTls';
 import { AnkiRepository } from '../src/db/ankiRepository';
 import { FlashcardRepository, UserRepository } from '../src/db/repositories';
 import { isRedisAvailable, createRateLimitRedisStore } from '../src/services/redisService';
@@ -92,4 +96,58 @@ test('5. Redis Service: Falls back cleanly when REDIS_URL is not set', () => {
   assert.equal(typeof isRedisAvailable(), 'boolean');
   const store = createRateLimitRedisStore('test_prefix');
   assert.equal(store, undefined, 'Store should be undefined when Redis is unavailable, triggering express-rate-limit MemoryStore');
+});
+
+test('6. Security boundaries: verified TLS, shared upload limits, and generic internal errors', () => {
+  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const source = (file: string) => readFileSync(path.join(projectRoot, file), 'utf8');
+  const postgres = source('src/db/postgresSync.ts');
+  const migration = source('scripts/migrate-sqlite-to-postgres.ts');
+  const redis = source('src/services/redisService.ts');
+  const server = source('server.ts');
+  const whiteboard = source('src/routes/whiteboardRouter.ts');
+  const anki = source('src/routes/ankiRouter.ts');
+
+  for (const config of [postgres, migration, redis]) {
+  assert.doesNotMatch(config, /rejectUnauthorized\s*:\s*false/);
+  }
+  assert.match(postgres, /ssl: workerData\.ssl/);
+  assert.match(migration, /postgresConnectionOptions\(databaseUrl\)/);
+  assert.match(source('src/db/postgresTls.ts'), /rejectUnauthorized: true/);
+  assert.match(redis, /REDIS_TLS_CA\s*\?\s*\{\s*ca:\s*process\.env\.REDIS_TLS_CA\s*\}\s*:\s*\{\}/);
+  assert.match(server, /createRateLimitRedisStore\('upload'\)/);
+  assert.match(whiteboard, /createRateLimitRedisStore\('whiteboard_upload'\)/);
+  for (const router of [anki, whiteboard]) {
+    assert.doesNotMatch(router, /status\(500\).*message:\s*err\??\.message/);
+  }
+});
+
+test('7. Local Compose separates bootstrap and restricted PostgreSQL application roles', () => {
+  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const compose = readFileSync(path.join(projectRoot, 'docker-compose.yml'), 'utf8');
+  const bootstrapScript = readFileSync(path.join(projectRoot, 'scripts/docker-create-app-role.sh'), 'utf8');
+  assert.match(compose, /POSTGRES_USER:\s*\$\{POSTGRES_USER:-cfo_bootstrap\}/);
+  assert.match(compose, /CFO_APP_DB_USER:\s*\$\{CFO_APP_DB_USER:-cfo_app\}/);
+  assert.match(compose, /DATABASE_URL=.*CFO_APP_DB_USER/);
+  assert.match(compose, /POSTGRES_PASSWORD=\s*$/m);
+  assert.match(bootstrapScript, /NOSUPERUSER NOCREATEDB NOCREATEROLE/);
+  assert.match(bootstrapScript, /NOBYPASSRLS/);
+  assert.match(bootstrapScript, /GRANT USAGE, CREATE ON SCHEMA public/);
+  assert.match(bootstrapScript, /CFO_APP_DB_USER.*POSTGRES_USER/);
+});
+
+test('8. PostgreSQL TLS verifies external providers and keeps private Compose traffic local', () => {
+  const production = { NODE_ENV: 'production', DATABASE_SSL_CA: 'test-ca' } as NodeJS.ProcessEnv;
+  const local = postgresConnectionOptions('postgresql://cfo_app:pass@postgres-staging:5432/cfo?sslmode=require', production);
+  const external = postgresConnectionOptions('postgresql://cfo_app:pass@db.example.test:5432/cfo', production);
+  const renderInternal = postgresConnectionOptions('postgresql://cfo_app:pass@dpg-cfodb123:5432/cfo?sslmode=require', { ...production, RENDER: 'true' });
+  const renderExternal = postgresConnectionOptions('postgresql://cfo_app:pass@dpg-cfodb123:5432/cfo', production);
+  assert.equal(local.ssl, undefined);
+  assert.equal(new URL(local.connectionString).searchParams.has('sslmode'), false);
+  assert.equal(external.ssl?.rejectUnauthorized, true);
+  assert.equal(external.ssl?.ca, 'test-ca');
+  assert.equal(renderInternal.ssl, undefined);
+  assert.equal(new URL(renderInternal.connectionString).searchParams.has('sslmode'), false);
+  assert.equal(new URL(renderExternal.connectionString).hostname, 'dpg-cfodb123.oregon-postgres.render.com');
+  assert.equal(renderExternal.ssl?.rejectUnauthorized, true);
 });

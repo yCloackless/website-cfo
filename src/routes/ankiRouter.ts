@@ -102,7 +102,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       const decks = repo.listDecks(user.userId);
       return res.json({ success: true, decks });
     } catch (err: any) {
-      return res.status(500).json({ error: 'LIST_DECKS_FAILED', message: err.message });
+      return res.status(500).json({ error: 'LIST_DECKS_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -134,7 +134,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       if (err.code === 'PARENT_DECK_NOT_FOUND') {
         return res.status(404).json({ error: err.code, message: err.message });
       }
-      return res.status(500).json({ error: 'CREATE_DECK_FAILED', message: err.message });
+      return res.status(500).json({ error: 'CREATE_DECK_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -171,7 +171,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       if (err.code === 'PARENT_DECK_NOT_FOUND') {
         return res.status(404).json({ error: err.code, message: err.message });
       }
-      return res.status(500).json({ error: 'UPDATE_DECK_FAILED', message: err.message });
+      return res.status(500).json({ error: 'UPDATE_DECK_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -188,7 +188,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
     } catch (err: any) {
       if (err.message === 'SAME_DECK_TRANSFER') return res.status(400).json({ error: 'SAME_DECK_TRANSFER' });
       if (err.message === 'DECK_NOT_FOUND') return res.status(404).json({ error: 'DECK_NOT_FOUND' });
-      return res.status(500).json({ error: 'TRANSFER_CARDS_FAILED', message: err.message });
+      return res.status(500).json({ error: 'TRANSFER_CARDS_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -204,7 +204,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
 
       return res.json({ success: true, message: 'Baralho excluído com sucesso.' });
     } catch (err: any) {
-      return res.status(500).json({ error: 'DELETE_DECK_FAILED', message: err.message });
+      return res.status(500).json({ error: 'DELETE_DECK_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -219,7 +219,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       const notetypes = repo.ensureDefaultNoteTypes(user.userId);
       return res.json({ success: true, notetypes });
     } catch (err: any) {
-      return res.status(500).json({ error: 'LIST_NOTETYPES_FAILED', message: err.message });
+      return res.status(500).json({ error: 'LIST_NOTETYPES_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -241,7 +241,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       const config = repo.getDeckConfig(user.userId, targetConfigId);
       return res.json({ success: true, config });
     } catch (err: any) {
-      return res.status(500).json({ error: 'GET_CONFIG_FAILED', message: err.message });
+      return res.status(500).json({ error: 'GET_CONFIG_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -268,7 +268,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
 
       return res.json({ success: true, config: updated });
     } catch (err: any) {
-      return res.status(500).json({ error: 'UPDATE_CONFIG_FAILED', message: err.message });
+      return res.status(500).json({ error: 'UPDATE_CONFIG_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -290,7 +290,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
 
       return res.json({ success: true, config: updated });
     } catch (err: any) {
-      return res.status(500).json({ error: 'UPDATE_CONFIG_FAILED', message: err.message });
+      return res.status(500).json({ error: 'UPDATE_CONFIG_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -343,7 +343,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
     } catch (err: any) {
       if (err.message === 'DECK_NOT_FOUND') return res.status(404).json({ error: 'DECK_NOT_FOUND' });
       if (err.message === 'NOTETYPE_NOT_FOUND') return res.status(404).json({ error: 'NOTETYPE_NOT_FOUND' });
-      return res.status(500).json({ error: 'CREATE_NOTE_FAILED', message: err.message });
+      return res.status(500).json({ error: 'CREATE_NOTE_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -403,7 +403,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
 
       return res.status(201).json({ success: true, createdNotes, createdCards });
     } catch (err: any) {
-      return res.status(500).json({ error: 'BATCH_CREATE_FAILED', message: err.message });
+      return res.status(500).json({ error: 'BATCH_CREATE_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -439,7 +439,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       }
       return res.json({ success: true, note: updated });
     } catch (err: any) {
-      return res.status(500).json({ error: 'UPDATE_NOTE_FAILED', message: err.message });
+      return res.status(500).json({ error: 'UPDATE_NOTE_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -458,7 +458,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
 
       return res.json({ success: true, queue: cards, count: cards.length });
     } catch (err: any) {
-      return res.status(500).json({ error: 'GET_QUEUE_FAILED', message: err.message });
+      return res.status(500).json({ error: 'GET_QUEUE_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -492,11 +492,15 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       return res.json({
         success: true,
         card,
-        rendered,
+        rendered: {
+          ...rendered,
+          questionHtml: AnkiRenderer.sanitizeCardHtml(rendered.questionHtml),
+          answerHtml: AnkiRenderer.sanitizeCardHtml(rendered.answerHtml),
+        },
         intervals,
       });
     } catch (err: any) {
-      return res.status(500).json({ error: 'RENDER_CARD_FAILED', message: err.message });
+      return res.status(500).json({ error: 'RENDER_CARD_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -529,7 +533,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       });
     } catch (err: any) {
       if (err.message === 'CARD_NOT_FOUND') return res.status(404).json({ error: 'CARD_NOT_FOUND' });
-      return res.status(500).json({ error: 'RATE_CARD_FAILED', message: err.message });
+      return res.status(500).json({ error: 'RATE_CARD_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -551,7 +555,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         card: result.revertedCard,
       });
     } catch (err: any) {
-      return res.status(500).json({ error: 'UNDO_FAILED', message: err.message });
+      return res.status(500).json({ error: 'UNDO_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -568,7 +572,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
 
       return res.json({ success: true, message: 'Card enterrado (buried).', card });
     } catch (err: any) {
-      return res.status(500).json({ error: 'BURY_FAILED', message: err.message });
+      return res.status(500).json({ error: 'BURY_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -581,7 +585,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
 
       return res.json({ success: true, unburiedCount: count });
     } catch (err: any) {
-      return res.status(500).json({ error: 'UNBURY_FAILED', message: err.message });
+      return res.status(500).json({ error: 'UNBURY_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -595,7 +599,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
 
       return res.json({ success: true, card });
     } catch (err: any) {
-      return res.status(500).json({ error: 'SUSPEND_FAILED', message: err.message });
+      return res.status(500).json({ error: 'SUSPEND_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -609,7 +613,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
 
       return res.json({ success: true, card });
     } catch (err: any) {
-      return res.status(500).json({ error: 'FLAG_FAILED', message: err.message });
+      return res.status(500).json({ error: 'FLAG_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -623,7 +627,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
 
       return res.json({ success: true, card });
     } catch (err: any) {
-      return res.status(500).json({ error: 'MARK_FAILED', message: err.message });
+      return res.status(500).json({ error: 'MARK_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -657,7 +661,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         offset,
       });
     } catch (err: any) {
-      return res.status(500).json({ error: 'BROWSER_FAILED', message: err.message });
+      return res.status(500).json({ error: 'BROWSER_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -711,7 +715,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       if (err.message === 'TARGET_DECK_NOT_FOUND') {
         return res.status(404).json({ error: 'TARGET_DECK_NOT_FOUND', message: 'Baralho de destino não encontrado.' });
       }
-      return res.status(500).json({ error: 'BULK_ACTION_FAILED', message: err.message });
+      return res.status(500).json({ error: 'BULK_ACTION_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -736,7 +740,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
 
       return res.json({ success: true, card: updatedCard });
     } catch (err: any) {
-      return res.status(500).json({ error: 'SET_IMPORTANCE_FAILED', message: err.message });
+      return res.status(500).json({ error: 'SET_IMPORTANCE_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -755,7 +759,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       }
       return res.json({ success: true, message: 'Flashcard apagado permanentemente.' });
     } catch (err: any) {
-      return res.status(500).json({ error: 'DELETE_CARD_FAILED', message: err.message });
+      return res.status(500).json({ error: 'DELETE_CARD_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -774,7 +778,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       }
       return res.json({ success: true, message: 'Nota apagada permanentemente.' });
     } catch (err: any) {
-      return res.status(500).json({ error: 'DELETE_NOTE_FAILED', message: err.message });
+      return res.status(500).json({ error: 'DELETE_NOTE_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -791,7 +795,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
 
       return res.json({ success: true, stats });
     } catch (err: any) {
-      return res.status(500).json({ error: 'STATS_FAILED', message: err.message });
+      return res.status(500).json({ error: 'STATS_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -877,7 +881,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       res.setHeader('Content-Disposition', `attachment; filename="${exportFilename}"`);
       return res.send(apkgBuffer);
     } catch (err: any) {
-      return res.status(500).json({ error: 'EXPORT_FAILED', message: err.message });
+      return res.status(500).json({ error: 'EXPORT_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -985,7 +989,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       if (err instanceof MediaStorageNotConfiguredError) {
         return res.status(503).json({ error: 'MEDIA_STORAGE_UNAVAILABLE', message: 'O armazenamento persistente de imagens está indisponível.' });
       }
-      return res.status(500).json({ error: 'IMPORT_FAILED', message: err.message });
+      return res.status(500).json({ error: 'IMPORT_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -1041,7 +1045,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       if (err instanceof MediaStorageNotConfiguredError) {
         return res.status(503).json({ error: 'MEDIA_STORAGE_UNAVAILABLE', message: 'O armazenamento persistente de imagens está indisponível.' });
       }
-      return res.status(500).json({ error: 'UPLOAD_FAILED', message: err.message });
+      return res.status(500).json({ error: 'UPLOAD_FAILED', message: 'Falha interna.' });
     }
   };
 
@@ -1069,7 +1073,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       if (err instanceof MediaStorageNotConfiguredError) {
         return res.status(503).json({ error: 'MEDIA_STORAGE_UNAVAILABLE' });
       }
-      return res.status(500).json({ error: 'GET_MEDIA_FAILED', message: err.message });
+      return res.status(500).json({ error: 'GET_MEDIA_FAILED', message: 'Falha interna.' });
     }
   });
 
@@ -1086,7 +1090,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       if (err?.message === 'MEDIA_IN_USE') {
         return res.status(409).json({ error: 'MEDIA_IN_USE', message: 'Remova a imagem dos cartões antes de excluí-la.' });
       }
-      return res.status(500).json({ error: 'DELETE_MEDIA_FAILED', message: err.message });
+      return res.status(500).json({ error: 'DELETE_MEDIA_FAILED', message: 'Falha interna.' });
     }
   });
 

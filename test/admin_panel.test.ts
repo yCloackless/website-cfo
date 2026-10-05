@@ -16,21 +16,35 @@
  */
 
 process.env.NODE_ENV = 'test';
+process.env.ADMIN_PASSWORD ||= 'fixture-admin-password-2026';
+process.env.CADET_PASSWORD ||= 'fixture-cadet-password-2026';
+process.env.SESSION_SECRET ||= 'admin-panel-test-session-secret';
+process.env.DATA_ENCRYPTION_KEY ||= 'admin-test-encryption-key-not-for-production';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { app } from '../server';
-import { getDb } from '../src/db/database';
-import { UserRepository, SessionRepository } from '../src/db/repositories';
-import { AuthService } from '../src/db/authService';
+import fs from 'node:fs';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
+import type { AuthService as AuthServiceClass } from '../src/db/authService';
+import type { UserRepository as UserRepositoryClass, SessionRepository as SessionRepositoryClass } from '../src/db/repositories';
+
+const tempDir = fs.mkdtempSync(path.join(tmpdir(), 'cfo-admin-security-'));
+const originalCwd = process.cwd();
+process.env.SQLITE_DB_PATH = path.join(tempDir, 'admin.sqlite');
+process.chdir(tempDir);
+const { app } = await import('../server');
+const { getDb } = await import('../src/db/database');
+const { UserRepository, SessionRepository } = await import('../src/db/repositories');
+const { AuthService } = await import('../src/db/authService');
 
 let server: http.Server;
 let baseUrl: string;
-let authService: AuthService;
-let userRepo: UserRepository;
-let sessionRepo: SessionRepository;
+let authService: AuthServiceClass;
+let userRepo: UserRepositoryClass;
+let sessionRepo: SessionRepositoryClass;
 
 test.before(async () => {
   const db = getDb();
@@ -45,8 +59,11 @@ test.before(async () => {
   baseUrl = `http://127.0.0.1:${port}`;
 });
 
-test.after(() => {
-  if (server) server.close();
+test.after(async () => {
+  if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
+  getDb().close();
+  process.chdir(originalCwd);
+  fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
 // ============================================================================

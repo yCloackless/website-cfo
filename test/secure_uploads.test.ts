@@ -1,4 +1,8 @@
 process.env.NODE_ENV = 'test';
+process.env.ADMIN_PASSWORD ||= 'upload-test-admin-password';
+process.env.CADET_PASSWORD ||= 'upload-test-cadet-password';
+process.env.SESSION_SECRET ||= 'upload-test-session-secret';
+process.env.DATA_ENCRYPTION_KEY ||= 'upload-test-encryption-key-not-for-production';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,7 +10,12 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 
+const tempDir = fs.mkdtempSync(path.join(tmpdir(), 'cfo-upload-security-'));
+const originalCwd = process.cwd();
+process.env.SQLITE_DB_PATH = path.join(tempDir, 'uploads.sqlite');
+process.chdir(tempDir);
 const { app } = await import('../server');
 const { getDb } = await import('../src/db/database');
 const { AuthService } = await import('../src/db/authService');
@@ -127,7 +136,10 @@ test.before(async () => {
 });
 
 test.after(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
+  getDb().close();
+  process.chdir(originalCwd);
+  fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
 // ============================================================================
@@ -475,4 +487,25 @@ test('SEC-UP-19: Rejeita PDF acima do limite de 200 páginas', async () => {
   });
   assert.equal(res.response.status, 400);
   assert.match(res.body.message, /200 páginas/i);
+});
+
+test('SEC-UP-20: Outro usuário não pode baixar um arquivo privado por ID', async () => {
+  const uploaded = await request('/api/uploads/file', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cadetToken}` },
+    body: JSON.stringify({
+      fileName: 'arquivo-privado-a.pdf',
+      declaredMime: 'application/pdf',
+      contentBase64: createValidPdfBuffer().toString('base64'),
+    }),
+  });
+  assert.equal(uploaded.response.status, 201);
+  const denied = await request(`/api/files/${uploaded.body.file.id}`, {
+    headers: { Authorization: `Bearer ${otherUserToken}` },
+  });
+  assert.equal(denied.response.status, 403);
+  const owner = await request(`/api/files/${uploaded.body.file.id}`, {
+    headers: { Authorization: `Bearer ${cadetToken}` },
+  });
+  assert.equal(owner.response.status, 200);
 });

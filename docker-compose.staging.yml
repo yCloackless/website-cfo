@@ -8,8 +8,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CFO_APP_DB_USER: ${CFO_APP_DB_USER}
+      CFO_APP_DB_PASSWORD: ${CFO_APP_DB_PASSWORD}
     volumes:
       - cfo_cbmerj_postgres_staging_data:/var/lib/postgresql/data
+      - ./scripts/docker-create-app-role.sh:/docker-entrypoint-initdb.d/10-create-app-role.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
@@ -29,8 +32,12 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-staging:5432/${POSTGRES_DB}
-      DATABASE_URL_DOCKER: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-staging:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${CFO_APP_DB_USER}:${CFO_APP_DB_PASSWORD}@postgres-staging:5432/${POSTGRES_DB}
+      DATABASE_SSL_CA: ${DATABASE_SSL_CA:-}
+      REDIS_TLS_CA: ${REDIS_TLS_CA:-}
+      POSTGRES_USER: ""
+      POSTGRES_PASSWORD: ""
+      CFO_APP_DB_PASSWORD: ""
     volumes:
       - cfo_cbmerj_staging_files:/app/data
     depends_on:

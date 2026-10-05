@@ -19,7 +19,7 @@ if (redisUrl) {
       maxRetriesPerRequest: 2,
       enableReadyCheck: true,
       lazyConnect: false,
-      tls: isTls ? { rejectUnauthorized: false } : undefined,
+      tls: isTls ? (process.env.REDIS_TLS_CA ? { ca: process.env.REDIS_TLS_CA } : {}) : undefined,
       retryStrategy: (times) => {
         if (times > 10) return null; // Para de tentar após 10 falhas contínuas
         return Math.min(times * 200, 3000);
