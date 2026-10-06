@@ -1,6 +1,9 @@
 import React, { useMemo } from 'react';
-import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import {
+  renderKatexToString,
+  isDirectMathFormula,
+} from '../utils/katexChemistry';
 
 interface LatexRendererProps {
   content?: string;
@@ -12,6 +15,42 @@ interface LatexRendererProps {
 interface TextSegment {
   type: 'text' | 'inline-math' | 'block-math';
   content: string;
+}
+
+/**
+ * Splits plain text segments further if they contain raw chemical formulas
+ * with subscripts or superscripts (e.g. H_2SO_4, Fe^{3+}, SO_4^{2-}, Ca(OH)_2).
+ */
+function splitChemicalFormulasFromText(segments: TextSegment[]): TextSegment[] {
+  const chemFormulaRegex = /(?:(?<=\s|^|\())([A-Z][A-Za-z0-9()]*[_\^][A-Za-z0-9_{}+-^()]*[A-Za-z0-9}+-])(?=[.,;:\s)]|$)/g;
+  const result: TextSegment[] = [];
+
+  for (const seg of segments) {
+    if (seg.type !== 'text') {
+      result.push(seg);
+      continue;
+    }
+
+    const text = seg.content;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    chemFormulaRegex.lastIndex = 0;
+    while ((match = chemFormulaRegex.exec(text)) !== null) {
+      const matchIndex = match.index;
+      if (matchIndex > lastIndex) {
+        result.push({ type: 'text', content: text.slice(lastIndex, matchIndex) });
+      }
+      result.push({ type: 'inline-math', content: match[1] });
+      lastIndex = chemFormulaRegex.lastIndex;
+    }
+
+    if (lastIndex < text.length) {
+      result.push({ type: 'text', content: text.slice(lastIndex) });
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -37,19 +76,31 @@ function compactBlockWhitespace(segments: TextSegment[]): TextSegment[] {
 }
 
 /**
- * Splits text into raw text and LaTeX math blocks (inline $...$ and block $$...$$)
+ * Splits text into raw text and LaTeX math blocks (inline $...$ and block $$...$$),
+ * with full support for:
+ * - $$...$$ and \[...\] (block math)
+ * - $...$, \(...\), [$]...[/$] (inline math)
+ * - [latex]...[/latex] (LaTeX math)
+ * - \ce{...} (mhchem chemistry equations)
+ * - Raw chemical formulas: H_2SO_4, Fe^{3+}, SO_4^{2-}, Ca(OH)_2
  */
 function parseLatexSegments(text: string): TextSegment[] {
   if (!text) return [];
 
-  // If text already has $$ or $ or \[ or \( delimiters, parse token by token
-  const delimiterRegex = /(?:\$\$([\s\S]*?)\$\$)|(?:\$([^\$\n\r]+?)\$)|(?:\\\[([\s\S]*?)\\\])|(?:\\\(([\s\S]*?)\\\))/g;
+  // Delimiters for LaTeX and Chemistry blocks:
+  // 1: $$...$$
+  // 2: $...$
+  // 3: \[...\]
+  // 4: \(...\)
+  // 5: [latex]...[/latex]
+  // 6: [$]...[/$]
+  // 7: \ce{...}
+  const delimiterRegex = /(?:\$\$([\s\S]*?)\$\$)|(?:\$([^\$\n\r]+?)\$)|(?:\\\[([\s\S]*?)\\\])|(?:\\\(([\s\S]*?)\\\))|(?:\[latex\]([\s\S]*?)\[\/latex\])|(?:\[\$\]([\s\S]*?)\[\/\$\])|(?:\\ce\{([\s\S]*?)\})/g;
   const segments: TextSegment[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
   const hasDelimiters = delimiterRegex.test(text);
-  // Reset regex after test()
   delimiterRegex.lastIndex = 0;
 
   if (hasDelimiters) {
@@ -76,6 +127,15 @@ function parseLatexSegments(text: string): TextSegment[] {
       } else if (match[4] !== undefined) {
         // \(...\)
         segments.push({ type: 'inline-math', content: match[4].trim() });
+      } else if (match[5] !== undefined) {
+        // [latex]...[/latex]
+        segments.push({ type: 'block-math', content: match[5].trim() });
+      } else if (match[6] !== undefined) {
+        // [$]...[/$]
+        segments.push({ type: 'inline-math', content: match[6].trim() });
+      } else if (match[7] !== undefined) {
+        // \ce{...}
+        segments.push({ type: 'inline-math', content: `\\ce{${match[7].trim()}}` });
       }
 
       lastIndex = delimiterRegex.lastIndex;
@@ -88,53 +148,25 @@ function parseLatexSegments(text: string): TextSegment[] {
       });
     }
 
-    return compactBlockWhitespace(segments);
+    return compactBlockWhitespace(splitChemicalFormulasFromText(segments));
   }
 
-  // Fallback heuristic: If the text contains typical LaTeX symbols or math notation
-  // (e.g. \frac, \sqrt, \Delta, \cdot, \pi, \vec, \sum, \binom, \alpha, \beta, \neq, \rightarrow, \implies)
-  const isDirectLatex =
-    text.includes('\\') ||
-    text.includes('^') ||
-    text.includes('_') ||
-    text.includes('·') ||
-    text.includes('π') ||
-    text.includes('Δ') ||
-    text.includes('Σ') ||
-    text.includes('√');
-
-  if (isDirectLatex && (text.startsWith('\\') || text.includes('\\frac') || text.includes('\\text'))) {
-    return [{ type: 'block-math', content: text.trim() }];
+  // Fallback heuristic: If the text is a direct standalone formula or chemical expression
+  // (e.g. H_2SO_4, Fe^{3+}, \frac{m}{M}, 2 H_2 + O_2 -> 2 H_2O, \ce{H2SO4})
+  if (isDirectMathFormula(text)) {
+    return [{ type: 'inline-math', content: text.trim() }];
   }
 
-  return [{ type: 'text', content: text }];
+  // If text contains inline chemical formulas without delimiters, split them out
+  const splitSegments = splitChemicalFormulasFromText([{ type: 'text', content: text }]);
+  return compactBlockWhitespace(splitSegments);
 }
 
 /**
- * Safely renders a math string to HTML using KaTeX
+ * Safely renders a math or chemical string to HTML using KaTeX + mhchem.
  */
 function renderMathToHtml(math: string, displayMode: boolean): string {
-  try {
-    return katex.renderToString(math, {
-      displayMode,
-      throwOnError: false,
-      output: 'htmlAndMathml',
-      strict: false,
-      trust: false,
-    });
-  } catch (err) {
-    console.warn('KaTeX render error:', err);
-    return `<span class="katex-error font-mono text-red-400 text-xs">${escapeHtml(math)}</span>`;
-  }
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+  return renderKatexToString(math, displayMode);
 }
 
 /**
@@ -174,6 +206,10 @@ function renderFormattedText(rawText: string, baseKey = 'fmt'): React.ReactNode[
     .replace(/<\/?code>/gi, '`')
     .replace(/<u>/gi, '\\underline{')
     .replace(/<\/u>/gi, '}')
+    .replace(/<sub>/gi, '\\textsubscript{')
+    .replace(/<\/sub>/gi, '}')
+    .replace(/<sup>/gi, '\\textsuperscript{')
+    .replace(/<\/sup>/gi, '}')
     .replace(/<div[^>]*>/gi, '')
     .replace(/<\/div>/gi, '\n');
 
@@ -195,7 +231,7 @@ function renderFormattedText(rawText: string, baseKey = 'fmt'): React.ReactNode[
       }
 
       // LaTeX formatting commands
-      const cmdMatch = /^\\(textbf|textit|underline|texttt|emph|text)\b\s*\{/.exec(rest);
+      const cmdMatch = /^\\(textbf|textit|underline|texttt|emph|text|textsubscript|textsuperscript)\b\s*\{/.exec(rest);
       if (cmdMatch) {
         const cmd = cmdMatch[1];
         const braceStartIndex = currentIndex + cmdMatch[0].length - 1;
@@ -227,6 +263,18 @@ function renderFormattedText(rawText: string, baseKey = 'fmt'): React.ReactNode[
               <code key={elementKey} className="font-mono text-[11px] px-1 py-0.5 rounded bg-slate-800/80 text-blue-300">
                 {innerNodes}
               </code>
+            );
+          } else if (cmd === 'textsubscript') {
+            nodes.push(
+              <sub key={elementKey} className="text-[0.75em] align-sub font-semibold">
+                {innerNodes}
+              </sub>
+            );
+          } else if (cmd === 'textsuperscript') {
+            nodes.push(
+              <sup key={elementKey} className="text-[0.75em] align-super font-semibold">
+                {innerNodes}
+              </sup>
             );
           } else {
             // \text{...}

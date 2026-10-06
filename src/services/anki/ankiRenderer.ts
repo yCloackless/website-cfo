@@ -12,9 +12,9 @@
  *     [latex]...[/latex], [$]...[/$], \(...\), \[...\], $$...$$, $...$
  */
 
-import katex from 'katex';
 import sanitizeHtml from 'sanitize-html';
 import { AnkiField, AnkiNote, AnkiNoteType, RenderedCardContent } from './ankiTypes';
+import { renderKatexToString } from '../../utils/katexChemistry';
 
 export class AnkiRenderer {
   /** Sanitizes untrusted imported/user-authored card markup before API delivery. */
@@ -63,7 +63,7 @@ export class AnkiRenderer {
   }
 
   /**
-   * Renders LaTeX / MathJax formulas into HTML strings via KaTeX.
+   * Renders LaTeX / MathJax and Chemistry formulas into HTML strings via KaTeX + mhchem.
    */
   public static renderMath(html: string): string {
     if (!html) return '';
@@ -72,17 +72,17 @@ export class AnkiRenderer {
     let rendered = html.replace(/\$\$([\s\S]*?)\$\$|\\\[([\s\S]*?)\\\]/g, (_m, g1, g2) => {
       const math = g1 || g2 || '';
       try {
-        return katex.renderToString(math.trim(), { displayMode: true, throwOnError: false });
+        return renderKatexToString(math.trim(), true);
       } catch {
         return _m;
       }
     });
 
-    // Inline math: [latex]...[/latex], [$]...[/$], \(...\), and $...$
-    rendered = rendered.replace(/(?:\[latex\]|\[\$\])([\s\S]*?)(?:\[\/latex\]|\[\/\$\])|\\\(([\s\S]*?)\\\)|(?<!\\)\$([^\$\n\r]+?)\$/g, (_m, g1, g2, g3) => {
-      const math = g1 || g2 || g3 || '';
+    // Inline math: [latex]...[/latex], [$]...[/$], \(...\), \ce{...}, and $...$
+    rendered = rendered.replace(/(?:\[latex\]|\[\$\])([\s\S]*?)(?:\[\/latex\]|\[\/\$\])|\\\(([\s\S]*?)\\\)|\\ce\{([\s\S]*?)\}|(?<!\\)\$([^\$\n\r]+?)\$/g, (_m, g1, g2, g3, g4) => {
+      const math = g3 !== undefined ? `\\ce{${g3}}` : (g1 || g2 || g4 || '');
       try {
-        return katex.renderToString(math.trim(), { displayMode: false, throwOnError: false });
+        return renderKatexToString(math.trim(), false);
       } catch {
         return _m;
       }
