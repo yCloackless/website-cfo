@@ -1219,6 +1219,7 @@ export default function App() {
           dateStr: newEntry.dateStr,
           durationMinutes: newEntry.durationMinutes || 0,
           notes: newEntry.notes,
+          replaceSubjectTime: true,
         }),
       });
       if (!response.ok) throw new Error('Falha ao sincronizar o tempo com o banco de horas.');

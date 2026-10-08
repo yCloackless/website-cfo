@@ -562,7 +562,9 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
           'Cache-Control': 'no-cache, no-store',
         },
         body: JSON.stringify({
-          entryId: `monthly_${targetDate}_${subject.id}`,
+          entryId: manualMode === 'replace'
+            ? `monthly_${targetDate}_${subject.id}`
+            : `monthly_${targetDate}_${subject.id}_${Date.now()}`,
           subjectId: subject.id,
           subjectName: subject.name,
           topic: cleanTopic,

@@ -2246,7 +2246,7 @@ app.post('/api/study-sessions/desktop', (req: Request, res: Response) => {
     return res.status(401).json({ error: 'UNAUTHORIZED' });
   }
 
-  const { localSessionId, subjectId, startedAt, endedAt, durationSeconds } = req.body || {};
+  const { localSessionId, subjectId, startedAt, endedAt, durationSeconds, dateStr: clientDateStr } = req.body || {};
   const mapping = typeof subjectId === 'string'
     ? getDesktopSubjects(userId).find((subject) => subject.id === subjectId)
     : undefined;
@@ -2268,7 +2268,10 @@ app.post('/api/study-sessions/desktop', (req: Request, res: Response) => {
       timeZone: process.env.APP_TIME_ZONE || 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
     }).formatToParts(end);
     const date = Object.fromEntries(dateParts.map(({ type, value }) => [type, value]));
-    const dateStr = `${date.year}-${date.month}-${date.day}`;
+    const calculatedDateStr = `${date.year}-${date.month}-${date.day}`;
+    const dateStr = (typeof clientDateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(clientDateStr))
+      ? clientDateStr
+      : calculatedDateStr;
     const insert = db.prepare(`INSERT INTO study_sessions (
       id, user_id, subject_id, subject_name, topic, date_str, duration_seconds,
       started_at, ended_at, notes, created_at, source, local_session_id
@@ -2361,7 +2364,10 @@ app.post("/api/timer/save-session", (req: Request, res: Response) => {
         timeZone: process.env.APP_TIME_ZONE || "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
       }).formatToParts(end);
       const date = Object.fromEntries(dateParts.map(({ type, value }) => [type, value]));
-      const dateStr = `${date.year}-${date.month}-${date.day}`;
+      const calculatedDateStr = `${date.year}-${date.month}-${date.day}`;
+      const dateStr = (typeof req.body?.dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.body.dateStr))
+        ? req.body.dateStr
+        : calculatedDateStr;
       const key = `${subject.id}:${dateStr}`;
       const group = grouped.get(key) || {
         subjectId: subject.id, subjectName: subject.name, dateStr, durationSeconds: 0,
@@ -2464,9 +2470,14 @@ app.post("/api/study-sessions/manual", (req: Request, res: Response) => {
       return res.status(400).json({ error: "INVALID_DURATION", message: "O tempo deve estar entre 0 e 1440 minutos." });
     }
 
-    const sessionId = `manual_${userId}_${cleanDate}_${cleanSubjectId}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 240);
+    const sessionId = replaceSubjectTime
+      ? `manual_${userId}_${cleanDate}_${cleanSubjectId}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 240)
+      : (cleanEntryId
+          ? `manual_${userId}_${cleanDate}_${cleanSubjectId}_${cleanEntryId}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 240)
+          : `manual_${userId}_${cleanDate}_${cleanSubjectId}_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 240));
 
     // Se o tempo for zero ou replaceSubjectTime for true, limpa sessões anteriores desta matéria neste dia
+    if (parsedMinutes === 0 && !replaceSubjectTime) return res.status(200).json({ success: true, session: null });
     if (parsedMinutes === 0 || replaceSubjectTime) {
       studySessionRepoInstance.deleteByDateAndSubjectForUser(userId, cleanDate, cleanSubjectId);
       studySessionRepoInstance.deleteByIdForUser(sessionId, userId);
