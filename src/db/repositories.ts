@@ -3985,7 +3985,7 @@ export class FlashcardRepository {
       params.push(subjectId);
     }
 
-    query += ` GROUP BY d.id ORDER BY d.name COLLATE NOCASE ASC`;
+    query += ` GROUP BY d.id, s.name ORDER BY d.name COLLATE NOCASE ASC`;
 
     const rows = this.db.prepare(query).all(...params) as any[];
     return rows.map((r) => this.mapDeckWithStats(r));
@@ -4007,7 +4007,7 @@ export class FlashcardRepository {
       JOIN flashcard_subjects s ON s.id = d.subject_id AND s.user_id = d.user_id
       LEFT JOIN flashcards c ON c.deck_id = d.id AND c.user_id = d.user_id
       WHERE d.user_id = ? AND d.id = ?
-      GROUP BY d.id
+      GROUP BY d.id, s.name
     `).get(today, userId, id) as any;
 
     if (!row) return null;
@@ -4614,20 +4614,30 @@ export class FlashcardRepository {
     leechCount: number;
     totalMastered: number;
   } {
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
+    const d0 = new Date();
+    const addDays = (n: number) => {
+      const d = new Date(d0);
+      d.setDate(d.getDate() + n);
+      return d.toISOString().split('T')[0];
+    };
+    const today = addDays(0);
+    const tomorrow = addDays(1);
+    const d2 = addDays(2);
+    const d7 = addDays(7);
+    const d8 = addDays(8);
+    const d30 = addDays(30);
 
     const row = this.db.prepare(`
       SELECT
-        COUNT(CASE WHEN next_review_at <= date(?1) THEN 1 END) as due_today,
-        COUNT(CASE WHEN next_review_at = date(?1, '+1 day') THEN 1 END) as due_tomorrow,
-        COUNT(CASE WHEN next_review_at BETWEEN date(?1, '+2 day') AND date(?1, '+7 day') THEN 1 END) as due_7days,
-        COUNT(CASE WHEN next_review_at BETWEEN date(?1, '+8 day') AND date(?1, '+30 day') THEN 1 END) as due_30days,
+        COUNT(CASE WHEN next_review_at <= ? THEN 1 END) as due_today,
+        COUNT(CASE WHEN next_review_at = ? THEN 1 END) as due_tomorrow,
+        COUNT(CASE WHEN next_review_at BETWEEN ? AND ? THEN 1 END) as due_7days,
+        COUNT(CASE WHEN next_review_at BETWEEN ? AND ? THEN 1 END) as due_30days,
         COUNT(CASE WHEN lapses >= 4 THEN 1 END) as leech_count,
         COUNT(CASE WHEN status = 'mastered' THEN 1 END) as total_mastered
       FROM flashcards
-      WHERE user_id = ?2
-    `).get(todayStr, userId) as any;
+      WHERE user_id = ?
+    `).get(today, tomorrow, d2, d7, d8, d30, userId) as any;
 
     return {
       dueToday: Number(row?.due_today || 0),
