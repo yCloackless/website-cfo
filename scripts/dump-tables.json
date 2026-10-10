@@ -1,0 +1,367 @@
+[
+  {
+    "table": "_migrations",
+    "columns": "\"id\", \"name\", \"applied_at\"",
+    "file": "4293.dat"
+  },
+  {
+    "table": "account_creation_keys",
+    "columns": "\"id\", \"key_hash\", \"created_by_user_id\", \"used_by_user_id\", \"created_at\", \"used_at\", \"expires_at\"",
+    "file": "4330.dat"
+  },
+  {
+    "table": "activation_tokens",
+    "columns": "\"id\", \"order_id\", \"token_hash\", \"customer_email\", \"is_used\", \"used_at\", \"used_by_user_id\", \"expires_at\", \"created_at\"",
+    "file": "4299.dat"
+  },
+  {
+    "table": "admin_recovery_codes",
+    "columns": "\"id\", \"user_id\", \"code_hash\", \"is_used\", \"used_at\", \"created_at\"",
+    "file": "4305.dat"
+  },
+  {
+    "table": "anki_cards",
+    "columns": "\"id\", \"user_id\", \"note_id\", \"deck_id\", \"template_ord\", \"queue\", \"card_type\", \"due\", \"interval_days\", \"ease_factor\", \"reps\", \"lapses\", \"difficulty\", \"stability\", \"last_review_at\", \"flags\", \"is_marked\", \"created_at\", \"updated_at\"",
+    "file": "4360.dat"
+  },
+  {
+    "table": "anki_deck_configs",
+    "columns": "\"id\", \"user_id\", \"name\", \"config_json\", \"created_at\", \"updated_at\"",
+    "file": "4354.dat"
+  },
+  {
+    "table": "anki_decks",
+    "columns": "\"id\", \"user_id\", \"name\", \"description\", \"config_id\", \"is_collapsed\", \"created_at\", \"updated_at\", \"parent_deck_id\"",
+    "file": "4355.dat"
+  },
+  {
+    "table": "anki_fields",
+    "columns": "\"id\", \"user_id\", \"notetype_id\", \"name\", \"ordinal\", \"font_size\", \"font_name\", \"created_at\"",
+    "file": "4357.dat"
+  },
+  {
+    "table": "anki_media",
+    "columns": "\"id\", \"user_id\", \"filename\", \"hash\", \"mime_type\", \"file_size\", \"storage_path\", \"created_at\"",
+    "file": "4362.dat"
+  },
+  {
+    "table": "anki_notes",
+    "columns": "\"id\", \"user_id\", \"notetype_id\", \"guid\", \"fields_json\", \"tags\", \"created_at\", \"updated_at\", \"importance\"",
+    "file": "4359.dat"
+  },
+  {
+    "table": "anki_notetypes",
+    "columns": "\"id\", \"user_id\", \"name\", \"kind\", \"css\", \"is_system\", \"created_at\", \"updated_at\"",
+    "file": "4356.dat"
+  },
+  {
+    "table": "anki_revlog",
+    "columns": "\"id\", \"user_id\", \"card_id\", \"rating\", \"reviewed_at\", \"elapsed_time_ms\", \"previous_interval\", \"new_interval\", \"previous_state\", \"review_type\"",
+    "file": "4361.dat"
+  },
+  {
+    "table": "anki_templates",
+    "columns": "\"id\", \"user_id\", \"notetype_id\", \"name\", \"ordinal\", \"qfmt\", \"afmt\", \"bqfmt\", \"bafmt\", \"created_at\"",
+    "file": "4358.dat"
+  },
+  {
+    "table": "audit_events",
+    "columns": "\"id\", \"action\", \"actor\", \"resource\", \"status\", \"ip\", \"details_json\", \"created_at\", \"user_id\", \"user_agent\", \"actor_user_id\", \"target_type\", \"target_id\"",
+    "file": "4302.dat"
+  },
+  {
+    "table": "board_intelligence_exams",
+    "columns": "\"id\", \"profile_id\", \"exam_paper_id\", \"status\", \"name\", \"exam_year\", \"board\", \"role_name\", \"phase\", \"discipline\", \"exam_type\", \"official_answer_key_json\", \"notes\", \"approved_by_user_id\", \"approved_at\", \"rejected_by_user_id\", \"rejected_at\", \"created_by_user_id\", \"created_at\", \"updated_at\"",
+    "file": "4320.dat"
+  },
+  {
+    "table": "board_intelligence_jobs",
+    "columns": "\"id\", \"profile_id\", \"job_type\", \"status\", \"progress\", \"total_items\", \"idempotency_key\", \"checkpoint_json\", \"result_summary_json\", \"error_message\", \"created_by_user_id\", \"created_at\", \"updated_at\"",
+    "file": "4324.dat"
+  },
+  {
+    "table": "board_intelligence_profiles",
+    "columns": "\"id\", \"name\", \"institution\", \"board\", \"contest\", \"role_name\", \"period_start\", \"period_end\", \"description\", \"status\", \"active_version\", \"exam_count\", \"question_count\", \"created_by_user_id\", \"created_at\", \"updated_at\"",
+    "file": "4319.dat"
+  },
+  {
+    "table": "board_profile_snapshots",
+    "columns": "\"id\", \"profile_id\", \"source_exam_ids_json\", \"source_question_ids_json\", \"source_analysis_ids_json\", \"stats_json\", \"algorithm_version\", \"prompt_version\", \"provider\", \"model\", \"model_version\", \"created_by_user_id\", \"created_at\"",
+    "file": "4322.dat"
+  },
+  {
+    "table": "board_profile_versions",
+    "columns": "\"id\", \"profile_id\", \"version\", \"status\", \"snapshot_id\", \"profile_json\", \"change_summary_json\", \"style_summary\", \"confidence\", \"generated_by_user_id\", \"published_by_user_id\", \"published_at\", \"restored_from_version_id\", \"created_at\", \"updated_at\"",
+    "file": "4323.dat"
+  },
+  {
+    "table": "board_question_analysis",
+    "columns": "\"id\", \"profile_id\", \"exam_id\", \"question_id\", \"question_hash\", \"prompt_version\", \"provider\", \"model\", \"model_version\", \"taxonomy_json\", \"metrics_json\", \"confidence\", \"status\", \"created_at\", \"updated_at\"",
+    "file": "4321.dat"
+  },
+  {
+    "table": "cadet_session_locks",
+    "columns": "\"user_id\", \"active_session_id\", \"locked_until\", \"created_at\", \"updated_at\"",
+    "file": "4307.dat"
+  },
+  {
+    "table": "cadet_temporary_source_blocks",
+    "columns": "\"id\", \"ip\", \"user_id\", \"reason\", \"locked_until\", \"created_at\"",
+    "file": "4308.dat"
+  },
+  {
+    "table": "consent_records",
+    "columns": "\"id\", \"user_id\", \"category\", \"policy_version\", \"terms_version\", \"status\", \"ip_hash\", \"user_agent\", \"granted_at\", \"revoked_at\"",
+    "file": "4332.dat"
+  },
+  {
+    "table": "entitlements",
+    "columns": "\"id\", \"user_id\", \"order_id\", \"product_id\", \"status\", \"granted_at\", \"expires_at\", \"revoked_at\"",
+    "file": "4300.dat"
+  },
+  {
+    "table": "exam_jobs",
+    "columns": "\"id\", \"user_id\", \"exam_id\", \"job_type\", \"status\", \"progress\", \"total_items\", \"error_message\", \"idempotency_key\", \"result_summary_json\", \"created_at\", \"updated_at\", \"payload_json\"",
+    "file": "4313.dat"
+  },
+  {
+    "table": "exam_papers",
+    "columns": "\"id\", \"user_id\", \"title\", \"institution\", \"exam_year\", \"file_id\", \"total_questions\", \"status\", \"primary_disciplines_json\", \"metadata_json\", \"created_at\", \"updated_at\", \"publication_status\"",
+    "file": "4311.dat"
+  },
+  {
+    "table": "exam_questions",
+    "columns": "\"id\", \"exam_id\", \"user_id\", \"question_number\", \"statement\", \"support_text\", \"options_json\", \"correct_option\", \"discipline\", \"topic\", \"subtopic\", \"difficulty\", \"difficulty_score\", \"confidence_score\", \"images_json\", \"ai_solution_json\", \"status\", \"created_at\", \"updated_at\", \"review_status\"",
+    "file": "4312.dat"
+  },
+  {
+    "table": "flashcard_decks",
+    "columns": "\"id\", \"user_id\", \"subject_id\", \"name\", \"description\", \"created_at\", \"updated_at\"",
+    "file": "4336.dat"
+  },
+  {
+    "table": "flashcard_reviews",
+    "columns": "\"id\", \"user_id\", \"flashcard_id\", \"rating\", \"reviewed_at\", \"previous_interval\", \"new_interval\", \"previous_ease_factor\", \"new_ease_factor\"",
+    "file": "4338.dat"
+  },
+  {
+    "table": "flashcard_subjects",
+    "columns": "\"id\", \"user_id\", \"name\", \"description\", \"icon\", \"color\", \"created_at\", \"updated_at\"",
+    "file": "4335.dat"
+  },
+  {
+    "table": "flashcards",
+    "columns": "\"id\", \"user_id\", \"subject_id\", \"deck_id\", \"front\", \"back\", \"front_image\", \"back_image\", \"last_reviewed_at\", \"next_review_at\", \"interval_days\", \"ease_factor\", \"review_count\", \"lapses\", \"status\", \"created_at\", \"updated_at\", \"importance\"",
+    "file": "4337.dat"
+  },
+  {
+    "table": "orders",
+    "columns": "\"id\", \"public_order_id\", \"user_id\", \"customer_email\", \"product_id\", \"amount\", \"currency\", \"payment_provider\", \"external_payment_id\", \"payment_method\", \"status\", \"created_at\", \"paid_at\", \"updated_at\"",
+    "file": "4297.dat"
+  },
+  {
+    "table": "password_resets",
+    "columns": "\"id\", \"user_id\", \"code_hash\", \"expires_at\", \"is_used\", \"used_at\", \"created_at\", \"failed_attempts\"",
+    "file": "4303.dat"
+  },
+  {
+    "table": "payments",
+    "columns": "\"id\", \"order_id\", \"provider\", \"external_payment_id\", \"status\", \"amount\", \"currency\", \"raw_payload_json\", \"created_at\", \"updated_at\"",
+    "file": "4298.dat"
+  },
+  {
+    "table": "privacy_requests",
+    "columns": "\"id\", \"request_code\", \"user_id\", \"email\", \"request_type\", \"status\", \"details\", \"admin_notes\", \"processed_by_user_id\", \"created_at\", \"processed_at\", \"updated_at\"",
+    "file": "4333.dat"
+  },
+  {
+    "table": "products",
+    "columns": "\"id\", \"sku\", \"name\", \"description\", \"amount\", \"currency\", \"is_active\", \"features_json\", \"created_at\", \"updated_at\"",
+    "file": "4296.dat"
+  },
+  {
+    "table": "profiles",
+    "columns": "\"id\", \"user_id\", \"full_name\", \"phone\", \"target_exam\", \"bio\", \"created_at\", \"updated_at\", \"avatar_url\"",
+    "file": "4295.dat"
+  },
+  {
+    "table": "question_assets",
+    "columns": "\"id\", \"question_id\", \"segment_id\", \"asset_type\", \"file_path\", \"public_url\", \"width\", \"height\", \"format\", \"dpi\", \"created_at\"",
+    "file": "4315.dat"
+  },
+  {
+    "table": "question_audit_logs",
+    "columns": "\"id\", \"question_id\", \"detector\", \"confidence\", \"is_manual_review\", \"user_id\", \"previous_bbox_json\", \"new_bbox_json\", \"notes\", \"created_at\"",
+    "file": "4317.dat"
+  },
+  {
+    "table": "question_segments",
+    "columns": "\"id\", \"question_id\", \"exam_id\", \"page\", \"x\", \"y\", \"width\", \"height\", \"order_num\", \"confidence\", \"source\", \"created_at\", \"updated_at\"",
+    "file": "4314.dat"
+  },
+  {
+    "table": "refund_requests",
+    "columns": "\"id\", \"order_id\", \"user_id\", \"reason\", \"amount\", \"status\", \"admin_notes\", \"reviewed_by_admin_id\", \"reviewed_at\", \"processed_at\", \"created_at\", \"updated_at\"",
+    "file": "4301.dat"
+  },
+  {
+    "table": "security_deception_events",
+    "columns": "\"id\", \"event_type\", \"honeypot_id\", \"request_path\", \"method\", \"risk_score\", \"user_id\", \"ip_hash\", \"user_agent_summary\", \"action_taken\", \"created_at\"",
+    "file": "4334.dat"
+  },
+  {
+    "table": "security_notifications",
+    "columns": "\"id\", \"user_id\", \"type\", \"title\", \"message\", \"is_read\", \"read_at\", \"metadata_json\", \"created_at\"",
+    "file": "4309.dat"
+  },
+  {
+    "table": "sessions",
+    "columns": "\"id\", \"user_id\", \"token_hash\", \"role\", \"ip\", \"user_agent\", \"expires_at\", \"revoked_at\", \"created_at\", \"impersonated_by_user_id\", \"parent_session_id\"",
+    "file": "4304.dat"
+  },
+  {
+    "table": "student_academic_periods",
+    "columns": "\"id\", \"user_id\", \"name\", \"sort_order\", \"starts_at\", \"ends_at\", \"active\", \"created_at\"",
+    "file": "4342.dat"
+  },
+  {
+    "table": "student_ai_analyses",
+    "columns": "\"id\", \"user_id\", \"analysis_type\", \"summary\", \"structured_json\", \"created_at\"",
+    "file": "4350.dat"
+  },
+  {
+    "table": "student_ai_usage",
+    "columns": "\"user_id\", \"usage_date\", \"request_count\", \"report_count\", \"input_tokens\", \"output_tokens\"",
+    "file": "4351.dat"
+  },
+  {
+    "table": "student_calendar_events",
+    "columns": "\"id\", \"user_id\", \"event_type\", \"title\", \"event_date\", \"start_time\", \"end_time\", \"exam_id\", \"notes\", \"created_at\", \"updated_at\"",
+    "file": "4346.dat"
+  },
+  {
+    "table": "student_exams",
+    "columns": "\"id\", \"user_id\", \"subject_id\", \"name\", \"exam_date\", \"exam_time\", \"weight\", \"target_grade\", \"topics_json\", \"notes\", \"room\", \"status\", \"created_at\", \"updated_at\"",
+    "file": "4345.dat"
+  },
+  {
+    "table": "student_flashcard_state",
+    "columns": "\"user_id\", \"decks_json\", \"cards_json\", \"created_at\", \"updated_at\"",
+    "file": "4329.dat"
+  },
+  {
+    "table": "student_goal_institutions",
+    "columns": "\"id\", \"user_id\", \"goal_id\", \"institution_name\", \"institution_code\", \"state\", \"city\"",
+    "file": "4348.dat"
+  },
+  {
+    "table": "student_goals",
+    "columns": "\"id\", \"user_id\", \"degree\", \"selection_system\", \"status\", \"created_at\", \"updated_at\"",
+    "file": "4347.dat"
+  },
+  {
+    "table": "student_grades",
+    "columns": "\"id\", \"user_id\", \"subject_id\", \"period_id\", \"assessment_name\", \"score\", \"weight\", \"source\", \"is_uncertain\", \"created_at\", \"updated_at\"",
+    "file": "4343.dat"
+  },
+  {
+    "table": "student_knowledge_profiles",
+    "columns": "\"id\", \"user_id\", \"discipline\", \"topic\", \"subtopic\", \"mastery_score\", \"attempts\", \"correct_attempts\", \"average_response_seconds\", \"average_confidence\", \"consistency_score\", \"last_attempt_at\", \"updated_at\"",
+    "file": "4326.dat"
+  },
+  {
+    "table": "student_profiles",
+    "columns": "\"id\", \"user_id\", \"display_name\", \"institution\", \"campus\", \"course\", \"school_year\", \"class_name\", \"shift\", \"available_time_json\", \"onboarding_completed\", \"created_at\", \"updated_at\"",
+    "file": "4339.dat"
+  },
+  {
+    "table": "student_question_attempts",
+    "columns": "\"id\", \"user_id\", \"question_id\", \"exam_id\", \"discipline\", \"topic\", \"subtopic\", \"selected_option\", \"is_correct\", \"response_seconds\", \"confidence_score\", \"error_type\", \"created_at\", \"simulation_id\"",
+    "file": "4325.dat"
+  },
+  {
+    "table": "student_recommendations",
+    "columns": "\"id\", \"user_id\", \"subject_id\", \"title\", \"minutes\", \"topic\", \"recommendation_date\", \"priority\", \"completed\", \"source\", \"created_at\"",
+    "file": "4349.dat"
+  },
+  {
+    "table": "student_report_cards",
+    "columns": "\"id\", \"user_id\", \"file_id\", \"period_id\", \"status\", \"extracted_json\", \"created_at\", \"updated_at\"",
+    "file": "4344.dat"
+  },
+  {
+    "table": "student_revisions",
+    "columns": "\"id\", \"user_id\", \"question_id\", \"discipline\", \"topic\", \"subtopic\", \"due_at\", \"interval_days\", \"status\", \"source\", \"completed_at\", \"created_at\", \"updated_at\"",
+    "file": "4327.dat"
+  },
+  {
+    "table": "student_simulations",
+    "columns": "\"id\", \"user_id\", \"mode\", \"status\", \"question_ids_json\", \"started_at\", \"completed_at\", \"created_at\"",
+    "file": "4328.dat"
+  },
+  {
+    "table": "student_subject_topics",
+    "columns": "\"id\", \"user_id\", \"subject_id\", \"name\", \"created_at\"",
+    "file": "4341.dat"
+  },
+  {
+    "table": "student_subjects",
+    "columns": "\"id\", \"user_id\", \"name\", \"category\", \"source\", \"active\", \"created_at\", \"updated_at\"",
+    "file": "4340.dat"
+  },
+  {
+    "table": "study_sessions",
+    "columns": "\"id\", \"user_id\", \"subject_id\", \"subject_name\", \"topic\", \"date_str\", \"duration_seconds\", \"started_at\", \"ended_at\", \"notes\", \"created_at\", \"source\", \"local_session_id\"",
+    "file": "4318.dat"
+  },
+  {
+    "table": "support_materials",
+    "columns": "\"id\", \"exam_id\", \"title\", \"content_text\", \"page\", \"bbox_json\", \"asset_path\", \"created_at\", \"updated_at\"",
+    "file": "4316.dat"
+  },
+  {
+    "table": "system_integrations",
+    "columns": "\"id\", \"encrypted_payload\", \"updated_at\"",
+    "file": "4331.dat"
+  },
+  {
+    "table": "university_courses",
+    "columns": "\"id\", \"institution_id\", \"name\", \"degree_type\", \"modality\", \"status\", \"mec_code\"",
+    "file": "4353.dat"
+  },
+  {
+    "table": "university_institutions",
+    "columns": "\"id\", \"name\", \"acronym\", \"mec_code\", \"state\", \"city\", \"institution_type\", \"administrative_category\", \"status\"",
+    "file": "4352.dat"
+  },
+  {
+    "table": "uploaded_files",
+    "columns": "\"id\", \"user_id\", \"original_filename\", \"storage_path\", \"mime_type\", \"extension\", \"size_bytes\", \"sha256\", \"status\", \"scan_details_json\", \"created_at\", \"updated_at\"",
+    "file": "4310.dat"
+  },
+  {
+    "table": "user_state_snapshots",
+    "columns": "\"user_id\", \"payload_json\", \"schema_version\", \"created_at\", \"updated_at\"",
+    "file": "4306.dat"
+  },
+  {
+    "table": "users",
+    "columns": "\"id\", \"email\", \"username\", \"password_hash\", \"role\", \"status\", \"created_at\", \"updated_at\", \"can_access_notion\", \"can_access_ifrj\"",
+    "file": "4294.dat"
+  },
+  {
+    "table": "whiteboard_assets",
+    "columns": "\"id\", \"whiteboard_id\", \"user_id\", \"filename\", \"storage_key\", \"mime_type\", \"file_size\", \"width\", \"height\", \"created_at\"",
+    "file": "4365.dat"
+  },
+  {
+    "table": "whiteboard_documents",
+    "columns": "\"whiteboard_id\", \"user_id\", \"document_state\", \"version\", \"updated_at\"",
+    "file": "4364.dat"
+  },
+  {
+    "table": "whiteboards",
+    "columns": "\"id\", \"user_id\", \"title\", \"background_type\", \"version\", \"created_at\", \"updated_at\"",
+    "file": "4363.dat"
+  }
+]
