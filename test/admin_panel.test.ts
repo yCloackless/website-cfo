@@ -63,7 +63,9 @@ test.after(async () => {
   if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
   getDb().close();
   process.chdir(originalCwd);
-  fs.rmSync(tempDir, { recursive: true, force: true });
+  try {
+    fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch {}
 });
 
 // ============================================================================

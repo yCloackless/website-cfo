@@ -725,8 +725,11 @@ const allowedOriginsList = [
   "http://127.0.0.1:3000",
   "http://localhost:5173",
   "http://127.0.0.1:5173",
+  "http://localhost:1420",
+  "http://127.0.0.1:1420",
   "tauri://localhost",
   "http://tauri.localhost",
+  "https://tauri.localhost",
   "https://cfo-oficial-agorasim.onrender.com",
   APP_URL,
   process.env.RENDER_EXTERNAL_URL,
@@ -793,8 +796,14 @@ app.use(
         return callback(null, true);
       }
 
-      // Tauri's custom scheme has an opaque URL origin in browser runtimes, so compare its exact trusted origin.
-      if (origin === 'tauri://localhost' || origin === 'https://tauri.localhost') {
+      // Tauri's custom scheme and desktop app runtimes
+      if (
+        origin === 'tauri://localhost'
+        || origin === 'http://tauri.localhost'
+        || origin === 'https://tauri.localhost'
+        || origin === 'http://localhost:1420'
+        || origin === 'http://127.0.0.1:1420'
+      ) {
         return callback(null, true);
       }
 
@@ -2247,18 +2256,31 @@ app.post('/api/study-sessions/desktop', (req: Request, res: Response) => {
   }
 
   const { localSessionId, subjectId, startedAt, endedAt, durationSeconds, dateStr: clientDateStr } = req.body || {};
-  const mapping = typeof subjectId === 'string'
-    ? getDesktopSubjects(userId).find((subject) => subject.id === subjectId)
-    : undefined;
+  const normalizedSubject = String(subjectId || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const availableSubjects = getDesktopSubjects(userId);
+  const mapping = availableSubjects.find((subject) => subject.id === subjectId)
+    || availableSubjects.find((subject) => subject.id.toLowerCase() === normalizedSubject)
+    || availableSubjects.find((subject) => subject.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim() === normalizedSubject)
+    || DEFAULT_CFO_SUBJECTS.find((subject) => subject.id === subjectId || subject.id.toLowerCase() === normalizedSubject);
   const start = typeof startedAt === 'string' ? new Date(startedAt) : null;
   const end = typeof endedAt === 'string' ? new Date(endedAt) : null;
   const duration = Number(durationSeconds);
   if (typeof localSessionId !== 'string' || !/^[\w-]{1,100}$/.test(localSessionId)
       || !mapping || !start || !end || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())
-      || end < start || !Number.isInteger(duration) || duration < 1 || duration > 86400
-      || duration > Math.floor((end.getTime() - start.getTime()) / 1000)) {
+      || end < start || !Number.isInteger(duration) || duration < 1 || duration > 86400) {
     console.warn('[Desktop study sync] invalid session payload');
     return res.status(400).json({ error: 'INVALID_STUDY_SESSION' });
+  }
+
+  // Tolera pequenos desvios de sub-segundos entre o cronômetro local e o relógio de parede
+  const wallSeconds = Math.floor((end.getTime() - start.getTime()) / 1000);
+  if (duration > wallSeconds) {
+    if (duration - wallSeconds <= 2) {
+      start.setTime(end.getTime() - duration * 1000);
+    } else {
+      console.warn('[Desktop study sync] session duration exceeds time window', { duration, wallSeconds });
+      return res.status(400).json({ error: 'INVALID_STUDY_SESSION' });
+    }
   }
 
   try {

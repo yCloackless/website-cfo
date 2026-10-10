@@ -145,6 +145,17 @@ test('a integração desktop autentica, persiste por matéria e é idempotente',
   assert.equal(preflight.status, 204);
   assert.equal(preflight.headers.get('access-control-allow-origin'), 'http://tauri.localhost');
 
+  const devPreflight = await fetch(`${baseUrl}/api/study-sessions/desktop/subjects`, {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'http://localhost:1420',
+      'Access-Control-Request-Method': 'GET',
+      'Access-Control-Request-Headers': 'authorization',
+    },
+  });
+  assert.equal(devPreflight.status, 204);
+  assert.equal(devPreflight.headers.get('access-control-allow-origin'), 'http://localhost:1420');
+
   const linuxPreflight = await fetch(`${baseUrl}/api/study-sessions/desktop/subjects`, {
     method: 'OPTIONS', headers: { Origin: 'tauri://localhost', 'Access-Control-Request-Method': 'GET' },
   });
@@ -170,6 +181,39 @@ test('a integração desktop autentica, persiste por matéria e é idempotente',
   assert.equal(saved.response.status, 200);
   assert.equal(saved.body.session.subject_id, 'fisica');
   assert.equal(saved.body.session.duration_seconds, 60);
+
+  // Testa tolerância a pequenos desvios de sub-segundos entre o relógio de parede e a medição do cronômetro
+  const driftEnd = new Date();
+  const driftStart = new Date(driftEnd.getTime() - 59_200); // 59.2s de relógio de parede, mas cronômetro marcou 60s
+  const driftLocalId = randomUUID();
+  const driftSaved = await request('/api/study-sessions/desktop', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      localSessionId: driftLocalId,
+      subjectId: 'fisica',
+      startedAt: driftStart.toISOString(),
+      endedAt: driftEnd.toISOString(),
+      durationSeconds: 60,
+    }),
+  });
+  assert.equal(driftSaved.response.status, 200);
+  assert.equal(driftSaved.body.session.duration_seconds, 60);
+
+  // Testa busca tolerante por nome de matéria (ex.: "Física Aplicada")
+  const nameMappingSaved = await request('/api/study-sessions/desktop', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      localSessionId: randomUUID(),
+      subjectId: 'Física Aplicada',
+      startedAt: new Date(Date.now() - 30_000).toISOString(),
+      endedAt: new Date().toISOString(),
+      durationSeconds: 30,
+    }),
+  });
+  assert.equal(nameMappingSaved.response.status, 200);
+  assert.equal(nameMappingSaved.body.session.subject_id, 'fisica');
 
   const duplicate = await request('/api/study-sessions/desktop', { method: 'POST', headers, body: JSON.stringify(payload) });
   assert.equal(duplicate.response.status, 200);
