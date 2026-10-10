@@ -1602,6 +1602,35 @@ export const MIGRATIONS: Migration[] = [
         ON study_sessions(user_id, source, local_session_id);
     `,
   },
+  {
+    id: 37,
+    name: '037_supabase_security_hardening',
+    sql: `
+      DO $$
+      DECLARE
+        tbl RECORD;
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+          REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+          REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
+          REVOKE ALL ON ALL ROUTINES IN SCHEMA public FROM anon, authenticated;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON ROUTINES FROM anon, authenticated;
+        END IF;
+
+        FOR tbl IN (
+          SELECT tablename 
+          FROM pg_tables 
+          WHERE schemaname = 'public' 
+            AND tablename NOT LIKE 'pg_%' 
+            AND tablename NOT LIKE '_prisma%'
+        ) LOOP
+          EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', tbl.tablename);
+        END LOOP;
+      END $$;
+    `,
+  },
 ];
 
 
@@ -1680,7 +1709,7 @@ export class DatabaseService {
         // tables on PostgreSQL would be destructive and use SQLite syntax.
         const migrationSql = this.postgres
           ? (migration.id === 6 ? '' : migration.sql.replace(/CREATE TRIGGER[\s\S]*?BEGIN[\s\S]*?END\s*;/gi, ''))
-          : migration.sql;
+          : (migration.id === 37 ? '' : migration.sql);
         // PRAGMA foreign_keys must be changed OUTSIDE the transaction used to rebuild tables.
         if (!this.postgres && migration.id === 6) this.db.exec('PRAGMA foreign_keys = OFF;');
         this.db.exec('BEGIN TRANSACTION;');
