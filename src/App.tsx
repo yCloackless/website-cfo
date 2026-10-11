@@ -1293,12 +1293,14 @@ export default function App() {
 
     if (dateStr) {
       try {
-        await apiFetch(`/api/study-sessions/day-subject?dateStr=${dateStr}&subjectId=${subjectId}`, {
+        const response = await apiFetch(`/api/study-sessions/day-subject?dateStr=${dateStr}&subjectId=${subjectId}`, {
           method: 'DELETE',
           headers: { 'Cache-Control': 'no-cache, no-store' },
         });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
       } catch (err) {
         console.warn('Falha ao sincronizar exclusão com o banco de horas:', err);
+        showToast('O estudo saiu do cronograma, mas não foi possível apagar as horas salvas. Tente novamente.', 'error');
       }
     }
   };

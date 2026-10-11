@@ -308,18 +308,20 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
           };
         });
 
-        showToast(`Horas de ${subjectName} excluídas com sucesso.`, 'info');
-
         try {
           setIsDeletingSubject(subjectId);
-          await apiFetch(`/api/study-sessions/day-subject?dateStr=${dateStr}&subjectId=${subjectId}`, {
+          const response = await apiFetch(`/api/study-sessions/day-subject?dateStr=${dateStr}&subjectId=${subjectId}`, {
             method: 'DELETE',
             headers: { 'Cache-Control': 'no-cache, no-store' },
           });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          showToast(`Horas de ${subjectName} excluídas com sucesso.`, 'info');
           await fetchMonthlyData();
           window.dispatchEvent(new Event('cfo:study-sessions-saved'));
         } catch (err) {
           console.warn('Falha ao excluir horas no backend:', err);
+          showToast('Não foi possível excluir as horas. Verifique a conexão e tente novamente.', 'error');
+          await fetchMonthlyData();
         } finally {
           setIsDeletingSubject(null);
         }
@@ -377,18 +379,20 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
         });
 
         setSelectedDaySummary(null);
-        showToast(`Todos os estudos de ${dateStr} foram limpos.`, 'info');
-
         try {
           setIsClearingDay(true);
-          await apiFetch(`/api/study-sessions/day/${dateStr}`, {
+          const response = await apiFetch(`/api/study-sessions/day/${dateStr}`, {
             method: 'DELETE',
             headers: { 'Cache-Control': 'no-cache, no-store' },
           });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          showToast(`Todos os estudos de ${dateStr} foram limpos.`, 'info');
           await fetchMonthlyData();
           window.dispatchEvent(new Event('cfo:study-sessions-saved'));
         } catch (err) {
           console.warn('Falha ao limpar dia no backend:', err);
+          showToast('Não foi possível limpar os estudos. Verifique a conexão e tente novamente.', 'error');
+          await fetchMonthlyData();
         } finally {
           setIsClearingDay(false);
         }
