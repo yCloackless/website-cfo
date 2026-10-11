@@ -1714,14 +1714,51 @@ export class CadetSessionLockRepository {
   }
 }
 
+// Performance: o middleware global consulta bloqueios em toda requisição. Com o
+// driver Postgres síncrono e o banco em outra região, cada consulta custa uma ida
+// e volta de rede inteira. O cache é por instância de banco (isola testes) e é
+// invalidado imediatamente em blockIp/unblockIp, únicos pontos de escrita.
+const SOURCE_BLOCK_CACHE_TTL_MS = 15_000;
+const SOURCE_BLOCK_CACHE_MAX_ENTRIES = 5_000;
+type SourceBlockCheck = { isBlocked: boolean; block?: DbTemporarySourceBlock };
+const sourceBlockCaches = new WeakMap<object, Map<string, { value: SourceBlockCheck; expiresAt: number }>>();
+
+function getSourceBlockCache(db: object): Map<string, { value: SourceBlockCheck; expiresAt: number }> {
+  let cache = sourceBlockCaches.get(db);
+  if (!cache) {
+    cache = new Map();
+    sourceBlockCaches.set(db, cache);
+  }
+  return cache;
+}
+
+function cloneSourceBlockCheck(value: SourceBlockCheck): SourceBlockCheck {
+  return value.block ? { isBlocked: value.isBlocked, block: { ...value.block } } : { isBlocked: value.isBlocked };
+}
+
 export class TemporarySourceBlockRepository {
   constructor(private db: DatabaseSync) {}
 
   public isIpBlocked(ip: string): { isBlocked: boolean; block?: DbTemporarySourceBlock } {
     if (!ip) return { isBlocked: false };
     const cleanIp = ip.trim().replace(/^::ffff:/, '');
-    const now = new Date().toISOString();
+    const nowMs = Date.now();
+    const cache = getSourceBlockCache(this.db);
+    const cached = cache.get(cleanIp);
+    if (cached && cached.expiresAt > nowMs) return cloneSourceBlockCheck(cached.value);
 
+    const result = this.queryIpBlock(cleanIp, new Date(nowMs).toISOString());
+    // Um bloqueio ativo nunca fica em cache além do seu próprio locked_until.
+    const lockedUntilMs = result.block ? Date.parse(result.block.lockedUntil) : Number.POSITIVE_INFINITY;
+    const expiresAt = Math.min(nowMs + SOURCE_BLOCK_CACHE_TTL_MS, Number.isFinite(lockedUntilMs) ? lockedUntilMs : nowMs);
+    if (expiresAt > nowMs) {
+      if (cache.size >= SOURCE_BLOCK_CACHE_MAX_ENTRIES) cache.clear();
+      cache.set(cleanIp, { value: cloneSourceBlockCheck(result), expiresAt });
+    }
+    return result;
+  }
+
+  private queryIpBlock(cleanIp: string, now: string): SourceBlockCheck {
     const row = this.db.prepare(`
       SELECT id, ip, user_id, reason, locked_until, created_at
       FROM cadet_temporary_source_blocks
@@ -1751,10 +1788,14 @@ export class TemporarySourceBlockRepository {
     const createdAt = now.toISOString();
     const lockedUntil = new Date(now.getTime() + hours * 3600 * 1000).toISOString();
 
-    this.db.prepare(`
-      INSERT INTO cadet_temporary_source_blocks (id, ip, user_id, reason, locked_until, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, cleanIp, userId ?? null, reason, lockedUntil, createdAt);
+    try {
+      this.db.prepare(`
+        INSERT INTO cadet_temporary_source_blocks (id, ip, user_id, reason, locked_until, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(id, cleanIp, userId ?? null, reason, lockedUntil, createdAt);
+    } finally {
+      getSourceBlockCache(this.db).delete(cleanIp);
+    }
 
     return {
       id,
@@ -1769,11 +1810,16 @@ export class TemporarySourceBlockRepository {
   public unblockIp(ip: string): boolean {
     const cleanIp = ip.trim().replace(/^::ffff:/, '');
     const now = new Date().toISOString();
-    const res = this.db.prepare(`
-      UPDATE cadet_temporary_source_blocks
-      SET locked_until = ?
-      WHERE ip = ? AND locked_until > ?
-    `).run(now, cleanIp, now);
+    let res: { changes?: number | bigint };
+    try {
+      res = this.db.prepare(`
+        UPDATE cadet_temporary_source_blocks
+        SET locked_until = ?
+        WHERE ip = ? AND locked_until > ?
+      `).run(now, cleanIp, now);
+    } finally {
+      getSourceBlockCache(this.db).delete(cleanIp);
+    }
 
     return Number(res.changes) > 0;
   }
@@ -3285,34 +3331,67 @@ export class StudySessionRepository {
   }
 }
 
+// Performance: maintenance_config é lido em toda chamada /api (lockdown global).
+// Cache curto por instância de banco; set()/delete() invalidam imediatamente.
+const SYSTEM_INTEGRATION_CACHE_TTL_MS = 5_000;
+const SYSTEM_INTEGRATION_CACHED_IDS = new Set(['maintenance_config']);
+const systemIntegrationCaches = new WeakMap<object, Map<string, { value: DbSystemIntegration | null; expiresAt: number }>>();
+
+function getSystemIntegrationCache(db: object): Map<string, { value: DbSystemIntegration | null; expiresAt: number }> {
+  let cache = systemIntegrationCaches.get(db);
+  if (!cache) {
+    cache = new Map();
+    systemIntegrationCaches.set(db, cache);
+  }
+  return cache;
+}
+
 export class SystemIntegrationRepository {
   constructor(private db: DatabaseSync) {}
 
   public get(id: string): DbSystemIntegration | null {
+    const cacheable = SYSTEM_INTEGRATION_CACHED_IDS.has(id);
+    const nowMs = Date.now();
+    if (cacheable) {
+      const cached = getSystemIntegrationCache(this.db).get(id);
+      if (cached && cached.expiresAt > nowMs) return cached.value ? { ...cached.value } : null;
+    }
     const row = this.db
       .prepare('SELECT id, encrypted_payload, updated_at FROM system_integrations WHERE id = ?')
       .get(id) as any;
-    if (!row) return null;
-    return {
-      id: row.id,
-      encryptedPayload: row.encrypted_payload,
-      updatedAt: row.updated_at,
-    };
+    const value: DbSystemIntegration | null = row
+      ? { id: row.id, encryptedPayload: row.encrypted_payload, updatedAt: row.updated_at }
+      : null;
+    if (cacheable) {
+      getSystemIntegrationCache(this.db).set(id, {
+        value: value ? { ...value } : null,
+        expiresAt: nowMs + SYSTEM_INTEGRATION_CACHE_TTL_MS,
+      });
+    }
+    return value;
   }
 
   public set(id: string, encryptedPayload: string): void {
     const now = new Date().toISOString();
-    this.db
-      .prepare(
-        `INSERT INTO system_integrations (id, encrypted_payload, updated_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET encrypted_payload = excluded.encrypted_payload, updated_at = excluded.updated_at`
-      )
-      .run(id, encryptedPayload, now);
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO system_integrations (id, encrypted_payload, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET encrypted_payload = excluded.encrypted_payload, updated_at = excluded.updated_at`
+        )
+        .run(id, encryptedPayload, now);
+    } finally {
+      getSystemIntegrationCache(this.db).delete(id);
+    }
   }
 
   public delete(id: string): void {
-    this.db.prepare('DELETE FROM system_integrations WHERE id = ?').run(id);
+    try {
+      this.db.prepare('DELETE FROM system_integrations WHERE id = ?').run(id);
+    } finally {
+      getSystemIntegrationCache(this.db).delete(id);
+    }
   }
 }
 

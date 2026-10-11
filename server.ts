@@ -646,7 +646,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   // Verifica se a origem possui bloqueio temporário ativo com TTL (ex: por gatilho de alta gravidade da camada de decepção)
   const allowlistKey = process.env.SECURITY_TEST_ALLOWLIST_KEY;
   const isBypass = Boolean(allowlistKey && req.headers['x-security-scan-bypass'] === allowlistKey);
-  if (!isBypass) {
+  // Arquivos de build com hash em /assets/ sao publicos e imutaveis (sem dados de
+  // usuario). Pular a consulta ao banco aqui evita uma ida e volta de rede por
+  // arquivo JS/CSS. APIs e paginas continuam passando pela verificacao abaixo.
+  const isPublicBuildAsset = (req.method === 'GET' || req.method === 'HEAD') && req.path.startsWith('/assets/');
+  if (!isBypass && !isPublicBuildAsset) {
     const tempBlock = new TemporarySourceBlockRepository(getDb().getRawDb()).isIpBlocked(clientIp);
     if (tempBlock.isBlocked) {
       return res.status(403).json({
@@ -1065,11 +1069,20 @@ function deriveDataKeyLegacy(): Buffer {
   return crypto.createHash('sha256').update(secret).digest();
 }
 
+const derivedDataKeyCache = new Map<string, Buffer>();
 function deriveDataKey(): Buffer {
   const secret = process.env.DATA_ENCRYPTION_KEY || process.env.SESSION_SECRET;
   if (!secret) throw new Error('DATA_ENCRYPTION_KEY ou SESSION_SECRET e obrigatoria para persistir segredos');
   // scrypt com salt de contexto fixo; N=16384, r=8, p=1 → ~0.1s em hardware moderno
-  return crypto.scryptSync(secret, 'cfo-data-enc-v1', 32, { N: 16384, r: 8, p: 1 });
+  // scrypt e deliberadamente caro (~50-100 ms de CPU bloqueante) e deterministico
+  // para o mesmo segredo: deriva uma unica vez por segredo.
+  let key = derivedDataKeyCache.get(secret);
+  if (!key) {
+    key = crypto.scryptSync(secret, 'cfo-data-enc-v1', 32, { N: 16384, r: 8, p: 1 });
+    derivedDataKeyCache.clear();
+    derivedDataKeyCache.set(secret, key);
+  }
+  return Buffer.from(key);
 }
 
 function encryptStoredJson(value: unknown): string {
