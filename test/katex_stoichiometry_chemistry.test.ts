@@ -216,3 +216,14 @@ test('CHEM-13: AnkiRenderer normaliza LaTeX e quebras com barras duplicadas', ()
   assert.ok(!rendered.includes('\\\\n'), 'Marcadores duplicados de quebra não devem aparecer');
   assert.ok(!rendered.includes('\\\\frac'), 'Comandos LaTeX duplicados devem ser normalizados');
 });
+
+test('CHEM-14: AnkiRenderer recupera delimitadores duplicados do cartão QER autenticado', () => {
+  const card = String.raw`\\[\n\\textbf{Dados:}\n\\]\n\n\\[\nS_{\\text{total}}=2000\\,\\text{m}, \\qquad N=5\\text{ voltas}\n\\]`;
+  const rendered = AnkiRenderer.sanitizeCardHtml(AnkiRenderer.renderMath(card));
+
+  assert.ok(rendered.includes('<strong>Dados:</strong>'), 'O título deve permanecer como texto destacado');
+  assert.equal((rendered.match(/class="katex"/g) || []).length, 1, 'A equação deve virar KaTeX');
+  assert.ok(!rendered.includes('\\\\[') && !rendered.includes('\\\\]'), 'Delimitadores duplicados não devem aparecer');
+  assert.ok(!rendered.includes('\\n'), 'Quebras escapadas do cartão não devem aparecer');
+  assert.ok(!rendered.includes('katex-error'), 'A equação não deve gerar erro KaTeX');
+});

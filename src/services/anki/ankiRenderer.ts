@@ -76,7 +76,13 @@ export class AnkiRenderer {
       ? html
         // Some old AI cards persisted JSON-escaped commands (two backslashes).
         .replace(/(?<!\\)(?:\\{2})+(?!\\)(?=(?:textbf?|frac|qquad|quad|boxed|left|right|cdot|sqrt|times|Delta|pi|sum|int))/gi, '\\')
+        .replace(/(?<!\\)(?:\\{2})+(?!\\)(?=[\[\]()])/g, '\\')
         .replace(/(?<!\\)(?:\\{2})+(?!\\)v(?=[_{=])/g, 'v')
+        .replace(/\\\[([\s\S]*?)\\\]/g, (_match, body: string) => {
+          const math = body.replace(/\\+n|\r?\n/g, ' ').trim();
+          const heading = math.match(/^\\textbf\{([^{}]*)\}$/);
+          return heading ? `<strong>${heading[1]}</strong>` : `\\[${math}\\]`;
+        })
         .replace(/(^|\r?\n)(?:\\{2})+(?=\r?\n|$)/g, '$1<br>')
         .replace(/\\\{\}n/g, '<br>')
         .replace(/\\\{\}\\\{\}/g, '\\')
