@@ -50,6 +50,8 @@ export class AnkiRenderer {
           width: [/^-?\d+(\.\d+)?(px|em|rem|ex|%)$/i],
           height: [/^-?\d+(\.\d+)?(px|em|rem|ex|%)$/i],
           'vertical-align': [/^(baseline|sub|super|middle|top|bottom|-?\d+(\.\d+)?(px|em|rem|ex|%))$/i],
+          top: [/^-?\d+(\.\d+)?(px|em|rem|ex|%)$/i],
+          'border-bottom-width': [/^\d+(\.\d+)?(px|em|rem|ex|%)$/i],
           'margin-left': [/^-?\d+(\.\d+)?(px|em|rem|ex|%)$/i],
           'margin-right': [/^-?\d+(\.\d+)?(px|em|rem|ex|%)$/i],
           'padding-left': [/^-?\d+(\.\d+)?(px|em|rem|ex|%)$/i],

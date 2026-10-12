@@ -229,3 +229,12 @@ test('CHEM-14: AnkiRenderer recupera delimitadores duplicados do cartão QER aut
   assert.ok(rendered.includes('substituímos'), 'O texto após a equação deve continuar visível');
   assert.ok(!rendered.includes('katex-error'), 'A equação não deve gerar erro KaTeX');
 });
+
+test('CHEM-15: AnkiRenderer preserva estilos numéricos de frações e delimitadores KaTeX', () => {
+  const card = String.raw`\\[\n6\\left(C+\\frac{4L}{3}\\right)=5(2L+C)\n\\]`;
+  const rendered = AnkiRenderer.sanitizeCardHtml(AnkiRenderer.renderMath(card));
+
+  assert.match(rendered, /style="[^"]*top:/, 'O posicionamento vertical do KaTeX deve sobreviver à sanitização');
+  assert.match(rendered, /style="[^"]*border-bottom-width:/, 'A barra da fração deve manter a espessura definida pelo KaTeX');
+  assert.ok(!rendered.includes('katex-error'), 'A equação não deve gerar erro KaTeX');
+});
