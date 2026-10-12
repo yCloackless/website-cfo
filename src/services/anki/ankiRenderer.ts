@@ -92,6 +92,8 @@ export class AnkiRenderer {
         .replace(/\\\{\}/g, '')
       : html;
     const normalizedHtml = legacyNormalizedHtml
+      // Older cards can place escaped newline markers directly after a display-math close.
+      .replace(/\\\](?:\\+n)+/g, '\\]<br>')
       // Some cards mix real line breaks with JSON-escaped ones, or contain
       // more than one escaped slash. Normalize only newline markers followed
       // by another marker or a new sentence, leaving commands like \neq intact.

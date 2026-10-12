@@ -148,6 +148,14 @@ test('CHEM-09: Fórmulas com "&" e "$" sem quebrar KaTeX', () => {
   }
 });
 
+test('CHEM-09b: \\boxed preserva o conteúdo matemático com texto', () => {
+  const html = renderKatexToString(String.raw`\boxed{\text{Resposta: B}}`, true);
+
+  assert.ok(html.includes('Resposta: B'), 'O conteúdo do quadro deve permanecer renderizado');
+  assert.ok(!html.includes('$'), 'O delimitador de matemática não deve vazar para dentro do quadro');
+  assert.ok(!html.includes('katex-error'), 'A caixa não deve gerar erro KaTeX');
+});
+
 test('CHEM-10: isDirectMathFormula detecta fórmulas químicas puras e rejeita cabeçalhos Markdown', () => {
   // Fórmulas diretas válidas
   assert.equal(isDirectMathFormula('H_2SO_4'), true, 'H_2SO_4 deve ser detectado como fórmula');
@@ -218,7 +226,7 @@ test('CHEM-13: AnkiRenderer normaliza LaTeX e quebras com barras duplicadas', ()
 });
 
 test('CHEM-14: AnkiRenderer recupera delimitadores duplicados do cartão QER autenticado', () => {
-  const card = String.raw`\\[\n\\textbf{Dados:}\n\\]\n\n\\[\nS_{\\text{total}}=2000\\,\\text{m}, \\qquad N=5\\text{ voltas}\n\\]\n\n\\[\n\\boxed{L=100\\,\\text{m}}\n\\]\n\n\\[\n\\boxed{\\text{Resposta: B}}\n\\]\n\n\\]substituímos \\(C=2L\\):`;
+  const card = String.raw`\\[\n\\textbf{Dados:}\n\\]\n\n\\[\nS_{\\text{total}}=2000\\,\\text{m}, \\qquad N=5\\text{ voltas}\n\\]\n\n\\[\n\\boxed{L=100\\,\\text{m}}\n\\]\n\n\\[\n\\boxed{\\text{Resposta: B}}\n\\]\n\n\\]\\n\\nsubstituímos \\(C=2L\\):`;
   const rendered = AnkiRenderer.sanitizeCardHtml(AnkiRenderer.renderMath(card));
 
   assert.ok(rendered.includes('<strong>Dados:</strong>'), 'O título deve permanecer como texto destacado');
@@ -227,6 +235,8 @@ test('CHEM-14: AnkiRenderer recupera delimitadores duplicados do cartão QER aut
   assert.ok(!rendered.includes('\\n'), 'Quebras escapadas do cartão não devem aparecer');
   assert.ok(!rendered.includes('spanclass'), 'HTML KaTeX gerado não deve ser renderizado novamente como matemática');
   assert.ok(rendered.includes('substituímos'), 'O texto após a equação deve continuar visível');
+  assert.ok(!rendered.includes('\\n'), 'Marcadores logo após a equação devem virar quebra de linha');
+  assert.ok(!rendered.includes('$'), 'O conteúdo de \\boxed não deve exibir delimitadores literais');
   assert.ok(!rendered.includes('katex-error'), 'A equação não deve gerar erro KaTeX');
 });
 

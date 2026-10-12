@@ -3,7 +3,7 @@ import 'katex/contrib/mhchem';
 
 /**
  * Global KaTeX macros to handle characters that would otherwise cause ParseErrors
- * in LaTeX math mode (e.g., #, &, $).
+ * in LaTeX math mode (e.g., # and &).
  * 
  * Note: mhchem natively intercepts and handles # for triple bonds (e.g. \ce{HC#CH}).
  * Outside \ce, the macro expands '#' to '\#' so formulas like 'n = # \text{mols}'
@@ -12,7 +12,6 @@ import 'katex/contrib/mhchem';
 export const KATEX_MACROS: Record<string, string> = {
   '#': '\\#',
   '&': '\\&',
-  '$': '\\$',
 };
 
 export const KATEX_SAFE_OPTIONS = {
