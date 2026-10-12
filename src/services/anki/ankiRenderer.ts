@@ -77,7 +77,7 @@ export class AnkiRenderer {
     const legacyNormalizedHtml = hasCorruptLatexEscapes
       ? html
         // Some old AI cards persisted JSON-escaped commands (two backslashes).
-        .replace(/(?<!\\)(?:\\{2})+(?!\\)(?=(?:textbf?|frac|qquad|quad|boxed|left|right|cdot|sqrt|times|Delta|pi|sum|int))/gi, '\\')
+        .replace(/(?<!\\)\\{2,}(?=(?:text(?:bf)?|frac|qquad|quad|boxed|left|right|cdot|sqrt|times|Delta|pi|sum|int|[,;]))/gi, '\\')
         .replace(/(?<!\\)(?:\\{2})+(?!\\)(?=[\[\]()])/g, '\\')
         .replace(/(?<!\\)(?:\\{2})+(?!\\)v(?=[_{=])/g, 'v')
         .replace(/\\\[([\s\S]*?)\\\]/g, (_match, body: string) => {

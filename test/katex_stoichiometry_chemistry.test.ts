@@ -237,6 +237,8 @@ test('CHEM-14: AnkiRenderer recupera delimitadores duplicados do cartão QER aut
   assert.ok(rendered.includes('substituímos'), 'O texto após a equação deve continuar visível');
   assert.ok(!rendered.includes('\\n'), 'Marcadores logo após a equação devem virar quebra de linha');
   assert.ok(!rendered.includes('$'), 'O conteúdo de \\boxed não deve exibir delimitadores literais');
+  assert.ok(rendered.includes('class="mord text"'), 'O conteúdo de texto dentro de \\boxed deve continuar em modo texto');
+  assert.ok(!rendered.includes('katex-newline'), 'Comandos LaTeX escapados não devem virar quebras dentro das caixas');
   assert.ok(!rendered.includes('katex-error'), 'A equação não deve gerar erro KaTeX');
 });
 
