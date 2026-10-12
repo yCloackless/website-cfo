@@ -10,7 +10,8 @@ export function postgresConnectionOptions(databaseUrl: string, env: NodeJS.Proce
     env.NODE_ENV === 'production' ||
     parsed.hostname.endsWith('.neon.tech') ||
     parsed.hostname.endsWith('.render.com') ||
-    parsed.hostname.endsWith('.supabase.co')
+    parsed.hostname.endsWith('.supabase.co') ||
+    parsed.hostname.endsWith('.supabase.com')
   );
   return {
     connectionString: parsed.toString(),

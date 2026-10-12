@@ -382,7 +382,7 @@ CREATE TABLE IF NOT EXISTS "public"."exam_questions" (
     "discipline" "text" NOT NULL,
     "topic" "text" NOT NULL,
     "subtopic" "text" NOT NULL,
-    "difficulty" "text" DEFAULT 'MÃ©dio'::"text" NOT NULL,
+    "difficulty" "text" DEFAULT 'Médio'::"text" NOT NULL,
     "difficulty_score" real DEFAULT 0.5 NOT NULL,
     "confidence_score" real DEFAULT 0.95 NOT NULL,
     "images_json" "text",
@@ -392,7 +392,7 @@ CREATE TABLE IF NOT EXISTS "public"."exam_questions" (
     "updated_at" "text" NOT NULL,
     "review_status" "text" DEFAULT 'PENDING'::"text" NOT NULL,
     CONSTRAINT "exam_questions_correct_option_check" CHECK ((("correct_option" = ANY (ARRAY['A'::"text", 'B'::"text", 'C'::"text", 'D'::"text", 'E'::"text"])) OR ("correct_option" IS NULL))),
-    CONSTRAINT "exam_questions_difficulty_check" CHECK (("difficulty" = ANY (ARRAY['FÃ¡cil'::"text", 'MÃ©dio'::"text", 'DifÃ­cil'::"text"]))),
+    CONSTRAINT "exam_questions_difficulty_check" CHECK (("difficulty" = ANY (ARRAY['Fácil'::"text", 'Médio'::"text", 'Difícil'::"text"]))),
     CONSTRAINT "exam_questions_review_status_check" CHECK (("review_status" = ANY (ARRAY['PENDING'::"text", 'APPROVED'::"text", 'REJECTED'::"text"])))
 );
 
