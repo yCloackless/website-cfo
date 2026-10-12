@@ -87,6 +87,25 @@ function compactBlockWhitespace(segments: TextSegment[]): TextSegment[] {
 function parseLatexSegments(text: string): TextSegment[] {
   if (!text) return [];
 
+  // Recover AI-generated cards saved with JSON-escaped paragraph breaks and
+  // bare display equations. Existing authored text remains untouched.
+  const normalizedText = !text.includes('\n') && /(?:\\n){2,}/.test(text)
+    ? text.replace(/\\n/g, '\n')
+    : text;
+  const sourceText = normalizedText
+    .split('\n')
+    .map((line) => {
+      const trimmed = line.trim();
+      const looksLikeEquation = trimmed.includes('=') &&
+        !/\b(?:é|e|que|para|com|dos|das|uma|nos|nas)\b/i.test(trimmed) &&
+        /^[\\A-Za-z0-9{}_^+\-*/=.,()\s]+$/.test(trimmed);
+
+      return looksLikeEquation && !/^(?:\\\[|\$\$)/.test(trimmed)
+        ? line.replace(trimmed, `\\[${trimmed}\\]`)
+        : line;
+    })
+    .join('\n');
+
   // Delimiters for LaTeX and Chemistry blocks:
   // 1: $$...$$
   // 2: $...$
@@ -100,18 +119,18 @@ function parseLatexSegments(text: string): TextSegment[] {
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
-  const hasDelimiters = delimiterRegex.test(text);
+  const hasDelimiters = delimiterRegex.test(sourceText);
   delimiterRegex.lastIndex = 0;
 
   if (hasDelimiters) {
-    while ((match = delimiterRegex.exec(text)) !== null) {
+    while ((match = delimiterRegex.exec(sourceText)) !== null) {
       const matchIndex = match.index;
 
       // Leading plain text
       if (matchIndex > lastIndex) {
         segments.push({
           type: 'text',
-          content: text.slice(lastIndex, matchIndex),
+          content: sourceText.slice(lastIndex, matchIndex),
         });
       }
 
@@ -141,10 +160,10 @@ function parseLatexSegments(text: string): TextSegment[] {
       lastIndex = delimiterRegex.lastIndex;
     }
 
-    if (lastIndex < text.length) {
+    if (lastIndex < sourceText.length) {
       segments.push({
         type: 'text',
-        content: text.slice(lastIndex),
+        content: sourceText.slice(lastIndex),
       });
     }
 
@@ -153,12 +172,12 @@ function parseLatexSegments(text: string): TextSegment[] {
 
   // Fallback heuristic: If the text is a direct standalone formula or chemical expression
   // (e.g. H_2SO_4, Fe^{3+}, \frac{m}{M}, 2 H_2 + O_2 -> 2 H_2O, \ce{H2SO4})
-  if (isDirectMathFormula(text)) {
-    return [{ type: 'inline-math', content: text.trim() }];
+  if (isDirectMathFormula(sourceText)) {
+    return [{ type: 'inline-math', content: sourceText.trim() }];
   }
 
   // If text contains inline chemical formulas without delimiters, split them out
-  const splitSegments = splitChemicalFormulasFromText([{ type: 'text', content: text }]);
+  const splitSegments = splitChemicalFormulasFromText([{ type: 'text', content: sourceText }]);
   return compactBlockWhitespace(splitSegments);
 }
 
