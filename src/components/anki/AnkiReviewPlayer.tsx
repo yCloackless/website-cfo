@@ -25,8 +25,9 @@ import {
   RenderedCardContent,
   ScheduleIntervalPreview,
 } from '../../services/anki/ankiTypes';
-import { apiFetch } from '../../services/apiFetch';
 import { ClozeLatexCard } from '../flashcards/ClozeLatexCard';
+import { apiFetch } from '../../services/apiFetch';
+import { resolveAnkiMediaUrl, resolveHtmlMediaUrls } from '../../utils/mediaUrl';
 
 interface AnkiReviewPlayerProps {
   deckId?: string;
@@ -136,39 +137,9 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
       return;
     }
 
-    let cancelled = false;
-    const objectUrls: string[] = [];
-    const resolveImages = async (html: string, cache: Map<string, string>) => {
-      const sources = [...new Set([...html.matchAll(/<img\b[^>]*\bsrc=["']([^"']+)["']/gi)].map((match) => match[1]))];
-      await Promise.all(sources.map(async (src) => {
-        if (!src.startsWith('/api/anki/media/')) return;
-        try {
-          const response = await apiFetch(src);
-          if (!response.ok) return;
-          const objectUrl = URL.createObjectURL(await response.blob());
-          objectUrls.push(objectUrl);
-          cache.set(src, objectUrl);
-        } catch {}
-      }));
-      return html.replace(/(<img\b[^>]*\bsrc=["'])([^"']+)(["'][^>]*>)/gi, (tag, before, src, after) =>
-        `${before}${cache.get(src) || src}${after}`
-      );
-    };
-
-    void (async () => {
-      const cache = new Map<string, string>();
-      const [questionHtml, answerHtml] = await Promise.all([
-        resolveImages(renderedContent.questionHtml, cache),
-        resolveImages(renderedContent.answerHtml, cache),
-      ]);
-      if (!cancelled) setDisplayContent({ ...renderedContent, questionHtml, answerHtml });
-      else objectUrls.forEach(URL.revokeObjectURL);
-    })();
-
-    return () => {
-      cancelled = true;
-      objectUrls.forEach(URL.revokeObjectURL);
-    };
+    const questionHtml = resolveHtmlMediaUrls(renderedContent.questionHtml);
+    const answerHtml = resolveHtmlMediaUrls(renderedContent.answerHtml);
+    setDisplayContent({ ...renderedContent, questionHtml, answerHtml });
   }, [renderedContent]);
 
   // Rate card action
@@ -927,6 +898,30 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
                     placeholder={`Conteúdo do campo ${idx === 0 ? 'Pergunta' : 'Resposta'}... (Cole imagem com Ctrl+V se desejar)`}
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-sky-500 font-sans resize-y leading-relaxed"
                   />
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {[...val.matchAll(/<img\b[^>]*src=["']([^"']+)["'][^>]*>/gi)].map((match, imageIdx) => (
+                      <div key={`${match[1]}-${imageIdx}`} className="relative border border-zinc-700 rounded-lg p-1 bg-zinc-950">
+                        <img
+                          src={resolveAnkiMediaUrl(match[1])}
+                          alt={`Imagem ${imageIdx + 1}`}
+                          className="h-16 max-w-28 object-contain rounded"
+                        />
+                        <button
+                          type="button"
+                          aria-label="Remover imagem"
+                          title="Remover imagem"
+                          onClick={() => {
+                            const next = [...editFields];
+                            next[idx] = val.replace(match[0], '').trim();
+                            setEditFields(next);
+                          }}
+                          className="absolute -top-2 -right-2 rounded-full bg-zinc-700 hover:bg-zinc-600 text-zinc-100 w-5 h-5 text-xs flex items-center justify-center"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
 

@@ -4,6 +4,7 @@ import {
   renderKatexToString,
   isDirectMathFormula,
 } from '../utils/katexChemistry';
+import { resolveAnkiMediaUrl } from '../utils/mediaUrl';
 
 interface LatexRendererProps {
   content?: string;
@@ -356,9 +357,7 @@ function renderFormattedText(rawText: string, baseKey = 'fmt'): React.ReactNode[
       const imgMatch = /^<img\s+[^>]*?src=["']([^"']+)["'][^>]*?\/?>/i.exec(sourceText.slice(currentIndex));
       if (imgMatch) {
         const rawSrc = imgMatch[1].trim();
-        const resolvedSrc = (rawSrc.startsWith('http://') || rawSrc.startsWith('https://') || rawSrc.startsWith('/') || rawSrc.startsWith('data:'))
-          ? rawSrc
-          : `/api/anki/media/${encodeURIComponent(rawSrc)}`;
+        const resolvedSrc = resolveAnkiMediaUrl(rawSrc);
         nodes.push(
           <img
             key={`${baseKey}-${keyCounter++}`}

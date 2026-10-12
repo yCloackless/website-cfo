@@ -40,7 +40,15 @@ export function createAuthMiddlewares(verifySession: VerifySession) {
       if (result.valid && acceptsScope(result)) return result;
     }
     const cookieSession = verifySession(cookieToken(req));
-    return cookieSession.valid && acceptsScope(cookieSession) ? cookieSession : { valid: false };
+    if (cookieSession.valid && acceptsScope(cookieSession)) return cookieSession;
+    if (req.method === 'GET' && typeof req.query?.token === 'string') {
+      const queryToken = req.query.token.trim();
+      if (queryToken && queryToken !== 'cookie') {
+        const querySession = verifySession(queryToken);
+        if (querySession.valid && acceptsScope(querySession)) return querySession;
+      }
+    }
+    return { valid: false };
   }
   function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
     const session = authenticatedSession(req);

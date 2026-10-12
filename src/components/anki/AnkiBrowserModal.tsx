@@ -20,6 +20,7 @@ import {
 import { AnkiCard, AnkiDeck, FlashcardImportance } from '../../services/anki/ankiTypes';
 import { apiFetch } from '../../services/apiFetch';
 import { ConfirmModal } from '../ConfirmModal';
+import { resolveAnkiMediaUrl } from '../../utils/mediaUrl';
 
 interface AnkiBrowserModalProps {
   decks: AnkiDeck[];
@@ -684,10 +685,50 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
                         </button>
                       </td>
                       <td className="p-3 font-normal text-zinc-200 truncate max-w-xs" title={frontText}>
-                        {frontText.replace(/<[^>]*>?/gm, '')}
+                        {(() => {
+                          const hasImage = /<img\b/i.test(frontText);
+                          const clean = frontText.replace(/<[^>]*>?/gm, '').trim();
+                          if (!clean && hasImage) {
+                            return (
+                              <span className="inline-flex items-center gap-1.5 text-sky-400 font-medium">
+                                <ImageIcon className="w-3.5 h-3.5 shrink-0" />
+                                <span>[Imagem]</span>
+                              </span>
+                            );
+                          }
+                          if (hasImage) {
+                            return (
+                              <span className="inline-flex items-center gap-1.5">
+                                <ImageIcon className="w-3 h-3 text-sky-400 shrink-0" />
+                                <span className="truncate">{clean}</span>
+                              </span>
+                            );
+                          }
+                          return clean || '-';
+                        })()}
                       </td>
                       <td className="p-3 text-zinc-400 truncate max-w-xs" title={backText}>
-                        {backText.replace(/<[^>]*>?/gm, '')}
+                        {(() => {
+                          const hasImage = /<img\b/i.test(backText);
+                          const clean = backText.replace(/<[^>]*>?/gm, '').trim();
+                          if (!clean && hasImage) {
+                            return (
+                              <span className="inline-flex items-center gap-1.5 text-sky-400 font-medium">
+                                <ImageIcon className="w-3.5 h-3.5 shrink-0" />
+                                <span>[Imagem]</span>
+                              </span>
+                            );
+                          }
+                          if (hasImage) {
+                            return (
+                              <span className="inline-flex items-center gap-1.5">
+                                <ImageIcon className="w-3 h-3 text-sky-400 shrink-0" />
+                                <span className="truncate">{clean}</span>
+                              </span>
+                            );
+                          }
+                          return clean || '-';
+                        })()}
                       </td>
                       <td className="p-3 text-zinc-300 font-medium truncate max-w-[140px]" title={card.deck?.name}>
                         {card.deck?.name}
@@ -784,7 +825,7 @@ export const AnkiBrowserModal: React.FC<AnkiBrowserModalProps> = ({
                   <div className="flex flex-wrap gap-2 mt-2">
                     {[...field.matchAll(/<img\b[^>]*src=["']([^"']+)["'][^>]*>/gi)].map((match, imageIdx) => (
                       <div key={`${match[1]}-${imageIdx}`} className="relative border border-zinc-700 rounded-lg p-1 bg-zinc-950">
-                        <img src={match[1]} alt={`Imagem ${imageIdx + 1}`} className="h-16 max-w-28 object-contain rounded" />
+                        <img src={resolveAnkiMediaUrl(match[1])} alt={`Imagem ${imageIdx + 1}`} className="h-16 max-w-28 object-contain rounded" />
                         <button type="button" aria-label="Remover imagem" title="Remover imagem" onClick={() => setEditFields((prev) => prev.map((value, i) => i === idx ? value.replace(match[0], '').trim() : value))}
                           className="absolute -top-2 -right-2 rounded-full bg-zinc-700 hover:bg-zinc-600 text-zinc-100 w-5 h-5 text-xs">×</button>
                       </div>
