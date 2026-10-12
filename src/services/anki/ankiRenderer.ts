@@ -71,9 +71,13 @@ export class AnkiRenderer {
     // Some older AI cards contain literal JSON paragraph markers and bare
     // equations. The review screen uses this server renderer, so recover them
     // here before looking for explicit math delimiters.
-    const hasCorruptLatexEscapes = /\\\{\}n|\\\{\}\\\{\}(?:text|frac|qquad|quad|boxed|left|right|cdot|sqrt|times|Delta|pi|sum|int)/i.test(html);
+    const hasCorruptLatexEscapes = /\\\{\}n|\\\{\}\\\{\}(?:text|frac|qquad|quad|boxed|left|right|cdot|sqrt|times|Delta|pi|sum|int)|\\{2,}(?:n|v(?=[_^=])|text|frac|qquad|quad|boxed|left|right|cdot|sqrt|times|Delta|pi|sum|int)/i.test(html);
     const legacyNormalizedHtml = hasCorruptLatexEscapes
       ? html
+        // Some old AI cards persisted JSON-escaped commands (two backslashes).
+        .replace(/(?<!\\)(?:\\{2})+(?!\\)(?=(?:textbf?|frac|qquad|quad|boxed|left|right|cdot|sqrt|times|Delta|pi|sum|int))/gi, '\\')
+        .replace(/(?<!\\)(?:\\{2})+(?!\\)v(?=[_{=])/g, 'v')
+        .replace(/(^|\r?\n)(?:\\{2})+(?=\r?\n|$)/g, '$1<br>')
         .replace(/\\\{\}n/g, '<br>')
         .replace(/\\\{\}\\\{\}/g, '\\')
         .replace(/\\\{\}(?=(?:text|frac|qquad|quad|boxed|left|right|cdot|sqrt|times|Delta|pi|sum|int))/gi, '\\')

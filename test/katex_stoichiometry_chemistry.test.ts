@@ -205,3 +205,14 @@ test('CHEM-12: AnkiRenderer recupera dez formatos legados de flashcard', () => {
     if (index === 3) assert.ok(sanitized.includes('class="mfrac"'), 'Fração deve ser renderizada como estrutura matemática');
   }
 });
+
+test('CHEM-13: AnkiRenderer normaliza LaTeX e quebras com barras duplicadas', () => {
+  const card = '\\\\n\\\\nDados:\\\\n\\\\v_r=\\\\frac{3}{2}v\\\\nA velocidade média:\\\\n\\\\v_m=\\\\frac{6}{5}v';
+  const rendered = AnkiRenderer.sanitizeCardHtml(AnkiRenderer.renderMath(card));
+
+  assert.equal((rendered.match(/class="katex"/g) || []).length, 2, 'As duas equações devem virar KaTeX');
+  assert.equal((rendered.match(/class="mfrac"/g) || []).length, 2, 'As duas frações devem manter sua estrutura');
+  assert.ok(rendered.includes('Dados:'), 'O texto do cartão deve continuar visível');
+  assert.ok(!rendered.includes('\\\\n'), 'Marcadores duplicados de quebra não devem aparecer');
+  assert.ok(!rendered.includes('\\\\frac'), 'Comandos LaTeX duplicados devem ser normalizados');
+});
