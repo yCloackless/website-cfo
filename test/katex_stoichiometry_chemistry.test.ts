@@ -180,12 +180,28 @@ test('CHEM-11: AnkiRenderer.renderMath renderiza fórmulas químicas e KaTeX sem
   }
 });
 
-test('CHEM-12: AnkiRenderer recupera quebras e equações de flashcards antigos', () => {
-  const legacyCard = '\\textbf{Dados:}\\n\\nS_{total}=2000\\,\\text{m}\\n\\nLogo, uma volta é:\\n\\nS_{volta}=\\frac{2000}{5}=400\\,\\text{m}';
-  const rendered = AnkiRenderer.renderMath(legacyCard);
+test('CHEM-12: AnkiRenderer recupera dez formatos legados de flashcard', () => {
+  const cards = [
+    '\\{}n\\{}<strong>Dados:</strong>\\{}n\\{}\\n\\n\\{}nS_{\\{}\\{}text{total}}=2000\\{}\\{},\\{}\\{}text{m}, \\{}\\{}qquad N=5\\{}\\{}text{voltas}\\{}n\\{}',
+    '\\textbf{Dados:}\\nS_{total}=2000\\,\\text{m}',
+    '\\textbf{Dados:}\n\\nS_{total}=2000\\,\\text{m}',
+    '\\{}n\\{}<strong>Dados:</strong>\\{}n\\{}\\n\\n\\{}nS_{\\{}\\{}text{volta}}=\\{}\\{}frac{2000}{5}=400\\{}\\{},\\{}\\{}text{m}\\{}n\\{}',
+    '\\textbf{Dados:}\\n\\n2L+C=400',
+    '\\textbf{Dados:}\\n\\nv_c=v',
+    '\\textbf{Dados:}\\n\\nv_r=\\frac{3}{2}v',
+    '&lt;strong&gt;Dados:&lt;/strong&gt;\\n\\nS_{total}=2000\\,\\text{m}',
+    'Parágrafo real\\n\\nS_{volta}=\\frac{2000}{5}=400\\,\\text{m}',
+    'Equação existente: $v=\\frac{d}{t}$',
+  ];
 
-  assert.ok(rendered.includes('<strong>Dados:</strong>'), 'Título em negrito deve ser preservado');
-  assert.ok(rendered.includes('class="katex-display"'), 'Equações sem delimitadores devem ser renderizadas em bloco');
-  assert.ok(!rendered.includes('\\n'), 'Quebras JSON literais não devem aparecer no cartão');
-  assert.ok(!rendered.includes('katex-error'), 'Equações recuperadas não devem produzir erro de renderização');
+  for (const [index, card] of cards.entries()) {
+    const rendered = AnkiRenderer.renderMath(card);
+    const sanitized = AnkiRenderer.sanitizeCardHtml(rendered);
+    assert.ok(sanitized.includes('<strong>Dados:</strong>') || index === 8 || index === 9, `Formatação de título preservada no caso ${index + 1}`);
+    assert.ok(sanitized.includes('class="katex'), `Fórmula convertida em KaTeX no caso ${index + 1}`);
+    assert.ok(!sanitized.includes('\\n'), `Quebra literal removida no caso ${index + 1}: ${JSON.stringify(sanitized.slice(0, 500))}`);
+    assert.ok(!sanitized.includes('\\{}'), `Escape corrompido removido no caso ${index + 1}`);
+    assert.ok(!sanitized.includes('katex-error'), `Sem erro KaTeX no caso ${index + 1}`);
+    if (index === 3) assert.ok(sanitized.includes('class="mfrac"'), 'Fração deve ser renderizada como estrutura matemática');
+  }
 });

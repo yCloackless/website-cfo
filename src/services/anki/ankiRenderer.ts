@@ -71,19 +71,38 @@ export class AnkiRenderer {
     // Some older AI cards contain literal JSON paragraph markers and bare
     // equations. The review screen uses this server renderer, so recover them
     // here before looking for explicit math delimiters.
-    const normalizedHtml = !html.includes('\n') && /(?:\\n){2,}/.test(html)
-      ? html.replace(/\\n/g, '<br>')
+    const hasCorruptLatexEscapes = /\\\{\}n|\\\{\}\\\{\}(?:text|frac|qquad|quad|boxed|left|right|cdot|sqrt|times|Delta|pi|sum|int)/i.test(html);
+    const legacyNormalizedHtml = hasCorruptLatexEscapes
+      ? html
+        .replace(/\\\{\}n/g, '<br>')
+        .replace(/\\\{\}\\\{\}/g, '\\')
+        .replace(/\\\{\}(?=(?:text|frac|qquad|quad|boxed|left|right|cdot|sqrt|times|Delta|pi|sum|int))/gi, '\\')
+        .replace(/\\\{\}/g, '')
       : html;
+    const normalizedHtml = legacyNormalizedHtml
+      // Some cards mix real line breaks with JSON-escaped ones, or contain
+      // more than one escaped slash. Normalize only newline markers followed
+      // by another marker or a new sentence, leaving commands like \neq intact.
+      .replace(/\\+n/g, (marker, offset, source) => {
+        const next = source[offset + marker.length] || '';
+        const rest = source.slice(offset + marker.length);
+        return !next || next === '\\' || next === '<' || /[\sA-ZÀ-Ý0-9]/.test(next) || /^v[_=^]/.test(rest)
+          ? '<br>'
+          : marker;
+      })
+      // Recover only the safe tag emitted by older card-formatting passes.
+      .replace(/&lt;(\/?strong)&gt;/gi, '<$1>')
+      .replace(/\r\n?/g, '\n');
     let prepared = normalizedHtml
-      .split(/(<br\s*\/?\s*>)/i)
+      .split(/(<br\s*\/?\s*>|\n)/i)
       .map((part) => {
-        if (/^<br\s*\/?\s*>$/i.test(part)) return part;
+        if (/^(?:<br\s*\/?\s*>|\n)$/i.test(part)) return '<br>';
 
         // Keep simple LaTeX text headings readable outside math mode.
         let line = part.replace(/\\textbf\{([^{}]*)\}/g, '<strong>$1</strong>');
         const looksLikeEquation = line.includes('=') &&
           !/\b(?:é|e|que|para|com|dos|das|uma|nos|nas)\b/i.test(line) &&
-          /^[^<>]*[\\A-Za-z0-9{}_^+\-*/=.,()\s]+[^<>]*$/.test(line);
+          /^[\\A-Za-z0-9{}_^+\-*/=.,()\s]+$/.test(line.trim());
 
         return looksLikeEquation && !/(?:\\\[|\$\$)/.test(line)
           ? `\\[${line.trim()}\\]`
