@@ -250,3 +250,16 @@ test('CHEM-15: AnkiRenderer preserva estilos numéricos de frações e delimitad
   assert.match(rendered, /style="[^"]*border-bottom-width:/, 'A barra da fração deve manter a espessura definida pelo KaTeX');
   assert.ok(!rendered.includes('katex-error'), 'A equação não deve gerar erro KaTeX');
 });
+
+test('CHEM-16: AnkiRenderer converte ambientes de lista e comandos de espaçamento LaTeX', () => {
+  const card = String.raw`Problema: Resolver o sistema: \[\begin{cases}x^2+7x+12=1\\x+y=6\end{cases}\] e determinar a soma de todos os valores.\vspace{0.5em}\hrule\vspace{0.5em}\textbf{Propriedade:} Uma igualdade do tipo $A^B=1$ ocorre em exatamente 3 casos: \begin{enumerate}\item B=0 com A diferente de 0\item A=1\item A=-1 com B inteiro e par\end{enumerate}\vspace{0.5em}\textbf{Resolução:}\begin{itemize}\item Caso 1: Exponente nulo ($x^2+7x+12=0$)\item Caso 2: Base unitária ($y=1$)\end{itemize}`;
+  const rendered = AnkiRenderer.sanitizeCardHtml(AnkiRenderer.renderMath(card));
+
+  assert.ok(rendered.includes('<ol>') && rendered.includes('</ol>'), 'enumerate deve virar lista ordenada');
+  assert.ok(rendered.includes('<ul>') && rendered.includes('</ul>'), 'itemize deve virar lista não ordenada');
+  assert.equal((rendered.match(/<li>/g) || []).length, 5, 'Cada comando item deve virar um item HTML');
+  assert.ok(rendered.includes('<hr'), 'hrule deve virar uma linha horizontal');
+  assert.ok(!/\\(?:begin|end|item|vspace|hrule)/.test(rendered), 'Comandos de estrutura não devem aparecer como texto');
+  assert.ok((rendered.match(/class="katex"/g) || []).length >= 3, 'Equações do sistema e dos itens devem continuar em KaTeX');
+  assert.ok(!rendered.includes('katex-error'), 'O conteúdo matemático não deve gerar erro KaTeX');
+});

@@ -108,7 +108,13 @@ export class AnkiRenderer {
       // Recover only the safe tag emitted by older card-formatting passes.
       .replace(/&lt;(\/?strong)&gt;/gi, '<$1>')
       .replace(/\r\n?/g, '\n');
-    let prepared = normalizedHtml
+    const normalizedLatexMarkup = normalizedHtml
+      .replace(/\\+begin\{(enumerate|itemize)\}/gi, (_match, list: string) => list.toLowerCase() === 'enumerate' ? '<ol>' : '<ul>')
+      .replace(/\\+end\{(enumerate|itemize)\}/gi, (_match, list: string) => list.toLowerCase() === 'enumerate' ? '</ol>' : '</ul>')
+      .replace(/\\+item\b/gi, '<li>')
+      .replace(/\\+vspace\{[^{}]*\}/gi, '<br>')
+      .replace(/\\+hrule\b/gi, '<hr>');
+    let prepared = normalizedLatexMarkup
       .split(/(<br\s*\/?\s*>|\n)/i)
       .map((part) => {
         if (/^(?:<br\s*\/?\s*>|\n)$/i.test(part)) return '<br>';
