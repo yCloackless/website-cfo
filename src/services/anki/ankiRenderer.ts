@@ -96,7 +96,8 @@ export class AnkiRenderer {
       .replace(/\\+n/g, (marker, offset, source) => {
         const next = source[offset + marker.length] || '';
         const rest = source.slice(offset + marker.length);
-        return !next || next === '\\' || next === '<' || /[\sA-ZÀ-Ý0-9]/.test(next) || /^v[_=^]/.test(rest)
+        const previous = source[offset - 1] || '';
+        return !next || next === '\\' || next === '<' || previous === ']' || /[\sA-ZÀ-Ý0-9]/.test(next) || /^v[_=^]/.test(rest)
           ? '<br>'
           : marker;
       })
@@ -121,13 +122,15 @@ export class AnkiRenderer {
       .join('');
 
     // Block math: $$...$$ or \[...\]
+    const renderedBlocks: string[] = [];
     let rendered = prepared.replace(/\$\$([\s\S]*?)\$\$|\\\[([\s\S]*?)\\\]/g, (_m, g1, g2) => {
       const math = g1 || g2 || '';
       try {
-        return renderKatexToString(math.trim(), true);
+        renderedBlocks.push(renderKatexToString(math.trim(), true));
       } catch {
-        return _m;
+        renderedBlocks.push(_m);
       }
+      return `\u0000anki-math-${renderedBlocks.length - 1}\u0000`;
     });
 
     // Inline math: [latex]...[/latex], [$]...[/$], \(...\), \ce{...}, and $...$
@@ -140,7 +143,7 @@ export class AnkiRenderer {
       }
     });
 
-    return rendered;
+    return rendered.replace(/\u0000anki-math-(\d+)\u0000/g, (_marker, index: string) => renderedBlocks[Number(index)]);
   }
 
   /**

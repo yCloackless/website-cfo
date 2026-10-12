@@ -218,12 +218,14 @@ test('CHEM-13: AnkiRenderer normaliza LaTeX e quebras com barras duplicadas', ()
 });
 
 test('CHEM-14: AnkiRenderer recupera delimitadores duplicados do cartão QER autenticado', () => {
-  const card = String.raw`\\[\n\\textbf{Dados:}\n\\]\n\n\\[\nS_{\\text{total}}=2000\\,\\text{m}, \\qquad N=5\\text{ voltas}\n\\]`;
+  const card = String.raw`\\[\n\\textbf{Dados:}\n\\]\n\n\\[\nS_{\\text{total}}=2000\\,\\text{m}, \\qquad N=5\\text{ voltas}\n\\]\n\n\\[\n\\boxed{L=100\\,\\text{m}}\n\\]\n\n\\[\n\\boxed{\\text{Resposta: B}}\n\\]\n\n\\]substituímos \\(C=2L\\):`;
   const rendered = AnkiRenderer.sanitizeCardHtml(AnkiRenderer.renderMath(card));
 
   assert.ok(rendered.includes('<strong>Dados:</strong>'), 'O título deve permanecer como texto destacado');
-  assert.equal((rendered.match(/class="katex"/g) || []).length, 1, 'A equação deve virar KaTeX');
+  assert.equal((rendered.match(/class="katex"/g) || []).length, 4, 'Equações em bloco e inline devem virar KaTeX uma vez cada');
   assert.ok(!rendered.includes('\\\\[') && !rendered.includes('\\\\]'), 'Delimitadores duplicados não devem aparecer');
   assert.ok(!rendered.includes('\\n'), 'Quebras escapadas do cartão não devem aparecer');
+  assert.ok(!rendered.includes('spanclass'), 'HTML KaTeX gerado não deve ser renderizado novamente como matemática');
+  assert.ok(rendered.includes('substituímos'), 'O texto após a equação deve continuar visível');
   assert.ok(!rendered.includes('katex-error'), 'A equação não deve gerar erro KaTeX');
 });
