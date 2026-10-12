@@ -68,8 +68,31 @@ export class AnkiRenderer {
   public static renderMath(html: string): string {
     if (!html) return '';
 
+    // Some older AI cards contain literal JSON paragraph markers and bare
+    // equations. The review screen uses this server renderer, so recover them
+    // here before looking for explicit math delimiters.
+    const normalizedHtml = !html.includes('\n') && /(?:\\n){2,}/.test(html)
+      ? html.replace(/\\n/g, '<br>')
+      : html;
+    let prepared = normalizedHtml
+      .split(/(<br\s*\/?\s*>)/i)
+      .map((part) => {
+        if (/^<br\s*\/?\s*>$/i.test(part)) return part;
+
+        // Keep simple LaTeX text headings readable outside math mode.
+        let line = part.replace(/\\textbf\{([^{}]*)\}/g, '<strong>$1</strong>');
+        const looksLikeEquation = line.includes('=') &&
+          !/\b(?:é|e|que|para|com|dos|das|uma|nos|nas)\b/i.test(line) &&
+          /^[^<>]*[\\A-Za-z0-9{}_^+\-*/=.,()\s]+[^<>]*$/.test(line);
+
+        return looksLikeEquation && !/(?:\\\[|\$\$)/.test(line)
+          ? `\\[${line.trim()}\\]`
+          : line;
+      })
+      .join('');
+
     // Block math: $$...$$ or \[...\]
-    let rendered = html.replace(/\$\$([\s\S]*?)\$\$|\\\[([\s\S]*?)\\\]/g, (_m, g1, g2) => {
+    let rendered = prepared.replace(/\$\$([\s\S]*?)\$\$|\\\[([\s\S]*?)\\\]/g, (_m, g1, g2) => {
       const math = g1 || g2 || '';
       try {
         return renderKatexToString(math.trim(), true);

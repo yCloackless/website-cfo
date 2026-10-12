@@ -179,3 +179,13 @@ test('CHEM-11: AnkiRenderer.renderMath renderiza fórmulas químicas e KaTeX sem
     assert.ok(rendered.includes('class="katex"'), `Anki card deve conter classe katex: ${fi}`);
   }
 });
+
+test('CHEM-12: AnkiRenderer recupera quebras e equações de flashcards antigos', () => {
+  const legacyCard = '\\textbf{Dados:}\\n\\nS_{total}=2000\\,\\text{m}\\n\\nLogo, uma volta é:\\n\\nS_{volta}=\\frac{2000}{5}=400\\,\\text{m}';
+  const rendered = AnkiRenderer.renderMath(legacyCard);
+
+  assert.ok(rendered.includes('<strong>Dados:</strong>'), 'Título em negrito deve ser preservado');
+  assert.ok(rendered.includes('class="katex-display"'), 'Equações sem delimitadores devem ser renderizadas em bloco');
+  assert.ok(!rendered.includes('\\n'), 'Quebras JSON literais não devem aparecer no cartão');
+  assert.ok(!rendered.includes('katex-error'), 'Equações recuperadas não devem produzir erro de renderização');
+});
