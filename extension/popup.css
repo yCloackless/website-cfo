@@ -146,7 +146,8 @@
 }
 
 body {
-  width: 380px;
+  width: min(380px, 100vw);
+  max-width: 100vw;
   min-height: 540px;
   background-color: var(--bg-app);
   color: var(--text-primary);
@@ -879,26 +880,31 @@ select:hover {
 
 .answer-window {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  align-content: flex-start;
   justify-content: center;
-  gap: 7px;
+  gap: 4px;
   margin: 12px 0 4px;
-  padding: 11px 12px;
+  padding: 10px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   background: var(--bg-surface);
 }
 
+.answer-window:empty { display: none; }
+
 .answer-square {
   display: grid;
-  width: 25px;
-  height: 25px;
+  flex: 0 0 var(--answer-square-size, 34px);
+  width: var(--answer-square-size, 34px);
+  height: var(--answer-square-size, 34px);
   place-items: center;
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border-radius: var(--answer-square-radius, 6px);
   background: var(--bg-subtle);
   color: var(--text-muted);
-  font-size: 16px;
+  font-size: var(--answer-square-font-size, 16px);
   font-weight: 800;
   line-height: 1;
   transition: background-color .16s ease, border-color .16s ease, transform .16s ease;
@@ -916,12 +922,8 @@ select:hover {
   color: var(--danger);
 }
 
-.answer-square.pending {
-  border-style: dashed;
-}
-
 @media (prefers-reduced-motion: no-preference) {
-  .answer-square:not(.pending) { animation: answer-square-in .18s ease-out both; }
+  .answer-square { animation: answer-square-in .18s ease-out both; }
   @keyframes answer-square-in { from { transform: scale(.78); opacity: .65; } to { transform: scale(1); opacity: 1; } }
 }
 
@@ -1028,9 +1030,11 @@ select:hover {
   z-index: 20;
   inset: 0;
   display: grid;
-  place-items: center;
-  overflow: hidden;
-  padding: 18px;
+  place-items: safe center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 10px;
+  overscroll-behavior: contain;
   background: rgb(3 7 18 / 88%);
   backdrop-filter: blur(8px);
 }
@@ -1038,7 +1042,9 @@ select:hover {
   position: relative;
   z-index: 1;
   width: min(100%, 360px);
-  overflow: hidden;
+  max-height: calc(100dvh - 20px);
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 22px 20px 20px;
   border: 1px solid rgb(251 191 36 / 35%);
   border-radius: 24px;
@@ -1123,6 +1129,22 @@ select:hover {
 @keyframes trophy-enter { from { opacity: 0; transform: translateY(8px) scale(.45) rotate(-14deg); } 70% { transform: translateY(-3px) scale(1.08) rotate(4deg); } to { opacity: 1; transform: none; } }
 @keyframes trophy-glow { 0%,100% { opacity: .45; transform: translateX(-50%) scale(.85); } 50% { opacity: .9; transform: translateX(-50%) scale(1.12); } }
 @keyframes confetti-drop { to { transform: translate3d(12px, 340px, 0) rotate(300deg); opacity: 0; } }
+@media (max-height: 480px) {
+  .achievement-card { padding: 14px 16px; border-radius: 20px; }
+  .achievement-trophy { width: 76px; height: 76px; }
+  .achievement-eyebrow { margin: 1px 0 5px; }
+  .achievement-card h2 { font-size: 19px; line-height: 1.1; }
+  .achievement-copy { margin: 7px 0 6px; }
+  .achievement-continue { min-height: 40px; margin-top: 12px; }
+}
+@media (max-height: 380px) {
+  .achievement-card { padding: 10px 14px; }
+  .achievement-trophy { width: 60px; height: 60px; }
+  .achievement-eyebrow { margin: 0 0 3px; font-size: 9px; }
+  .achievement-card h2 { font-size: 17px; }
+  .achievement-copy { margin: 5px 0 4px; }
+  .achievement-continue { min-height: 36px; margin-top: 8px; }
+}
 @media (prefers-reduced-motion: reduce) {
   .achievement-card, .achievement-trophy, .trophy-glow, .achievement-confetti i { animation: none !important; }
   .achievement-continue { transition: none; }

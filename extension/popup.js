@@ -380,25 +380,45 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function updateLevelingUI() {
-  const answers = (state.leveling.answerLog || []).slice(-5);
-  const correctCount = answers.filter((entry) => entry.answer === 'correct').length;
-  const wrongCount = answers.filter((entry) => entry.answer === 'wrong').length;
+  const answers = CfoLevelingState.getAnswerTimeline(state.leveling);
   const nextQuestion = (state.leveling.questionsAnswered || 0) + 1;
-  els.statProgress.textContent = `${correctCount}/5 acertos · ${wrongCount} ${wrongCount === 1 ? 'erro' : 'erros'}`;
+  els.statProgress.textContent = String(answers.length);
   els.levelingStatusLabel.textContent = state.leveling.levelingCompleted
     ? 'Nivelamento concluído'
     : `Questão ${nextQuestion}`;
   if (els.answerWindow) {
-    const squares = Array.from(els.answerWindow.children);
-    squares.forEach((square, index) => {
+    const currentSquares = Array.from(els.answerWindow.children);
+    const canAppend = currentSquares.every((square, index) => square.dataset.questionId === answers[index]?.questionId);
+    if (!canAppend) els.answerWindow.replaceChildren();
+    while (els.answerWindow.children.length > answers.length) els.answerWindow.lastElementChild.remove();
+    for (let index = els.answerWindow.children.length; index < answers.length; index += 1) {
+      const square = document.createElement('span');
+      square.className = 'answer-square';
+      square.dataset.questionId = answers[index].questionId;
+      square.setAttribute('role', 'listitem');
+      els.answerWindow.appendChild(square);
+    }
+    Array.from(els.answerWindow.children).forEach((square, index) => {
       const entry = answers[index];
-      const answerType = entry?.answer || 'pending';
-      square.className = `answer-square ${answerType}`;
-      square.textContent = answerType === 'correct' ? '✓' : answerType === 'wrong' ? '×' : '';
-      square.setAttribute('aria-label', answerType === 'correct'
-        ? `Questão ${index + 1}: acerto`
-        : answerType === 'wrong' ? `Questão ${index + 1}: erro` : 'Ainda não respondida');
+      square.dataset.questionId = entry.questionId;
+      square.className = `answer-square ${entry.answer}`;
+      square.textContent = entry.answer === 'correct' ? '✓' : '×';
+      square.setAttribute('aria-label', `Questão ${index + 1}: ${entry.answer === 'correct' ? 'acerto' : 'erro'}`);
     });
+    els.answerWindow.setAttribute('aria-label', `${answers.length} ${answers.length === 1 ? 'questão respondida' : 'questões respondidas'}`);
+    if (answers.length) {
+      const gap = 4;
+      const availableWidth = Math.max(0, els.answerWindow.clientWidth - 20);
+      const oneRowSize = (availableWidth - gap * (answers.length - 1)) / answers.length;
+      const squareSize = Math.max(12, Math.min(34, oneRowSize));
+      els.answerWindow.style.setProperty('--answer-square-size', `${squareSize}px`);
+      els.answerWindow.style.setProperty('--answer-square-font-size', `${Math.max(8, Math.min(16, squareSize * 0.56))}px`);
+      els.answerWindow.style.setProperty('--answer-square-radius', `${Math.max(3, Math.min(6, squareSize * 0.2))}px`);
+    } else {
+      els.answerWindow.style.removeProperty('--answer-square-size');
+      els.answerWindow.style.removeProperty('--answer-square-font-size');
+      els.answerWindow.style.removeProperty('--answer-square-radius');
+    }
   }
   const canAnswer = !levelingMutationPending
     && !state.leveling.levelingCompleted

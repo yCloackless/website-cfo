@@ -37,7 +37,7 @@ async function openPopup(extensionId) {
   page.setDefaultTimeout(5000);
   await page.goto(`chrome-extension://${extensionId}/popup.html`);
   await page.locator('#tab-btn-leveling').click();
-  await page.locator('#answer-window').waitFor();
+  await page.locator('#answer-window').waitFor({ state: 'attached' });
   return page;
 }
 
@@ -50,6 +50,7 @@ try {
   let worker = context.serviceWorkers()[0];
   let extensionId = new URL(worker.url()).host;
   let popup = await openPopup(extensionId);
+  let firstMarkerSize;
   await popup.screenshot({ path: path.join(evidencePath, 'nivelamento-inicial.png') });
 
   // Responde e fecha/reabre depois de cada posição, incluindo a resposta 5 e a troca da janela.
@@ -67,15 +68,20 @@ try {
     assert.equal(await popup.locator('#btn-question-correct').isEnabled(), true, 'O botão deve ser reabilitado após persistir a resposta.');
     assert.notEqual(await popup.locator('#btn-question-correct').evaluate((button) => getComputedStyle(button).cursor), 'wait');
     assert.equal((await readProgress(popup)).cfo_ext_leveling.questionsAnswered, answered, 'Um clique duplo não pode registrar duas respostas.');
+    assert.equal(await popup.locator('.answer-square').count(), answered, 'Cada resposta deve manter seu próprio quadradinho.');
+    if (answered === 1) {
+      firstMarkerSize = (await popup.locator('.answer-square').first().boundingBox()).width;
+      await popup.screenshot({ path: path.join(evidencePath, 'historico-respostas-1.png') });
+    }
     await popup.close();
     popup = await openPopup(extensionId);
     await popup.locator('#leveling-status-label').getByText(`Questão ${answered + 1}`).waitFor();
     const restored = await readProgress(popup);
     assert.equal(restored.cfo_ext_leveling.questionsAnswered, answered);
     assert.equal(restored.cfo_ext_leveling.answerLog.length, answered);
-    assert.equal(await popup.locator('.answer-square.wrong').count(), Math.min(answered, 5));
+    assert.equal(await popup.locator('.answer-square.wrong').count(), answered);
   }
-  assert.equal(await popup.locator('#stat-progress').textContent(), '0/5 acertos · 5 erros');
+  assert.equal(await popup.locator('#stat-progress').textContent(), '5');
   const afterFailedWindow = await readProgress(popup);
   assert.equal(afterFailedWindow.cfo_ext_leveling.history.length, 1);
   assert.equal(afterFailedWindow.cfo_ext_leveling.activeBattery.answers.length, 4);
@@ -107,6 +113,7 @@ try {
   assert.equal(recoveredImmediateCompletion.cfo_ext_leveling.history.at(-1).achievementShown, true);
   assert.equal(recoveredImmediateCompletion.cfo_ext_leveling.levelingCompleted, false);
   assert.equal(recoveredImmediateCompletion.cfo_ext_leveling.activeBattery.answers.length, 0);
+  assert.equal(await popup.locator('.answer-square').count(), 9, 'As questões de todas as janelas anteriores devem continuar visíveis.');
 
   // Uma aprovação visível em 100% também tem celebração única e permanece no histórico.
   for (let index = 0; index < 5; index += 1) await popup.locator('#btn-question-correct').click();
@@ -117,17 +124,34 @@ try {
   assert.equal(completed.cfo_ext_leveling.history.at(-1).achievementShown, true);
   assert.equal(completed.cfo_ext_leveling.achievement.shown, true);
   assert.equal(completed.cfo_ext_leveling.activeBattery, null);
+  assert.equal(await popup.locator('.answer-square').count(), 14, 'O histórico não pode voltar a substituir os quadrados antigos.');
+  const finalMarkerSize = (await popup.locator('.answer-square').first().boundingBox()).width;
+  assert.ok(finalMarkerSize < firstMarkerSize, 'Os quadrados devem diminuir quando mais respostas precisam caber na faixa.');
+  await popup.setViewportSize({ width: 366, height: 390 });
+  const markerBoxes = await popup.locator('.answer-square').evaluateAll((squares) => squares.map((square) => {
+    const { x, width } = square.getBoundingClientRect();
+    return { x, width };
+  }));
+  assert.ok(markerBoxes.every((box) => box.x >= 0 && box.x + box.width <= 366), 'Nenhum quadradinho pode ser cortado na largura do popup.');
   await popup.waitForTimeout(850);
   await popup.screenshot({ path: path.join(evidencePath, 'conquista-100-por-cento.png') });
+  const achievementBounds = await popup.locator('.achievement-card').boundingBox();
+  const trophyBounds = await popup.locator('.achievement-trophy').boundingBox();
+  assert.ok(achievementBounds.y >= 0 && achievementBounds.y + achievementBounds.height <= 390, 'O cartão da conquista deve caber no popup baixo.');
+  assert.ok(trophyBounds.y >= achievementBounds.y && trophyBounds.y + trophyBounds.height <= achievementBounds.y + achievementBounds.height, 'O troféu inteiro deve permanecer visível.');
   await popup.locator('#btn-achievement-continue').click();
   await popup.locator('#leveling-achievement').waitFor({ state: 'hidden' });
   await popup.locator('#btn-question-correct').waitFor({ state: 'visible' });
   assert.equal(await popup.locator('#btn-question-correct').isEnabled(), true, 'Continuar deve liberar os botões sem fechar o popup.');
   assert.equal(await popup.locator('#btn-question-wrong').isEnabled(), true);
   assert.notEqual(await popup.locator('#btn-question-correct').evaluate((button) => getComputedStyle(button).cursor), 'wait');
+  assert.equal(await popup.locator('.answer-square').count(), 14);
+  await popup.screenshot({ path: path.join(evidencePath, 'historico-respostas-14.png') });
   await popup.locator('#btn-question-wrong').click();
   await popup.locator('#leveling-status-label').getByText('Questão 2').waitFor();
   assert.equal((await readProgress(popup)).cfo_ext_leveling.questionsAnswered, 1, 'A nova sessão deve aceitar respostas sem reabrir a extensão.');
+  assert.equal(await popup.locator('.answer-square').count(), 15);
+  await popup.screenshot({ path: path.join(evidencePath, 'historico-respostas-15.png') });
   await popup.close();
 
   // Depois de reiniciar o navegador, a bateria aprovada não reaparece e a celebração não repete.

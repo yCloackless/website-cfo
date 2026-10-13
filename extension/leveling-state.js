@@ -239,6 +239,33 @@
     };
   }
 
-  root.CfoLevelingState = { createSession, beginNewSession, createBattery, normalizeState, answer, markAchievementShown };
+  function getAnswerTimeline(state) {
+    const timeline = [];
+    const seenQuestionIds = new Set();
+    const append = (questionIds, answers, fallbackPrefix, answeredAt) => {
+      if (!Array.isArray(answers)) return;
+      answers.forEach((answer, index) => {
+        if (answer !== 'correct' && answer !== 'wrong') return;
+        const questionId = Array.isArray(questionIds) && typeof questionIds[index] === 'string' && questionIds[index]
+          ? questionIds[index]
+          : `${fallbackPrefix}:${index + 1}`;
+        if (seenQuestionIds.has(questionId)) return;
+        seenQuestionIds.add(questionId);
+        timeline.push({ questionId, answer, answeredAt });
+      });
+    };
+
+    (state?.history || []).forEach((result, index) => {
+      append(result.questionIds, result.answers, `history:${result.batteryId || index}`, result.completedAt || result.updatedAt || null);
+    });
+    const battery = state?.activeBattery;
+    if (battery) append(battery.questionIds, battery.answers, `active:${battery.batteryId || 'battery'}`, battery.updatedAt || null);
+    (state?.answerLog || []).forEach((entry, index) => {
+      append([entry.questionId], [entry.answer], `answer-log:${index}`, entry.answeredAt || null);
+    });
+    return timeline;
+  }
+
+  root.CfoLevelingState = { createSession, beginNewSession, createBattery, normalizeState, answer, markAchievementShown, getAnswerTimeline };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.CfoLevelingState;
 })(globalThis);

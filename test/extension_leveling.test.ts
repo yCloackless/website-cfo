@@ -65,15 +65,16 @@ test('EXT-L06: vinte janelas insuficientes continuam e a janela móvel seguinte 
   assert.equal(state.questionsAnswered, 28);
 });
 
-test('EXT-L07: erro não gera retorno de gabarito e o popup mostra apenas escolha e janela móvel', () => {
+test('EXT-L07: erro não revela gabarito e o popup mostra o histórico completo em quadrados', () => {
   const html = read('extension/popup.html');
   const js = read('extension/popup.js');
   assert.match(html, /id="answer-window"/);
-  assert.match(html, /class="answer-square pending"/);
+  assert.match(html, /Questões respondidas/);
+  assert.doesNotMatch(html, /answer-square pending/);
   assert.doesNotMatch(html, /class="progress-track"|role="progressbar" aria-label="Progresso da bateria"/);
   assert.doesNotMatch(js, /Você errou|Não aprovado|pontuação foi insuficiente|alternativa correta/);
-  assert.match(js, /answerType === 'wrong' \? '×'/);
-  assert.match(js, /slice\(-5\)/);
+  assert.match(js, /entry\.answer === 'correct' \? '✓' : '×'/);
+  assert.match(js, /CfoLevelingState\.getAnswerTimeline/);
 });
 
 test('EXT-L08: fechar na questão 3 e reabrir restaura sessão, janela e respostas', () => {
@@ -195,6 +196,8 @@ test('EXT-L21: ZIP distribuído contém motor e popup atuais da extensão', asyn
   const zip = await JSZip.loadAsync(fs.readFileSync(path.join(root, 'public/cfo-extensao-cbmerj.zip')));
   assert.ok(zip.file('leveling-state.js'));
   assert.ok(zip.file('popup.js'));
+  assert.equal(await zip.file('popup.js')!.async('string'), read('extension/popup.js'));
+  assert.equal(await zip.file('popup.css')!.async('string'), read('extension/popup.css'));
 });
 
 test('EXT-L22: sincronização na nuvem espera hidratação e preserva progresso local offline', () => {
@@ -209,4 +212,21 @@ test('EXT-L23: manifesto e popup mantêm as proteções de movimento reduzido e 
   const manifest = JSON.parse(read('extension/manifest.json'));
   assert.ok(manifest.permissions.includes('storage'));
   assert.match(read('extension/popup.js'), /chrome\.storage\.local\.set/);
+});
+
+test('EXT-L24: o histórico visual preserva cada resposta apesar das janelas sobrepostas', () => {
+  let state = run(leveling.createSession(), Array(24).fill('wrong'));
+  let timeline = leveling.getAnswerTimeline(state);
+  assert.equal(timeline.length, 24);
+  assert.equal(new Set(timeline.map((entry: any) => entry.questionId)).size, 24);
+  assert.ok(timeline.every((entry: any) => entry.answer === 'wrong'));
+
+  state = run(state, Array(4).fill('correct'));
+  timeline = leveling.getAnswerTimeline(state);
+  assert.equal(state.levelingCompleted, true);
+  assert.equal(timeline.length, 28);
+  assert.deepEqual(timeline.slice(-4).map((entry: any) => entry.answer), Array(4).fill('correct'));
+
+  const nextSession = leveling.beginNewSession(state);
+  assert.equal(leveling.getAnswerTimeline(nextSession).length, 28, 'A conquista não pode apagar os marcadores anteriores.');
 });
