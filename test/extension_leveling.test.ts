@@ -221,12 +221,25 @@ test('EXT-L24: o histórico visual preserva cada resposta apesar das janelas sob
   assert.equal(new Set(timeline.map((entry: any) => entry.questionId)).size, 24);
   assert.ok(timeline.every((entry: any) => entry.answer === 'wrong'));
 
-  state = run(state, Array(4).fill('correct'));
+  state = run(state, Array(3).fill('correct'));
   timeline = leveling.getAnswerTimeline(state);
+  assert.equal(state.levelingCompleted, false);
+  assert.equal(timeline.length, 27);
+  assert.deepEqual(timeline.slice(-3).map((entry: any) => entry.answer), Array(3).fill('correct'));
+
+  state = run(state, ['correct']);
   assert.equal(state.levelingCompleted, true);
-  assert.equal(timeline.length, 28);
-  assert.deepEqual(timeline.slice(-4).map((entry: any) => entry.answer), Array(4).fill('correct'));
+  assert.equal(leveling.getAnswerTimeline(state).length, 0, 'A aprovação deve limpar os quadradinhos visíveis imediatamente.');
 
   const nextSession = leveling.beginNewSession(state);
-  assert.equal(leveling.getAnswerTimeline(nextSession).length, 28, 'A conquista não pode apagar os marcadores anteriores.');
+  assert.equal(nextSession.history.length, state.history.length, 'A limpeza visual não pode apagar o histórico salvo.');
+  assert.equal(leveling.getAnswerTimeline(nextSession).length, 0, 'Uma nova tentativa começa sem quadradinhos anteriores.');
+
+  const nextAttempt = run(nextSession, Array(6).fill('wrong'));
+  assert.equal(leveling.getAnswerTimeline(nextAttempt).length, 6, 'Erros da tentativa atual continuam acumulando após uma conquista antiga.');
+  const approvedAgain = run(nextAttempt, Array(4).fill('correct'));
+  assert.equal(approvedAgain.levelingCompleted, true);
+  assert.equal(leveling.getAnswerTimeline(approvedAgain).length, 0);
+  assert.deepEqual(approvedAgain.history.slice(0, nextAttempt.history.length), nextAttempt.history, 'A segunda conquista continua preservando o histórico completo.');
+  assert.ok(approvedAgain.history.length > nextAttempt.history.length);
 });

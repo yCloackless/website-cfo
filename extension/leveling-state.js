@@ -242,6 +242,8 @@
   function getAnswerTimeline(state) {
     const timeline = [];
     const seenQuestionIds = new Set();
+    if (state?.levelingCompleted) return timeline;
+
     const append = (questionIds, answers, fallbackPrefix, answeredAt) => {
       if (!Array.isArray(answers)) return;
       answers.forEach((answer, index) => {
@@ -255,8 +257,15 @@
       });
     };
 
-    (state?.history || []).forEach((result, index) => {
-      append(result.questionIds, result.answers, `history:${result.batteryId || index}`, result.completedAt || result.updatedAt || null);
+    const history = state?.history || [];
+    let lastApprovedIndex = -1;
+    history.forEach((result, index) => {
+      if (result.status === 'approved' || result.correctAnswersCount >= 4 || result.percentage >= 80) {
+        lastApprovedIndex = index;
+      }
+    });
+    history.slice(lastApprovedIndex + 1).forEach((result, index) => {
+      append(result.questionIds, result.answers, `history:${result.batteryId || lastApprovedIndex + 1 + index}`, result.completedAt || result.updatedAt || null);
     });
     const battery = state?.activeBattery;
     if (battery) append(battery.questionIds, battery.answers, `active:${battery.batteryId || 'battery'}`, battery.updatedAt || null);
