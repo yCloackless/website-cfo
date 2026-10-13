@@ -10,88 +10,133 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (file: string) => fs.readFileSync(path.join(root, file), 'utf8');
 const require = createRequire(import.meta.url);
 const leveling = require('../extension/leveling-state.js');
-const solve = (answers: string[]) => answers.reduce((state: any, answer: string, index: number) => leveling.answer(state, answer, `2026-10-13T12:00:0${index}.000Z`), leveling.createSession('2026-10-13T12:00:00.000Z'));
+const run = (state: any, answers: string[]) => answers.reduce(
+  (next: any, answer: string, index: number) => leveling.answer(next, answer, `2026-10-13T12:00:${String(index).padStart(2, '0')}.000Z`), state,
+);
+const patternForScore = (correct: number) => [...Array(correct).fill('correct'), ...Array(5 - correct).fill('wrong')];
 
-test('EXT-L01: 4/5 conclui a bateria com 80%, histórico e conquista pendente', () => {
-  const state = solve(['correct', 'correct', 'correct', 'correct', 'wrong']);
+test('EXT-L01/02: 4/5 aprova com 80% e 5/5 aprova com 100%', () => {
+  for (const correct of [4, 5]) {
+    const state = run(leveling.createSession(), patternForScore(correct));
+    assert.equal(state.levelingCompleted, true);
+    assert.equal(state.history.at(-1).correctAnswersCount, correct);
+    assert.equal(state.history.at(-1).percentage, correct * 20);
+    assert.equal(state.history.at(-1).status, 'approved');
+    assert.equal(state.activeBattery, null);
+    assert.equal(state.achievement.shown, false);
+  }
+});
+
+test('EXT-L03/05: 0/5 até 3/5 mantêm a sequência e registram uma janela móvel', () => {
+  for (const correct of [0, 1, 2, 3]) {
+    const state = run(leveling.createSession(), patternForScore(correct));
+    assert.equal(state.levelingCompleted, false);
+    assert.equal(state.history.length, 1);
+    assert.equal(state.history[0].percentage, correct * 20);
+    assert.equal(state.questionsAnswered, 5);
+    assert.equal(state.activeBattery.answers.length, 4, 'A janela seguinte herda as quatro respostas mais recentes.');
+    assert.equal(state.activeBattery.currentQuestionIndex, 4);
+    assert.equal(state.batteryNumber, 2);
+  }
+});
+
+test('EXT-L04: todos os seis percentuais possíveis são avaliados somente depois da quinta resposta da janela', () => {
+  for (let correct = 0; correct <= 5; correct += 1) {
+    let state = leveling.createSession();
+    const answers = patternForScore(correct);
+    state = run(state, answers.slice(0, 4));
+    assert.equal(state.levelingCompleted, false);
+    assert.equal(state.history.length, 0);
+    state = run(state, answers.slice(4));
+    assert.equal(state.levelingCompleted, correct >= 4);
+    assert.equal(state.history.at(-1).percentage, correct * 20);
+  }
+});
+
+test('EXT-L06: vinte janelas insuficientes continuam e a janela móvel seguinte pode aprovar', () => {
+  let state = run(leveling.createSession(), Array(24).fill('wrong'));
+  assert.equal(state.levelingCompleted, false);
+  assert.equal(state.history.length, 20);
+  assert.equal(state.questionsAnswered, 24);
+  state = run(state, Array(4).fill('correct'));
   assert.equal(state.levelingCompleted, true);
-  assert.equal(state.history[0].percentage, 80);
-  assert.equal(state.history[0].status, 'approved');
-  assert.equal(state.activeBattery, null);
-  assert.equal(state.achievement.shown, false);
+  assert.equal(state.history.at(-1).correctAnswersCount, 4);
+  assert.equal(state.history.at(-1).percentage, 80);
+  assert.equal(state.questionsAnswered, 28);
 });
 
-test('EXT-L02: 5/5 conclui com 100%', () => {
-  const state = solve(Array(5).fill('correct'));
-  assert.equal(state.history[0].correctAnswersCount, 5);
-  assert.equal(state.history[0].percentage, 100);
-});
-
-test('EXT-L03: 3/5 arquiva a bateria e continua automaticamente em outra', () => {
-  const first = solve(['correct', 'correct', 'correct', 'wrong', 'wrong']);
-  assert.equal(first.levelingCompleted, false);
-  assert.equal(first.history[0].percentage, 60);
-  assert.equal(first.activeBattery.answers.length, 0);
-  assert.equal(first.activeBattery.batteryNumber, 2);
-});
-
-test('EXT-L04/05: respostas insuficientes não são mostradas na interface', () => {
+test('EXT-L07: erro não gera retorno de gabarito e o popup mostra apenas escolha e janela móvel', () => {
   const html = read('extension/popup.html');
   const js = read('extension/popup.js');
-  assert.doesNotMatch(html, /id="stat-(correct|wrong|accuracy)"|id="leveling-result"/);
-  assert.doesNotMatch(js, /Faltam .* acerto|Bateria finalizada|Revise seus erros|resultAccuracy|statCorrect|statWrong/);
-  assert.match(html, /Questão 1 de 5/);
+  assert.match(html, /id="answer-window"/);
+  assert.match(html, /class="answer-square pending"/);
+  assert.doesNotMatch(html, /class="progress-track"|role="progressbar" aria-label="Progresso da bateria"/);
+  assert.doesNotMatch(js, /Você errou|Não aprovado|pontuação foi insuficiente|alternativa correta/);
+  assert.match(js, /answerType === 'wrong' \? '×'/);
+  assert.match(js, /slice\(-5\)/);
 });
 
-test('EXT-L06: várias baterias abaixo de 80% continuam até a primeira aprovação', () => {
-  let state = leveling.createSession();
-  for (const score of [2, 3, 3, 3]) {
-    const answers = [...Array(score).fill('correct'), ...Array(5 - score).fill('wrong')];
-    for (const answer of answers) state = leveling.answer(state, answer);
-    assert.equal(state.levelingCompleted, false);
-  }
-  for (const answer of ['correct', 'correct', 'correct', 'correct', 'wrong']) state = leveling.answer(state, answer);
-  assert.equal(state.levelingCompleted, true);
-  assert.equal(state.history.length, 5);
-  assert.equal(state.bestScore, 80);
-});
-
-test('EXT-L07/08: reabrir restaura bateria, questão e respostas; bateria nova não volta à antiga', () => {
-  let state = leveling.createSession();
-  state = leveling.answer(state, 'correct');
-  state = leveling.answer(state, 'wrong');
+test('EXT-L08: fechar na questão 3 e reabrir restaura sessão, janela e respostas', () => {
+  let state = run(leveling.createSession(), ['correct', 'wrong']);
   const reopened = leveling.normalizeState(JSON.parse(JSON.stringify(state)));
+  assert.equal(reopened.sessionId, state.sessionId);
   assert.equal(reopened.activeBattery.batteryId, state.activeBattery.batteryId);
   assert.equal(reopened.activeBattery.currentQuestionIndex, 2);
   assert.deepEqual(reopened.activeBattery.answers, ['correct', 'wrong']);
-  let next = state;
-  for (const answer of ['wrong', 'wrong', 'wrong']) next = leveling.answer(next, answer);
-  assert.notEqual(next.activeBattery.batteryId, state.activeBattery.batteryId);
-  assert.equal(leveling.normalizeState(next).activeBattery.batteryId, next.activeBattery.batteryId);
+  state = run(state, ['wrong', 'wrong', 'wrong']);
+  assert.notEqual(state.activeBattery.batteryId, reopened.activeBattery.batteryId);
+  assert.equal(leveling.normalizeState(state).activeBattery.batteryId, state.activeBattery.batteryId);
 });
 
-test('EXT-L09/10/11: conquista exibida uma vez, estado concluído não restaura bateria, histórico continua', () => {
-  let state = solve(['correct', 'correct', 'correct', 'correct', 'wrong']);
+test('EXT-L09: depois de falhar, a nova janela preserva as quatro respostas recentes e seus IDs', () => {
+  const failed = run(leveling.createSession(), Array(5).fill('wrong'));
+  const ids = failed.answerLog.slice(-4).map((entry: any) => entry.questionId);
+  assert.deepEqual(failed.activeBattery.answers, Array(4).fill('wrong'));
+  assert.deepEqual(failed.activeBattery.questionIds.slice(0, 4), ids);
+  assert.equal(new Set(failed.activeBattery.questionIds).size, 5);
+  const reopened = leveling.normalizeState(JSON.parse(JSON.stringify(failed)));
+  assert.deepEqual(reopened.activeBattery.answers, failed.activeBattery.answers);
+  assert.equal(reopened.questionsAnswered, 5);
+  const withoutRollingCache = { ...failed, answerLog: undefined };
+  const recoveredCache = leveling.normalizeState(withoutRollingCache);
+  assert.deepEqual(recoveredCache.answerLog.map((entry: any) => entry.questionId), ids);
+});
+
+test('EXT-L10/11: conquista exibida uma vez; bateria aprovada não volta e histórico permanece', () => {
+  let state = run(leveling.createSession(), patternForScore(4));
   state = leveling.markAchievementShown(state);
   const reopened = leveling.normalizeState(JSON.parse(JSON.stringify(state)));
   assert.equal(reopened.achievement.shown, true);
+  assert.equal(reopened.history[0].achievementShown, true);
+  assert.equal(reopened.history[0].achievementId, reopened.achievement.id);
   assert.equal(reopened.activeBattery, null);
   const next = leveling.beginNewSession(reopened);
   assert.equal(next.history.length, 1);
   assert.equal(next.history[0].percentage, 80);
+  assert.equal(next.history[0].achievementShown, true);
   assert.notEqual(next.sessionId, reopened.sessionId);
+  assert.equal(next.questionsAnswered, 0);
   assert.equal(next.activeBattery.answers.length, 0);
 });
 
-test('EXT-L12: quatro acertos não encerram antes da quinta resposta', () => {
-  let state = leveling.createSession();
-  for (let i = 0; i < 4; i += 1) state = leveling.answer(state, 'correct');
+test('EXT-L12: janela sem aprovação avança automaticamente sem pedir ação extra', () => {
+  let state = run(leveling.createSession(), [...patternForScore(2), 'wrong']);
   assert.equal(state.levelingCompleted, false);
-  assert.equal(state.history.length, 0);
+  assert.equal(state.questionsAnswered, 6);
+  assert.equal(state.history.length, 2);
   assert.equal(state.activeBattery.currentQuestionIndex, 4);
+  assert.equal(state.activeBattery.answers.length, 4);
 });
 
-test('EXT-L13/16: botões ficam bloqueados durante salvamento e snapshots locais/remotos são serializados', () => {
+test('EXT-L13: clique repetido depois da conclusão não pode inserir resposta adicional', () => {
+  const complete = run(leveling.createSession(), patternForScore(4));
+  const duplicate = leveling.answer(complete, 'wrong');
+  assert.equal(duplicate, complete);
+  assert.equal(duplicate.questionsAnswered, 5);
+  assert.equal(duplicate.history.length, 1);
+});
+
+test('EXT-L14/16: popup bloqueia cliques enquanto salva e serializa gravações local e remota', () => {
   const js = read('extension/popup.js');
   assert.match(js, /if \(levelingMutationPending \|\| state\.leveling\.levelingCompleted/);
   assert.match(js, /levelingWriteQueue = levelingWriteQueue\.catch\(\(\) => \{\}\)\.then/);
@@ -99,38 +144,46 @@ test('EXT-L13/16: botões ficam bloqueados durante salvamento e snapshots locais
   assert.match(js, /await persistLevelingState\(nextState\);\s*state\.leveling = nextState/);
 });
 
-test('EXT-L14: a resposta só avança após escrita local concluída', () => {
-  const js = read('extension/popup.js');
-  assert.match(js, /await persistLevelingState\(nextState\);\s*state\.leveling = nextState/);
-  assert.match(js, /Não foi possível salvar\. A resposta não foi avançada/);
-});
-
-test('EXT-L15: snapshots legados mantêm as respostas e convertem o restante para uma bateria ativa', () => {
+test('EXT-L15: estado legado migra sem apagar respostas e inclui contador/log persistentes', () => {
   const legacy = { total: 30, answers: ['correct', 'wrong', 'correct'], mode: 'live', updatedAt: '2026-10-12T12:00:00.000Z' };
   const restored = leveling.normalizeState(legacy);
   assert.deepEqual(restored.activeBattery.answers, legacy.answers);
   assert.equal(restored.activeBattery.currentQuestionIndex, 3);
-  assert.equal(restored.schemaVersion, 2);
+  assert.equal(restored.questionsAnswered, 3);
+  assert.equal(restored.answerLog.length, 3);
+  assert.equal(restored.schemaVersion, 3);
 });
 
-test('EXT-L17: transição sem aprovação cria bateria válida e mantém histórico após resposta 5/5', () => {
-  let state = solve(['wrong', 'wrong', 'wrong', 'wrong', 'wrong']);
-  assert.equal(state.activeBattery.questionIds.length, 5);
-  const newBatteryId = state.activeBattery.batteryId;
-  state = leveling.answer(state, 'correct');
-  assert.equal(state.activeBattery.batteryId, newBatteryId);
-  assert.equal(state.history.length, 1);
-  assert.equal(state.history[0].percentage, 0);
+test('EXT-L17: migração v2 mantém histórico, sessão e progresso parcial válidos', () => {
+  const original = run(leveling.createSession(), ['correct', 'wrong']);
+  const old = { ...original, schemaVersion: 2 };
+  delete old.questionsAnswered;
+  delete old.answerLog;
+  const restored = leveling.normalizeState(old);
+  assert.equal(restored.sessionId, original.sessionId);
+  assert.equal(restored.activeBattery.batteryId, original.activeBattery.batteryId);
+  assert.deepEqual(restored.activeBattery.answers, ['correct', 'wrong']);
+  assert.equal(restored.questionsAnswered, 2);
 });
 
-test('EXT-L18: animação respeita movimento reduzido e contém botão de continuação', () => {
+test('EXT-L18: dados inválidos não fazem o motor aceitar respostas duplicadas ou completar sem cinco respostas', () => {
+  const state = leveling.createSession();
+  assert.equal(leveling.answer(state, 'unknown'), state);
+  assert.equal(state.history.length, 0);
+  assert.equal(state.levelingCompleted, false);
+});
+
+test('EXT-L19: animação respeita movimento reduzido e oferece continuidade', () => {
   assert.match(read('extension/popup.css'), /prefers-reduced-motion: reduce/);
   assert.match(read('extension/popup.html'), /id="btn-achievement-continue"/);
 });
 
-test('EXT-L19: backend guarda o snapshot da extensão separadamente do nivelamento web', () => {
+test('EXT-L20: backend separa estado da extensão e rejeita revisões antigas', () => {
   const server = read('server.ts');
   assert.match(server, /cfo_ext_leveling_session/);
+  assert.match(server, /body\.schemaVersion === 2 \|\| body\.schemaVersion === 3/);
+  assert.match(server, /Array\.isArray\(body\.answerLog\)/);
+  assert.match(server, /\[2, 3\]\.includes\(current\?\.schemaVersion\)/);
   assert.match(server, /revision <= Number\(current\.revision\)/);
   assert.match(server, /cfo_leveling_session/);
   assert.match(server, /req\.query\.client === 'extension'/);
@@ -138,18 +191,22 @@ test('EXT-L19: backend guarda o snapshot da extensão separadamente do nivelamen
   assert.match(read('extension/popup.js'), /leveling\/session\?client=extension/);
 });
 
-test('EXT-L20: ZIP distribuído inclui o motor novo e a versão publicada da extensão', async () => {
-  const manifest = JSON.parse(read('extension/manifest.json'));
-  assert.equal(manifest.version, '1.0.2');
+test('EXT-L21: ZIP distribuído contém motor e popup atuais da extensão', async () => {
   const zip = await JSZip.loadAsync(fs.readFileSync(path.join(root, 'public/cfo-extensao-cbmerj.zip')));
   assert.ok(zip.file('leveling-state.js'));
   assert.ok(zip.file('popup.js'));
 });
 
-test('EXT-L21: novo estado só vai à nuvem depois da leitura inicial e não substitui progresso offline', () => {
+test('EXT-L22: sincronização na nuvem espera hidratação e preserva progresso local offline', () => {
   const popup = read('extension/popup.js');
   assert.match(popup, /if \(!savedSnapshot\.cloudHydrated \|\| !state\.settings\.serverUrl/);
   assert.match(popup, /state\.leveling\.activeBattery\?\.answers\.length === 0/);
   assert.match(popup, /if \(data\?\.session\) state\.leveling = CfoLevelingState\.normalizeState\(data\.session\)/);
   assert.equal(leveling.createSession().cloudHydrated, false);
+});
+
+test('EXT-L23: manifesto e popup mantêm as proteções de movimento reduzido e storage local', () => {
+  const manifest = JSON.parse(read('extension/manifest.json'));
+  assert.ok(manifest.permissions.includes('storage'));
+  assert.match(read('extension/popup.js'), /chrome\.storage\.local\.set/);
 });

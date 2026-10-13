@@ -187,8 +187,7 @@ const els = {
   // Leveling Controls
   levelingStatusLabel: document.getElementById('leveling-status-label'),
   statProgress: document.getElementById('stat-progress'),
-  progressFill: document.getElementById('progress-fill'),
-  progressTrack: document.querySelector('.progress-track'),
+  answerWindow: document.getElementById('answer-window'),
   btnQuestionCorrect: document.getElementById('btn-question-correct'),
   btnQuestionWrong: document.getElementById('btn-question-wrong'),
   achievement: document.getElementById('leveling-achievement'),
@@ -381,15 +380,26 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function updateLevelingUI() {
-  const answered = state.leveling.activeBattery?.answers.length || 0;
-  const currentQuestion = Math.min(5, answered + 1);
-  els.statProgress.textContent = `Questão ${currentQuestion} de 5`;
+  const answers = (state.leveling.answerLog || []).slice(-5);
+  const correctCount = answers.filter((entry) => entry.answer === 'correct').length;
+  const wrongCount = answers.filter((entry) => entry.answer === 'wrong').length;
+  const nextQuestion = (state.leveling.questionsAnswered || 0) + 1;
+  els.statProgress.textContent = `${correctCount}/5 acertos · ${wrongCount} ${wrongCount === 1 ? 'erro' : 'erros'}`;
   els.levelingStatusLabel.textContent = state.leveling.levelingCompleted
     ? 'Nivelamento concluído'
-    : `Questão ${currentQuestion} de 5`;
-  els.progressFill.style.width = `${Math.min(100, (answered / 5) * 100)}%`;
-  els.progressTrack.setAttribute('aria-valuemax', '5');
-  els.progressTrack.setAttribute('aria-valuenow', String(answered));
+    : `Questão ${nextQuestion}`;
+  if (els.answerWindow) {
+    const squares = Array.from(els.answerWindow.children);
+    squares.forEach((square, index) => {
+      const entry = answers[index];
+      const answerType = entry?.answer || 'pending';
+      square.className = `answer-square ${answerType}`;
+      square.textContent = answerType === 'correct' ? '✓' : answerType === 'wrong' ? '×' : '';
+      square.setAttribute('aria-label', answerType === 'correct'
+        ? `Questão ${index + 1}: acerto`
+        : answerType === 'wrong' ? `Questão ${index + 1}: erro` : 'Ainda não respondida');
+    });
+  }
 }
 
 function persistLevelingState(snapshot = state.leveling) {
@@ -899,7 +909,7 @@ async function initPopup() {
   if (state.leveling.levelingCompleted && state.leveling.achievement?.shown) {
     state.leveling = CfoLevelingState.beginNewSession(state.leveling);
     await persistLevelingState();
-  } else if (!saved.cfo_ext_leveling || saved.cfo_ext_leveling.schemaVersion !== 2) {
+  } else if (!saved.cfo_ext_leveling || saved.cfo_ext_leveling.schemaVersion !== 3) {
     await persistLevelingState();
   }
 

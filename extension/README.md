@@ -39,8 +39,8 @@ Permite estudar em qualquer site ou PDF na web mantendo seu **Cronômetro de Est
 - **Salvar no Site**: Um clique no botão `💾 Salvar no Site` registra as horas líquidas no seu histórico oficial de estudos da plataforma.
 
 ### 2. 🎯 Nivelamento & Marcador de Questões (80%)
-- **Baterias contínuas de cinco questões**: o indicador mostra apenas a questão atual. Ao fim de uma bateria abaixo de 4/5, a próxima começa automaticamente.
-- **Sem placar durante a resolução**: acertos, erros e percentuais ficam ocultos. A conquista aparece somente com 4/5 (80%) ou 5/5 (100%).
+- **Nivelamento contínuo**: a questão é numerada sem reiniciar; os cinco quadrados mostram a janela móvel das respostas recentes (verde para acerto, vermelho com X para erro). A conquista aparece quando uma janela atinge 4/5 (80%) ou 5/5 (100%).
+- **Sem tela de reprovação**: quando a janela ainda não alcança 80%, o aluno segue respondendo; os quadrados avançam sem reset visual para 0/5.
 - **Conquista única**: troféu animado com confetes discretos; movimento reduzido do sistema é respeitado. A exibição fica registrada e não se repete ao reabrir.
 - **Retomada durável**: cada resposta é salva em `chrome.storage.local` antes de avançar. A bateria, posição e respostas são restauradas ao reabrir; o histórico fica preservado após a aprovação.
 - **Sincronização isolada**: o estado da extensão é sincronizado em separado do nivelamento web, com revisões para rejeitar gravações antigas.

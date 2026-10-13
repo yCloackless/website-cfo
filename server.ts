@@ -6842,12 +6842,33 @@ app.post("/api/leveling/session", requireUserAuth, (req: Request, res: Response)
     if (!userId) return res.status(401).json({ error: 'UNAUTHORIZED' });
 
     const body = req.body || {};
-    if (body.schemaVersion === 2) {
+    if (body.schemaVersion === 2 || body.schemaVersion === 3) {
       const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
       const revision = Math.trunc(Number(body.revision));
       const startedAt = typeof body.startedAt === 'string' ? body.startedAt : '';
       if (!sessionId || !Number.isSafeInteger(revision) || revision < 1 || !startedAt || !Number.isFinite(Date.parse(startedAt)) || !Array.isArray(body.history)) {
         return res.status(400).json({ error: 'INVALID_LEVELING_SNAPSHOT' });
+      }
+      if (body.schemaVersion === 3) {
+        const battery = body.activeBattery;
+        const invalidBattery = body.levelingCompleted
+          ? battery !== null
+          : !battery
+            || typeof battery.batteryId !== 'string'
+            || !Array.isArray(battery.questionIds)
+            || battery.questionIds.length !== 5
+            || battery.questionIds.some((id: unknown) => typeof id !== 'string' || !id)
+            || !Array.isArray(battery.answers)
+            || battery.answers.length > 4
+            || battery.answers.some((answer: unknown) => answer !== 'correct' && answer !== 'wrong')
+            || battery.currentQuestionIndex !== battery.answers.length;
+        if (!Number.isSafeInteger(body.questionsAnswered) || body.questionsAnswered < 0
+          || !Array.isArray(body.answerLog) || body.answerLog.length > 5
+          || body.answerLog.some((entry: any) => !entry || typeof entry.questionId !== 'string'
+            || (entry.answer !== 'correct' && entry.answer !== 'wrong'))
+          || invalidBattery) {
+          return res.status(400).json({ error: 'INVALID_LEVELING_SNAPSHOT' });
+        }
       }
       const saved = userStateRepoInstance.get(userId);
       let current = null;
@@ -6856,7 +6877,7 @@ app.post("/api/leveling/session", requireUserAuth, (req: Request, res: Response)
       } catch { current = null; }
       const currentStartedAt = Date.parse(current?.startedAt || '');
       const incomingStartedAt = Date.parse(startedAt);
-      const isOlder = current?.schemaVersion === 2 && (
+      const isOlder = [2, 3].includes(current?.schemaVersion) && (
         (sessionId === current.sessionId && revision <= Number(current.revision))
         || (sessionId !== current.sessionId && Number.isFinite(currentStartedAt) && Number.isFinite(incomingStartedAt) && incomingStartedAt <= currentStartedAt)
       );
