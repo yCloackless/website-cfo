@@ -791,6 +791,16 @@ select:hover {
   letter-spacing: -0.02em;
 }
 
+.leveling-battery-label {
+  align-self: center;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
 .compact-field {
   display: flex;
   flex-direction: column;
@@ -860,7 +870,7 @@ select:hover {
 
 .progress-info strong {
   font-family: var(--font-mono);
-  font-size: 19px;
+  font-size: 15px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
@@ -980,6 +990,117 @@ select:hover {
 
 .answer-wrong:hover {
   background-color: color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+.answer-button:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.achievement-overlay[hidden] { display: none; }
+.achievement-overlay {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 18px;
+  background: rgb(3 7 18 / 88%);
+  backdrop-filter: blur(8px);
+}
+.achievement-card {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 360px);
+  overflow: hidden;
+  padding: 22px 20px 20px;
+  border: 1px solid rgb(251 191 36 / 35%);
+  border-radius: 24px;
+  background: radial-gradient(ellipse at 50% 4%, rgb(120 82 22 / 35%), transparent 42%), #101827;
+  box-shadow: 0 25px 90px rgb(0 0 0 / 55%), inset 0 1px rgb(255 255 255 / 9%);
+  color: #f8fafc;
+  text-align: center;
+  animation: achievement-enter .55s cubic-bezier(.2,.85,.25,1) both;
+}
+.trophy-glow {
+  position: absolute;
+  z-index: -1;
+  top: 10px;
+  left: 50%;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: rgb(251 191 36 / 28%);
+  filter: blur(36px);
+  animation: trophy-glow 2.4s ease-in-out infinite;
+}
+.achievement-trophy {
+  width: 112px;
+  height: 112px;
+  filter: drop-shadow(0 9px 18px rgb(245 158 11 / 35%));
+  animation: trophy-enter .72s cubic-bezier(.2,1.4,.35,1) .08s both;
+}
+.achievement-eyebrow {
+  margin: 5px 0 8px;
+  color: #fbbf24;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+}
+.achievement-card h2 {
+  margin: 0 auto;
+  max-width: 300px;
+  font-size: 22px;
+  font-weight: 850;
+  line-height: 1.15;
+  letter-spacing: -.04em;
+}
+.achievement-copy {
+  margin: 11px 0 8px;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.achievement-result {
+  display: block;
+  color: #fde68a;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.achievement-continue {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 20px;
+  border: 0;
+  border-radius: 13px;
+  background: linear-gradient(100deg, #f59e0b, #fcd34d);
+  color: #271705;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: filter .15s ease, transform .15s ease;
+}
+.achievement-continue:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.achievement-confetti { position: absolute; inset: 0; pointer-events: none; }
+.achievement-confetti i {
+  position: absolute;
+  top: -16px;
+  left: var(--x);
+  width: 5px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--color);
+  animation: confetti-drop 2.6s ease-in var(--delay) both;
+}
+@keyframes achievement-enter { from { opacity: 0; transform: translateY(14px) scale(.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes trophy-enter { from { opacity: 0; transform: translateY(8px) scale(.45) rotate(-14deg); } 70% { transform: translateY(-3px) scale(1.08) rotate(4deg); } to { opacity: 1; transform: none; } }
+@keyframes trophy-glow { 0%,100% { opacity: .45; transform: translateX(-50%) scale(.85); } 50% { opacity: .9; transform: translateX(-50%) scale(1.12); } }
+@keyframes confetti-drop { to { transform: translate3d(12px, 340px, 0) rotate(300deg); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .achievement-card, .achievement-trophy, .trophy-glow, .achievement-confetti i { animation: none !important; }
+  .achievement-continue { transition: none; }
 }
 
 /* Completion Result */

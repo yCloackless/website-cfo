@@ -151,39 +151,18 @@
         <div class="leveling-header">
           <div>
             <span class="eyebrow">Meta de desempenho · 80%</span>
-            <h2 id="leveling-status-label">Pronto para iniciar</h2>
+            <h2 id="leveling-status-label">Questão 1 de 5</h2>
           </div>
-          <label class="compact-field" for="leveling-total">
-            <span>Questões</span>
-            <div class="input-wrapper-sm">
-              <input id="leveling-total" type="number" min="1" max="100" value="30" placeholder="30" title="Digite a quantidade de questões da bateria (máximo 100)">
-            </div>
-          </label>
+          <span class="leveling-battery-label">Bateria de 5 questões</span>
         </div>
 
         <div class="question-progress">
           <div class="progress-info">
             <span>Questão atual</span>
-            <strong id="stat-progress">01 <small>de 30</small></strong>
+            <strong id="stat-progress">Questão 1 de 5</strong>
           </div>
-          <div class="progress-track" role="progressbar" aria-label="Progresso da bateria" aria-valuemin="0" aria-valuemax="30" aria-valuenow="0">
+          <div class="progress-track" role="progressbar" aria-label="Progresso da bateria" aria-valuemin="0" aria-valuemax="5" aria-valuenow="0">
             <div id="progress-fill" class="progress-fill"></div>
-          </div>
-        </div>
-
-        <!-- Integrated Typographic Stats Strip (Garmin/WHOOP style) -->
-        <div class="stats-strip">
-          <div class="stat-col stat-correct">
-            <strong id="stat-correct">0</strong>
-            <span>Acertos</span>
-          </div>
-          <div class="stat-col stat-wrong">
-            <strong id="stat-wrong">0</strong>
-            <span>Erros</span>
-          </div>
-          <div class="stat-col stat-accuracy">
-            <strong id="stat-accuracy">0%</strong>
-            <span>Aproveitamento</span>
           </div>
         </div>
 
@@ -204,25 +183,25 @@
           </button>
         </div>
 
-        <!-- Completion State -->
-        <div id="leveling-result" class="leveling-result" hidden>
-          <span class="eyebrow">Nivelamento concluído</span>
-          <strong id="result-accuracy">0%</strong>
-          <p id="result-summary"></p>
-        </div>
-
-        <div class="leveling-actions-footer">
-          <button id="btn-leveling-undo" class="text-button" type="button">Desfazer última</button>
-          <button id="btn-leveling-reset" class="text-button" type="button">Nova bateria</button>
-        </div>
-
-        <!-- Compact Answer Matrix -->
-        <div class="answer-sheet-container">
-          <p class="section-label">Mapa de respostas</p>
-          <div id="answer-sheet-grid" class="answer-sheet-grid"></div>
-        </div>
       </section>
     </main>
+
+    <div id="leveling-achievement" class="achievement-overlay" role="dialog" aria-modal="true" aria-labelledby="achievement-title" hidden>
+      <div class="achievement-confetti" aria-hidden="true"></div>
+      <section class="achievement-card">
+        <div class="trophy-glow" aria-hidden="true"></div>
+        <svg class="achievement-trophy" viewBox="0 0 120 120" role="img" aria-label="Troféu dourado">
+          <defs><linearGradient id="trophy-gold" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#fff1a6"/><stop offset=".45" stop-color="#fbbf24"/><stop offset="1" stop-color="#b7791f"/></linearGradient></defs>
+          <path fill="url(#trophy-gold)" d="M34 16h52v14h18v14c0 18-12 29-29 32-3 7-8 12-15 15v10h20v11H40v-11h20V91c-7-3-12-8-15-15-17-3-29-14-29-32V30h18V16Zm-7 25H27v3c0 10 5 17 14 20-2-7-3-15-3-23Zm66 0c0 8-1 16-3 23 9-3 14-10 14-20v-3H93ZM45 28v23c0 17 5 27 15 31 10-4 15-14 15-31V28H45Z"/>
+          <path fill="#fff7d1" d="m60 35 4.5 9 10 1.5-7.2 7 1.7 10-9-4.8-9 4.8 1.7-10-7.2-7 10-1.5L60 35Z"/>
+        </svg>
+        <p class="achievement-eyebrow">Conquista desbloqueada</p>
+        <h2 id="achievement-title">🏆 Parabéns! Nivelamento concluído!</h2>
+        <p class="achievement-copy">Você alcançou a meta de 80% de acertos!</p>
+        <strong id="achievement-result" class="achievement-result"></strong>
+        <button id="btn-achievement-continue" class="achievement-continue" type="button">Continuar usando a extensão</button>
+      </section>
+    </div>
 
     <!-- Tab 3: Conexão (Professional Configuration / Sync) -->
     <main id="tab-content-settings" class="tab-content" role="tabpanel">
@@ -265,6 +244,7 @@
     <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
   </div>
 
+  <script src="leveling-state.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

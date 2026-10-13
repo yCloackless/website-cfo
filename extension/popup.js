@@ -127,9 +127,7 @@ const state = {
     subjectName: 'Estudo Geral',
   },
   leveling: {
-    total: 30,
-    answers: [],
-    mode: 'live',
+    ...CfoLevelingState.createSession(),
   },
   lastResetTime: 0,
   isConnected: false,
@@ -140,6 +138,10 @@ function getServerNow() {
 }
 
 let timerInterval = null;
+let levelingMutationPending = false;
+let levelingCloudHydrated = false;
+let levelingWriteQueue = Promise.resolve();
+let levelingCloudWrites = Promise.resolve();
 
 const TABLER_ICONS = {
   play: '<svg class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13 -8z"/></svg>',
@@ -184,20 +186,14 @@ const els = {
 
   // Leveling Controls
   levelingStatusLabel: document.getElementById('leveling-status-label'),
-  levelingTotal: document.getElementById('leveling-total'),
   statProgress: document.getElementById('stat-progress'),
-  statCorrect: document.getElementById('stat-correct'),
-  statWrong: document.getElementById('stat-wrong'),
-  statAccuracy: document.getElementById('stat-accuracy'),
   progressFill: document.getElementById('progress-fill'),
+  progressTrack: document.querySelector('.progress-track'),
   btnQuestionCorrect: document.getElementById('btn-question-correct'),
   btnQuestionWrong: document.getElementById('btn-question-wrong'),
-  btnLevelingUndo: document.getElementById('btn-leveling-undo'),
-  btnLevelingReset: document.getElementById('btn-leveling-reset'),
-  answerSheetGrid: document.getElementById('answer-sheet-grid'),
-  result: document.getElementById('leveling-result'),
-  resultAccuracy: document.getElementById('result-accuracy'),
-  resultSummary: document.getElementById('result-summary'),
+  achievement: document.getElementById('leveling-achievement'),
+  achievementResult: document.getElementById('achievement-result'),
+  achievementContinue: document.getElementById('btn-achievement-continue'),
 
   // Settings & Feedback
   formSettings: document.getElementById('form-settings'),
@@ -385,78 +381,80 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function updateLevelingUI() {
-  const { total, answers } = state.leveling;
-  const answered = answers.length;
-  const correct = answers.filter((answer) => answer === 'correct').length;
-  const wrong = answers.filter((answer) => answer === 'wrong').length;
-  const accuracy = answered ? Math.round((correct / answered) * 100) : 0;
-  const required = Math.ceil(total * 0.8);
-
-  const padAnswered = String(answered).padStart(2, '0');
-  const padTotal = String(total).padStart(2, '0');
-  els.statProgress.innerHTML = `${padAnswered} <small>de ${padTotal}</small>`;
-  els.statCorrect.textContent = String(correct);
-  els.statWrong.textContent = String(wrong);
-  els.statAccuracy.textContent = `${accuracy}%`;
-  els.progressFill.style.width = `${total ? Math.min(100, (answered / total) * 100) : 0}%`;
-
-  if (answered === 0) {
-    els.levelingStatusLabel.textContent = 'Inicie as resoluções';
-  } else if (correct >= required) {
-    els.levelingStatusLabel.textContent = 'Meta assegurada';
-  } else {
-    const diff = required - correct;
-    els.levelingStatusLabel.textContent = `Faltam ${Math.max(0, diff)} acerto${diff > 1 ? 's' : ''}`;
-  }
-
-  els.answerSheetGrid.innerHTML = '';
-  for (let index = 0; index < total; index += 1) {
-    const dot = document.createElement('div');
-    dot.className = `answer-dot${answers[index] ? ` ${answers[index]}` : ''}`;
-    dot.textContent = String(index + 1);
-    els.answerSheetGrid.appendChild(dot);
-  }
+  const answered = state.leveling.activeBattery?.answers.length || 0;
+  const currentQuestion = Math.min(5, answered + 1);
+  els.statProgress.textContent = `Questão ${currentQuestion} de 5`;
+  els.levelingStatusLabel.textContent = state.leveling.levelingCompleted
+    ? 'Nivelamento concluído'
+    : `Questão ${currentQuestion} de 5`;
+  els.progressFill.style.width = `${Math.min(100, (answered / 5) * 100)}%`;
+  els.progressTrack.setAttribute('aria-valuemax', '5');
+  els.progressTrack.setAttribute('aria-valuenow', String(answered));
 }
 
-async function persistLevelingState() {
-  await storage.set({ cfo_ext_leveling: state.leveling });
-  if (!state.settings.serverUrl || !state.settings.token) return;
-
-  fetch(`${state.settings.serverUrl}/api/leveling/session`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${state.settings.token}`,
-    },
-    body: JSON.stringify({
-      mode: 'live',
-      total: state.leveling.total,
-      answers: state.leveling.answers,
-      started: state.leveling.answers.length > 0,
-    }),
+function persistLevelingState(snapshot = state.leveling) {
+  const savedSnapshot = JSON.parse(JSON.stringify(snapshot));
+  levelingWriteQueue = levelingWriteQueue.catch(() => {}).then(async () => {
+    await storage.set({ cfo_ext_leveling: savedSnapshot });
+  });
+  levelingCloudWrites = levelingCloudWrites.catch(() => {}).then(async () => {
+    if (!savedSnapshot.cloudHydrated || !state.settings.serverUrl || !state.settings.token) return;
+    const response = await fetch(`${state.settings.serverUrl}/api/leveling/session?client=extension`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${state.settings.token}`,
+      },
+      body: JSON.stringify(savedSnapshot),
+    });
+    if (!response.ok) throw new Error('Falha ao sincronizar nivelamento');
   }).catch(() => {});
+  return levelingWriteQueue;
 }
 
-function recordAnswer(type) {
-  if (state.leveling.answers.length >= state.leveling.total) {
-    return showToast('Bateria concluída. Inicie uma nova se desejar.');
+async function showAchievementOnce() {
+  const result = state.leveling.history.at(-1);
+  if (!result || state.leveling.achievement?.shown) return;
+  els.achievementResult.textContent = `${result.correctAnswersCount} de 5 questões corretas — ${result.percentage}%`;
+  const confetti = els.achievement.querySelector('.achievement-confetti');
+  if (!confetti.childElementCount && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const colors = ['#fbbf24', '#f8fafc', '#60a5fa', '#34d399'];
+    for (let index = 0; index < 18; index += 1) {
+      const piece = document.createElement('i');
+      piece.style.setProperty('--x', `${(index * 37) % 100}%`);
+      piece.style.setProperty('--color', colors[index % colors.length]);
+      piece.style.setProperty('--delay', `${(index % 7) * 70}ms`);
+      confetti.appendChild(piece);
+    }
   }
+  els.achievement.hidden = false;
+  const shownState = CfoLevelingState.markAchievementShown(state.leveling);
+  try {
+    await persistLevelingState(shownState);
+    state.leveling = shownState;
+  } catch {
+    showToast('Conquista exibida; não foi possível registrar a animação.', 'error');
+  }
+}
 
-  state.leveling.answers.push(type);
-  updateLevelingUI();
-  persistLevelingState();
-
-  if (state.leveling.answers.length === state.leveling.total) {
-    const correct = state.leveling.answers.filter((answer) => answer === 'correct').length;
-    els.result.hidden = false;
-    els.resultAccuracy.textContent = `${Math.round((correct / state.leveling.total) * 100)}%`;
-    els.resultSummary.textContent = `${correct} acertos · ${state.leveling.total - correct} erros`;
-
-    const goalAchieved = correct >= Math.ceil(state.leveling.total * 0.8);
-    showToast(
-      goalAchieved ? 'Meta de 80% atingida no nivelamento.' : 'Bateria finalizada. Revise seus erros no site.',
-      goalAchieved ? 'success' : 'default'
-    );
+async function recordAnswer(type) {
+  if (levelingMutationPending || state.leveling.levelingCompleted || !state.leveling.activeBattery) return;
+  levelingMutationPending = true;
+  els.btnQuestionCorrect.disabled = true;
+  els.btnQuestionWrong.disabled = true;
+  const nextState = CfoLevelingState.answer(state.leveling, type);
+  try {
+    await persistLevelingState(nextState);
+    state.leveling = nextState;
+    updateLevelingUI();
+    if (nextState.levelingCompleted) await showAchievementOnce();
+  } catch {
+    showToast('Não foi possível salvar. A resposta não foi avançada.', 'error');
+  } finally {
+    levelingMutationPending = false;
+    const enabled = !state.leveling.levelingCompleted && Boolean(state.leveling.activeBattery);
+    els.btnQuestionCorrect.disabled = !enabled;
+    els.btnQuestionWrong.disabled = !enabled;
   }
 }
 
@@ -473,18 +471,26 @@ function setConnectionStatus(status) {
         : 'Desconectado';
 }
 
-async function fetchLevelingFromCloud() {
+async function fetchLevelingFromCloud(allowApply = false) {
   if (!state.settings.serverUrl || !state.settings.token) return;
+  const revisionAtRequest = state.leveling.revision;
   try {
-    const response = await fetch(`${state.settings.serverUrl}/api/leveling/session`, {
+    const response = await fetch(`${state.settings.serverUrl}/api/leveling/session?client=extension`, {
       headers: { Authorization: `Bearer ${state.settings.token}` },
     });
     if (!response.ok) return;
     const data = await response.json();
-    if (data?.session && Array.isArray(data.session.answers)) {
-      state.leveling.total = data.session.total || state.leveling.total;
-      state.leveling.answers = data.session.answers;
-      els.levelingTotal.value = String(state.leveling.total);
+    const localBatteryIsEmpty = !state.leveling.history.length
+      && !state.leveling.levelingCompleted
+      && state.leveling.activeBattery?.answers.length === 0;
+    if (allowApply && !levelingCloudHydrated && state.leveling.revision === revisionAtRequest && localBatteryIsEmpty) {
+      if (data?.session) state.leveling = CfoLevelingState.normalizeState(data.session);
+      state.leveling.cloudHydrated = true;
+      levelingCloudHydrated = true;
+      await persistLevelingState();
+      if (state.leveling.levelingCompleted && state.leveling.achievement && !state.leveling.achievement.shown) {
+        await showAchievementOnce();
+      }
       updateLevelingUI();
     }
   } catch {
@@ -817,58 +823,16 @@ els.btnTimerSave.addEventListener('click', async () => {
 els.btnQuestionCorrect.addEventListener('click', () => recordAnswer('correct'));
 els.btnQuestionWrong.addEventListener('click', () => recordAnswer('wrong'));
 
-els.btnLevelingUndo.addEventListener('click', () => {
-  if (!state.leveling.answers.length) return;
-  state.leveling.answers.pop();
-  updateLevelingUI();
-  persistLevelingState();
-  showToast('Última questão desfeita.');
-});
-
-els.btnLevelingReset.addEventListener('click', () => {
-  state.leveling.answers = [];
-  els.result.hidden = true;
-  updateLevelingUI();
-  persistLevelingState();
-  showToast('Nova bateria iniciada.');
-});
-
-function setLevelingTotal(raw) {
-  let val = parseInt(raw, 10);
-  if (isNaN(val) || val < 1) val = 1;
-  if (val > 100) {
-    val = 100;
-    showToast('Máximo de 100 questões por bateria.');
-  }
-  state.leveling.total = val;
-  els.levelingTotal.value = String(val);
-  if (state.leveling.answers.length > state.leveling.total) {
-    state.leveling.answers = state.leveling.answers.slice(0, state.leveling.total);
-  }
-  updateLevelingUI();
-  persistLevelingState();
-}
-
-els.levelingTotal.addEventListener('change', (event) => {
-  setLevelingTotal(event.target.value);
-});
-
-els.levelingTotal.addEventListener('input', (event) => {
-  const raw = event.target.value;
-  if (raw === '') return;
-  let val = parseInt(raw, 10);
-  if (!isNaN(val) && val >= 1) {
-    if (val > 100) {
-      val = 100;
-      els.levelingTotal.value = '100';
-      showToast('Máximo de 100 questões por bateria.');
-    }
-    state.leveling.total = val;
-    if (state.leveling.answers.length > state.leveling.total) {
-      state.leveling.answers = state.leveling.answers.slice(0, state.leveling.total);
-    }
+els.achievementContinue.addEventListener('click', async () => {
+  if (!state.leveling.levelingCompleted) return;
+  const nextState = CfoLevelingState.beginNewSession(state.leveling);
+  try {
+    await persistLevelingState(nextState);
+    state.leveling = nextState;
+    els.achievement.hidden = true;
     updateLevelingUI();
-    persistLevelingState();
+  } catch {
+    showToast('Não foi possível iniciar uma nova bateria.', 'error');
   }
 });
 
@@ -895,7 +859,7 @@ els.formSettings.addEventListener('submit', async (event) => {
     els.settingsFeedback.className = 'feedback-msg success';
     els.settingsFeedback.textContent = 'Conectado com sucesso à plataforma CFO CBMERJ.';
     showToast('Conectado à sua conta.', 'success');
-    fetchLevelingFromCloud();
+    fetchLevelingFromCloud(!levelingCloudHydrated);
   } catch {
     setConnectionStatus('error');
     els.settingsFeedback.className = 'feedback-msg error';
@@ -930,11 +894,13 @@ async function initPopup() {
     els.authToken.value = state.settings.token || '';
   }
 
-  if (saved.cfo_ext_leveling) {
-    state.leveling = saved.cfo_ext_leveling;
-    if (!state.leveling.total || state.leveling.total < 1) state.leveling.total = 30;
-    if (state.leveling.total > 100) state.leveling.total = 100;
-    els.levelingTotal.value = String(state.leveling.total);
+  state.leveling = CfoLevelingState.normalizeState(saved.cfo_ext_leveling || state.leveling);
+  levelingCloudHydrated = state.leveling.cloudHydrated !== false;
+  if (state.leveling.levelingCompleted && state.leveling.achievement?.shown) {
+    state.leveling = CfoLevelingState.beginNewSession(state.leveling);
+    await persistLevelingState();
+  } else if (!saved.cfo_ext_leveling || saved.cfo_ext_leveling.schemaVersion !== 2) {
+    await persistLevelingState();
   }
 
   if (saved.cfo_ext_timer) {
@@ -985,6 +951,9 @@ async function initPopup() {
 
   setTheme(saved.cfo_ext_theme || 'dark');
   updateLevelingUI();
+  if (state.leveling.levelingCompleted && state.leveling.achievement && !state.leveling.achievement.shown) {
+    await showAchievementOnce();
+  }
   updateTimerDisplay();
   if (state.timer.status === 'RUNNING' || state.timer.status === 'PAUSED') {
     startTimerTicker();
@@ -1117,9 +1086,12 @@ async function initPopup() {
             startTimerTicker();
           }
         }
-        fetchLevelingFromCloud();
+        fetchLevelingFromCloud(!levelingCloudHydrated);
       })
-      .catch(() => setConnectionStatus('error'));
+      .catch(() => {
+        setConnectionStatus('error');
+        fetchLevelingFromCloud(!levelingCloudHydrated);
+      });
   } else {
     setConnectionStatus('disconnected');
   }

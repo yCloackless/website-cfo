@@ -25,6 +25,7 @@ files.push('anki_media_upload');
 files.push('student_study');
 files.push('leveling');
 files.push('extension_integration');
+files.push('extension_leveling');
 files.push('timer_deploy_persistence');
 files.push('stopwatch_state_machine');
 files.push('timer_extension_sync');
