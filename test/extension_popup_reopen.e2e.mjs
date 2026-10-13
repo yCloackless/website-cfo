@@ -64,6 +64,8 @@ try {
       await popup.locator('#btn-question-wrong').click();
     }
     await popup.locator('#leveling-status-label').getByText(`Questão ${answered + 1}`).waitFor();
+    assert.equal(await popup.locator('#btn-question-correct').isEnabled(), true, 'O botão deve ser reabilitado após persistir a resposta.');
+    assert.notEqual(await popup.locator('#btn-question-correct').evaluate((button) => getComputedStyle(button).cursor), 'wait');
     assert.equal((await readProgress(popup)).cfo_ext_leveling.questionsAnswered, answered, 'Um clique duplo não pode registrar duas respostas.');
     await popup.close();
     popup = await openPopup(extensionId);
@@ -117,18 +119,27 @@ try {
   assert.equal(completed.cfo_ext_leveling.activeBattery, null);
   await popup.waitForTimeout(850);
   await popup.screenshot({ path: path.join(evidencePath, 'conquista-100-por-cento.png') });
+  await popup.locator('#btn-achievement-continue').click();
+  await popup.locator('#leveling-achievement').waitFor({ state: 'hidden' });
+  await popup.locator('#btn-question-correct').waitFor({ state: 'visible' });
+  assert.equal(await popup.locator('#btn-question-correct').isEnabled(), true, 'Continuar deve liberar os botões sem fechar o popup.');
+  assert.equal(await popup.locator('#btn-question-wrong').isEnabled(), true);
+  assert.notEqual(await popup.locator('#btn-question-correct').evaluate((button) => getComputedStyle(button).cursor), 'wait');
+  await popup.locator('#btn-question-wrong').click();
+  await popup.locator('#leveling-status-label').getByText('Questão 2').waitFor();
+  assert.equal((await readProgress(popup)).cfo_ext_leveling.questionsAnswered, 1, 'A nova sessão deve aceitar respostas sem reabrir a extensão.');
   await popup.close();
 
   // Depois de reiniciar o navegador, a bateria aprovada não reaparece e a celebração não repete.
   await context.close();
   ({ context, extensionId } = await launch());
   popup = await openPopup(extensionId);
-  await popup.locator('#leveling-status-label').getByText('Questão 1').waitFor();
+  await popup.locator('#leveling-status-label').getByText('Questão 2').waitFor();
   assert.equal(await popup.locator('#leveling-achievement').isVisible(), false);
   const afterReopen = await readProgress(popup);
   assert.equal(afterReopen.cfo_ext_leveling.history.length, 6);
   assert.equal(afterReopen.cfo_ext_leveling.levelingCompleted, false);
-  assert.equal(afterReopen.cfo_ext_leveling.activeBattery.answers.length, 0);
+  assert.equal(afterReopen.cfo_ext_leveling.activeBattery.answers.length, 1);
 
   // Uma falha transitória no storage não avança a UI; a próxima tentativa de gravação se recupera.
   await popup.evaluate(() => {
@@ -144,11 +155,11 @@ try {
   });
   await popup.locator('#btn-question-wrong').click();
   await popup.getByText('Não foi possível salvar. A resposta não foi avançada.').waitFor();
-  assert.equal((await readProgress(popup)).cfo_ext_leveling.questionsAnswered, 0);
-  assert.equal(await popup.locator('#leveling-status-label').textContent(), 'Questão 1');
-  await popup.locator('#btn-question-wrong').click();
-  await popup.locator('#leveling-status-label').getByText('Questão 2').waitFor();
   assert.equal((await readProgress(popup)).cfo_ext_leveling.questionsAnswered, 1);
+  assert.equal(await popup.locator('#leveling-status-label').textContent(), 'Questão 2');
+  await popup.locator('#btn-question-wrong').click();
+  await popup.locator('#leveling-status-label').getByText('Questão 3').waitFor();
+  assert.equal((await readProgress(popup)).cfo_ext_leveling.questionsAnswered, 2);
   assert.deepEqual(pageErrors, []);
   console.log(`Chromium/Manifest V3: retomada em Q1–Q5, reinício do navegador, janela móvel, conclusão 80%, histórico e troféu único validados. Capturas: ${evidencePath}`);
 } finally {

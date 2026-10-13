@@ -400,6 +400,12 @@ function updateLevelingUI() {
         : answerType === 'wrong' ? `Questão ${index + 1}: erro` : 'Ainda não respondida');
     });
   }
+  const canAnswer = !levelingMutationPending
+    && !state.leveling.levelingCompleted
+    && Boolean(state.leveling.activeBattery);
+  els.btnQuestionCorrect.disabled = !canAnswer;
+  els.btnQuestionWrong.disabled = !canAnswer;
+  els.achievementContinue.disabled = levelingMutationPending || !state.leveling.levelingCompleted;
 }
 
 function persistLevelingState(snapshot = state.leveling) {
@@ -452,8 +458,8 @@ async function recordAnswer(type) {
   levelingMutationPending = true;
   els.btnQuestionCorrect.disabled = true;
   els.btnQuestionWrong.disabled = true;
-  const nextState = CfoLevelingState.answer(state.leveling, type);
   try {
+    const nextState = CfoLevelingState.answer(state.leveling, type);
     await persistLevelingState(nextState);
     state.leveling = nextState;
     updateLevelingUI();
@@ -462,9 +468,7 @@ async function recordAnswer(type) {
     showToast('Não foi possível salvar. A resposta não foi avançada.', 'error');
   } finally {
     levelingMutationPending = false;
-    const enabled = !state.leveling.levelingCompleted && Boolean(state.leveling.activeBattery);
-    els.btnQuestionCorrect.disabled = !enabled;
-    els.btnQuestionWrong.disabled = !enabled;
+    updateLevelingUI();
   }
 }
 
@@ -834,15 +838,20 @@ els.btnQuestionCorrect.addEventListener('click', () => recordAnswer('correct'));
 els.btnQuestionWrong.addEventListener('click', () => recordAnswer('wrong'));
 
 els.achievementContinue.addEventListener('click', async () => {
-  if (!state.leveling.levelingCompleted) return;
-  const nextState = CfoLevelingState.beginNewSession(state.leveling);
+  if (levelingMutationPending || !state.leveling.levelingCompleted) return;
+  levelingMutationPending = true;
+  updateLevelingUI();
   try {
+    const nextState = CfoLevelingState.beginNewSession(state.leveling);
     await persistLevelingState(nextState);
     state.leveling = nextState;
     els.achievement.hidden = true;
     updateLevelingUI();
   } catch {
     showToast('Não foi possível iniciar uma nova bateria.', 'error');
+  } finally {
+    levelingMutationPending = false;
+    updateLevelingUI();
   }
 });
 
