@@ -146,33 +146,33 @@
     </main>
 
     <!-- Tab 2: Nivelamento (Structured Performance Drill) -->
-    <main id="tab-content-leveling" class="tab-content" role="tabpanel">
+    <main id="tab-content-leveling" class="tab-content" role="tabpanel" aria-busy="true">
       <section class="leveling-panel">
         <div class="leveling-header">
-          <div>
+          <div class="leveling-heading">
             <span class="eyebrow">Meta de desempenho · 80%</span>
-            <h2 id="leveling-status-label">Questão 1</h2>
+            <h2 id="leveling-status-label">Carregando…</h2>
           </div>
           <span class="leveling-battery-label">Sequência contínua</span>
         </div>
 
         <div class="question-progress">
-          <div class="progress-info">
+          <div id="progress-info" class="progress-info" hidden>
             <span>Questões respondidas</span>
-            <strong id="stat-progress">0</strong>
+            <strong id="stat-progress"></strong>
           </div>
           <div id="answer-window" class="answer-window" role="list" aria-label="Histórico das respostas"></div>
         </div>
 
         <!-- Tactile Answer Controls (Spell UI Rich Button inspired) -->
         <div class="question-buttons-grid">
-          <button id="btn-question-correct" class="answer-button answer-correct" type="button">
+          <button id="btn-question-correct" class="answer-button answer-correct" type="button" disabled>
             <svg class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M5 12l5 5l10 -10"/>
             </svg>
             <span>Certa</span>
           </button>
-          <button id="btn-question-wrong" class="answer-button answer-wrong" type="button">
+          <button id="btn-question-wrong" class="answer-button answer-wrong" type="button" disabled>
             <svg class="tabler-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M18 6l-12 12"/>
               <path d="M6 6l12 12"/>

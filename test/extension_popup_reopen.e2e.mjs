@@ -55,6 +55,15 @@ try {
   await popup.screenshot({ path: path.join(evidencePath, 'popup-cronometro-largura-confortavel.png') });
   await popup.locator('#tab-btn-leveling').click();
   let firstMarkerSize;
+  await popup.locator('#tab-content-leveling[aria-busy="false"]').waitFor();
+  assert.equal(await popup.locator('#progress-info').isVisible(), false, 'O contador não deve aparecer sem respostas.');
+  assert.equal(await popup.locator('#stat-progress').textContent(), '', 'O estado inicial não deve conter um zero fictício.');
+  const initialButtons = await Promise.all([
+    popup.locator('#btn-question-correct').boundingBox(),
+    popup.locator('#btn-question-wrong').boundingBox(),
+  ]);
+  assert.ok(Math.abs(initialButtons[0].y - initialButtons[1].y) <= 1.5, 'Os botões devem permanecer alinhados.');
+  assert.ok(Math.abs(initialButtons[0].width - initialButtons[1].width) <= 1, 'Os botões devem ter larguras simétricas.');
   await popup.screenshot({ path: path.join(evidencePath, 'nivelamento-inicial.png') });
 
   // Responde e fecha/reabre depois de cada posição, incluindo a resposta 5 e a troca da janela.
@@ -73,6 +82,8 @@ try {
     assert.notEqual(await popup.locator('#btn-question-correct').evaluate((button) => getComputedStyle(button).cursor), 'wait');
     assert.equal((await readProgress(popup)).cfo_ext_leveling.questionsAnswered, answered, 'Um clique duplo não pode registrar duas respostas.');
     assert.equal(await popup.locator('.answer-square').count(), answered, 'Cada resposta deve manter seu próprio quadradinho.');
+    assert.equal(await popup.locator('#progress-info').isVisible(), true, 'O contador real deve aparecer após a primeira resposta.');
+    assert.equal(await popup.locator('#stat-progress').textContent(), String(answered));
     if (answered === 1) {
       firstMarkerSize = (await popup.locator('.answer-square').first().boundingBox()).width;
       await popup.screenshot({ path: path.join(evidencePath, 'historico-respostas-1.png') });
@@ -128,6 +139,8 @@ try {
   assert.equal(recoveredImmediateCompletion.cfo_ext_leveling.levelingCompleted, false);
   assert.equal(recoveredImmediateCompletion.cfo_ext_leveling.activeBattery.answers.length, 0);
   assert.equal(await popup.locator('.answer-square').count(), 0, 'A aprovação deve limpar os quadradinhos visíveis.');
+  assert.equal(await popup.locator('#progress-info').isVisible(), false, 'O contador deve sumir quando a nova tentativa começa vazia.');
+  assert.equal(await popup.locator('#stat-progress').textContent(), '', 'Uma nova tentativa vazia deve limpar o contador.');
 
   // Uma aprovação visível em 100% também tem celebração única e permanece no histórico.
   for (let index = 0; index < 4; index += 1) {

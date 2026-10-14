@@ -185,7 +185,9 @@ const els = {
   ratioRestTime: document.getElementById('ratio-rest-time'),
 
   // Leveling Controls
+  levelingTab: document.getElementById('tab-content-leveling'),
   levelingStatusLabel: document.getElementById('leveling-status-label'),
+  progressInfo: document.getElementById('progress-info'),
   statProgress: document.getElementById('stat-progress'),
   answerWindow: document.getElementById('answer-window'),
   btnQuestionCorrect: document.getElementById('btn-question-correct'),
@@ -382,7 +384,9 @@ document.addEventListener('visibilitychange', () => {
 function updateLevelingUI() {
   const answers = CfoLevelingState.getAnswerTimeline(state.leveling);
   const nextQuestion = (state.leveling.questionsAnswered || 0) + 1;
-  els.statProgress.textContent = String(answers.length);
+  els.levelingTab.setAttribute('aria-busy', 'false');
+  els.progressInfo.hidden = answers.length === 0;
+  els.statProgress.textContent = answers.length ? String(answers.length) : '';
   els.levelingStatusLabel.textContent = state.leveling.levelingCompleted
     ? 'Nivelamento concluído'
     : `Questão ${nextQuestion}`;

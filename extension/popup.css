@@ -184,6 +184,11 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   flex-direction: column;
 }
 
+body:has(#tab-content-leveling.active),
+.app-container:has(#tab-content-leveling.active) {
+  min-height: 0;
+}
+
 /* Icon Primitives */
 .tabler-icon {
   width: 17px;
@@ -773,33 +778,51 @@ select:hover {
 .leveling-panel {
   display: flex;
   flex-direction: column;
-  min-height: 400px;
+  min-height: 0;
 }
 
 .leveling-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
+  padding: 2px 0 15px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.leveling-heading {
+  min-width: 0;
 }
 
 .leveling-header h2 {
   font-family: var(--font-sans);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 720;
   color: var(--text-primary);
-  margin-top: 3px;
-  letter-spacing: -0.02em;
+  margin-top: 4px;
+  letter-spacing: -0.04em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.leveling-heading .eyebrow {
+  color: var(--text-muted);
+  font-size: 9px;
+  letter-spacing: .1em;
 }
 
 .leveling-battery-label {
-  align-self: center;
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--bg-surface);
   color: var(--text-muted);
   font-family: var(--font-sans);
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  font-weight: 550;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .compact-field {
@@ -853,13 +876,18 @@ select:hover {
 
 /* Rolling five-answer window */
 .question-progress {
-  margin-top: 20px;
+  margin-top: 16px;
 }
 
 .progress-info {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
+  min-height: 20px;
+}
+
+.progress-info[hidden] {
+  display: none;
 }
 
 .progress-info span {
@@ -885,8 +913,8 @@ select:hover {
   align-content: flex-start;
   justify-content: center;
   gap: 4px;
-  margin: 12px 0 4px;
-  padding: 10px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   background: var(--bg-surface);
@@ -977,11 +1005,13 @@ select:hover {
 .question-buttons-grid {
   display: flex;
   gap: 10px;
+  margin-top: 20px;
 }
 
 .answer-button {
   flex: 1;
-  height: 64px;
+  min-width: 0;
+  height: 58px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -992,6 +1022,17 @@ select:hover {
   font-weight: 600;
   border: 1px solid;
   transition: all 0.15s var(--ease-spring);
+}
+
+#tab-content-leveling[aria-busy="true"] .leveling-battery-label {
+  opacity: .55;
+}
+
+@media (max-width: 360px) {
+  .leveling-header { gap: 8px; }
+  .leveling-header h2 { font-size: 18px; }
+  .leveling-battery-label { padding: 5px 7px; font-size: 9px; }
+  .question-buttons-grid { gap: 8px; }
 }
 
 .answer-button .tabler-icon {
