@@ -24,7 +24,7 @@ async function launch() {
   const nextContext = await chromium.launchPersistentContext(profilePath, {
     executablePath: chromePath,
     headless: false,
-    viewport: { width: 400, height: 620 },
+    viewport: { width: 440, height: 620 },
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
   });
   nextContext.on('page', (page) => page.on('pageerror', (error) => pageErrors.push(error.message)));
@@ -50,6 +50,10 @@ try {
   let worker = context.serviceWorkers()[0];
   let extensionId = new URL(worker.url()).host;
   let popup = await openPopup(extensionId);
+  assert.equal(await popup.locator('body').evaluate((body) => Math.round(body.getBoundingClientRect().width)), 420, 'O popup deve usar a largura confortável quando há espaço disponível.');
+  await popup.locator('#tab-btn-timer').click();
+  await popup.screenshot({ path: path.join(evidencePath, 'popup-cronometro-largura-confortavel.png') });
+  await popup.locator('#tab-btn-leveling').click();
   let firstMarkerSize;
   await popup.screenshot({ path: path.join(evidencePath, 'nivelamento-inicial.png') });
 
@@ -151,6 +155,7 @@ try {
   const achievementBounds = await popup.locator('.achievement-card').boundingBox();
   const trophyBounds = await popup.locator('.achievement-trophy').boundingBox();
   assert.ok(achievementBounds.y >= 0 && achievementBounds.y + achievementBounds.height <= 390, 'O cartão da conquista deve caber no popup baixo.');
+  assert.ok(trophyBounds.x >= achievementBounds.x && trophyBounds.x + trophyBounds.width <= achievementBounds.x + achievementBounds.width, 'O troféu deve caber na largura do cartão.');
   assert.ok(trophyBounds.y >= achievementBounds.y && trophyBounds.y + trophyBounds.height <= achievementBounds.y + achievementBounds.height, 'O troféu inteiro deve permanecer visível.');
   await popup.locator('#btn-achievement-continue').click();
   await popup.locator('#leveling-achievement').waitFor({ state: 'hidden' });
