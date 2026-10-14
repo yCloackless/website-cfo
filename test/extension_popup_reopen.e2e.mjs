@@ -65,6 +65,19 @@ try {
   assert.ok(Math.abs(initialButtons[0].y - initialButtons[1].y) <= 1.5, 'Os botões devem permanecer alinhados.');
   assert.ok(Math.abs(initialButtons[0].width - initialButtons[1].width) <= 1, 'Os botões devem ter larguras simétricas.');
   await popup.screenshot({ path: path.join(evidencePath, 'nivelamento-inicial.png') });
+  await popup.setViewportSize({ width: 300, height: 620 });
+  const compactHeader = await Promise.all([
+    popup.locator('.leveling-heading').boundingBox(),
+    popup.locator('.leveling-battery-label').boundingBox(),
+  ]);
+  const compactButtons = await Promise.all([
+    popup.locator('#btn-question-correct').boundingBox(),
+    popup.locator('#btn-question-wrong').boundingBox(),
+  ]);
+  assert.ok(compactHeader.every((box) => box.x >= 0 && box.x + box.width <= 300), 'O cabeçalho deve caber na largura mínima testada.');
+  assert.ok(compactButtons.every((box) => box.x >= 0 && box.x + box.width <= 300), 'Os botões devem caber sem corte na largura mínima testada.');
+  assert.ok(Math.abs(compactButtons[0].y - compactButtons[1].y) <= 1.5, 'Os botões compactos devem permanecer alinhados.');
+  await popup.setViewportSize({ width: 440, height: 620 });
 
   // Responde e fecha/reabre depois de cada posição, incluindo a resposta 5 e a troca da janela.
   for (let answered = 1; answered <= 5; answered += 1) {
