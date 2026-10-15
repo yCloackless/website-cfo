@@ -1888,7 +1888,7 @@ function timerStateFile(userId: string): string {
 }
 
 function readTimerState(userId: string): TimerState {
-  const persistedState = userStateRepoInstance.get(userId)?.payload[TIMER_STATE_STORAGE_KEY];
+  const persistedState = userStateRepoInstance.getValue(userId, TIMER_STATE_STORAGE_KEY);
   if (persistedState) {
     try {
       const parsed = JSON.parse(persistedState);
@@ -2186,7 +2186,7 @@ function getDesktopSubjects(userId: string) {
     ? ''
     : `_${String(user?.username || '').toLowerCase().replace(/[^a-z0-9_]/g, '_')}`;
   const key = `cfo_cbmerj_subjects_v1${suffix}`;
-  const raw = userStateRepoInstance.get(userId)?.payload[key];
+  const raw = userStateRepoInstance.getValue(userId, key);
   if (raw) {
     try {
       const parsed = JSON.parse(raw);
@@ -6817,10 +6817,10 @@ app.get("/api/leveling/session", requireUserAuth, (req: Request, res: Response) 
   try {
     const userId = String((req as any).user.userId || '');
     if (!userId) return res.status(401).json({ error: 'UNAUTHORIZED' });
-    const saved = userStateRepoInstance.get(userId);
     const levelingRaw = req.query.client === 'extension'
-      ? saved?.payload?.['cfo_ext_leveling_session'] || saved?.payload?.['cfo_leveling_session']
-      : saved?.payload?.['cfo_leveling_session'];
+      ? userStateRepoInstance.getValue(userId, 'cfo_ext_leveling_session')
+        || userStateRepoInstance.getValue(userId, 'cfo_leveling_session')
+      : userStateRepoInstance.getValue(userId, 'cfo_leveling_session');
     let session = null;
     if (levelingRaw) {
       try {
@@ -6934,8 +6934,7 @@ app.get("/api/user/extension-token", requireUserAuth, (req: Request, res: Respon
 
     // 1. Reutiliza token persistente ativo caso ainda seja válido
     if (!forceRegenerate) {
-      const saved = userStateRepoInstance.get(userId);
-      const storedTokenRaw = saved?.payload?.['cfo_extension_token_v1'];
+      const storedTokenRaw = userStateRepoInstance.getValue(userId, 'cfo_extension_token_v1');
       if (storedTokenRaw) {
         try {
           const parsed = JSON.parse(storedTokenRaw);

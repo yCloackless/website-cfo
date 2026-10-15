@@ -188,7 +188,7 @@ test('EXT-L20: backend separa estado da extensão e rejeita revisões antigas', 
   assert.match(server, /revision <= Number\(current\.revision\)/);
   assert.match(server, /cfo_leveling_session/);
   assert.match(server, /req\.query\.client === 'extension'/);
-  assert.match(server, /cfo_ext_leveling_session'\]\s*\|\|\s*saved\?\.payload\?\.\['cfo_leveling_session'\]/);
+  assert.match(server, /getValue\(userId, 'cfo_ext_leveling_session'\)\s*\|\|\s*userStateRepoInstance\.getValue\(userId, 'cfo_leveling_session'\)/);
   assert.match(read('extension/popup.js'), /leveling\/session\?client=extension/);
 });
 

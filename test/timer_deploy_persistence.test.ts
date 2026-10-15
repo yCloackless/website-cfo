@@ -18,6 +18,7 @@ process.env.SQLITE_DB_PATH = path.join(tempDir, 'timer.sqlite');
 const { app } = await import('../server');
 const { AuthService } = await import('../src/db/authService');
 const { getDb } = await import('../src/db/database');
+const { UserStateRepository } = await import('../src/db/repositories');
 
 let server: http.Server;
 let baseUrl = '';
@@ -66,6 +67,25 @@ test('o estado ativo do cronômetro persiste no banco e sobrevive à sincroniza�
   const restored = await request('/api/timer/status', { headers });
   assert.equal(restored.body.status, 'RUNNING');
   assert.equal(restored.body.startTime, persistedTimer.startTime);
+});
+
+test('o polling do cronômetro continua funcional com um backup grande no estado do usuário', async () => {
+  const headers = { Authorization: `Bearer ${token}` };
+  await request('/api/timer/start', { method: 'POST', headers, body: JSON.stringify({ subjectId: 'fisica', subjectName: 'Física' }) });
+
+  const db = getDb().getRawDb();
+  const userId = (db.prepare("SELECT id FROM users WHERE username = 'cadete'").get() as { id: string }).id;
+  const repository = new UserStateRepository(db);
+  const previous = repository.get(userId)?.payload || {};
+  repository.upsert(userId, { ...previous, cfo_legacy_snapshot: 'x'.repeat(2 * 1024 * 1024) });
+
+  try {
+    const status = await request('/api/timer/status', { headers });
+    assert.equal(status.response.status, 200);
+    assert.equal(status.body.status, 'RUNNING');
+  } finally {
+    repository.upsert(userId, previous);
+  }
 });
 
 test('a pausa preserva o acumulado mais recente recebido da extensão', async () => {

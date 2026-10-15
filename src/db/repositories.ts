@@ -1626,6 +1626,15 @@ export class RecoveryCodeRepository {
 export class UserStateRepository {
   constructor(private db: DatabaseSync) {}
 
+  public getValue(userId: string, key: string): string | null {
+    const isPostgres = Boolean((this.db as any)?.isPostgres);
+    const query = isPostgres
+      ? 'SELECT payload_json::jsonb ->> ? AS value FROM user_state_snapshots WHERE user_id = ?'
+      : "SELECT json_extract(payload_json, '$.' || ?) AS value FROM user_state_snapshots WHERE user_id = ?";
+    const row = this.db.prepare(query).get(key, userId) as { value: string | null } | undefined;
+    return typeof row?.value === 'string' ? row.value : null;
+  }
+
   public get(userId: string): { payload: Record<string, string>; updatedAt: string } | null {
     const row = this.db.prepare(
       'SELECT payload_json, updated_at FROM user_state_snapshots WHERE user_id = ?'

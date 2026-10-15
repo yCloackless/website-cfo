@@ -42,6 +42,7 @@ files.push('flashcard_importance_priority');
 files.push('katex_stoichiometry_chemistry');
 files.push('supabase_security_hardening');
 files.push('perf_cache_and_invalidation');
+files.push('user_state_repository');
 files.splice(files.indexOf('exam_bank'), 0, 'board_intelligence');
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|HOME|USERPROFILE|COMSPEC|PATHEXT)$/i.test(key)));
