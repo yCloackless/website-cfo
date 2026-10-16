@@ -253,6 +253,66 @@ app.use(compression({
   },
 }));
 
+const API_LATENCY_BUCKETS_MS = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, Number.POSITIVE_INFINITY];
+type ApiMetric = { requests: number; requestBodyBytes: number; responseBodyBytes: number; errors: number; latencySumMs: number; latencyBuckets: number[] };
+const apiMetrics = new Map<string, ApiMetric>();
+const apiMetricsFlush = setInterval(() => {
+  if (apiMetrics.size === 0) return;
+  const windowMetrics = [...apiMetrics.entries()].map(([route, metric]) => ({
+    route,
+    ...metric,
+    averageLatencyMs: Math.round(metric.latencySumMs / metric.requests),
+    p95LatencyUpperBoundMs: API_LATENCY_BUCKETS_MS[metric.latencyBuckets.findIndex((count, index, buckets) =>
+      buckets.slice(0, index + 1).reduce((sum, value) => sum + value, 0) >= Math.ceil(metric.requests * 0.95))],
+  }));
+  apiMetrics.clear();
+  console.info(JSON.stringify({ event: 'api_metrics_window', windowSeconds: 60, routes: windowMetrics }));
+}, 60_000);
+apiMetricsFlush.unref();
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (!req.path.startsWith('/api/')) return next();
+  const startedAt = Date.now();
+  const requestBodyBytes = Number(req.headers['content-length']) || 0;
+  let responseBodyBytes = 0;
+  const countBytes = (chunk: unknown) => {
+    if (typeof chunk === 'string') responseBodyBytes += Buffer.byteLength(chunk);
+    else if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) responseBodyBytes += chunk.byteLength;
+  };
+  const originalWrite = res.write.bind(res);
+  const originalEnd = res.end.bind(res);
+  res.write = ((chunk: unknown, ...args: unknown[]) => {
+    countBytes(chunk);
+    return (originalWrite as unknown as (...params: unknown[]) => boolean)(chunk, ...args);
+  }) as unknown as Response['write'];
+  res.end = ((chunk?: unknown, ...args: unknown[]) => {
+    countBytes(chunk);
+    return (originalEnd as unknown as (...params: unknown[]) => Response)(chunk, ...args);
+  }) as unknown as Response['end'];
+  res.once('finish', () => {
+    const route = req.route?.path ? `${req.baseUrl}${req.route.path}` : req.path
+      .replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, ':id')
+      .replace(/\/\d+(?=\/|$)/g, '/:id')
+      .slice(0, 120);
+    const key = `${req.method} ${route} ${res.statusCode}`;
+    const metricKey = apiMetrics.has(key) || apiMetrics.size < 200 ? key : 'other routes';
+    let metric = apiMetrics.get(metricKey);
+    if (!metric) {
+      metric = { requests: 0, requestBodyBytes: 0, responseBodyBytes: 0, errors: 0, latencySumMs: 0, latencyBuckets: API_LATENCY_BUCKETS_MS.map(() => 0) };
+      apiMetrics.set(metricKey, metric);
+    }
+    const latencyMs = Date.now() - startedAt;
+    metric.requests++;
+    metric.requestBodyBytes += requestBodyBytes;
+    metric.responseBodyBytes += responseBodyBytes;
+    if (res.statusCode >= 400) metric.errors++;
+    metric.latencySumMs += latencyMs;
+    const bucket = API_LATENCY_BUCKETS_MS.findIndex((limit) => latencyMs <= limit);
+    metric.latencyBuckets[Math.max(0, bucket)]++;
+  });
+  next();
+});
+
 const operationalLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,

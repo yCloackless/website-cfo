@@ -1,31 +1,25 @@
 import pg from 'pg';
 
-const rawUrl = 'postgresql://postgres.sateqyxjrqvrrtukudxr:VbL94atn0joWPZqi@aws-0-us-east-1.pooler.supabase.com:5432/postgres';
-const url = new URL(rawUrl);
+if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL_REQUIRED');
 
 const pool = new pg.Pool({
-  user: decodeURIComponent(url.username),
-  password: decodeURIComponent(url.password),
-  host: url.hostname,
-  port: parseInt(url.port || '5432'),
-  database: url.pathname.replace(/^\//, ''),
-  ssl: { rejectUnauthorized: false }
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: true },
+  max: 1,
+  connectionTimeoutMillis: 5000,
 });
 
 async function run() {
-  const media = await pool.query('SELECT id, user_id, filename, mime_type, file_size, storage_path, created_at FROM anki_media;');
-  console.log('ANKI_MEDIA (' + media.rows.length + ' rows):');
-  console.log(JSON.stringify(media.rows, null, 2));
-
-  const notes = await pool.query(`SELECT id, user_id, fields_json FROM anki_notes WHERE fields_json LIKE '%img%' OR fields_json LIKE '%png%' OR fields_json LIKE '%jpg%' OR fields_json LIKE '%paste%' OR fields_json LIKE '%src%';`);
-  console.log('ANKI_NOTES WITH IMG (' + notes.rows.length + ' rows):');
-  console.log(JSON.stringify(notes.rows, null, 2));
-
-  // Let's also check all notes in anki_notes just in case
-  const allNotes = await pool.query('SELECT id, user_id, fields_json FROM anki_notes;');
-  console.log('ALL ANKI_NOTES count: ' + allNotes.rows.length);
-
-  await pool.end();
+  const [media, notes, allNotes] = await Promise.all([
+    pool.query('SELECT count(*)::int AS count, coalesce(sum(file_size), 0)::bigint AS bytes FROM anki_media'),
+    pool.query("SELECT count(*)::int AS count FROM anki_notes WHERE fields_json ILIKE ANY(ARRAY['%img%', '%png%', '%jpg%', '%paste%', '%src%'])"),
+    pool.query('SELECT count(*)::int AS count FROM anki_notes'),
+  ]);
+  console.log(JSON.stringify({
+    ankiMedia: media.rows[0],
+    notesWithMediaReferences: notes.rows[0].count,
+    allNotes: allNotes.rows[0].count,
+  }));
 }
 
-run().catch(e => { console.error(e); process.exit(1); });
+run().catch(() => { console.error('DATABASE_MEDIA_AUDIT_FAILED'); process.exitCode = 1; }).finally(() => pool.end());

@@ -15,6 +15,12 @@ if (!targetUrl) {
   process.exit(1);
 }
 
+const target = new URL(targetUrl);
+const targetDatabase = decodeURIComponent(target.pathname.slice(1));
+if (process.env.ALLOW_DISPOSABLE_RESTORE !== 'true' || !/(?:^|_)(?:restore|migration)_test$/i.test(targetDatabase)) {
+  throw new Error('RESTORE_REFUSED: use an explicitly disposable database ending in _restore_test or _migration_test');
+}
+
 const tables = JSON.parse(fs.readFileSync(tablesMetaPath, 'utf-8'));
 
 // Extrai as definições originais exatas de CREATE TABLE diretamente do toc.dat em UTF-8
@@ -60,13 +66,14 @@ async function restore() {
   });
 
   const client = await pool.connect();
-  console.log('Conectado ao Supabase!');
 
   try {
+    const existing = await client.query("SELECT count(*)::int AS count FROM information_schema.tables WHERE table_schema = 'public'");
+    if (existing.rows[0].count !== 0) throw new Error('RESTORE_REFUSED: target public schema is not empty');
+
     // 1. Recria as 73 tabelas exatamente com a estrutura idêntica à do dump original (em UTF-8)
     console.log(`Recriando as ${ddlMap.size} tabelas com a estrutura exata do banco original...`);
     for (const [tableName, createSql] of ddlMap.entries()) {
-      await client.query(`DROP TABLE IF EXISTS "public"."${tableName}" CASCADE`);
       await client.query(createSql);
     }
     console.log('✓ Estrutura de todas as tabelas recriada com sucesso!');
@@ -140,7 +147,7 @@ async function restore() {
     try {
       await client.query('ROLLBACK');
     } catch (e) {}
-    console.error('ERRO na restauração:', err);
+    console.error('RESTORE_FAILED:', err instanceof Error ? err.message : 'unknown error');
   } finally {
     client.release();
     await pool.end();
