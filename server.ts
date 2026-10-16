@@ -6806,6 +6806,27 @@ app.put("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
   }
 });
 
+app.patch("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const userId = String((req as any).user.userId || '');
+    const state = req.body?.state;
+    if (!userId || !state || typeof state !== 'object' || Array.isArray(state)) return res.status(400).json({ error: 'INVALID_STATE' });
+    const sanitized: Record<string, string> = {};
+    for (const [key, value] of Object.entries(state)) {
+      if (!/^(cfo_[a-zA-Z0-9_.-]+|.*anki_[a-zA-Z0-9_.-]+)$/.test(key)) continue;
+      if (key === TIMER_STATE_STORAGE_KEY) continue;
+      if (typeof value !== 'string' || value.length > 2_000_000) return res.status(413).json({ error: 'STATE_VALUE_TOO_LARGE' });
+      sanitized[key] = value;
+    }
+    const savedAt = userStateRepoInstance.mergeUpsert(userId, sanitized);
+    logAuditEvent({ action: 'USER_STATE_SYNC', actor: (req as any).user.username || userId, resource: 'user_state_snapshots', status: 'SUCCESS', ip: getClientIp(req), details: { userId, keys: Object.keys(sanitized).length, partial: true } });
+    return res.json({ success: true, savedAt });
+  } catch (err) {
+    console.error('[User State] Falha ao salvar atualizacao parcial:', err);
+    return res.status(500).json({ error: 'STATE_WRITE_ERROR' });
+  }
+});
+
 // ============================================================================
 // 🎯 SINCRONIZAÇÃO DE BATERIA DE NIVELAMENTO (EXTENSÃO & PLATAFORMA)
 // ============================================================================

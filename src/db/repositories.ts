@@ -1674,6 +1674,20 @@ export class UserStateRepository {
     `).run(userId, serialized, now, now);
     return now;
   }
+
+  public mergeUpsert(userId: string, payload: Record<string, string>): string {
+    const now = new Date().toISOString();
+    const serialized = JSON.stringify(payload);
+    const mergedPayload = Boolean((this.db as any)?.isPostgres)
+      ? '(user_state_snapshots.payload_json::jsonb || excluded.payload_json::jsonb)::text'
+      : 'json_patch(user_state_snapshots.payload_json, excluded.payload_json)';
+    this.db.prepare(`
+      INSERT INTO user_state_snapshots (user_id, payload_json, schema_version, created_at, updated_at)
+      VALUES (?, ?, 1, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET payload_json = ${mergedPayload}, updated_at = excluded.updated_at
+    `).run(userId, serialized, now, now);
+    return now;
+  }
 }
 
 export class CadetSessionLockRepository {

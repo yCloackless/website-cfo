@@ -69,6 +69,28 @@ test('o estado ativo do cronômetro persiste no banco e sobrevive à sincroniza�
   assert.equal(restored.body.startTime, persistedTimer.startTime);
 });
 
+test('a sincronização parcial atualiza uma chave sem apagar as demais', async () => {
+  const headers = { Authorization: `Bearer ${token}` };
+  const db = getDb().getRawDb();
+  const userId = (db.prepare("SELECT id FROM users WHERE username = 'cadete'").get() as { id: string }).id;
+  const repository = new UserStateRepository(db);
+  const previous = repository.get(userId)?.payload || {};
+  const uniqueKey = `cfo_partial_patch_${randomUUID().replaceAll('-', '')}`;
+  repository.upsert(userId, { ...previous, cfo_patch_sibling_test: 'keep' });
+
+  try {
+    const patch = await request('/api/user/state', {
+      method: 'PATCH', headers, body: JSON.stringify({ state: { [uniqueKey]: 'updated' } }),
+    });
+    assert.equal(patch.response.status, 200);
+    const state = (await request('/api/user/state', { headers })).body.state;
+    assert.equal(state[uniqueKey], 'updated');
+    assert.equal(state.cfo_patch_sibling_test, 'keep');
+  } finally {
+    repository.upsert(userId, previous);
+  }
+});
+
 test('o polling do cronômetro continua funcional com um backup grande no estado do usuário', async () => {
   const headers = { Authorization: `Bearer ${token}` };
   await request('/api/timer/start', { method: 'POST', headers, body: JSON.stringify({ subjectId: 'fisica', subjectName: 'Física' }) });

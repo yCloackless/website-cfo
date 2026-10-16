@@ -90,3 +90,39 @@ test('parameterizes PostgreSQL single-key updates', () => {
   assert.equal(params[4], 'cfo_timer_state_v1');
   assert.equal(params[5], 'updated');
 });
+
+test('merges partial state updates without replacing sibling values', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(`CREATE TABLE user_state_snapshots (
+    user_id TEXT PRIMARY KEY,
+    payload_json TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`);
+  try {
+    const repository = new UserStateRepository(db);
+    repository.upsert('user-1', { cfo_timer_state_v1: 'timer', cfo_study_plan: 'plan' });
+    repository.mergeUpsert('user-1', { cfo_study_plan: 'updated' });
+    assert.deepEqual(repository.get('user-1')?.payload, {
+      cfo_timer_state_v1: 'timer',
+      cfo_study_plan: 'updated',
+    });
+  } finally {
+    db.close();
+  }
+});
+
+test('uses a database-side JSON merge for partial PostgreSQL updates', () => {
+  let query = '';
+  const db = {
+    isPostgres: true,
+    prepare(sql: string) {
+      query = sql;
+      return { run: () => ({ changes: 1 }) };
+    },
+  } as any;
+  new UserStateRepository(db).mergeUpsert('user-1', { cfo_study_plan: 'updated' });
+  const translated = postgresParams(query, ['user-1', '{"cfo_study_plan":"updated"}', 'now', 'now']);
+  assert.match(translated.text, /payload_json::jsonb \|\| excluded\.payload_json::jsonb/);
+});
