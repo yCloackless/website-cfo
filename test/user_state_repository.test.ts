@@ -51,3 +51,42 @@ test('uses a parameterized JSONB projection for PostgreSQL', () => {
   );
   assert.deepEqual(translated.values, params);
 });
+
+test('updates one state key without replacing its sibling or reading the full snapshot', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(`CREATE TABLE user_state_snapshots (
+    user_id TEXT PRIMARY KEY,
+    payload_json TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`);
+  try {
+    const repository = new UserStateRepository(db);
+    repository.upsertValue('user-1', 'cfo_timer_state_v1', 'initial');
+    repository.upsertValue('user-1', 'cfo_legacy_snapshot', 'x'.repeat(2 * 1024 * 1024));
+    repository.upsertValue('user-1', 'cfo_timer_state_v1', 'updated');
+    assert.equal(repository.getValue('user-1', 'cfo_timer_state_v1'), 'updated');
+    assert.equal(repository.getValue('user-1', 'cfo_legacy_snapshot')?.length, 2 * 1024 * 1024);
+  } finally {
+    db.close();
+  }
+});
+
+test('parameterizes PostgreSQL single-key updates', () => {
+  let query = '';
+  let params: unknown[] = [];
+  const db = {
+    isPostgres: true,
+    prepare(sql: string) {
+      query = sql;
+      return { run: (...values: unknown[]) => { params = values; return { changes: 1 }; } };
+    },
+  } as any;
+  new UserStateRepository(db).upsertValue('user-1', 'cfo_timer_state_v1', 'updated');
+  const translated = postgresParams(query, params);
+  assert.match(translated.text, /jsonb_set\(user_state_snapshots\.payload_json::jsonb, ARRAY\[\$5\], to_jsonb\(\$6::text\), true\)::text/);
+  assert.equal(params[0], 'user-1');
+  assert.equal(params[4], 'cfo_timer_state_v1');
+  assert.equal(params[5], 'updated');
+});

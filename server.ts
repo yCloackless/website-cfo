@@ -1941,11 +1941,7 @@ function readTimerState(userId: string): TimerState {
 
 function saveTimerState(userId: string, state: TimerState): void {
   try {
-    const payload = userStateRepoInstance.get(userId)?.payload || {};
-    userStateRepoInstance.upsert(userId, {
-      ...payload,
-      [TIMER_STATE_STORAGE_KEY]: JSON.stringify(state),
-    });
+    userStateRepoInstance.upsertValue(userId, TIMER_STATE_STORAGE_KEY, JSON.stringify(state));
   } catch (e) {
     console.warn("Falha ao salvar estado persistente do cronômetro:", e);
   }
@@ -6797,10 +6793,10 @@ app.put("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
       if (typeof value !== 'string' || value.length > 2_000_000) return res.status(413).json({ error: 'STATE_VALUE_TOO_LARGE' });
       sanitized[key] = value;
     }
-    const currentPayload = userStateRepoInstance.get(userId)?.payload || {};
+    const timerState = userStateRepoInstance.getValue(userId, TIMER_STATE_STORAGE_KEY);
     const savedAt = userStateRepoInstance.upsert(userId, {
       ...sanitized,
-      ...(currentPayload[TIMER_STATE_STORAGE_KEY] ? { [TIMER_STATE_STORAGE_KEY]: currentPayload[TIMER_STATE_STORAGE_KEY] } : {}),
+      ...(timerState ? { [TIMER_STATE_STORAGE_KEY]: timerState } : {}),
     });
     logAuditEvent({ action: 'USER_STATE_SYNC', actor: (req as any).user.username || userId, resource: 'user_state_snapshots', status: 'SUCCESS', ip: getClientIp(req), details: { userId, keys: Object.keys(sanitized).length } });
     return res.json({ success: true, savedAt });
@@ -6870,10 +6866,10 @@ app.post("/api/leveling/session", requireUserAuth, (req: Request, res: Response)
           return res.status(400).json({ error: 'INVALID_LEVELING_SNAPSHOT' });
         }
       }
-      const saved = userStateRepoInstance.get(userId);
+      const storedSession = userStateRepoInstance.getValue(userId, 'cfo_ext_leveling_session');
       let current = null;
       try {
-        current = JSON.parse(saved?.payload?.['cfo_ext_leveling_session'] || 'null');
+        current = JSON.parse(storedSession || 'null');
       } catch { current = null; }
       const currentStartedAt = Date.parse(current?.startedAt || '');
       const incomingStartedAt = Date.parse(startedAt);
@@ -6883,11 +6879,7 @@ app.post("/api/leveling/session", requireUserAuth, (req: Request, res: Response)
       );
       if (isOlder) return res.json({ success: true, accepted: false, session: current });
 
-      const updatedPayload = {
-        ...(saved?.payload || {}),
-        cfo_ext_leveling_session: JSON.stringify(body),
-      };
-      userStateRepoInstance.upsert(userId, updatedPayload);
+      userStateRepoInstance.upsertValue(userId, 'cfo_ext_leveling_session', JSON.stringify(body));
       return res.json({ success: true, accepted: true, session: body });
     }
 
@@ -6907,13 +6899,7 @@ app.post("/api/leveling/session", requireUserAuth, (req: Request, res: Response)
       updatedAt: new Date().toISOString(),
     };
 
-    const currentSaved = userStateRepoInstance.get(userId);
-    const updatedPayload = {
-      ...(currentSaved?.payload || {}),
-      cfo_leveling_session: JSON.stringify(snapshot),
-    };
-
-    userStateRepoInstance.upsert(userId, updatedPayload);
+    userStateRepoInstance.upsertValue(userId, 'cfo_leveling_session', JSON.stringify(snapshot));
     return res.json({ success: true, session: snapshot });
   } catch (err) {
     console.error('[Leveling Sync] Falha ao salvar sessão de nivelamento:', err);

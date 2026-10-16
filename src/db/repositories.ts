@@ -1635,6 +1635,20 @@ export class UserStateRepository {
     return typeof row?.value === 'string' ? row.value : null;
   }
 
+  public upsertValue(userId: string, key: string, value: string): string {
+    const now = new Date().toISOString();
+    const isPostgres = Boolean((this.db as any)?.isPostgres);
+    const updatedPayload = isPostgres
+      ? 'jsonb_set(user_state_snapshots.payload_json::jsonb, ARRAY[?], to_jsonb(?::text), true)::text'
+      : "json_set(user_state_snapshots.payload_json, '$.' || ?, ?)";
+    this.db.prepare(`
+      INSERT INTO user_state_snapshots (user_id, payload_json, schema_version, created_at, updated_at)
+      VALUES (?, ?, 1, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET payload_json = ${updatedPayload}, updated_at = excluded.updated_at
+    `).run(userId, JSON.stringify({ [key]: value }), now, now, key, value);
+    return now;
+  }
+
   public get(userId: string): { payload: Record<string, string>; updatedAt: string } | null {
     const row = this.db.prepare(
       'SELECT payload_json, updated_at FROM user_state_snapshots WHERE user_id = ?'
