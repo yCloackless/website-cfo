@@ -71,6 +71,8 @@
     "vite": "^6.2.3"
   },
   "devDependencies": {
+    "@neon/config": "^1.9.2",
+    "@neon/env": "^1.6.3",
     "@playwright/test": "^1.63.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/compression": "^1.8.1",

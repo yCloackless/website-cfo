@@ -2,7 +2,7 @@
 
 ## Estado comprovado
 
-O painel Supabase consultado não mostrava backup. O banco estava em torno de 54,29 MB. Há um schema SQL e metadados de dump versionados, além de um utilitário antigo de restauração que foi endurecido nesta rodada: agora exige `ALLOW_DISPOSABLE_RESTORE=true`, banco com sufixo `_restore_test` ou `_migration_test`, recusa schema público não vazio e não apaga tabelas. Ele depende de dump histórico local e ainda não foi testado; prefira o fluxo de dump/restore abaixo. Não existe nesta rodada comprovação de backup atual nem restauração segura executada. Classificação: **BLOQUEADO** para validação origem/destino por falta de export atual e endpoint de teste.
+O painel Supabase consultado não mostrava backup. No computador foram localizados `data/backups/postgres_migrated_2026-09-10.sql` e backups locais da aplicação até 2026-09-19; nenhum foi comparado com a base final do Supabase e ambos são anteriores ao incidente de outubro. O projeto Neon `cold-grass-91996209`, branch `production`, está acessível por TLS validado e recebeu as 38 migrações da aplicação (73 tabelas). Nenhum dado da origem foi importado; o smoke test inicial do servidor criou uma conta de bootstrap no destino. Não restaurar sobre esse estado sem preparar um alvo vazio e comparar contagens/checksums. O utilitário antigo `scripts/restore-render-dump.mjs` continua limitado a bases descartáveis `_restore_test`/`_migration_test` e recusa schema público não vazio. Classificação: **BLOQUEADO** para importação dos dados reais por falta de um export atual verificado.
 
 ## Captura segura da origem
 

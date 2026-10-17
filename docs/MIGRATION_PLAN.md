@@ -1,10 +1,10 @@
 # Plano de migração Supabase/Render → Railway/Neon
 
-**A migração ainda não está autorizada e não foi iniciada.** Usar este roteiro apenas após cumprir pendências e autorização expressa.
+**Estado em 2026-10-17:** o proprietário autorizou migrar a camada de banco para Neon; Railway e publicação ficam para uma etapa posterior. O projeto Neon e o branch `production` foram vinculados e verificados. O schema da aplicação foi aplicado (73 tabelas; 38 migrações), mas nenhum dado da origem foi importado. A validação inicial do servidor criou uma conta de bootstrap no destino; ela não veio do Supabase e precisa ser considerada ao preparar a restauração.
 
 ## Pré-condições
 
-1. Recuperar e validar o backup/export da origem; confirmar se o dump corresponde à base em produção. O painel consultado não mostrava backup. A pasta indicada em script antigo é local/histórica e não prova backup atual.
+1. Recuperar e validar um backup/export atual da origem. No computador há um dump SQL de 2026-09-10 e backups locais da aplicação até 2026-09-19; nenhum foi comparado com a base final do Supabase e ambos podem omitir progresso recente. Não restaurar como estado atual sem decisão explícita do proprietário.
 2. Rodar o procedimento em `DATABASE_BACKUP_RESTORE.md` numa instância descartável, com comparação de contagem/checksums antes de qualquer corte.
 3. Rotacionar credencial de banco que estava embutida em script versionado; revisar histórico Git e acessos.
 4. Criar Neon de produção manualmente pelo proprietário, escolher região/plano, ligar backup/retention e definir teto de compute. Criar Railway com limite de custo e storage persistente adequado.

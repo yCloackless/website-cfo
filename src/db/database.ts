@@ -10,6 +10,88 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { PostgresSyncDatabase } from './postgresSync';
 
+const POSTGRES_BOOLEAN_COLUMNS = [
+  'products.is_active',
+  'activation_tokens.is_used',
+  'password_resets.is_used',
+  'admin_recovery_codes.is_used',
+  'security_notifications.is_read',
+  'student_question_attempts.is_correct',
+  'question_audit_logs.is_manual_review',
+  'users.can_access_notion',
+  'users.can_access_ifrj',
+  'student_profiles.onboarding_completed',
+  'student_subjects.active',
+  'student_academic_periods.active',
+  'student_grades.is_uncertain',
+  'student_recommendations.completed',
+];
+
+function postgresMigrationSql(sql: string): string {
+  let result = sql
+    .replace(/CREATE TRIGGER[\s\S]*?BEGIN[\s\S]*?END\s*;/gi, '')
+    .replace(/\s+COLLATE\s+NOCASE/gi, '');
+
+  for (const field of POSTGRES_BOOLEAN_COLUMNS) {
+    const column = field.slice(field.indexOf('.') + 1);
+    result = result
+      .replace(new RegExp(`(\\b${column}\\s+)INTEGER\\b`, 'gi'), '$1BOOLEAN')
+      .replace(new RegExp(`CHECK\\s*\\(\\s*${column}\\s+IN\\s*\\(\\s*0\\s*,\\s*1\\s*\\)\\s*\\)`, 'gi'), '')
+      .replace(new RegExp(`(\\b${column}\\s+BOOLEAN\\s+(?:NOT\\s+NULL\\s+)?DEFAULT\\s+)([01])\\b`, 'gi'), (_match, prefix, value) => `${prefix}${value === '1' ? 'TRUE' : 'FALSE'}`);
+  }
+
+  return result;
+}
+
+const POSTGRES_BOOLEAN_TYPE_MIGRATION = `
+DO $$
+DECLARE
+  field RECORD;
+  check_name TEXT;
+BEGIN
+  FOR field IN
+    SELECT * FROM (VALUES
+      ('products', 'is_active', 'TRUE'),
+      ('activation_tokens', 'is_used', 'FALSE'),
+      ('password_resets', 'is_used', 'FALSE'),
+      ('admin_recovery_codes', 'is_used', 'FALSE'),
+      ('security_notifications', 'is_read', 'FALSE'),
+      ('student_question_attempts', 'is_correct', NULL),
+      ('question_audit_logs', 'is_manual_review', 'FALSE'),
+      ('users', 'can_access_notion', 'FALSE'),
+      ('users', 'can_access_ifrj', 'FALSE'),
+      ('student_profiles', 'onboarding_completed', 'FALSE'),
+      ('student_subjects', 'active', 'TRUE'),
+      ('student_academic_periods', 'active', 'TRUE'),
+      ('student_grades', 'is_uncertain', 'FALSE'),
+      ('student_recommendations', 'completed', 'FALSE')
+    ) AS fields(table_name, column_name, default_value)
+  LOOP
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = field.table_name
+        AND column_name = field.column_name AND data_type = 'integer'
+    ) THEN
+      FOR check_name IN
+        SELECT c.conname
+        FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+        WHERE c.conrelid = format('public.%I', field.table_name)::regclass
+          AND c.contype = 'c' AND a.attname = field.column_name
+          AND pg_get_constraintdef(c.oid) ~* 'IN\\s*\\(\\s*0\\s*,\\s*1\\s*\\)|ARRAY\\s*\\[\\s*0\\s*,\\s*1\\s*\\]'
+      LOOP
+        EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT %I', field.table_name, check_name);
+      END LOOP;
+      EXECUTE format('ALTER TABLE public.%I ALTER COLUMN %I DROP DEFAULT', field.table_name, field.column_name);
+      EXECUTE format('ALTER TABLE public.%I ALTER COLUMN %I TYPE BOOLEAN USING %I <> 0', field.table_name, field.column_name, field.column_name);
+    END IF;
+    IF field.default_value IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE public.%I ALTER COLUMN %I SET DEFAULT %s', field.table_name, field.column_name, field.default_value);
+    END IF;
+  END LOOP;
+END $$;
+`;
+
 const dynamicRequire = createRequire(process.cwd() + '/');
 
 export interface Migration {
@@ -1362,7 +1444,7 @@ export const MIGRATIONS: Migration[] = [
     name: '031_user_ifrj_access',
     sql: `
       ALTER TABLE users ADD COLUMN can_access_ifrj INTEGER NOT NULL DEFAULT 0 CHECK (can_access_ifrj IN (0, 1));
-      UPDATE users SET can_access_ifrj = 1 WHERE role = 'admin';
+      UPDATE users SET can_access_ifrj = TRUE WHERE role = 'admin';
       CREATE INDEX IF NOT EXISTS idx_users_ifrj_access ON users(can_access_ifrj);
     `,
   },
@@ -1631,6 +1713,11 @@ export const MIGRATIONS: Migration[] = [
       END $$;
     `,
   },
+  {
+    id: 38,
+    name: '038_postgres_boolean_column_types',
+    sql: POSTGRES_BOOLEAN_TYPE_MIGRATION,
+  },
 ];
 
 
@@ -1708,8 +1795,8 @@ export class DatabaseService {
         // The initial schema already includes the support role, and rebuilding
         // tables on PostgreSQL would be destructive and use SQLite syntax.
         const migrationSql = this.postgres
-          ? (migration.id === 6 ? '' : migration.sql.replace(/CREATE TRIGGER[\s\S]*?BEGIN[\s\S]*?END\s*;/gi, ''))
-          : (migration.id === 37 ? '' : migration.sql);
+          ? (migration.id === 6 ? '' : postgresMigrationSql(migration.sql))
+          : (migration.id === 37 || migration.id === 38 ? '' : migration.sql);
         // PRAGMA foreign_keys must be changed OUTSIDE the transaction used to rebuild tables.
         if (!this.postgres && migration.id === 6) this.db.exec('PRAGMA foreign_keys = OFF;');
         this.db.exec('BEGIN TRANSACTION;');
