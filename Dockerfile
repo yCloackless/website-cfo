@@ -11,6 +11,7 @@ RUN npm ci
 # Copiar código fonte
 COPY tsconfig.json vite.config.ts index.html firebase-applet-config.json ./
 COPY public ./public
+COPY components ./components
 COPY src ./src
 COPY scripts ./scripts
 COPY server.ts notionBackend.ts ./
