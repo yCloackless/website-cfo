@@ -2,7 +2,13 @@
 
 ## Estado comprovado
 
-O painel Supabase consultado não mostrava backup. No computador foram localizados `data/backups/postgres_migrated_2026-09-10.sql` e backups locais da aplicação até 2026-09-19; nenhum foi comparado com a base final do Supabase e ambos são anteriores ao incidente de outubro. O projeto Neon `cold-grass-91996209`, branch `production`, está acessível por TLS validado e recebeu as 38 migrações da aplicação (73 tabelas). Nenhum dado da origem foi importado; o smoke test inicial do servidor criou uma conta de bootstrap no destino. Não restaurar sobre esse estado sem preparar um alvo vazio e comparar contagens/checksums. O utilitário antigo `scripts/restore-render-dump.mjs` continua limitado a bases descartáveis `_restore_test`/`_migration_test` e recusa schema público não vazio. Classificação: **BLOQUEADO** para importação dos dados reais por falta de um export atual verificado.
+**Backup disponível:** `C:\Users\renas\Downloads\2026-10-10T04_23Z.dir.tar.gz`, dump PostgreSQL em formato diretório (pg_dump 18.6), 4.099.018 bytes. SHA-256 calculada em 2026-10-17: `AD2A6254F06C2C475448E297E37A4AECCED4C4CFA25DF9DDEB0B33113E9F7BE1`; não há hash do produtor para comparação.
+
+**Restore de ensaio realizado:** branch Neon `backup-2026-10-10`, database `cfo_backup_20261010`; não alterou o branch `production`. `pg_restore --list` reconheceu 523 entradas, incluindo 73 blocos TABLE DATA e 160 índices. `pg_restore --no-owner --no-acl --no-privileges --exit-on-error --jobs=4` terminou com exit code 0. A aplicação aplicou as migrations até 38 e Express `/api/ready` respondeu HTTP 200.
+
+**Diferenças que impedem promoção:** dump tinha 36 migrations e 787 linhas exatas após o restore; com migrations 37/38, o banco de ensaio tem 789 linhas. O catálogo do Supabase atual reporta 37 migrations, 73 tabelas, aproximadamente 870 linhas e RLS ligado nas 73. Quinze contagens de tabelas diferem entre a origem reportada e o snapshot. O banco restaurado está sem RLS e sem políticas. As contagens da origem são metadados de tabela, não comparação por checksum; registram divergência, mas não identificam exatamente todos os registros ausentes. Tratar o branch como staging e aguardar export atual antes de produção/Railway.
+
+**Teste incremental/egress:** foi semeado um snapshot sintético de 120.052 bytes; 30 atualizações parciais enviaram 1.310 bytes totais de payload e geraram 30 chamadas de merge-upsert. `pg_stat_statements` mostrou duas leituras completas do snapshot no fixture (hidratação/verificação), sem uma leitura completa por gravação. O teste confirmou a última gravação e isolamento de estado entre usuários sintéticos. A métrica de bytes de transferência do branch Neon reportou 0 durante esta janela, então não serve como medição de egress faturável; este ensaio valida o padrão de consultas, não o custo em tráfego real.
 
 ## Captura segura da origem
 
@@ -29,12 +35,16 @@ pg_restore --exit-on-error --no-owner --no-acl --dbname=$env:DISPOSABLE_DATABASE
 
 | Checagem | Resultado desta rodada |
 |---|---|
-| Backup atual da produção disponível | NÃO EXECUTADO / BLOQUEADO |
-| SHA-256 verificado | NÃO EXECUTADO |
-| Restore em base descartável | NÃO EXECUTADO |
-| Contagens por tabela e integridade referencial comparadas | NÃO EXECUTADO |
-| Sequences verificadas | NÃO EXECUTADO |
-| Login/leitura/escrita de ensaio | NÃO EXECUTADO |
-| Concorrência/cutover/rollback | NÃO EXECUTADO |
+| Export atual da origem | NÃO; único arquivo é snapshot de 2026-10-10 |
+| SHA-256 | Calculada e registrada; sem hash original para validar |
+| Restore em destino Neon isolado | PASSOU; branch `backup-2026-10-10`, database `cfo_backup_20261010` |
+| Lista/schema/índices | 73 tabelas e 160 índices; restore completo exit 0 |
+| Contagens | Divergência reportada em 15 tabelas; origem é metadado aproximado, sem checksum |
+| RLS | Origem reporta 73/73 habilitadas; restore tem 0/73 e nenhuma policy |
+| Inicialização da aplicação / health | Migrations até 38; `/api/ready` HTTP 200 |
+| Escrita incremental / isolamento | 30 merge-upserts; persistência e isolamento sintéticos passaram |
+| Egress faturável | NÃO medido por tráfego de produção; métrica do branch reportou 0 |
+| Login e fluxos completos | NÃO testados |
+| Concorrência/cutover/rollback | NÃO executados |
 
 Restauração sem dados atuais e comparação origem/destino não é evidência de integridade de uma migração real. O corte precisa congelar escritas ou usar CDC/dual-write explicitamente validado.

@@ -1,10 +1,14 @@
 # Plano de migração Supabase/Render → Railway/Neon
 
-**Estado em 2026-10-17:** o proprietário autorizou migrar a camada de banco para Neon; Railway e publicação ficam para uma etapa posterior. O projeto Neon e o branch `production` foram vinculados e verificados. O schema da aplicação foi aplicado (73 tabelas; 38 migrações), mas nenhum dado da origem foi importado. A validação inicial do servidor criou uma conta de bootstrap no destino; ela não veio do Supabase e precisa ser considerada ao preparar a restauração.
+**Estado em 2026-10-17:** o arquivo `C:\Users\renas\Downloads\2026-10-10T04_23Z.dir.tar.gz` foi restaurado em um destino isolado no Neon: branch `backup-2026-10-10`, database `cfo_backup_20261010`. O branch `production` permanece intacto e ainda contém apenas o schema preparado e a conta local de bootstrap. O dump passou em `pg_restore --list` e `pg_restore --exit-on-error`; depois, as migrations do app chegaram à versão 38.
+
+**Resultado de integridade:** o backup contém 73 tabelas públicas e tinha 787 linhas ao terminar o restore; as migrations 37/38 elevaram a contagem total a 789. Os metadados do Supabase atual reportam 73 tabelas, cerca de 870 linhas e RLS ativado em todas; 15 contagens de tabelas diferem. No banco restaurado, RLS e políticas estão ausentes. Portanto, o snapshot de 10/10 não representa a origem atual e não está aprovado para produção/Railway. A hash SHA-256 do arquivo foi registrada localmente na documentação de restauração.
+
+**Teste de egress incremental:** contra esse banco restaurado, uma carga sintética de 120.052 bytes foi hidratada uma vez, seguida por 30 gravações parciais com 1.310 bytes de payload total. `pg_stat_statements` registrou 30 chamadas de merge-upsert e 2 leituras do snapshot durante verificações do fixture; não houve leitura completa por gravação. O teste isolou dois usuários sintéticos e confirmou que o estado de um não aparece para o outro. Express `/api/ready` retornou HTTP 200. Isso valida o caminho de consulta/gravação e o controle de acesso do app em ensaio, mas não mede egress faturável em tráfego de produção.
 
 ## Pré-condições
 
-1. Recuperar e validar um backup/export atual da origem. No computador há um dump SQL de 2026-09-10 e backups locais da aplicação até 2026-09-19; nenhum foi comparado com a base final do Supabase e ambos podem omitir progresso recente. Não restaurar como estado atual sem decisão explícita do proprietário.
+1. Aguardar a origem Supabase voltar a aceitar exportação e gerar um dump consistente recente. O snapshot de 10/10 está disponível no branch isolado do Neon, mas tem contagens divergentes e não preserva o RLS; não apontar Railway para ele até reconciliar dados e segurança.
 2. Rodar o procedimento em `DATABASE_BACKUP_RESTORE.md` numa instância descartável, com comparação de contagem/checksums antes de qualquer corte.
 3. Rotacionar credencial de banco que estava embutida em script versionado; revisar histórico Git e acessos.
 4. Criar Neon de produção manualmente pelo proprietário, escolher região/plano, ligar backup/retention e definir teto de compute. Criar Railway com limite de custo e storage persistente adequado.
