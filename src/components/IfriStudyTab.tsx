@@ -114,6 +114,7 @@ export function IfriStudyTab({ userProfile, onExit, onSignOut }: Props) {
   const [tab, setTab] = useState<Tab>('dashboard');
   const [dashboard, setDashboard] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [message, setMessage] = useState('');
@@ -148,15 +149,25 @@ export function IfriStudyTab({ userProfile, onExit, onSignOut }: Props) {
   const [analysisLoading, setAnalysisLoading] = useState(false);
 
   const load = async (showSpinner = true) => {
-    if (showSpinner) setLoading(true);
+    if (showSpinner) {
+      setLoading(true);
+      setLoadError('');
+    }
     try {
-      const data = await request('/api/rumo-estudos/dashboard');
+      const data = await request('/api/rumo-estudos/dashboard', showSpinner ? { signal: AbortSignal.timeout(20_000) } : undefined);
+      if (!data?.dashboard) throw new Error('Não foi possível carregar seu espaço de estudos.');
       setDashboard(data.dashboard);
       if (data.dashboard?.profile) {
         setProfileForm((prev: any) => ({ ...prev, ...data.dashboard.profile }));
       }
     } catch (err: any) {
-      setMessage(err?.message || 'Não conseguimos conectar ao espaço de estudos.');
+      const errorMessage = err?.name === 'TimeoutError'
+        ? 'A conexão demorou mais que o esperado. Tente novamente.'
+        : err?.status >= 500
+          ? 'O servidor encontrou um problema ao carregar seus estudos. Tente novamente.'
+        : err?.message || 'Não conseguimos conectar ao espaço de estudos.';
+      if (showSpinner) setLoadError(errorMessage);
+      else setMessage(errorMessage);
     } finally {
       if (showSpinner) setLoading(false);
     }
@@ -434,12 +445,28 @@ export function IfriStudyTab({ userProfile, onExit, onSignOut }: Props) {
     }
   };
 
-  if (loading || !dashboard) {
+  if (loading) {
     return (
       <div className={`rumo-app ${dark ? 'rumo-dark' : ''} min-h-screen grid place-items-center`}>
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-7 w-7 animate-spin text-rose-500" />
           <span className="text-sm font-semibold text-rose-400">Carregando seu espaço de estudos...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!dashboard) {
+    return (
+      <div className={`rumo-app ${dark ? 'rumo-dark' : ''} min-h-screen grid place-items-center p-6`}>
+        <div className="flex max-w-md flex-col items-center gap-4 text-center">
+          <span className="text-sm font-semibold text-rose-400" role="alert">
+            {loadError || 'Não conseguimos carregar seu espaço de estudos.'}
+          </span>
+          <div className="flex gap-3">
+            <button className="rumo-primary" onClick={() => void load(true)}>Tentar novamente</button>
+            <button className="rumo-secondary" onClick={onExit}>Voltar ao cronograma</button>
+          </div>
         </div>
       </div>
     );
