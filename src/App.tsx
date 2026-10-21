@@ -52,7 +52,8 @@ import {
   saveClientTokenToBackend,
 } from './services/calendarService';
 import { buildWeeklyStudySummary, fetchAIStudyAnalysis } from './services/aiService';
-import { getMondayOfWeek, getWeekDaysList, isTodayDate, formatBRDate, toISODate } from './utils/dateUtils';
+import { getMondayOfWeek, getWeekDaysList, isTodayDate, formatBRDate, toISODate, formatDurationHours } from './utils/dateUtils';
+import { WEEK_DAYS } from './data/cfoSubjects';
 import { hydratePersistentState, startPersistentStateSync, clearPersistentStateCache } from './services/remotePersistence';
 import { apiFetch } from './services/apiFetch';
 
@@ -1305,6 +1306,107 @@ export default function App() {
     }
   };
 
+  // Move / drag study entry from one day to another
+  const handleMoveStudyEntry = async (
+    subject: Subject,
+    fromDayIndex: number,
+    fromDateStr: string,
+    toDayIndex: number,
+    toDateStr: string
+  ) => {
+    if (!currentCycle) return;
+    if (fromDayIndex === toDayIndex) return;
+
+    const sourceKey = `${subject.id}_${fromDayIndex}`;
+    const targetKey = `${subject.id}_${toDayIndex}`;
+    const sourceEntry = currentCycle.entries[sourceKey];
+    if (!sourceEntry || !sourceEntry.completed) return;
+
+    const targetEntry = currentCycle.entries[targetKey];
+    let newTargetEntry: StudyEntry;
+    let feedbackToast = '';
+
+    const fromDayName = WEEK_DAYS[fromDayIndex]?.short || `Dia ${fromDayIndex}`;
+    const toDayName = WEEK_DAYS[toDayIndex]?.short || `Dia ${toDayIndex}`;
+
+    if (targetEntry && targetEntry.completed) {
+      // Both days had study: sum durations and combine topics
+      const combinedDuration = (targetEntry.durationMinutes || 0) + (sourceEntry.durationMinutes || 0);
+      const combinedTopics = [targetEntry.topic, sourceEntry.topic].filter(Boolean);
+      const uniqueTopics = Array.from(new Set(combinedTopics)).join(' + ');
+      const combinedNotes = [targetEntry.notes, sourceEntry.notes].filter(Boolean).join('\n---\n');
+
+      newTargetEntry = {
+        ...targetEntry,
+        durationMinutes: combinedDuration,
+        topic: uniqueTopics || targetEntry.topic || sourceEntry.topic,
+        notes: combinedNotes,
+        completed: true,
+        completedAt: targetEntry.completedAt || new Date().toISOString(),
+      };
+      const durationFmt = combinedDuration > 0 ? ` (total: ${formatDurationHours(combinedDuration)})` : '';
+      feedbackToast = `Estudos de ${subject.name} somados em ${toDayName}${durationFmt}!`;
+    } else {
+      // Target was empty: move the entry over
+      newTargetEntry = {
+        ...sourceEntry,
+        id: `entry_${Date.now()}`,
+        dayIndex: toDayIndex,
+        dateStr: toDateStr,
+        completed: true,
+        completedAt: sourceEntry.completedAt || new Date().toISOString(),
+      };
+      const durationFmt = (newTargetEntry.durationMinutes || 0) > 0 ? ` (${formatDurationHours(newTargetEntry.durationMinutes || 0)})` : '';
+      feedbackToast = `Estudos de ${subject.name} movidos de ${fromDayName} para ${toDayName}${durationFmt}!`;
+    }
+
+    // Update state locally
+    const updatedEntries = { ...currentCycle.entries };
+    delete updatedEntries[sourceKey];
+    updatedEntries[targetKey] = newTargetEntry;
+
+    const updatedCycle = { ...currentCycle, entries: updatedEntries, updatedAt: new Date().toISOString() };
+    setCurrentCycle(updatedCycle);
+    saveActiveCycle(updatedCycle);
+    showToast(feedbackToast, 'success');
+
+    // Sincroniza de forma atômica e confiável com o backend
+    try {
+      // 1. Remove as horas do dia de origem
+      if (fromDateStr) {
+        await apiFetch(`/api/study-sessions/day-subject?dateStr=${fromDateStr}&subjectId=${subject.id}`, {
+          method: 'DELETE',
+          headers: { 'Cache-Control': 'no-cache, no-store' },
+        });
+      }
+
+      // 2. Persiste as horas no dia de destino
+      await apiFetch('/api/study-sessions/manual', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store',
+        },
+        body: JSON.stringify({
+          entryId: newTargetEntry.id,
+          subjectId: subject.id,
+          subjectName: subject.name,
+          topic: newTargetEntry.topic || '',
+          dateStr: toDateStr,
+          durationMinutes: newTargetEntry.durationMinutes || 0,
+          notes: newTargetEntry.notes || '',
+          replaceSubjectTime: true,
+        }),
+      });
+
+      // Dispara evento para reconciliar Banco de Horas e Cronômetro
+      window.dispatchEvent(new Event('cfo:study-sessions-saved'));
+    } catch (err) {
+      console.warn('Falha ao sincronizar movimentação com o banco de horas:', err);
+      showToast('Estudo movido localmente, mas houve erro ao atualizar o banco de dados.', 'info');
+    }
+  };
+
   // Clear ALL entries in weekly schedule
   const handleClearAllWeeklyEntries = () => {
     if (!currentCycle) return;
@@ -2363,7 +2465,10 @@ export default function App() {
                   entries={currentCycle?.entries || {}}
                   onCellClick={handleCellClick}
                   onQuickToggle={handleQuickToggle}
+                  onClearCell={handleClearCellEntry}
+                  onClearAllEntries={handleClearAllWeeklyEntries}
                   onDeleteCustomSubject={handleDeleteCustomSubject}
+                  onMoveStudyEntry={handleMoveStudyEntry}
                   hasGoogleCalendar={isCalendarLinked}
                   theme={theme}
                 />
