@@ -1094,6 +1094,7 @@ export default function App() {
           ...existingEntry,
           completed: false,
           completedAt: undefined,
+          durationMinutes: 0,
         },
       };
 
@@ -1101,6 +1102,20 @@ export default function App() {
       setCurrentCycle(updatedCycle);
       saveActiveCycle(updatedCycle);
       showToast(`${subject.name}: Marcado como pendente.`, 'info');
+
+      // Sincroniza exclusão no backend para impedir que a reconciliação periódica reverta o status
+      if (dateStr) {
+        apiFetch(`/api/study-sessions/day-subject?dateStr=${dateStr}&subjectId=${subject.id}`, {
+          method: 'DELETE',
+          headers: { 'Cache-Control': 'no-cache, no-store' },
+        })
+          .then(() => {
+            window.dispatchEvent(new Event('cfo:study-sessions-saved'));
+          })
+          .catch((err) => {
+            console.warn('Falha ao sincronizar desmarcação no banco:', err);
+          });
+      }
       return;
     }
 
@@ -1224,6 +1239,7 @@ export default function App() {
         }),
       });
       if (!response.ok) throw new Error('Falha ao sincronizar o tempo com o banco de horas.');
+      window.dispatchEvent(new Event('cfo:study-sessions-saved'));
     } catch (err) {
       console.warn('Falha ao sincronizar estudo manual com o banco de horas:', err);
     }
@@ -1299,6 +1315,7 @@ export default function App() {
           headers: { 'Cache-Control': 'no-cache, no-store' },
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        window.dispatchEvent(new Event('cfo:study-sessions-saved'));
       } catch (err) {
         console.warn('Falha ao sincronizar exclusão com o banco de horas:', err);
         showToast('O estudo saiu do cronograma, mas não foi possível apagar as horas salvas. Tente novamente.', 'error');
