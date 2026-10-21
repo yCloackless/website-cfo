@@ -52,7 +52,7 @@ import {
   saveClientTokenToBackend,
 } from './services/calendarService';
 import { buildWeeklyStudySummary, fetchAIStudyAnalysis } from './services/aiService';
-import { getMondayOfWeek, getWeekDaysList, isTodayDate, formatBRDate, toISODate, formatDurationHours } from './utils/dateUtils';
+import { getMondayOfWeek, getWeekDaysList, isTodayDate, formatBRDate, toISODate } from './utils/dateUtils';
 import { WEEK_DAYS } from './data/cfoSubjects';
 import { hydratePersistentState, startPersistentStateSync, clearPersistentStateCache } from './services/remotePersistence';
 import { apiFetch } from './services/apiFetch';
@@ -1323,7 +1323,7 @@ export default function App() {
     }
   };
 
-  // Move / drag study entry from one day to another
+  // Move a completed study entry into an empty day
   const handleMoveStudyEntry = async (
     subject: Subject,
     fromDayIndex: number,
@@ -1339,43 +1339,19 @@ export default function App() {
     const sourceEntry = currentCycle.entries[sourceKey];
     if (!sourceEntry || !sourceEntry.completed) return;
 
-    const targetEntry = currentCycle.entries[targetKey];
-    let newTargetEntry: StudyEntry;
-    let feedbackToast = '';
+    if (currentCycle.entries[targetKey]) return;
 
     const fromDayName = WEEK_DAYS[fromDayIndex]?.short || `Dia ${fromDayIndex}`;
     const toDayName = WEEK_DAYS[toDayIndex]?.short || `Dia ${toDayIndex}`;
-
-    if (targetEntry && targetEntry.completed) {
-      // Both days had study: sum durations and combine topics
-      const combinedDuration = (targetEntry.durationMinutes || 0) + (sourceEntry.durationMinutes || 0);
-      const combinedTopics = [targetEntry.topic, sourceEntry.topic].filter(Boolean);
-      const uniqueTopics = Array.from(new Set(combinedTopics)).join(' + ');
-      const combinedNotes = [targetEntry.notes, sourceEntry.notes].filter(Boolean).join('\n---\n');
-
-      newTargetEntry = {
-        ...targetEntry,
-        durationMinutes: combinedDuration,
-        topic: uniqueTopics || targetEntry.topic || sourceEntry.topic,
-        notes: combinedNotes,
-        completed: true,
-        completedAt: targetEntry.completedAt || new Date().toISOString(),
-      };
-      const durationFmt = combinedDuration > 0 ? ` (total: ${formatDurationHours(combinedDuration)})` : '';
-      feedbackToast = `Estudos de ${subject.name} somados em ${toDayName}${durationFmt}!`;
-    } else {
-      // Target was empty: move the entry over
-      newTargetEntry = {
-        ...sourceEntry,
-        id: `entry_${Date.now()}`,
-        dayIndex: toDayIndex,
-        dateStr: toDateStr,
-        completed: true,
-        completedAt: sourceEntry.completedAt || new Date().toISOString(),
-      };
-      const durationFmt = (newTargetEntry.durationMinutes || 0) > 0 ? ` (${formatDurationHours(newTargetEntry.durationMinutes || 0)})` : '';
-      feedbackToast = `Estudos de ${subject.name} movidos de ${fromDayName} para ${toDayName}${durationFmt}!`;
-    }
+    const newTargetEntry: StudyEntry = {
+      ...sourceEntry,
+      id: `entry_${Date.now()}`,
+      dayIndex: toDayIndex,
+      dateStr: toDateStr,
+      completed: true,
+      completedAt: sourceEntry.completedAt || new Date().toISOString(),
+    };
+    const feedbackToast = `Estudos de ${subject.name} movidos de ${fromDayName} para ${toDayName}!`;
 
     // Update state locally
     const updatedEntries = { ...currentCycle.entries };

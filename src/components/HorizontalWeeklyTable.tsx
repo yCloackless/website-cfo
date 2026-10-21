@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Check, CheckCircle2, Clock, Calendar, Sparkles, Plus, Edit2, Trash2, RotateCcw, GripVertical } from 'lucide-react';
+import { Check, CheckCircle2, Calendar, Sparkles, Plus, Edit2, Trash2, RotateCcw } from 'lucide-react';
 import { Subject, StudyEntry, AppTheme } from '../types';
 import { WEEK_DAYS } from '../data/cfoSubjects';
-import { formatBRDateShort, formatDurationHours } from '../utils/dateUtils';
+import { formatBRDateShort } from '../utils/dateUtils';
 import { ConfirmModal } from './ConfirmModal';
 
 interface HorizontalWeeklyTableProps {
@@ -250,14 +250,14 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                         onClick={() => onCellClick(subject, day.index, day.dateStr)}
                         onDragOver={(e) => {
                           if (!draggedCell) return;
-                          if (draggedCell.subjectId === subject.id && draggedCell.dayIndex !== day.index) {
+                          if (!entry && draggedCell.subjectId === subject.id && draggedCell.dayIndex !== day.index) {
                             e.preventDefault();
                             e.dataTransfer.dropEffect = 'move';
                           }
                         }}
                         onDragEnter={(e) => {
                           if (!draggedCell) return;
-                          if (draggedCell.subjectId === subject.id && draggedCell.dayIndex !== day.index) {
+                          if (!entry && draggedCell.subjectId === subject.id && draggedCell.dayIndex !== day.index) {
                             e.preventDefault();
                             setDragOverTarget({ subjectId: subject.id, dayIndex: day.index });
                           }
@@ -280,18 +280,16 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                             } catch {}
                           }
                           if (!source) return;
-                          if (source.subjectId === subject.id && source.dayIndex !== day.index) {
+                          if (!entry && source.subjectId === subject.id && source.dayIndex !== day.index) {
                             onMoveStudyEntry?.(subject, source.dayIndex, source.dateStr, day.index, day.dateStr);
                           }
                           setDraggedCell(null);
                         }}
-                        className={`p-1 sm:p-1.5 border-r text-center cursor-pointer select-none transition-all relative ${
+                        className={`p-1 sm:p-1.5 border-r text-center cursor-pointer select-none transition-all ${
                           isDark ? 'border-slate-800/70' : 'border-slate-200'
                         } ${
                           isDropTarget
-                            ? isDark
-                              ? 'bg-blue-900/40 ring-2 ring-blue-500 ring-inset'
-                              : 'bg-blue-100 ring-2 ring-blue-500 ring-inset'
+                            ? 'ring-2 ring-blue-500 ring-inset'
                             : day.isToday
                             ? (isDark ? 'bg-blue-950/20' : 'bg-blue-50/40')
                             : ''
@@ -321,6 +319,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                               setDraggedCell(null);
                               setDragOverTarget(null);
                             }}
+                            title="Arraste para mover para outro dia vazio"
                             className={`w-full h-full min-h-[52px] sm:min-h-[56px] p-1.5 sm:p-2 rounded-lg border flex flex-col justify-between items-start text-left shadow-sm group/cell transition-all cursor-grab active:cursor-grabbing ${
                               isCurrentDragged ? 'opacity-40 scale-95 ring-2 ring-blue-400 ring-dashed' : ''
                             } ${
@@ -335,25 +334,17 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                           >
                             {/* Top badge row */}
                             <div className="w-full flex items-center justify-between gap-0.5">
-                              <div className="flex items-center gap-1 min-w-0">
-                                <span
-                                  className="text-slate-400 hover:text-slate-200 cursor-grab active:cursor-grabbing shrink-0"
-                                  title="Arraste para mover para outro dia da semana"
-                                >
-                                  <GripVertical className="w-3 h-3" />
+                              {entry?.entryType === 'reviewing' ? (
+                                <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1 py-0.2 rounded uppercase tracking-wider">
+                                  Revisando
                                 </span>
-                                {entry?.entryType === 'reviewing' ? (
-                                  <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1 py-0.2 rounded uppercase tracking-wider truncate">
-                                    Revisando
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] font-bold text-blue-400 bg-blue-500/15 border border-blue-500/30 px-1 py-0.2 rounded uppercase tracking-wider truncate">
-                                    Estudado
-                                  </span>
-                                )}
-                              </div>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] font-bold text-blue-400 bg-blue-500/15 border border-blue-500/30 px-1 py-0.2 rounded uppercase tracking-wider">
+                                  Estudado
+                                </span>
+                              )}
 
-                              <div className="flex items-center gap-0.5 shrink-0">
+                              <div className="flex items-center gap-0.5">
                                 {/* Quick toggle checkmark */}
                                 <button
                                   onClick={(e) => onQuickToggle(subject, day.index, day.dateStr, e)}
@@ -383,14 +374,6 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                               </div>
                             </div>
 
-                            {/* Drop hover overlay on completed cell */}
-                            {isDropTarget && (
-                              <div className="w-full my-0.5 py-0.5 px-1 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[8px] font-bold text-center flex items-center justify-center gap-1 animate-pulse">
-                                <Plus className="w-2.5 h-2.5" />
-                                <span>Soltar para somar horas</span>
-                              </div>
-                            )}
-
                             {/* Topic name if recorded */}
                             {entry?.topic ? (
                               <p
@@ -410,38 +393,22 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                               </p>
                             )}
 
-                            {/* Meta footer (duration, google calendar sync, revisions) */}
+                            {/* Meta footer (google calendar sync, revisions) */}
                             <div
                               className={`w-full flex items-center justify-between text-[9px] sm:text-[10px] mt-1 pt-0.5 border-t ${
                                 isDark ? 'border-slate-800/80 text-slate-500' : 'border-slate-100 text-slate-400'
                               }`}
                             >
-                              <div className="flex items-center gap-1">
-                                <span
-                                  className={`flex items-center gap-0.5 font-medium text-[9px] ${
-                                    entry?.entryType === 'reviewing'
-                                      ? 'text-emerald-400'
-                                      : isDark ? 'text-blue-400' : 'text-blue-600'
-                                  }`}
-                                >
-                                  <CheckCircle2 className="w-2.5 h-2.5" />
-                                  {entry?.entryType === 'reviewing' ? 'Revisado' : 'Concluído'}
-                                </span>
-
-                                {entry?.durationMinutes && entry.durationMinutes > 0 ? (
-                                  <span
-                                    className={`inline-flex items-center gap-0.5 font-semibold text-[8px] sm:text-[9px] px-1 py-0.2 rounded border ${
-                                      isDark
-                                        ? 'bg-slate-800/90 text-amber-300 border-amber-500/30'
-                                        : 'bg-amber-50 text-amber-700 border-amber-200'
-                                    }`}
-                                    title={`Tempo de estudo: ${formatDurationHours(entry.durationMinutes)}`}
-                                  >
-                                    <Clock className="w-2.5 h-2.5" />
-                                    {formatDurationHours(entry.durationMinutes)}
-                                  </span>
-                                ) : null}
-                              </div>
+                              <span
+                                className={`flex items-center gap-1 font-medium text-[9px] ${
+                                  entry?.entryType === 'reviewing'
+                                    ? 'text-emerald-400'
+                                    : isDark ? 'text-blue-400' : 'text-blue-600'
+                                }`}
+                              >
+                                <CheckCircle2 className="w-2.5 h-2.5" />
+                                {entry?.entryType === 'reviewing' ? 'Revisado' : 'Concluído'}
+                              </span>
 
                               <div className="flex items-center gap-0.5">
                                 {entry?.googleCalendarSynced && (
@@ -463,16 +430,6 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                                 <Edit2 className="w-2.5 h-2.5 opacity-0 group-cell-hover/cell:opacity-100 transition-opacity" />
                               </div>
                             </div>
-                          </div>
-                        ) : isDropTarget ? (
-                          /* Drop target active on empty cell */
-                          <div
-                            className={`w-full h-full min-h-[52px] sm:min-h-[56px] p-1.5 sm:p-2 rounded-lg border-2 border-dashed border-blue-400 bg-blue-500/20 flex flex-col items-center justify-center text-blue-400 animate-pulse transition-all`}
-                          >
-                            <Plus className="w-4 h-4 mb-0.5" />
-                            <span className="text-[9px] sm:text-[10px] font-bold">
-                              Soltar aqui para mover
-                            </span>
                           </div>
                         ) : (
                           /* Empty uncompleted cell */
@@ -570,7 +527,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
         </div>
 
         <span className="text-[11px]">
-          💡 Arraste o estudo de um dia para o outro para mover ou somar horas. Clique no <strong>+</strong> para marcar rápido ou no card para detalhar.
+          💡 Clique no botão <strong>+</strong> para marcar rápido ou no card para detalhar tópico e anotações. Arraste um cartão concluído para um dia vazio para movê-lo.
         </span>
       </div>
 
