@@ -6,6 +6,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import crypto from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
+import JSZip from 'jszip';
 import { DatabaseService } from '../src/db/database';
 import { UserRepository } from '../src/db/repositories';
 import { AnkiRepository } from '../src/db/ankiRepository';
@@ -284,6 +287,28 @@ test('Real Anki: Exportação e Importação de pacote .apkg (ZIP + collection.a
     });
 
     assert.ok(apkgBuffer.length > 500, 'Arquivo .apkg deve ter conteúdo binário ZIP válido');
+
+    // The app's own parser is permissive; inspect the collection metadata that
+    // Anki Desktop decodes when importing the package.
+    const zip = await JSZip.loadAsync(apkgBuffer);
+    const collection = zip.file('collection.anki2');
+    assert.ok(collection, 'Pacote deve conter collection.anki2');
+    const tempCollection = path.join(os.tmpdir(), `anki-export-check-${crypto.randomUUID()}.anki2`);
+    fs.writeFileSync(tempCollection, await collection!.async('nodebuffer'));
+    try {
+      const exportedDb = new DatabaseSync(tempCollection, { readOnly: true });
+      const col = exportedDb.prepare('SELECT decks FROM col').get() as { decks: string };
+      const decks = JSON.parse(col.decks) as Record<string, Record<string, unknown>>;
+      assert.ok(Object.values(decks).length >= 2, 'Export deve incluir Default e o baralho selecionado');
+      for (const deckMetadata of Object.values(decks)) {
+        for (const counter of ['lrnToday', 'revToday', 'newToday', 'timeToday']) {
+          assert.deepEqual(deckMetadata[counter], [0, 0], `${counter} deve seguir o formato [dia, quantidade]`);
+        }
+      }
+      exportedDb.close();
+    } finally {
+      fs.rmSync(tempCollection, { force: true });
+    }
 
     // Faz o parse do .apkg gerado e verifica compatibilidade reversa
     const parsed = await AnkiApkgService.parseApkg(apkgBuffer);
