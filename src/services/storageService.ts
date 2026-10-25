@@ -89,7 +89,17 @@ export function loadSubjects(): Subject[] {
             !s.name?.toLowerCase().includes('legislação cbmerj') &&
             !s.name?.toLowerCase().includes('noções de direito')
         );
-        if (filtered.length !== parsed.length) {
+        const migrationKey = getUserStorageKey('cfo_cbmerj_revisao_questoes_v1');
+        const revisaoDefault = DEFAULT_CFO_SUBJECTS.find((s) => s.id === 'revisao_questoes');
+        let changed = filtered.length !== parsed.length;
+        if (revisaoDefault && localStorage.getItem(migrationKey) !== 'true') {
+          localStorage.setItem(migrationKey, 'true');
+          if (!filtered.some((s: Subject) => s.id === revisaoDefault.id)) {
+            filtered.push(revisaoDefault);
+            changed = true;
+          }
+        }
+        if (changed) {
           saveSubjects(filtered);
         }
         return filtered;

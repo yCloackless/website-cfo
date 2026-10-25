@@ -55,6 +55,12 @@ export const DEFAULT_CFO_SUBJECTS: Subject[] = [
     category: 'Linguagens',
     color: '#ec4899', // pink
   },
+  {
+    id: 'revisao_questoes',
+    name: 'Revisão e Questões',
+    category: 'Simulados & Questões',
+    color: '#f59e0b', // amber
+  },
 ];
 
 export const WEEK_DAYS = [

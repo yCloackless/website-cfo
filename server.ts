@@ -2249,7 +2249,14 @@ function getDesktopSubjects(userId: string) {
       if (Array.isArray(parsed)) {
         const subjects = parsed.filter((subject) => subject && typeof subject.id === 'string'
           && typeof subject.name === 'string' && subject.id.length <= 100 && subject.name.length <= 160);
-        if (subjects.length) return subjects.map(({ id, name }) => ({ id, name }));
+        if (subjects.length) {
+          const mapped = subjects.map(({ id, name }) => ({ id, name }));
+          const revisao = DEFAULT_CFO_SUBJECTS.find((s) => s.id === 'revisao_questoes');
+          if (revisao && !mapped.some((s) => s.id === revisao.id)) {
+            mapped.push({ id: revisao.id, name: revisao.name });
+          }
+          return mapped;
+        }
       }
     } catch { /* fall back to website defaults when the saved subject list is malformed */ }
   }
