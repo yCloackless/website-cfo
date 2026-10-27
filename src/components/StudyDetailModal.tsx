@@ -90,7 +90,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
       : Math.max(0, Math.round(parsedDuration));
     const isCompleted = statusSelection !== 'pending';
     const entryType: StudyEntryType = statusSelection === 'reviewing' ? 'reviewing' : 'studied';
-    const canSync = syncWithCalendar && hasGoogleCalendar && topic.trim().length > 0 && isCompleted;
+    const canSync = syncWithCalendar && hasGoogleCalendar && isCompleted;
 
     await onSave({
       completed: isCompleted,
@@ -313,7 +313,7 @@ export const StudyDetailModal: React.FC<StudyDetailModalProps> = ({
               <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/30 text-[11px] text-blue-300 flex items-start gap-1.5">
                 <AlertCircle className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
                 <span>
-                  O evento <strong>só será agendado quando você selecionar ou digitar a submatéria</strong> acima. Deixar sem nome salva apenas no cronograma local.
+                  O evento será sincronizado mesmo sem tópico; nesse caso, usará o nome da matéria e uma descrição genérica.
                 </span>
               </div>
             )}

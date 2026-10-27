@@ -1245,6 +1245,7 @@ export default function App() {
     }
 
     let calendarResult: any = null;
+    let calendarSyncError: string | null = null;
 
     if (data.completed && data.syncWithCalendar) {
       const token = await getStoredOrFreshToken();
@@ -1263,13 +1264,17 @@ export default function App() {
             const status = await refreshCalendarStatus();
             if (!status.connected) {
               setAccessToken(null);
-              showToast('Sessão do Google Agenda expirou. Conecte sua conta para renovar.', 'info');
+              calendarSyncError = 'Sessão do Google Agenda expirou. Conecte sua conta novamente.';
+            } else {
+              calendarSyncError = 'Não foi possível concluir a sincronização com o Google Agenda.';
             }
           } else {
             console.warn('Erro ao sincronizar com Google Agenda:', err);
-            showToast('Erro ao sincronizar com Google Agenda: ' + (err?.message || err), 'error');
+            calendarSyncError = err?.message || 'Falha ao sincronizar com o Google Agenda.';
           }
         }
+      } else {
+        calendarSyncError = 'Google Agenda desconectada. Conecte novamente para sincronizar.';
       }
     }
 
@@ -1286,6 +1291,8 @@ export default function App() {
 
     if (newEntry.googleCalendarSynced) {
       showToast(`Evento sincronizado no Google Agenda (${data.entryType === 'reviewing' ? 'Verde • Revisando' : 'Azul • Estudado'})!`, 'success');
+    } else if (calendarSyncError) {
+      showToast(`Registro salvo no cronograma, mas não no Google Agenda: ${calendarSyncError}`, 'error');
     } else {
       showToast('Registro salvo com sucesso!', 'success');
     }
