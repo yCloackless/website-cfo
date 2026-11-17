@@ -53,21 +53,35 @@ export const Header: React.FC<HeaderProps> = ({
   isSigningIn,
   theme,
   onToggleTheme,
+  activeTab,
   isSidebarOpen = true,
   onToggleSidebar,
   onOpenExtension,
 }) => {
   const isDark = theme === 'dark';
-  const surface = isDark
-    ? 'border-slate-800/80 bg-[#0B1528]/80 text-slate-300 hover:border-sky-500/50 hover:bg-slate-900'
-    : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-400 hover:bg-slate-100';
+  const isNotionShell = activeTab === 'calendar';
+  const surface = isNotionShell
+    ? isDark
+      ? 'border-white/[0.08] bg-[#262626] text-[#e6e6e4] hover:border-white/20 hover:bg-[#2f2f2f]'
+      : 'border-[#e6e6e3] bg-[#f7f7f5] text-[#37352f] hover:border-[#cfcfcb] hover:bg-[#f1f1ef]'
+    : isDark
+      ? 'border-slate-800/80 bg-[#0B1528]/80 text-slate-300 hover:border-sky-500/50 hover:bg-slate-900'
+      : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-400 hover:bg-slate-100';
   const iconButton = `inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${surface}`;
   const disconnectCalendar = onDisconnectCalendar || onSignOut;
 
   const [isExtensionModalOpen, setIsExtensionModalOpen] = React.useState(false);
 
   return (
-    <header className={`sticky top-0 z-30 border-b pt-[env(safe-area-inset-top)] backdrop-blur-md transition-colors md:pl-[84px] ${isDark ? 'border-slate-800/80 bg-[#070D18]/95 text-slate-100' : 'border-slate-200 bg-white/95 text-slate-900'}`}>
+    <header className={`sticky top-0 z-30 border-b pt-[env(safe-area-inset-top)] backdrop-blur-md transition-colors md:pl-[84px] ${
+      isNotionShell
+        ? isDark
+          ? 'border-white/[0.08] bg-[#202020]/95 text-[#e6e6e4]'
+          : 'border-[#e6e6e3] bg-white/95 text-[#37352f]'
+        : isDark
+          ? 'border-slate-800/80 bg-[#070D18]/95 text-slate-100'
+          : 'border-slate-200 bg-white/95 text-slate-900'
+    }`}>
       <div className="mx-auto flex min-h-[64px] w-full max-w-[1600px] items-center justify-between gap-3 px-3 py-2.5 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3 md:gap-4">
           {onToggleSidebar && (

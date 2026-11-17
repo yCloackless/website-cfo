@@ -12,6 +12,7 @@ import {
   Clock,
   Tag,
   BookOpen,
+  Palette,
 } from "lucide-react";
 import {
   AppTheme,
@@ -78,6 +79,70 @@ const MONTH_NAMES = [
 ];
 
 const HOUR_SLOTS = [8, 10, 12, 14, 16, 18, 20, 22];
+
+const DEFAULT_NOTION_COLOR = "#eb5757";
+const LS_DEFAULT_COLOR_KEY = "cfo_notion_calendar_default_color";
+const LS_ITEM_COLORS_KEY = "cfo_notion_calendar_item_colors";
+
+const NOTION_COLOR_SWATCHES = [
+  { name: "Terracota", hex: "#eb5757" },
+  { name: "Roxo", hex: "#9b6bdf" },
+  { name: "Azul", hex: "#2f80ed" },
+  { name: "Verde", hex: "#4ea86d" },
+  { name: "Âmbar", hex: "#e6953e" },
+  { name: "Rosa", hex: "#d95f97" },
+  { name: "Ciano", hex: "#2ba8b8" },
+  { name: "Amarelo", hex: "#d9b43b" },
+  { name: "Cinza", hex: "#8c8c88" },
+];
+
+function normalizeHex(hex: string): string {
+  const clean = (hex || "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(clean) ? clean.toLowerCase() : DEFAULT_NOTION_COLOR;
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const safe = normalizeHex(hex);
+  return {
+    r: parseInt(safe.slice(1, 3), 16),
+    g: parseInt(safe.slice(3, 5), 16),
+    b: parseInt(safe.slice(5, 7), 16),
+  };
+}
+
+function mixChannel(a: number, b: number, weightB: number): number {
+  return Math.round(a * (1 - weightB) + b * weightB);
+}
+
+function buildPillTheme(hex: string, isDueOrOverdue: boolean, isDark: boolean) {
+  const safeHex = normalizeHex(hex);
+  const { r, g, b } = hexToRgb(safeHex);
+  if (isDark) {
+    const tr = mixChannel(r, 255, 0.72);
+    const tg = mixChannel(g, 255, 0.72);
+    const tb = mixChannel(b, 255, 0.72);
+    const gr = mixChannel(r, 255, 0.48);
+    const gg = mixChannel(g, 255, 0.48);
+    const gb = mixChannel(b, 255, 0.48);
+    return {
+      bg: `rgba(${r}, ${g}, ${b}, ${isDueOrOverdue ? 0.28 : 0.17})`,
+      bgHover: `rgba(${r}, ${g}, ${b}, ${isDueOrOverdue ? 0.36 : 0.25})`,
+      text: `rgb(${tr}, ${tg}, ${tb})`,
+      accent: safeHex,
+      glyph: `rgb(${gr}, ${gg}, ${gb})`,
+    };
+  }
+  const tr = mixChannel(r, 26, 0.6);
+  const tg = mixChannel(g, 24, 0.6);
+  const tb = mixChannel(b, 22, 0.6);
+  return {
+    bg: `rgba(${r}, ${g}, ${b}, ${isDueOrOverdue ? 0.17 : 0.1})`,
+    bgHover: `rgba(${r}, ${g}, ${b}, ${isDueOrOverdue ? 0.25 : 0.17})`,
+    text: `rgb(${tr}, ${tg}, ${tb})`,
+    accent: safeHex,
+    glyph: safeHex,
+  };
+}
 
 function toDateStr(d: Date): string {
   const y = d.getFullYear();
@@ -146,9 +211,9 @@ function mapReviewRecordToApiItem(r: NotionReviewRecord): NotionRevisionItem {
 const NotionStatusGlyph: React.FC<{
   completed: boolean;
   isBusy?: boolean;
-  isDueOrOverdue?: boolean;
+  glyphColor: string;
   isDark: boolean;
-}> = ({ completed, isBusy, isDueOrOverdue, isDark }) => {
+}> = ({ completed, isBusy, glyphColor, isDark }) => {
   if (isBusy) {
     return (
       <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin shrink-0 opacity-80" />
@@ -168,15 +233,8 @@ const NotionStatusGlyph: React.FC<{
   return (
     <svg
       viewBox="0 0 16 16"
-      className={`w-3.5 h-3.5 shrink-0 transition-transform group-hover/check:scale-110 ${
-        isDueOrOverdue
-          ? isDark
-            ? "text-[#ff8f85]"
-            : "text-[#c43e36]"
-          : isDark
-          ? "text-[#e59a94]/80"
-          : "text-[#b84a42]/80"
-      }`}
+      className="w-3.5 h-3.5 shrink-0 transition-transform group-hover/check:scale-110"
+      style={{ color: glyphColor }}
       fill="none"
       aria-hidden="true"
     >
@@ -189,6 +247,98 @@ const NotionStatusGlyph: React.FC<{
         strokeDasharray="2.3 2.1"
       />
     </svg>
+  );
+};
+
+const NotionColorPaletteControls: React.FC<{
+  value: string;
+  onChange: (hex: string) => void;
+  isDark: boolean;
+  onReset?: () => void;
+  hasCustomOverride?: boolean;
+}> = ({ value, onChange, isDark, onReset, hasCustomOverride }) => {
+  const safeVal = normalizeHex(value);
+  return (
+    <div className="space-y-2.5">
+      <div className="grid grid-cols-5 gap-1.5">
+        {NOTION_COLOR_SWATCHES.map((swatch) => {
+          const active = safeVal === swatch.hex.toLowerCase() && (hasCustomOverride ?? true);
+          return (
+            <button
+              key={swatch.hex}
+              type="button"
+              onClick={() => onChange(swatch.hex)}
+              title={swatch.name}
+              aria-label={`Cor ${swatch.name}`}
+              className={`w-6 h-6 rounded-full flex items-center justify-center border transition-transform hover:scale-110 cursor-pointer ${
+                active
+                  ? isDark
+                    ? "ring-2 ring-white ring-offset-1 ring-offset-[#202020] border-white/40"
+                    : "ring-2 ring-[#37352f] ring-offset-1 ring-offset-white border-black/20"
+                  : isDark
+                  ? "border-white/15"
+                  : "border-black/15"
+              }`}
+              style={{ backgroundColor: swatch.hex }}
+            >
+              {active && <Check className="w-3 h-3 text-white stroke-[3] drop-shadow" />}
+            </button>
+          );
+        })}
+
+        {/* Seletor livre com todas as cores */}
+        <label
+          title="Escolher qualquer cor personalizada"
+          className={`relative w-6 h-6 rounded-full border flex items-center justify-center cursor-pointer overflow-hidden transition-transform hover:scale-110 ${
+            isDark ? "border-white/25" : "border-black/20"
+          }`}
+          style={{
+            background:
+              "conic-gradient(#eb5757, #e6953e, #d9b43b, #4ea86d, #2ba8b8, #2f80ed, #9b6bdf, #d95f97, #eb5757)",
+          }}
+        >
+          <input
+            type="color"
+            value={safeVal}
+            onChange={(e) => onChange(e.target.value)}
+            aria-label="Escolher qualquer cor personalizada"
+            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+          />
+        </label>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 text-[11px]">
+        <label className="inline-flex items-center gap-1.5 cursor-pointer">
+          <span
+            className="w-3.5 h-3.5 rounded-sm border border-black/20 shrink-0"
+            style={{ backgroundColor: safeVal }}
+          />
+          <span className={isDark ? "text-white/60" : "text-[#37352f]/70"}>Todas as cores:</span>
+          <input
+            type="color"
+            value={safeVal}
+            onChange={(e) => onChange(e.target.value)}
+            aria-label="Seletor livre de cores"
+            className="w-6 h-5 p-0 border-0 bg-transparent cursor-pointer"
+          />
+          <span className={`font-mono text-[10px] uppercase ${isDark ? "text-white/50" : "text-[#37352f]/55"}`}>
+            {safeVal}
+          </span>
+        </label>
+
+        {onReset && hasCustomOverride && (
+          <button
+            type="button"
+            onClick={onReset}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
+              isDark ? "bg-white/[0.08] hover:bg-white/[0.14] text-white/75" : "bg-[#f1f1ef] hover:bg-[#e6e6e3] text-[#37352f]"
+            }`}
+          >
+            Usar padrão
+          </button>
+        )}
+      </div>
+    </div>
   );
 };
 
@@ -232,6 +382,44 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
     items: NotionReviewRecord[];
   } | null>(null);
   const [activeItemModal, setActiveItemModal] = useState<NotionReviewRecord | null>(null);
+
+  // Sistema de cores (padrão da agenda + cor individual por estudo, salvo no navegador)
+  const [defaultStudyColor, setDefaultStudyColor] = useState<string>(() => {
+    try {
+      return normalizeHex(localStorage.getItem(LS_DEFAULT_COLOR_KEY) || DEFAULT_NOTION_COLOR);
+    } catch {
+      return DEFAULT_NOTION_COLOR;
+    }
+  });
+  const [itemColors, setItemColors] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem(LS_ITEM_COLORS_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [isColorMenuOpen, setIsColorMenuOpen] = useState(false);
+
+  const handleSetDefaultColor = useCallback((hex: string) => {
+    const safe = normalizeHex(hex);
+    setDefaultStudyColor(safe);
+    try {
+      localStorage.setItem(LS_DEFAULT_COLOR_KEY, safe);
+    } catch {}
+  }, []);
+
+  const handleSetItemColor = useCallback((pageId: string, hex: string | null) => {
+    setItemColors((prev) => {
+      const next = { ...prev };
+      if (hex) next[pageId] = normalizeHex(hex);
+      else delete next[pageId];
+      try {
+        localStorage.setItem(LS_ITEM_COLORS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   // Relógio atual para a linha vermelha do Notion Calendar
   const [nowTick, setNowTick] = useState<Date>(() => new Date());
@@ -535,22 +723,9 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
     const isDueTodayOrOverdue = !isAllDone && Boolean(dueDate) && dueDate <= todayStr;
     const isBusy = busyPageId === item.id;
 
-    // Paleta fiel ao Notion Calendar do print (coral/terracotta para revisões, sálvia para concluído total)
-    const pillColors = isAllDone
-      ? isDark
-        ? "bg-[#1d3226]/90 hover:bg-[#233d2e] text-[#9fd4b2]"
-        : "bg-[#eaf5ee] hover:bg-[#dcf0e3] text-[#1f6239]"
-      : isDueOrOverdueStyle(isDueTodayOrOverdue, isDark);
-
-    const accentBarColor = isAllDone
-      ? isDark
-        ? "bg-[#4ea86d]"
-        : "bg-[#2e8550]"
-      : isDueTodayOrOverdue
-      ? "bg-[#eb5757]"
-      : isDark
-      ? "bg-[#c8564d]"
-      : "bg-[#d44c47]";
+    const customHex = itemColors[item.id];
+    const effectiveHex = customHex || (isAllDone ? "#4ea86d" : defaultStudyColor);
+    const pillTheme = buildPillTheme(effectiveHex, isDueTodayOrOverdue, isDark);
 
     const nextLabel = nextCycle ? NOTION_CYCLE_LABELS[nextCycle] : "Concluído";
 
@@ -558,15 +733,25 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
       <div
         key={item.id}
         onClick={() => setActiveItemModal(item)}
-        className={`group relative flex items-center gap-1.5 rounded-[5px] pr-1.5 pl-0 overflow-hidden cursor-pointer transition-colors ${
+        style={
+          {
+            "--pill-bg": pillTheme.bg,
+            "--pill-bg-hover": pillTheme.bgHover,
+            color: pillTheme.text,
+          } as React.CSSProperties
+        }
+        className={`group relative flex items-center gap-1.5 rounded-[5px] pr-1.5 pl-0 overflow-hidden cursor-pointer transition-colors [background-color:var(--pill-bg)] hover:[background-color:var(--pill-bg-hover)] ${
           compact ? "py-[2px] text-[11px]" : "py-[3.5px] text-[11.5px]"
-        } ${pillColors}`}
+        }`}
         title={`${item.assunto} • ${item.materia} (${
           isAllDone ? "Todos os ciclos concluídos" : `Próxima etapa: ${nextLabel}`
         })`}
       >
         {/* Barra lateral vertical característica do Notion Calendar */}
-        <span className={`w-[3px] self-stretch shrink-0 ${accentBarColor}`} />
+        <span
+          className="w-[3px] self-stretch shrink-0"
+          style={{ backgroundColor: pillTheme.accent }}
+        />
 
         {/* Botão de check direto com círculo tracejado do Notion Calendar */}
         <button
@@ -587,7 +772,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
           <NotionStatusGlyph
             completed={isAllDone}
             isBusy={isBusy}
-            isDueOrOverdue={isDueTodayOrOverdue}
+            glyphColor={pillTheme.glyph}
             isDark={isDark}
           />
         </button>
@@ -732,6 +917,59 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
           >
             Pendentes
           </button>
+
+          {/* Seletor de cores dos cards (Terracota, Roxo, Azul, Verde, todas as cores) */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setIsColorMenuOpen((prev) => !prev)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors cursor-pointer ${
+                isDark
+                  ? "bg-white/[0.03] border-white/[0.08] text-white/75 hover:text-white hover:bg-white/[0.07]"
+                  : "bg-white border-[#dfdfdc] text-[#37352f]/80 hover:text-[#37352f] hover:bg-[#f1f1ef]"
+              }`}
+              title="Escolher cor dos estudos no calendário"
+            >
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0 border border-black/15"
+                style={{ backgroundColor: defaultStudyColor }}
+              />
+              <Palette className="w-3.5 h-3.5 opacity-75" />
+              <span className="hidden sm:inline">Cor</span>
+            </button>
+
+            {isColorMenuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-30"
+                  onClick={() => setIsColorMenuOpen(false)}
+                />
+                <div
+                  className={`absolute right-0 mt-1.5 z-40 w-60 p-3 rounded-xl border shadow-2xl space-y-2.5 ${
+                    isDark
+                      ? "bg-[#252525] border-white/[0.12] text-[#e6e6e4]"
+                      : "bg-white border-[#dfdfdc] text-[#37352f]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold">Cor padrão dos estudos</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsColorMenuOpen(false)}
+                      className="p-0.5 rounded opacity-60 hover:opacity-100 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <NotionColorPaletteControls
+                    value={defaultStudyColor}
+                    onChange={handleSetDefaultColor}
+                    isDark={isDark}
+                  />
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Alternador Semana / Mês como no Notion Calendar */}
           <div
@@ -1239,6 +1477,19 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
                     </div>
                   </div>
                 )}
+                <div className="grid grid-cols-[120px_1fr] items-start gap-2 pt-1">
+                  <span className={`inline-flex items-center gap-1.5 pt-1 ${isDark ? "text-white/45" : "text-[#37352f]/55"}`}>
+                    <Palette className="w-3.5 h-3.5" />
+                    Cor do estudo
+                  </span>
+                  <NotionColorPaletteControls
+                    value={itemColors[activeItemModal.id] || defaultStudyColor}
+                    onChange={(hex) => handleSetItemColor(activeItemModal.id, hex)}
+                    onReset={() => handleSetItemColor(activeItemModal.id, null)}
+                    hasCustomOverride={Boolean(itemColors[activeItemModal.id])}
+                    isDark={isDark}
+                  />
+                </div>
               </div>
 
               {/* Grade completa de Checkboxes do Notion (Semana até Mês 10) */}
@@ -1299,14 +1550,3 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
     </div>
   );
 };
-
-function isDueOrOverdueStyle(isDueOrOverdue: boolean, isDark: boolean): string {
-  if (isDueOrOverdue) {
-    return isDark
-      ? "bg-[#52241f]/95 hover:bg-[#632b25] text-[#fae6e4]"
-      : "bg-[#fde8e6] hover:bg-[#fad5d2] text-[#8c231c]";
-  }
-  return isDark
-    ? "bg-[#361e1c]/90 hover:bg-[#472623] text-[#e5c5c2]"
-    : "bg-[#fdf3f2] hover:bg-[#fae4e2] text-[#9e3c35]";
-}

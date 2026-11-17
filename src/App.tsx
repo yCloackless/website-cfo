@@ -1943,11 +1943,18 @@ export default function App() {
 
   // Flag global consolidada de conexão do Google Calendar (persistente backend ou Firebase)
   const isCalendarLinked = Boolean(backendCalendar.connected || (user && accessToken));
+  const isNotionShell = activeTab === 'calendar';
 
   return (
     <div
       className={`min-h-screen min-h-[100dvh] w-full max-w-full flex flex-col antialiased selection:bg-[#0056D2] selection:text-white transition-colors duration-200 relative ${
-        isDark ? 'bg-[#0B0F17] text-slate-100' : 'bg-white text-slate-900'
+        isNotionShell
+          ? isDark
+            ? 'bg-[#191919] text-[#e6e6e4]'
+            : 'bg-white text-[#37352f]'
+          : isDark
+            ? 'bg-[#0B0F17] text-slate-100'
+            : 'bg-white text-slate-900'
       }`}
     >
       {/* 🌐 Network Contingency Notification (Offline / Reconnecting) */}
@@ -2061,7 +2068,15 @@ export default function App() {
         />
 
         {/* Main Content Area */}
-        <main className={`flex-1 max-w-none w-full mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-7 space-y-6 min-w-0 ${isDark ? 'bg-[#0B0F17]' : 'bg-white'}`}>
+        <main className={`flex-1 max-w-none w-full mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-7 space-y-6 min-w-0 ${
+          isNotionShell
+            ? isDark
+              ? 'bg-[#191919]'
+              : 'bg-white'
+            : isDark
+              ? 'bg-[#0B0F17]'
+              : 'bg-white'
+        }`}>
 
         {/* Alerta Tático para Administradores se a página estiver em manutenção para alunos */}
         {isCurrentAdmin && (maintenanceStatus.global || maintenanceStatus.pages[activeTab]) && (

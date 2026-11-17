@@ -529,15 +529,21 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
             role="dialog"
             aria-modal="true"
             className={`fixed inset-y-0 left-0 z-50 w-72 flex flex-col border-r h-full max-h-[100dvh] overflow-hidden select-none shadow-2xl transition-colors ${
-              isDark
-                ? 'bg-[#070D18] border-slate-800/80 text-slate-200'
-                : 'bg-white border-slate-200 text-slate-800'
+              activeTab === 'calendar'
+                ? isDark
+                  ? 'bg-[#202020] border-white/[0.08] text-[#e6e6e4]'
+                  : 'bg-[#fbfbfa] border-[#e6e6e3] text-[#37352f]'
+                : isDark
+                  ? 'bg-[#070D18] border-slate-800/80 text-slate-200'
+                  : 'bg-white border-slate-200 text-slate-800'
             }`}
           >
             {/* Header Mobile */}
             <div
               className={`p-3.5 border-b flex items-center justify-between shrink-0 ${
-                isDark ? 'border-slate-800/80' : 'border-slate-200'
+                activeTab === 'calendar'
+                  ? isDark ? 'border-white/[0.07]' : 'border-[#e6e6e3]'
+                  : isDark ? 'border-slate-800/80' : 'border-slate-200'
               }`}
             >
               <div className="flex items-center gap-3">
@@ -601,9 +607,15 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                           isActive
                             ? isSimulations
                               ? 'bg-gradient-to-r from-red-700 to-red-900 text-white shadow-md shadow-red-950/50 font-bold'
+                              : activeTab === 'calendar'
+                              ? isDark
+                                ? 'bg-white/[0.12] text-white font-semibold'
+                                : 'bg-[#ececeb] text-[#37352f] font-semibold'
                               : 'bg-[#0056D2] text-white shadow-md shadow-blue-950/40 font-bold'
                             : isDark
-                            ? 'text-slate-400 hover:text-white hover:bg-slate-900/60 font-medium'
+                            ? activeTab === 'calendar'
+                              ? 'text-white/65 hover:text-white hover:bg-white/[0.06] font-medium'
+                              : 'text-slate-400 hover:text-white hover:bg-slate-900/60 font-medium'
                             : 'text-slate-700 hover:text-black hover:bg-slate-100 font-bold'
                         }`}
                       >
@@ -680,15 +692,21 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
             ? 'w-[260px] shadow-2xl shadow-black/50'
             : 'w-[72px] shadow-none'
         } ${
-          isDark
-            ? 'bg-[#070D18] border-slate-800/80 text-slate-200'
-            : 'bg-white border-slate-200 text-slate-800'
+          activeTab === 'calendar'
+            ? isDark
+              ? 'bg-[#202020] border-white/[0.08] text-[#e6e6e4]'
+              : 'bg-[#fbfbfa] border-[#e6e6e3] text-[#37352f]'
+            : isDark
+              ? 'bg-[#070D18] border-slate-800/80 text-slate-200'
+              : 'bg-white border-slate-200 text-slate-800'
         }`}
       >
         {/* Top Header Logo & Pin Button */}
         <div
           className={`h-16 px-3 border-b flex items-center justify-between shrink-0 ${
-            isDark ? 'border-slate-800/80' : 'border-slate-200'
+            activeTab === 'calendar'
+              ? isDark ? 'border-white/[0.07]' : 'border-[#e6e6e3]'
+              : isDark ? 'border-slate-800/80' : 'border-slate-200'
           }`}
         >
           {/* Centered Logo Icon Container: fixed 48px width aligned to 72px sidebar */}
@@ -780,9 +798,15 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                       isActive
                         ? isSimulations
                           ? 'bg-gradient-to-r from-red-700 to-red-900 text-white shadow-md shadow-red-950/50 font-bold'
+                          : activeTab === 'calendar'
+                          ? isDark
+                            ? 'bg-white/[0.12] text-white font-semibold'
+                            : 'bg-[#ececeb] text-[#37352f] font-semibold'
                           : 'bg-[#0056D2] text-white shadow-md shadow-blue-950/40 font-bold'
                         : isDark
-                        ? 'text-slate-400 hover:text-white hover:bg-slate-800/60 font-medium'
+                        ? activeTab === 'calendar'
+                          ? 'text-white/65 hover:text-white hover:bg-white/[0.06] font-medium'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/60 font-medium'
                         : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
                     }`}
                     title={!isExpandedDesktop ? item.label : undefined}
