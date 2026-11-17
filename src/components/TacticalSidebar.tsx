@@ -28,6 +28,7 @@ import {
   Puzzle,
   Heart,
   Presentation,
+  Calculator,
 } from 'lucide-react';
 import { AppTheme } from '../types';
 
@@ -45,7 +46,8 @@ export type TabType =
   | 'flashcards'
   | 'leveling'
   | 'ifrij'
-  | 'whiteboard';
+  | 'whiteboard'
+  | 'calculator';
 
 export const TAB_ROUTE_MAP: Record<TabType, string> = {
   table: '/cronograma',
@@ -62,6 +64,7 @@ export const TAB_ROUTE_MAP: Record<TabType, string> = {
   calendar: '/agenda-notion',
   ifrij: '/ifrj',
   whiteboard: '/whiteboard',
+  calculator: '/calculadora',
 };
 
 export const ROUTE_TAB_MAP: Record<string, TabType> = {
@@ -81,6 +84,7 @@ export const ROUTE_TAB_MAP: Record<string, TabType> = {
   '/agenda-notion': 'calendar',
   '/ifrj': 'ifrij',
   '/whiteboard': 'whiteboard',
+  '/calculadora': 'calculator',
 };
 
 interface TacticalSidebarProps {
@@ -367,6 +371,18 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
           badgeClass: {
             dark: 'bg-amber-400/20 text-amber-300 border-amber-400/30',
             light: 'bg-amber-100 text-amber-900 border-amber-200',
+          },
+        },
+        {
+          id: 'calculator',
+          label: 'Calculadora IA',
+          icon: Calculator,
+          tabId: 'calculator',
+          route: '/calculadora',
+          badge: 'LaTeX',
+          badgeClass: {
+            dark: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
+            light: 'bg-orange-100 text-orange-900 border-orange-200',
           },
         },
         ...(canAccessNotion

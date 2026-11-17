@@ -95,6 +95,7 @@ const MaintenanceScreen = lazy(() => import('./components/MaintenanceScreen').th
 const NotFound = lazy(() => import('./components/NotFound').then(({ NotFound }) => ({ default: NotFound })));
 const IfriStudyTab = lazy(() => import('./components/IfriStudyTab').then(({ IfriStudyTab }) => ({ default: IfriStudyTab })));
 const WhiteboardWorkspace = lazy(() => import('./components/whiteboard/WhiteboardWorkspace').then(({ WhiteboardWorkspace }) => ({ default: WhiteboardWorkspace })));
+const MathChatTab = lazy(() => import('./components/calculator/MathChatTab').then(({ MathChatTab }) => ({ default: MathChatTab })));
 import { ConfirmModal } from './components/ConfirmModal';
 import { clearUserOfflineCache } from './utils/whiteboardOfflineCache';
 
@@ -1824,6 +1825,7 @@ export default function App() {
     '/extensao',
     '/admin',
     '/whiteboard',
+    '/calculadora',
   ];
 
   // 🧭 Verificação de Rotas Válidas e Fallback 404
@@ -2586,6 +2588,14 @@ export default function App() {
             boardId={whiteboardBoardId}
             onNavigateBack={() => handleSelectTab('table')}
             showToast={showToast}
+          />
+        )}
+
+        {/* Render Tab: Calculadora Matemática Estilo Chat */}
+        {activeTab === 'calculator' && (
+          <MathChatTab
+            theme={theme}
+            userProfile={userProfile}
           />
         )}
 

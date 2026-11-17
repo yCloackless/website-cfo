@@ -111,13 +111,20 @@ export function validateMathInput(raw: string): ValidatedMathInput {
   return { valid: true, normalized: body, command };
 }
 
+function nerdamerToTex(entity: unknown, fallback = ''): string {
+  if (entity && typeof (entity as { toTeX?: () => string }).toTeX === 'function') {
+    return (entity as { toTeX: () => string }).toTeX();
+  }
+  return fallback || String(entity ?? '');
+}
+
 function safeToTex(expr: string): string {
   try {
     const parsed: MathNode = math.parse(expr);
     return parsed.toTex({ parenthesis: 'auto' });
   } catch {
     try {
-      return nerdamer(expr).toTeX();
+      return nerdamerToTex(nerdamer(expr), expr);
     } catch {
       return expr;
     }
@@ -249,7 +256,7 @@ function solveEquation(body: string, originalInput: string, command?: string): M
     }
 
     const roots = rawText.split(',').map((r) => r.trim()).filter(Boolean);
-    const rootsLatex = roots.map((r) => `${varName} = ${nerdamer(r).toTeX()}`).join(', \\quad ');
+    const rootsLatex = roots.map((r) => `${varName} = ${nerdamerToTex(nerdamer(r), r)}`).join(', \\quad ');
     const steps: MathStep[] = [
       {
         title: 'Igualar a zero',
@@ -403,6 +410,7 @@ export function solveWithLocalEngine(rawInput: string, explicitCommand?: string)
       if (/Infinity|NaN/i.test(text) && !/oo/i.test(pointPart)) {
         return failResponse(rawInput, 'O limite diverge ou é indefinido no ponto informado.', command);
       }
+      const resTex = nerdamerToTex(result, text);
       return {
         ok: true,
         source: 'local',
@@ -411,11 +419,11 @@ export function solveWithLocalEngine(rawInput: string, explicitCommand?: string)
         input: rawInput,
         inputLatex: `\\lim_{${varPart} \\to ${safeToTex(pointPart)}} ${safeToTex(exprPart)}`,
         exactResult: text,
-        exactResultLatex: result.toTeX(),
+        exactResultLatex: resTex,
         steps: [
           {
             title: 'Avaliação do limite',
-            expressionLatex: `\\lim_{${varPart} \\to ${safeToTex(pointPart)}} ${safeToTex(exprPart)} = ${result.toTeX()}`,
+            expressionLatex: `\\lim_{${varPart} \\to ${safeToTex(pointPart)}} ${safeToTex(exprPart)} = ${resTex}`,
             explanation: `Análise do comportamento da função quando ${varPart} tende a ${pointPart}.`,
           },
         ],
@@ -429,6 +437,7 @@ export function solveWithLocalEngine(rawInput: string, explicitCommand?: string)
   if (command === '/fatorar') {
     try {
       const result = nerdamer(normalized).factor();
+      const resTex = nerdamerToTex(result, result.text());
       return {
         ok: true,
         source: 'local',
@@ -437,11 +446,11 @@ export function solveWithLocalEngine(rawInput: string, explicitCommand?: string)
         input: rawInput,
         inputLatex: safeToTex(normalized),
         exactResult: result.text(),
-        exactResultLatex: result.toTeX(),
+        exactResultLatex: resTex,
         steps: [
           {
             title: 'Fatoração algébrica',
-            expressionLatex: `${safeToTex(normalized)} = ${result.toTeX()}`,
+            expressionLatex: `${safeToTex(normalized)} = ${resTex}`,
             explanation: 'Decomposição da expressão em fatores irredutíveis.',
           },
         ],
@@ -454,6 +463,7 @@ export function solveWithLocalEngine(rawInput: string, explicitCommand?: string)
   if (command === '/expandir') {
     try {
       const result = nerdamer(normalized).expand();
+      const resTex = nerdamerToTex(result, result.text());
       return {
         ok: true,
         source: 'local',
@@ -462,11 +472,11 @@ export function solveWithLocalEngine(rawInput: string, explicitCommand?: string)
         input: rawInput,
         inputLatex: safeToTex(normalized),
         exactResult: result.text(),
-        exactResultLatex: result.toTeX(),
+        exactResultLatex: resTex,
         steps: [
           {
             title: 'Expansão algébrica',
-            expressionLatex: `${safeToTex(normalized)} = ${result.toTeX()}`,
+            expressionLatex: `${safeToTex(normalized)} = ${resTex}`,
             explanation: 'Aplicação da propriedade distributiva e produtos notáveis.',
           },
         ],
@@ -577,10 +587,10 @@ export function solveWithLocalEngine(rawInput: string, explicitCommand?: string)
         let exactLatex = exactText;
         try {
           const sym = nerdamer(normalized).evaluate();
-          const symText = sym.text('fractions');
+          const symText = sym.text();
           if (symText && !/Infinity|NaN|i\b/i.test(symText) && symText.length <= 40) {
             exactText = symText;
-            exactLatex = sym.toTeX();
+            exactLatex = nerdamerToTex(sym, symText);
           }
         } catch {
           // Keep numeric result
@@ -613,6 +623,7 @@ export function solveWithLocalEngine(rawInput: string, explicitCommand?: string)
 
     // Symbolic simplification
     const simplified = nerdamer(normalized);
+    const simpTex = nerdamerToTex(simplified, simplified.text());
     return {
       ok: true,
       source: 'local',
@@ -621,11 +632,11 @@ export function solveWithLocalEngine(rawInput: string, explicitCommand?: string)
       input: rawInput,
       inputLatex: safeToTex(normalized),
       exactResult: simplified.text(),
-      exactResultLatex: simplified.toTeX(),
+      exactResultLatex: simpTex,
       steps: [
         {
           title: 'Simplificação algébrica',
-          expressionLatex: `${safeToTex(normalized)} = ${simplified.toTeX()}`,
+          expressionLatex: `${safeToTex(normalized)} = ${simpTex}`,
           explanation: 'Agrupamento de termos semelhantes e simplificação simbólica.',
         },
       ],
