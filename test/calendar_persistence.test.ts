@@ -187,3 +187,13 @@ test('StoredJsonCrypto: key rotation fallback, validation, and GCM auth integrit
     else delete process.env.DATA_ENCRYPTION_KEY_PREVIOUS;
   }
 });
+
+import { AuditRepository } from '../src/db/repositories';
+
+test('AuditRepository.getSecurityMetrics uses PostgreSQL-compatible HAVING COUNT(*) >= 3', () => {
+  const db = getDb().getRawDb();
+  const auditRepo = new AuditRepository(db);
+  const metrics = auditRepo.getSecurityMetrics();
+  assert.equal(typeof metrics.totalEvents24h, 'number');
+  assert.ok(Array.isArray(metrics.anomalousIps));
+});

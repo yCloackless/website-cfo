@@ -1169,11 +1169,11 @@ export class AuditRepository {
     const countsRow: any = this.db
       .prepare(
         `SELECT
-          COUNT(*) as totalEvents24h,
-          SUM(CASE WHEN action IN ('LOGIN_SUCCESS', 'ADMIN_LOGIN') THEN 1 ELSE 0 END) as loginSuccess24h,
-          SUM(CASE WHEN action IN ('LOGIN_FAILED', 'ADMIN_LOGIN_FAILED') THEN 1 ELSE 0 END) as loginFailed24h,
-          SUM(CASE WHEN action = '2FA_FAILED' THEN 1 ELSE 0 END) as twoFactorFailed24h,
-          SUM(CASE WHEN action IN ('ACCOUNT_SUSPENDED', 'IP_BANNED') THEN 1 ELSE 0 END) as accountSuspended24h
+          COUNT(*) as "totalEvents24h",
+          SUM(CASE WHEN action IN ('LOGIN_SUCCESS', 'ADMIN_LOGIN') THEN 1 ELSE 0 END) as "loginSuccess24h",
+          SUM(CASE WHEN action IN ('LOGIN_FAILED', 'ADMIN_LOGIN_FAILED') THEN 1 ELSE 0 END) as "loginFailed24h",
+          SUM(CASE WHEN action = '2FA_FAILED' THEN 1 ELSE 0 END) as "twoFactorFailed24h",
+          SUM(CASE WHEN action IN ('ACCOUNT_SUSPENDED', 'IP_BANNED') THEN 1 ELSE 0 END) as "accountSuspended24h"
          FROM audit_events
          WHERE created_at >= ?`
       )
@@ -1181,25 +1181,25 @@ export class AuditRepository {
 
     const anomalyRows: any[] = this.db
       .prepare(
-        `SELECT ip, COUNT(*) as failedAttempts
+        `SELECT ip, COUNT(*) as "failedAttempts"
          FROM audit_events
          WHERE created_at >= ? AND status = 'FAILED' AND ip IS NOT NULL
          GROUP BY ip
-         HAVING failedAttempts >= 3
-         ORDER BY failedAttempts DESC
+         HAVING COUNT(*) >= 3
+         ORDER BY COUNT(*) DESC
          LIMIT 5`
       )
       .all(oneDayAgo);
 
     return {
-      totalEvents24h: Number(countsRow?.totalEvents24h || 0),
-      loginSuccess24h: Number(countsRow?.loginSuccess24h || 0),
-      loginFailed24h: Number(countsRow?.loginFailed24h || 0),
-      twoFactorFailed24h: Number(countsRow?.twoFactorFailed24h || 0),
-      accountSuspended24h: Number(countsRow?.accountSuspended24h || 0),
+      totalEvents24h: Number(countsRow?.totalEvents24h ?? countsRow?.totalevents24h ?? 0),
+      loginSuccess24h: Number(countsRow?.loginSuccess24h ?? countsRow?.loginsuccess24h ?? 0),
+      loginFailed24h: Number(countsRow?.loginFailed24h ?? countsRow?.loginfailed24h ?? 0),
+      twoFactorFailed24h: Number(countsRow?.twoFactorFailed24h ?? countsRow?.twofactorfailed24h ?? 0),
+      accountSuspended24h: Number(countsRow?.accountSuspended24h ?? countsRow?.accountsuspended24h ?? 0),
       anomalousIps: anomalyRows.map((r) => ({
         ip: r.ip,
-        failedAttempts: Number(r.failedAttempts),
+        failedAttempts: Number(r.failedAttempts ?? r.failedattempts ?? 0),
       })),
     };
   }
