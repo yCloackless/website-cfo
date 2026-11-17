@@ -105,6 +105,7 @@ import { AnkiRepository } from "./src/db/ankiRepository";
 import { logR2StartupCheck } from "./src/services/anki/ankiMediaStorage";
 import { isValidImportance, normalizeImportance } from "./src/services/anki/ankiImportance";
 import { createWhiteboardRouter } from "./src/routes/whiteboardRouter";
+import { createMathRouter } from "./src/routes/mathRouter";
 import { whiteboardRealtimeHub } from "./src/services/whiteboard/whiteboardRealtimeHub";
 import { DEFAULT_CFO_SUBJECTS } from "./src/data/cfoSubjects";
 
@@ -8431,6 +8432,11 @@ app.use('/api/anki', createAnkiRouter(requireUserAuth));
 // 🎨 CLOUD WHITEBOARD ROUTER (Infinite canvas, real-time sync, assets)
 // =========================================================================
 app.use('/api', createWhiteboardRouter(requireUserAuth));
+
+// =========================================================================
+// 🧮 MATH CHAT CALCULATOR ROUTER (WolframAlpha + Local CAS + Vision OCR)
+// =========================================================================
+app.use('/api/math', createMathRouter(requireUserAuth));
 
 // --- ROTA DE COMPATIBILIDADE LEGADA COM SINCRONIZAÇÃO AUTOMÁTICA ---
 app.get('/api/student/flashcards', requireUserAuth, (req: Request, res: Response) => {
