@@ -1,4 +1,10 @@
-import { NotionRevisionItem, NotionCalendarEvent, RevisionCycleKey } from "../types";
+import {
+  NOTION_CYCLE_LABELS,
+  NOTION_CYCLE_ORDER,
+  NotionRevisionItem,
+  NotionCalendarEvent,
+  RevisionCycleKey,
+} from "../types";
 
 const LOCAL_STORAGE_KEY = "cfo_notion_revisoes_cache_v1";
 
@@ -138,11 +144,17 @@ export async function getNotionConnectionStatus(): Promise<{
  */
 export async function fetchNotionRevisoes(): Promise<{
   items: NotionRevisionItem[];
-  source: "notion_api" | "local_cache";
+  source: "notion_api" | "local_cache" | "unavailable";
   error?: string;
 }> {
   try {
     const res = await fetch("/api/notion/revisoes");
+    if (res.status === 403 || res.status === 401) {
+      try {
+        localStorage.removeItem(LOCAL_STORAGE_KEY);
+      } catch (_) {}
+      return { items: [], source: "unavailable", error: "NOTION_FORBIDDEN" };
+    }
     if (res.ok) {
       const data = await res.json();
       if (data.items && Array.isArray(data.items)) {
@@ -160,18 +172,7 @@ export async function fetchNotionRevisoes(): Promise<{
     console.warn("Falha na chamada de revisões do Notion:", e);
   }
 
-  // Fallback para cache local no navegador
-  try {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return { items: parsed, source: "local_cache" };
-      }
-    }
-  } catch (_) {}
-
-  return { items: [], source: "local_cache" };
+  return { items: [], source: "unavailable" };
 }
 
 /**
@@ -438,7 +439,7 @@ export function getRevisionsDueForDate(
         pendingLabel = "Mês 3 (90D)";
       }
 
-      const isCompleted = item[pendingKey];
+      const isCompleted = Boolean(item[pendingKey]);
       result.push({
         item,
         cycleKey: pendingKey,

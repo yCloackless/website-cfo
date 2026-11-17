@@ -15,7 +15,7 @@ import {
   Layers,
   X,
 } from "lucide-react";
-import { NotionRevisionItem, RevisionCycleKey, AppTheme } from "../types";
+import { NOTION_CYCLE_LABELS, NotionRevisionItem, RevisionCycleKey, AppTheme } from "../types";
 
 /**
  * Propriedades do Notion mapeadas para a estrutura do Calendário Tático
@@ -213,12 +213,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
       })
     );
 
-    const cycleLabelMap: Record<RevisionCycleKey, string> = {
-      semana: "Semana (7D)",
-      mes1: "Mês 1 (30D)",
-      mes2: "Mês 2 (60D)",
-      mes3: "Mês 3 (90D)",
-    };
+    const cycleLabelMap: Record<RevisionCycleKey, string> = NOTION_CYCLE_LABELS;
 
     // Atualização também no modal aberto se houver
     if (activeItemModal && activeItemModal.id === pageId) {

@@ -19,7 +19,7 @@ import {
   X,
   Layers,
 } from "lucide-react";
-import { AppTheme, NotionRevisionItem, RevisionCycleKey } from "../types";
+import { AppTheme, NOTION_CYCLE_LABELS, NotionRevisionItem, RevisionCycleKey } from "../types";
 import { NotionCalendar } from "./NotionCalendar";
 import {
   fetchNotionRevisoes,
@@ -54,7 +54,7 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
   const [items, setItems] = useState<NotionRevisionItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [dataSource, setDataSource] = useState<"notion_api" | "local_cache">("local_cache");
+  const [dataSource, setDataSource] = useState<"notion_api" | "local_cache" | "unavailable">("local_cache");
   const [notionStatus, setNotionStatus] = useState<{ isConfigured: boolean; hasApiKey?: boolean }>({
     isConfigured: false,
   });
@@ -147,12 +147,7 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
       })
     );
 
-    const cycleLabelMap: Record<RevisionCycleKey, string> = {
-      semana: "Semana (7D)",
-      mes1: "Mês 1 (30D)",
-      mes2: "Mês 2 (60D)",
-      mes3: "Mês 3 (90D)",
-    };
+    const cycleLabelMap: Record<RevisionCycleKey, string> = NOTION_CYCLE_LABELS;
 
     // Chamada à API
     const res = await checkinRevision(item.id, cycleKey, nextVal);

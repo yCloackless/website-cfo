@@ -49,6 +49,9 @@ import {
   updateCheckinInNotion,
   createStudyInNotion,
 } from "./notionBackend";
+import { NOTION_CYCLE_ORDER } from "./src/types";
+import { summarizeOverdueNotionRevisions } from "./src/utils/notionRevisions";
+import { getCurrentYearMonthAndToday } from "./src/utils/studyBalance";
 import {
   createFullBackup,
   getBackupStatus,
@@ -5922,43 +5925,76 @@ function validateAiTextFields(
 // AI Study Analysis Endpoint
 app.post("/api/ai/study-analysis", requireUserAuth, aiLimiter, async (req: Request, res: Response) => {
   try {
-    const { weeklySummary } = req.body;
+    const summaryPayload = req.body?.monthlySummary || req.body?.weeklySummary;
 
-    if (!weeklySummary || typeof weeklySummary !== 'object' || Array.isArray(weeklySummary)) {
-      return res.status(400).json({ error: "weeklySummary is required" });
+    if (!summaryPayload || typeof summaryPayload !== 'object' || Array.isArray(summaryPayload)) {
+      return res.status(400).json({ error: "monthlySummary is required" });
     }
 
-    if (Buffer.byteLength(JSON.stringify(weeklySummary), 'utf8') > 64 * 1024) {
-      return res.status(413).json({ error: 'AI_INPUT_TOO_LARGE', message: 'weeklySummary excede o limite permitido.' });
+    if (Buffer.byteLength(JSON.stringify(summaryPayload), 'utf8') > 64 * 1024) {
+      return res.status(413).json({ error: 'AI_INPUT_TOO_LARGE', message: 'Resumo de estudos excede o limite permitido.' });
     }
 
     const {
       totalSessions = 0,
+      totalMinutes = 0,
       totalHours = 0,
+      equilibriumScore: providedScore,
       subjectsStudied = [],
       subjectsNotStudied = [],
       allSubjects = [],
-    } = weeklySummary;
+    } = summaryPayload;
+
+    // Authorization boundary: only fetch Notion revisions when the authenticated session is Admin (canAccessNotion).
+    const sessionToken = requestSessionToken(req) || (req.headers["x-terminal-session"] as string);
+    const terminalSession = verifyTerminalSession(sessionToken);
+    let notionOverdueSummary: ReturnType<typeof summarizeOverdueNotionRevisions> | null = null;
+    if (terminalSession.valid && terminalSession.canAccessNotion && getNotionConfig().isConfigured) {
+      try {
+        const notionRes = await fetchRevisoesFromNotion();
+        if (notionRes.items.length > 0) {
+          notionOverdueSummary = summarizeOverdueNotionRevisions(
+            notionRes.items,
+            getCurrentYearMonthAndToday().todayStr
+          );
+        }
+      } catch {
+        notionOverdueSummary = null;
+      }
+    }
 
     const ai = getGeminiClient();
 
     // If Gemini is available, attempt generateContent with fallback models
     if (ai) {
+      const notionContext =
+        notionOverdueSummary && notionOverdueSummary.totalPending > 0
+          ? `\n- Revisões pendentes/atrasadas até hoje (${notionOverdueSummary.todayStr}) no Notion por matéria: ${JSON.stringify(
+              notionOverdueSummary.subjects.map((s) => ({
+                materia: s.materia,
+                pendentesAteHoje: s.count,
+                atrasadas: s.overdueCount,
+                paraHoje: s.dueTodayCount,
+              }))
+            )}`
+          : "";
+
       const prompt = `Você é o Coordenador Pedagógico e Estrategista Chefe para o concurso de Oficial Combatente do Corpo de Bombeiros Militar do Estado do Rio de Janeiro (CFO CBMERJ).
-Analise o desempenho de estudos do candidato na semana atual e determine:
-1. Qual a matéria mais estudada e sua eficácia.
-2. Quais matérias ele DEVE priorizar na próxima semana para equilibrar a preparação, considerando a exigência do edital do CFO CBMERJ (onde Física, Matemática, Química, Português/Redação têm peso decisivo).
-3. Um plano tático de equilíbrio para a próxima semana (segunda a domingo).
-4. Uma pontuação de equilíbrio (0 a 100).
+Analise EXCLUSIVAMENTE os dados reais do candidato no mês atual abaixo. NUNCA invente horas, sessões ou matérias que não existam nos dados fornecidos: se houver 0h, informe 0h com transparência.
+Determine:
+1. Qual a matéria mais estudada no mês e sua eficácia (ou informe 0h se ainda não houver registros).
+2. Quais matérias ele DEVE priorizar nos próximos dias para equilibrar a preparação no mês, considerando a carga horária real, as matérias zeradas/atrasadas e o edital do CFO CBMERJ.
+3. Um plano tático de equilíbrio para os próximos 7 dias (segunda a domingo) usando apenas matérias reais da grade fornecida.
+4. Uma pontuação de equilíbrio (0 a 100), sendo 0 se não houver tempo estudado.
 
-Dados dos estudos da semana atual:
-- Total de sessões concluídas: ${totalSessions}
-- Total de horas estudadas: ${totalHours}h
-- Matérias estudadas e carga horária: ${JSON.stringify(subjectsStudied)}
-- Matérias NÃO estudadas nesta semana: ${JSON.stringify(subjectsNotStudied)}
-- Grade total de matérias: ${JSON.stringify(allSubjects)}
+Dados reais individuais do mês atual:
+- Total de sessões concluídas no mês: ${totalSessions}
+- Total de minutos estudados no mês: ${totalMinutes} (${totalHours}h)
+- Matérias estudadas e carga horária real no mês: ${JSON.stringify(subjectsStudied)}
+- Matérias SEM estudo registrado neste mês: ${JSON.stringify(subjectsNotStudied)}
+- Grade real de matérias do usuário: ${JSON.stringify(allSubjects)}${notionContext}
 
-Gere uma resposta estruturada e personalizada focada na aprovação no CFO CBMERJ.`;
+Gere uma resposta estruturada, honesta e personalizada focada na aprovação no CFO CBMERJ.`;
 
       const candidateModels = [
         "gemini-2.5-flash",
@@ -6071,111 +6107,119 @@ Gere uma resposta estruturada e personalizada focada na aprovação no CFO CBMER
       }
     }
 
-    // Heuristic intelligent fallback when API key is not configured or all Gemini models are experiencing temporary demand spikes
+    // Deterministic server fallback grounded solely in real monthly user data (never fabricated numbers)
+    const hasRealStudy = Number(totalMinutes) > 0 || Number(totalSessions) > 0;
     const topStudied =
       subjectsStudied.length > 0
-        ? [...subjectsStudied].sort((a: any, b: any) => b.minutes - a.minutes)[0]
+        ? [...subjectsStudied].sort((a: any, b: any) => (b.minutes || 0) - (a.minutes || 0))[0]
         : {
             name: allSubjects[0]?.name || "Nenhuma matéria registrada",
             minutes: 0,
             sessions: 0,
           };
 
-    // Priority candidates: subjects with zero or lowest minutes
+    const notionByMateria = new Map<string, number>();
+    if (notionOverdueSummary) {
+      for (const grp of notionOverdueSummary.subjects) {
+        notionByMateria.set(grp.materia.toLowerCase(), grp.count);
+      }
+    }
+
     const sortedLow = [...allSubjects].sort((a: any, b: any) => {
-      const minA =
-        subjectsStudied.find((s: any) => s.name === a.name)?.minutes || 0;
-      const minB =
-        subjectsStudied.find((s: any) => s.name === b.name)?.minutes || 0;
+      const minA = subjectsStudied.find((s: any) => s.name === a.name)?.minutes || 0;
+      const minB = subjectsStudied.find((s: any) => s.name === b.name)?.minutes || 0;
       return minA - minB;
     });
 
     const priorityList = sortedLow.slice(0, 4).map((sub: any) => {
-      const isExatas = ["Física", "Matemática", "Química"].includes(sub.name);
+      const studiedSub = subjectsStudied.find((s: any) => s.name === sub.name);
+      const mins = Number(studiedSub?.minutes || 0);
+      const hrs = Number((mins / 60).toFixed(1));
+      const overdueCount = notionByMateria.get(String(sub.name || "").toLowerCase()) || 0;
       return {
         name: sub.name,
-        reason: isExatas
-          ? `Disciplina com alto peso no edital do CFO CBMERJ. Teve pouca ou nenhuma carga horária nesta semana.`
-          : `Necessária para manter a nota de corte equilibrada nas provas objetivas da banca.`,
-        recommendedHours: isExatas ? 3.5 : 2.0,
-        urgency: isExatas ? "alta" : "media",
-        topicsSuggested: [
-          `Revisão de conceitos fundamentais e resolução de questões de bancas anteriores`,
-          `Simulado temático focado em erros comuns`,
-        ],
+        reason: overdueCount > 0
+          ? `Acumula ${overdueCount} revisão(ões) pendente(s) até hoje no Notion e soma ${hrs}h registradas neste mês.`
+          : mins === 0
+            ? `Ainda sem horas registradas neste mês na sua conta.`
+            : `Soma apenas ${hrs}h no mês atual, abaixo da média das demais matérias.`,
+        recommendedHours: hasRealStudy ? (mins === 0 ? 3 : 2) : 0,
+        urgency: mins === 0 || overdueCount > 0 ? "alta" : "media",
+        topicsSuggested:
+          studiedSub?.topics?.length > 0
+            ? studiedSub.topics.slice(0, 2)
+            : [`Registrar a próxima sessão real no cronômetro ou cronograma`],
       };
     });
 
     const studiedCount = subjectsStudied.length;
     const totalCount = allSubjects.length || 1;
-    const equilibriumScore = Math.min(
-      100,
-      Math.round((studiedCount / totalCount) * 70 + (totalHours > 10 ? 30 : totalHours * 3))
-    );
+    const computedScore = !hasRealStudy
+      ? 0
+      : typeof providedScore === "number"
+        ? Math.max(0, Math.min(100, Math.round(providedScore)))
+        : Math.min(100, Math.round((studiedCount / totalCount) * 70 + Math.min(30, Number(totalHours) * 2)));
+
+    const daysOfWeek = [
+      "Segunda-feira",
+      "Terça-feira",
+      "Quarta-feira",
+      "Quinta-feira",
+      "Sexta-feira",
+      "Sábado",
+      "Domingo",
+    ];
+    const weeklyPlanSubjects = sortedLow.length > 0 ? sortedLow : [{ name: "Sem matérias cadastradas" }];
+    const weeklyActionPlan = daysOfWeek.map((day, idx) => {
+      const targetSub = weeklyPlanSubjects[idx % weeklyPlanSubjects.length];
+      const mins = Number(subjectsStudied.find((s: any) => s.name === targetSub.name)?.minutes || 0);
+      return {
+        day,
+        focusSubject: targetSub.name,
+        goal: hasRealStudy
+          ? mins === 0
+            ? `Tirar ${targetSub.name} do zero neste mês`
+            : `Equilibrar carga mensal (${Number((mins / 60).toFixed(1))}h atuais)`
+          : "Iniciar primeiro registro real no cronômetro ou cronograma",
+        suggestedMinutes: hasRealStudy ? (mins === 0 ? 90 : 60) : 0,
+      };
+    });
+
+    const notionSummaryNote =
+      notionOverdueSummary && notionOverdueSummary.totalPending > 0
+        ? ` Além disso, há ${notionOverdueSummary.totalPending} revisão(ões) pendente(s) no Notion até hoje (${notionOverdueSummary.subjects
+            .slice(0, 3)
+            .map((s) => `${s.materia}: ${s.count}`)
+            .join(", ")}).`
+        : "";
 
     const fallbackData = {
       topStudiedSubject: {
-        name: topStudied.name,
-        hours: Number((topStudied.minutes / 60).toFixed(1)),
-        sessions: topStudied.sessions || 1,
-        analysis:
-          topStudied.minutes > 0
-            ? `Você dedicou a maior parte da sua energia em ${topStudied.name}. Isso demonstra consistência, mas é fundamental evitar hiperfoco para não desfalcar outras matérias da prova.`
-            : `Você ainda não registrou matérias estudadas nesta semana. Inicie marcando seus estudos para a IA calcular o balanço.`,
-        status: topStudied.minutes > 0 ? "Líder em Carga Horária" : "Aguardando Início",
+        name: hasRealStudy ? topStudied.name : "Nenhum estudo registrado no mês",
+        hours: Number(((topStudied.minutes || 0) / 60).toFixed(1)),
+        sessions: Number(topStudied.sessions || 0),
+        analysis: hasRealStudy
+          ? `No mês atual você acumulou ${Number(((topStudied.minutes || 0) / 60).toFixed(1))}h em ${topStudied.name} (${topStudied.sessions || 0} sessões reais).${notionSummaryNote}`
+          : `Ainda não existem sessões no cronômetro nem marcações no cronograma neste mês para a sua conta. Assim que você estudar, o balanço real será calculado automaticamente.`,
+        status: hasRealStudy ? "Líder real do mês" : "Sem registros no mês",
       },
       prioritySubjectsForNextWeek: priorityList,
-      balanceDiagnosis:
-        subjectsNotStudied.length > 0
-          ? `Você tem ${subjectsNotStudied.length} matéria(s) sem nenhum registro nesta semana. Para a prova de Oficial Combatente, o equilíbrio entre Exatas, Linguagens e Humanas é o diferencial para a classificação.`
-          : `Excelente distribuição! Todas as matérias principais tiveram contato nesta semana. Continue mantendo a rotina equilibrada.`,
-      weeklyActionPlan: [
-        {
-          day: "Segunda-feira",
-          focusSubject: priorityList[0]?.name || "Física",
-          goal: "Teoria e 25 exercícios de fixação",
-          suggestedMinutes: 90,
-        },
-        {
-          day: "Terça-feira",
-          focusSubject: priorityList[1]?.name || "Matemática",
-          goal: "Resolução comentada de provas do CFO",
-          suggestedMinutes: 90,
-        },
-        {
-          day: "Quarta-feira",
-          focusSubject: priorityList[2]?.name || "Química",
-          goal: "Leitura de tópicos prioritários do edital",
-          suggestedMinutes: 90,
-        },
-        {
-          day: "Quinta-feira",
-          focusSubject: topStudied.name || "Língua Portuguesa",
-          goal: "Manutenção do ritmo e redação temática",
-          suggestedMinutes: 60,
-        },
-        {
-          day: "Sexta-feira",
-          focusSubject: priorityList[3]?.name || "Biologia",
-          goal: "Mapas mentais e bateria rápida de testes",
-          suggestedMinutes: 60,
-        },
-        {
-          day: "Sábado",
-          focusSubject: "Simulado Geral & Revisões",
-          goal: "Revisões inteligentes agendadas de 7d e 30d",
-          suggestedMinutes: 120,
-        },
-        {
-          day: "Domingo",
-          focusSubject: "Descanso Ativo & TAF",
-          goal: "Revisão leve de fórmulas e treino físico para o CFO",
-          suggestedMinutes: 45,
-        },
-      ],
+      balanceDiagnosis: !hasRealStudy
+        ? `0h registradas neste mês até agora. Nenhum dado fictício foi preenchido; registre suas sessões para iniciar a análise real.${notionSummaryNote}`
+        : subjectsNotStudied.length > 0
+          ? `${subjectsNotStudied.length} matéria(s) ainda estão zeradas neste mês (${subjectsNotStudied
+              .slice(0, 4)
+              .map((s: any) => s.name)
+              .join(", ")}).${notionSummaryNote}`
+          : `Todas as ${totalCount} matérias tiveram contato real neste mês (${totalHours}h totais).${notionSummaryNote}`,
+      weeklyActionPlan,
       tacticalTip:
-        "O CFO CBMERJ elimina candidatos que zeram ou tiram nota muito baixa em Exatas. Não deixe Física ou Química de lado mesmo que sua afinidade seja menor!",
-      equilibriumScore,
+        notionOverdueSummary && notionOverdueSummary.totalPending > 0
+          ? `Priorize dar baixa nas ${notionOverdueSummary.totalPending} revisões vencidas até hoje no Notion antes de acumular conteúdo novo.`
+          : hasRealStudy
+            ? "Mantenha as matérias em vermelho no cronograma acima de 40% da sua média mensal para evitar lacunas no edital."
+            : "Use o cronômetro ou marque seus estudos no cronograma para gerar seu termômetro real do mês.",
+      equilibriumScore: computedScore,
     };
 
     return res.json({
@@ -6184,45 +6228,21 @@ Gere uma resposta estruturada e personalizada focada na aprovação no CFO CBMER
     });
   } catch (error: any) {
     console.warn("Rota /api/ai/study-analysis acionando contingência pedagógica:", error?.message || error);
-    // Return a safe minimal fallback so client never gets an error alert
     res.json({
       source: "heuristic",
       data: {
         topStudiedSubject: {
-          name: "Matérias do Edital CFO CBMERJ",
+          name: "Nenhum estudo registrado no mês",
           hours: 0,
           sessions: 0,
-          analysis: "Ciclo de estudos em andamento. Mantenha a constância.",
-          status: "Em evolução",
+          analysis: "Não foi possível carregar a análise agora. Nenhum dado simulado foi exibido.",
+          status: "Indisponível",
         },
-        prioritySubjectsForNextWeek: [
-          {
-            name: "Física",
-            reason: "Disciplina de alto peso no CFO CBMERJ",
-            recommendedHours: 3,
-            urgency: "Alta",
-            topicsSuggested: ["Cinemática", "Dinâmica e Leis de Newton"],
-          },
-          {
-            name: "Matemática",
-            reason: "Critério eliminatório de pontuação mínima",
-            recommendedHours: 3,
-            urgency: "Alta",
-            topicsSuggested: ["Funções", "Trigonometria e Geometria"],
-          },
-        ],
-        balanceDiagnosis: "Equilíbrio semanal focado nas matérias centrais do CFO CBMERJ.",
-        weeklyActionPlan: [
-          { day: "Segunda-feira", focusSubject: "Física", goal: "Teoria e 15 questões", suggestedMinutes: 60 },
-          { day: "Terça-feira", focusSubject: "Matemática", goal: "Resolução comentada", suggestedMinutes: 60 },
-          { day: "Quarta-feira", focusSubject: "Química", goal: "Estequiometria", suggestedMinutes: 60 },
-          { day: "Quinta-feira", focusSubject: "Português", goal: "Interpretação e Redação", suggestedMinutes: 60 },
-          { day: "Sexta-feira", focusSubject: "Biologia", goal: "Fisiologia humana", suggestedMinutes: 60 },
-          { day: "Sábado", focusSubject: "Simulados e Revisões", goal: "Revisão ativa", suggestedMinutes: 120 },
-          { day: "Domingo", focusSubject: "Treinamento Físico (TAF)", goal: "Corrida e barra fixa", suggestedMinutes: 45 },
-        ],
-        tacticalTip: "O CFO CBMERJ recompensa a constância. Estude um pouco todos os dias sem deixar Exatas zeradas.",
-        equilibriumScore: 75,
+        prioritySubjectsForNextWeek: [],
+        balanceDiagnosis: "Sem dados exibidos no momento.",
+        weeklyActionPlan: [],
+        tacticalTip: "Tente reanalisar novamente em instantes.",
+        equilibriumScore: 0,
       },
     });
   }
@@ -6717,22 +6737,21 @@ app.get("/api/notion/revisoes", async (_req: Request, res: Response) => {
   }
 });
 
-// 3. Fazer Check-in (Atualiza caixas Semana, Mês 1, Mês 2, Mês 3)
+// 3. Fazer Check-in (Atualiza caixas Semana e Mês 1..Mês 10 direto no Notion)
 app.patch("/api/notion/checkin", async (req: Request, res: Response) => {
   try {
     const { pageId, cycleKey, checked } = req.body || {};
     if (!pageId || !cycleKey) {
       return res.status(400).json({
         error: "MISSING_PARAMS",
-        message: "pageId e cycleKey (semana, mes1, mes2, mes3) são obrigatórios.",
+        message: "pageId e cycleKey (semana, mes1..mes10) são obrigatórios.",
       });
     }
 
-    const validKeys = ["semana", "mes1", "mes2", "mes3"];
-    if (!validKeys.includes(cycleKey)) {
+    if (!NOTION_CYCLE_ORDER.includes(cycleKey)) {
       return res.status(400).json({
         error: "INVALID_CYCLE_KEY",
-        message: "cycleKey deve ser: semana, mes1, mes2 ou mes3.",
+        message: "cycleKey deve ser: semana ou mes1 até mes10.",
       });
     }
 
@@ -6740,9 +6759,18 @@ app.patch("/api/notion/checkin", async (req: Request, res: Response) => {
     const result = await updateCheckinInNotion(pageId, cycleKey, checkedVal);
 
     if (!result.success) {
-      return res.status(404).json({
-        error: result.error || "NOTION_PAGE_NOT_FOUND",
-        message: "A revisão informada não pertence ao conjunto autorizado.",
+      const status =
+        result.error === "NOTION_PAGE_NOT_FOUND"
+          ? 404
+          : result.error === "NOTION_NOT_CONFIGURED"
+            ? 503
+            : 502;
+      return res.status(status).json({
+        error: result.error || "NOTION_UPDATE_FAILED",
+        message:
+          result.error === "NOTION_PAGE_NOT_FOUND"
+            ? "A revisão informada não pertence ao conjunto autorizado."
+            : "Não foi possível atualizar a revisão no Notion.",
       });
     }
 
