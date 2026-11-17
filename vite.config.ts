@@ -11,7 +11,8 @@ export default defineConfig(() => {
     build: {
       outDir: 'dist/public',
       sourcemap: process.env.VITE_SOURCEMAP === 'true' ? 'hidden' : false,
-      chunkSizeWarningLimit: 600,
+      // WhiteboardWorkspace lazy-loads tldraw (~1.7 MB minified / ~530 kB gzip) only on the Whiteboard tab.
+      chunkSizeWarningLimit: 1850,
       rollupOptions: {
         output: {
           manualChunks(id: string) {
