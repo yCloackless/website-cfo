@@ -5712,6 +5712,123 @@ app.post("/api/calendar/batch-sync", requireAdminWriteAuth, calendarLimiter, asy
   }
 });
 
+const CFO_CALENDAR_SUMMARY_PREFIXES = [
+  '📘 [CFO CBMERJ]',
+  '📗 [CFO CBMERJ]',
+  '⚡ [Revisão',
+  '🎯 [Revisão',
+  '⭐ [Revisão',
+  '🏆 [Revisão',
+  '🚀 [Revisão',
+];
+
+async function deleteSingleGoogleCalendarEvent(token: string, eventId: string): Promise<boolean> {
+  const resp = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+  if (resp.ok || resp.status === 404 || resp.status === 410) {
+    return resp.ok;
+  }
+  const errorBody = (await resp.json().catch(() => ({}))) as any;
+  const err = new Error(errorBody?.error?.message || `Google Calendar API error ${resp.status}`);
+  (err as any).status = resp.status;
+  (err as any).googleError = errorBody;
+  throw err;
+}
+
+// 9. Delete study/revision event(s) from Google Calendar when user removes a saved entry
+app.post("/api/calendar/delete-events", requireAdminWriteAuth, calendarLimiter, async (req: Request, res: Response) => {
+  try {
+    let token = await getValidCalendarAccessToken();
+    if (!token) {
+      return res.status(401).json({
+        error: "TOKEN_MISSING",
+        message: "Google Agenda não está conectado.",
+      });
+    }
+
+    const rawEventIds: unknown[] = Array.isArray(req.body?.eventIds) ? req.body.eventIds : [];
+    const eventIds: string[] = Array.from(
+      new Set<string>(
+        rawEventIds
+          .filter((id: unknown): id is string => typeof id === "string" && /^[a-zA-Z0-9_-]{5,128}$/.test(id.trim()))
+          .map((id: string) => id.trim())
+      )
+    ).slice(0, 20);
+
+    const dateStr =
+      typeof req.body?.dateStr === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.body.dateStr.trim())
+        ? req.body.dateStr.trim()
+        : undefined;
+
+    const rawSummaries: unknown[] = Array.isArray(req.body?.summaries) ? req.body.summaries : [];
+    const summaries: string[] = Array.from(
+      new Set<string>(
+        rawSummaries
+          .filter(
+            (s: unknown): s is string =>
+              typeof s === "string" &&
+              CFO_CALENDAR_SUMMARY_PREFIXES.some((prefix) => s.trim().startsWith(prefix))
+          )
+          .map((s: string) => s.trim())
+      )
+    ).slice(0, 10);
+
+    if (eventIds.length === 0 && !(dateStr && summaries.length > 0)) {
+      return res.json({ success: true, deletedCount: 0 });
+    }
+
+    const deleteAll = async (authToken: string) => {
+      let deletedCount = 0;
+      const targetIds = new Set<string>(eventIds);
+
+      // Fallback lookup by CFO event summary + date when older entries lacked stored IDs
+      if (targetIds.size === 0 && dateStr && summaries.length > 0) {
+        for (const summary of summaries) {
+          const foundId = await findExistingCalendarEvent(authToken, summary, dateStr);
+          if (foundId) targetIds.add(foundId);
+        }
+      }
+
+      for (const id of targetIds) {
+        const removed = await deleteSingleGoogleCalendarEvent(authToken, id);
+        if (removed) deletedCount++;
+      }
+
+      return deletedCount;
+    };
+
+    try {
+      const deletedCount = await deleteAll(token);
+      return res.json({ success: true, deletedCount });
+    } catch (delErr: any) {
+      if (delErr?.status === 401) {
+        const session = readCalendarSession();
+        if (session?.refresh_token && GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
+          session.expiry_date = 0;
+          saveCalendarSession(session);
+          const freshToken = await getValidCalendarAccessToken();
+          if (freshToken) {
+            const deletedCount = await deleteAll(freshToken);
+            return res.json({ success: true, deletedCount });
+          }
+        }
+        return res.status(401).json({
+          error: "TOKEN_EXPIRED",
+          message: "A autorização do Google Agenda expirou. Por favor, reconecte sua conta.",
+        });
+      }
+      throw delErr;
+    }
+  } catch (error: any) {
+    return sendCalendarSyncError(res, error, 'Calendar event delete', 'Falha ao excluir evento no Google Agenda.');
+  }
+});
+
 // ============================================================================
 // RUMO ESTUDOS — módulo acadêmico isolado e sempre escopado ao usuário
 // ============================================================================

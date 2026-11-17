@@ -46,6 +46,8 @@ const getFirebaseAuthService = () => import('./services/firebaseAuth');
 import {
   syncStudySessionAndRevisions,
   createGoogleCalendarEvent,
+  deleteGoogleCalendarEvents,
+  buildStudyCalendarSummaries,
   getBackendCalendarStatus,
   initiateGoogleCalendarAuth,
   disconnectBackendCalendar,
@@ -1094,6 +1096,14 @@ export default function App() {
           completed: false,
           completedAt: undefined,
           durationMinutes: 0,
+          googleCalendarSynced: false,
+          calendarEventId: undefined,
+          calendarRevision1dId: undefined,
+          calendarRevision7dId: undefined,
+          calendarRevision30dId: undefined,
+          calendarRevision60dId: undefined,
+          calendarRevision90dId: undefined,
+          revisionScheduled: false,
         },
       };
 
@@ -1102,7 +1112,7 @@ export default function App() {
       saveActiveCycle(updatedCycle);
       showToast(`${subject.name}: Marcado como pendente.`, 'info');
 
-      // Sincroniza exclusão no backend para impedir que a reconciliação periódica reverta o status
+      // Sincroniza exclusão no backend (banco de horas + eventos do Google Agenda + revisões vinculadas)
       if (dateStr) {
         apiFetch(`/api/study-sessions/day-subject?dateStr=${dateStr}&subjectId=${subject.id}`, {
           method: 'DELETE',
@@ -1114,6 +1124,14 @@ export default function App() {
           .catch((err) => {
             console.warn('Falha ao sincronizar desmarcação no banco:', err);
           });
+      }
+
+      if (existingEntry) {
+        void cleanupCalendarAndRevisionsForEntries([
+          { entry: existingEntry, subjectId: subject.id, dateStr, subjectName: subject.name },
+        ]).catch((err) => {
+          console.warn('Falha ao remover evento do Google Agenda ao desmarcar:', err);
+        });
       }
       return;
     }
@@ -1258,6 +1276,18 @@ export default function App() {
           );
           newEntry.googleCalendarSynced = true;
           newEntry.calendarEventId = calendarResult.studyEventId;
+          newEntry.calendarRevision1dId = calendarResult.revision1dId;
+          newEntry.calendarRevision7dId = calendarResult.revision7dId;
+          newEntry.calendarRevision30dId = calendarResult.revision30dId;
+          newEntry.calendarRevision60dId = calendarResult.revision60dId;
+          newEntry.calendarRevision90dId = calendarResult.revision90dId;
+          newEntry.revisionScheduled = Boolean(
+            calendarResult.revision1dId ||
+              calendarResult.revision7dId ||
+              calendarResult.revision30dId ||
+              calendarResult.revision60dId ||
+              calendarResult.revision90dId
+          );
         } catch (err: any) {
           if (err?.code === 'TOKEN_EXPIRED' || err?.name === 'GoogleCalendarAuthError') {
             const status = await refreshCalendarStatus();
@@ -1285,6 +1315,11 @@ export default function App() {
     setCurrentCycle(updatedCycle);
     saveActiveCycle(updatedCycle);
 
+    if (data.completed && autoSpacedRevisions && data.entryType !== 'reviewing') {
+      registerSmartRevisionsForEntry(newEntry, selectedCell.subject, calendarResult || undefined);
+      setRevisions(loadRevisions());
+    }
+
     setIsSavingStudy(false);
     setIsStudyModalOpen(false);
 
@@ -1296,6 +1331,119 @@ export default function App() {
       showToast('Registro salvo com sucesso!', 'success');
     }
   };
+
+  // Remove Google Calendar events + linked SmartRevisions when study entries are deleted/cleared
+  const cleanupCalendarAndRevisionsForEntries = useCallback(
+    async (
+      targets: Array<{ entry: StudyEntry; subjectId: string; dateStr?: string; subjectName?: string }>
+    ): Promise<{ calendarDeletedCount: number; calendarAttempted: boolean; calendarError?: string }> => {
+      if (targets.length === 0) return { calendarDeletedCount: 0, calendarAttempted: false };
+
+      const currentRevisions = loadRevisions();
+      const matchedRevisionIds = new Set<string>();
+      const eventsByDate = new Map<string, { eventIds: Set<string>; summaries: Set<string> }>();
+      const standaloneEventIds = new Set<string>();
+      let hasCalendarBackedTarget = false;
+
+      for (const { entry, subjectId, dateStr, subjectName } of targets) {
+        const effectiveDate = entry.dateStr || dateStr;
+        const idsForEntry = [
+          entry.calendarEventId,
+          entry.calendarRevision1dId,
+          entry.calendarRevision7dId,
+          entry.calendarRevision30dId,
+          entry.calendarRevision60dId,
+          entry.calendarRevision90dId,
+        ].filter((id): id is string => Boolean(id));
+
+        for (const rev of currentRevisions) {
+          const matchesEntry =
+            (entry.id && rev.entryId === entry.id) ||
+            (effectiveDate && rev.subjectId === subjectId && rev.studiedDate === effectiveDate);
+          if (matchesEntry) {
+            matchedRevisionIds.add(rev.id);
+            if (rev.calendarEventId) idsForEntry.push(rev.calendarEventId);
+          }
+        }
+
+        const shouldCleanupCalendar = Boolean(entry.googleCalendarSynced || idsForEntry.length > 0);
+        if (!shouldCleanupCalendar) continue;
+        hasCalendarBackedTarget = true;
+
+        if (effectiveDate) {
+          const bucket = eventsByDate.get(effectiveDate) || {
+            eventIds: new Set<string>(),
+            summaries: new Set<string>(),
+          };
+          idsForEntry.forEach((id) => bucket.eventIds.add(id));
+          const subjLabel =
+            subjectName || subjects.find((s) => s.id === subjectId)?.name || '';
+          if (subjLabel && idsForEntry.length === 0) {
+            buildStudyCalendarSummaries(subjLabel, entry.topic, entry.entryType).forEach((s) =>
+              bucket.summaries.add(s)
+            );
+          }
+          eventsByDate.set(effectiveDate, bucket);
+        } else {
+          idsForEntry.forEach((id) => standaloneEventIds.add(id));
+        }
+      }
+
+      if (matchedRevisionIds.size > 0) {
+        const remaining = currentRevisions.filter((r) => !matchedRevisionIds.has(r.id));
+        setRevisions(remaining);
+        saveRevisions(remaining);
+      }
+
+      if (!hasCalendarBackedTarget) {
+        return { calendarDeletedCount: 0, calendarAttempted: false };
+      }
+
+      const token = await getStoredOrFreshToken();
+      if (!token && !backendCalendar.connected) {
+        return {
+          calendarDeletedCount: 0,
+          calendarAttempted: false,
+          calendarError: 'Google Agenda desconectado para remover o lembrete.',
+        };
+      }
+
+      let calendarDeletedCount = 0;
+      try {
+        for (const [dateKey, bucket] of eventsByDate.entries()) {
+          const res = await deleteGoogleCalendarEvents(token, {
+            eventIds: Array.from(bucket.eventIds),
+            dateStr: dateKey,
+            summaries: Array.from(bucket.summaries),
+          });
+          calendarDeletedCount += res.deletedCount;
+        }
+        if (standaloneEventIds.size > 0) {
+          const res = await deleteGoogleCalendarEvents(token, {
+            eventIds: Array.from(standaloneEventIds),
+          });
+          calendarDeletedCount += res.deletedCount;
+        }
+        return { calendarDeletedCount, calendarAttempted: true };
+      } catch (err: any) {
+        if (err?.code === 'TOKEN_EXPIRED' || err?.name === 'GoogleCalendarAuthError') {
+          const status = await refreshCalendarStatus();
+          if (!status.connected) setAccessToken(null);
+          return {
+            calendarDeletedCount,
+            calendarAttempted: true,
+            calendarError: 'Sessão do Google Agenda expirou ao remover o evento.',
+          };
+        }
+        return {
+          calendarDeletedCount,
+          calendarAttempted: true,
+          calendarError: err?.message || 'Falha ao remover evento no Google Agenda.',
+        };
+      }
+    },
+    [backendCalendar.connected, getStoredOrFreshToken, refreshCalendarStatus, subjects]
+  );
 
   // Clear a single cell entry (subject + day) completely
   const handleClearCellEntry = async (subjectId: string, dayIndex: number, e?: React.MouseEvent) => {
@@ -1312,8 +1460,8 @@ export default function App() {
     const updatedCycle = { ...currentCycle, entries: updatedEntries, updatedAt: new Date().toISOString() };
     setCurrentCycle(updatedCycle);
     saveActiveCycle(updatedCycle);
-    showToast('Registro de estudo limpo com sucesso!', 'info');
 
+    let dbFailed = false;
     if (dateStr) {
       try {
         const response = await apiFetch(`/api/study-sessions/day-subject?dateStr=${dateStr}&subjectId=${subjectId}`, {
@@ -1323,9 +1471,23 @@ export default function App() {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         window.dispatchEvent(new Event('cfo:study-sessions-saved'));
       } catch (err) {
+        dbFailed = true;
         console.warn('Falha ao sincronizar exclusão com o banco de horas:', err);
-        showToast('O estudo saiu do cronograma, mas não foi possível apagar as horas salvas. Tente novamente.', 'error');
       }
+    }
+
+    const calendarCleanup = entry
+      ? await cleanupCalendarAndRevisionsForEntries([{ entry, subjectId, dateStr }])
+      : { calendarDeletedCount: 0, calendarAttempted: false };
+
+    if (dbFailed) {
+      showToast('O estudo saiu do cronograma, mas não foi possível apagar as horas salvas. Tente novamente.', 'error');
+    } else if (calendarCleanup.calendarError) {
+      showToast(`Estudo e horas excluídos, mas não foi possível apagar no Google Agenda: ${calendarCleanup.calendarError}`, 'info');
+    } else if (calendarCleanup.calendarDeletedCount > 0) {
+      showToast('Estudo, horas no banco e evento no Google Agenda excluídos!', 'info');
+    } else {
+      showToast('Registro de estudo limpo com sucesso!', 'info');
     }
   };
 
@@ -1422,10 +1584,14 @@ export default function App() {
       isDestructive: true,
       onConfirm: async () => {
         setAppConfirmState(null);
+        const entriesSnapshot = (Object.values(currentCycle.entries || {}) as StudyEntry[]).map((entry) => ({
+          entry,
+          subjectId: entry.subjectId,
+          dateStr: entry.dateStr || weekDays.find((d) => d.index === entry.dayIndex)?.dateStr,
+        }));
         const updatedCycle = { ...currentCycle, entries: {}, updatedAt: new Date().toISOString() };
         setCurrentCycle(updatedCycle);
         saveActiveCycle(updatedCycle);
-        showToast('Todos os registros de estudo do cronograma foram limpos!', 'info');
 
         try {
           await Promise.all(
@@ -1439,6 +1605,13 @@ export default function App() {
           window.dispatchEvent(new Event('cfo:study-sessions-saved'));
         } catch (err) {
           console.warn('Falha ao limpar sessões semanais no banco de dados:', err);
+        }
+
+        const calCleanup = await cleanupCalendarAndRevisionsForEntries(entriesSnapshot);
+        if (calCleanup.calendarDeletedCount > 0) {
+          showToast('Semana limpa no cronograma, banco de horas e Google Agenda!', 'info');
+        } else {
+          showToast('Todos os registros de estudo do cronograma foram limpos!', 'info');
         }
       },
     });
@@ -1652,15 +1825,31 @@ export default function App() {
   useEffect(() => {
     if (!isTerminalUnlocked) return;
     const sync = () => syncWeeklyStudySessionsWithBackend();
+    const handleExternalSessionDeleted = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ dateStr?: string; subjectId?: string }>).detail;
+      if (!detail?.dateStr || !currentCycle?.entries) return;
+      const matching = (Object.values(currentCycle.entries) as StudyEntry[]).filter((entry) => {
+        const entryDate = entry.dateStr || weekDays.find((d) => d.index === entry.dayIndex)?.dateStr;
+        if (entryDate !== detail.dateStr) return false;
+        return detail.subjectId ? entry.subjectId === detail.subjectId : true;
+      });
+      if (matching.length > 0) {
+        void cleanupCalendarAndRevisionsForEntries(
+          matching.map((entry) => ({ entry, subjectId: entry.subjectId, dateStr: detail.dateStr }))
+        );
+      }
+    };
     const interval = window.setInterval(sync, 20_000);
     window.addEventListener('focus', sync);
     window.addEventListener('cfo:study-sessions-saved', sync);
+    window.addEventListener('cfo:study-session-deleted', handleExternalSessionDeleted);
     return () => {
       window.clearInterval(interval);
       window.removeEventListener('focus', sync);
       window.removeEventListener('cfo:study-sessions-saved', sync);
+      window.removeEventListener('cfo:study-session-deleted', handleExternalSessionDeleted);
     };
-  }, [isTerminalUnlocked, syncWeeklyStudySessionsWithBackend]);
+  }, [isTerminalUnlocked, syncWeeklyStudySessionsWithBackend, currentCycle, weekDays, cleanupCalendarAndRevisionsForEntries]);
 
   // Delete/remove subject handler (supports removing default subjects like Química or custom ones)
   const handleDeleteCustomSubject = (subjectId: string) => {
@@ -2320,7 +2509,7 @@ export default function App() {
                       isDark ? 'text-slate-400' : 'text-slate-500'
                     }`}
                   >
-                    Matérias Atendidas
+                    Matérias Estudadas
                   </p>
                   <p
                     className={`text-2xl font-light mt-0.5 ${
@@ -2333,8 +2522,11 @@ export default function App() {
                         isDark ? 'text-slate-500' : 'text-slate-400'
                       }`}
                     >
-                      disciplinas
+                      na semana
                     </span>
+                  </p>
+                  <p className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {studySummary.subjectsStudied.filter((s) => s.minutes > 0 || s.sessions > 0).length}/{subjects.length} estudadas no mês
                   </p>
                 </div>
                 <div

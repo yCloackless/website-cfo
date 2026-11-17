@@ -481,3 +481,86 @@ export async function syncStudySessionAndRevisions(
     revision90dId,
   };
 }
+
+/**
+ * Reconstrói os títulos possíveis criados pelo cronograma para limpeza mesmo quando eventId não foi salvo.
+ */
+export function buildStudyCalendarSummaries(
+  subjectName: string,
+  topic?: string,
+  entryType?: 'studied' | 'reviewing'
+): string[] {
+  const cleanSubject = subjectName.trim();
+  const rawTopic = topic?.trim() || '';
+  const topicLabel = rawTopic ? ` - ${rawTopic}` : '';
+  const studied = `📘 [CFO CBMERJ] Estudado: ${cleanSubject}${topicLabel}`;
+  const reviewing = `📗 [CFO CBMERJ] Revisando: ${cleanSubject}${topicLabel}`;
+  if (entryType === 'reviewing') return [reviewing, studied];
+  return [studied, reviewing];
+}
+
+/**
+ * Exclui eventos do Google Agenda associados a uma sessão removida (evento principal + revisões).
+ */
+export async function deleteGoogleCalendarEvents(
+  accessToken: string | null | undefined,
+  params: {
+    eventIds?: string[];
+    dateStr?: string;
+    summaries?: string[];
+  }
+): Promise<{ success: boolean; deletedCount: number }> {
+  const eventIds = Array.from(new Set((params.eventIds || []).filter((id) => Boolean(id && id.trim()))));
+  const summaries = Array.from(new Set((params.summaries || []).filter((s) => Boolean(s && s.trim()))));
+
+  if (eventIds.length === 0 && !(params.dateStr && summaries.length > 0)) {
+    return { success: true, deletedCount: 0 };
+  }
+
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+
+    const resp = await apiFetch('/api/calendar/delete-events', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        eventIds,
+        dateStr: params.dateStr,
+        summaries,
+      }),
+    });
+
+    if (resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      return { success: true, deletedCount: Number(data?.deletedCount || 0) };
+    }
+    if (resp.status === 401) {
+      throw new GoogleCalendarAuthError();
+    }
+    const errData = await resp.json().catch(() => ({}));
+    throw new Error(errData.message || `Erro ao excluir evento no Google Agenda (${resp.status})`);
+  } catch (err: any) {
+    if (err instanceof GoogleCalendarAuthError) throw err;
+    if (!accessToken || eventIds.length === 0) throw err;
+
+    // Fallback direto caso apenas o token OAuth em memória esteja ativo
+    let deletedCount = 0;
+    for (const id of eventIds) {
+      const directResp = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(id)}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
+      if (directResp.status === 401) throw new GoogleCalendarAuthError();
+      if (directResp.ok) deletedCount++;
+    }
+    return { success: true, deletedCount };
+  }
+}

@@ -189,6 +189,11 @@ test('StoredJsonCrypto: key rotation fallback, validation, and GCM auth integrit
 });
 
 import { AuditRepository } from '../src/db/repositories';
+import {
+  buildStudyCalendarSummaries,
+  deleteGoogleCalendarEvents,
+  GoogleCalendarAuthError,
+} from '../src/services/calendarService';
 
 test('AuditRepository.getSecurityMetrics uses PostgreSQL-compatible HAVING COUNT(*) >= 3', () => {
   const db = getDb().getRawDb();
@@ -196,4 +201,53 @@ test('AuditRepository.getSecurityMetrics uses PostgreSQL-compatible HAVING COUNT
   const metrics = auditRepo.getSecurityMetrics();
   assert.equal(typeof metrics.totalEvents24h, 'number');
   assert.ok(Array.isArray(metrics.anomalousIps));
+});
+
+test('Calendar event deletion helper builds CFO summaries, deduplicates IDs, and handles 401 reconnect errors', async () => {
+  const summaries = buildStudyCalendarSummaries('Biologia', 'Taxonomia', 'reviewing');
+  assert.deepEqual(summaries, [
+    '📗 [CFO CBMERJ] Revisando: Biologia - Taxonomia',
+    '📘 [CFO CBMERJ] Estudado: Biologia - Taxonomia',
+  ]);
+
+  const noOp = await deleteGoogleCalendarEvents(null, {});
+  assert.deepEqual(noOp, { success: true, deletedCount: 0 });
+
+  const nativeFetch = globalThis.fetch;
+  const nativeStorage = (globalThis as any).localStorage;
+  (globalThis as any).localStorage = { getItem: () => null };
+  let capturedBody: any = null;
+
+  try {
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body || '{}'));
+      return new Response(JSON.stringify({ success: true, deletedCount: 2 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const deleted = await deleteGoogleCalendarEvents(null, {
+      eventIds: ['evt_1', 'evt_1', 'evt_2'],
+      dateStr: '2026-11-17',
+      summaries,
+    });
+    assert.deepEqual(deleted, { success: true, deletedCount: 2 });
+    assert.deepEqual(capturedBody.eventIds, ['evt_1', 'evt_2']);
+
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: 'TOKEN_EXPIRED' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch;
+
+    await assert.rejects(
+      () => deleteGoogleCalendarEvents(null, { eventIds: ['evt_1'] }),
+      (err: any) => err instanceof GoogleCalendarAuthError
+    );
+  } finally {
+    globalThis.fetch = nativeFetch;
+    if (nativeStorage === undefined) delete (globalThis as any).localStorage;
+    else (globalThis as any).localStorage = nativeStorage;
+  }
 });

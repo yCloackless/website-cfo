@@ -81,6 +81,20 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
     return { completedCount, totalMinutes };
   };
 
+  const studiedSubjectsWeekCount = new Set(
+    (Object.values(entries) as StudyEntry[])
+      .filter((entry) => entry && entry.completed)
+      .map((entry) => entry.subjectId)
+  ).size;
+
+  const studiedSubjectsMonthCount = monthlyBalanceBySubject
+    ? subjects.filter(
+        (subject) =>
+          (monthlyBalanceBySubject[subject.id]?.minutes || 0) > 0 ||
+          (monthlyBalanceBySubject[subject.id]?.sessions || 0) > 0
+      ).length
+    : studiedSubjectsWeekCount;
+
   return (
     <div
       className={`w-full rounded-xl border transition-colors shadow-[0_18px_45px_rgba(0,0,0,0.2)] overflow-hidden ${
@@ -110,11 +124,14 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                   <span className="truncate">Matérias CFO</span>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <span
-                      className={`text-[10px] font-medium normal-case hidden sm:inline ${
-                        isDark ? 'text-slate-500' : 'text-slate-400'
+                      className={`text-[10px] font-semibold normal-case hidden sm:inline px-1.5 py-0.5 rounded border ${
+                        isDark
+                          ? 'bg-emerald-950/35 text-emerald-300 border-emerald-800/40'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                       }`}
+                      title={`${studiedSubjectsWeekCount} de ${subjects.length} matérias estudadas nesta semana (${studiedSubjectsMonthCount}/${subjects.length} no mês)`}
                     >
-                      {subjects.length} matérias
+                      {studiedSubjectsWeekCount}/{subjects.length} estudadas
                     </span>
                     {onClearAllEntries && (
                       <button
@@ -566,6 +583,15 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
           <span className="flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-amber-500" />
             <span>Revisão Inteligente (1 sem / 1 mês)</span>
+          </span>
+          <span
+            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border font-semibold ${
+              isDark
+                ? 'bg-emerald-950/35 text-emerald-300 border-emerald-800/40'
+                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+            }`}
+          >
+            Matérias estudadas: {studiedSubjectsWeekCount}/{subjects.length} na semana • {studiedSubjectsMonthCount}/{subjects.length} no mês
           </span>
         </div>
 

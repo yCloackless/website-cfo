@@ -316,6 +316,7 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
           });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           showToast(`Horas de ${subjectName} excluídas com sucesso.`, 'info');
+          window.dispatchEvent(new CustomEvent('cfo:study-session-deleted', { detail: { dateStr, subjectId } }));
           await fetchMonthlyData();
           window.dispatchEvent(new Event('cfo:study-sessions-saved'));
         } catch (err) {
@@ -387,6 +388,7 @@ export const MonthlyStudyHeatmapTab: React.FC<MonthlyStudyHeatmapTabProps> = ({
           });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           showToast(`Todos os estudos de ${dateStr} foram limpos.`, 'info');
+          window.dispatchEvent(new CustomEvent('cfo:study-session-deleted', { detail: { dateStr } }));
           await fetchMonthlyData();
           window.dispatchEvent(new Event('cfo:study-sessions-saved'));
         } catch (err) {
