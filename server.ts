@@ -106,6 +106,7 @@ import { logR2StartupCheck } from "./src/services/anki/ankiMediaStorage";
 import { isValidImportance, normalizeImportance } from "./src/services/anki/ankiImportance";
 import { createWhiteboardRouter } from "./src/routes/whiteboardRouter";
 import { createMathRouter } from "./src/routes/mathRouter";
+import { encryptStoredJson, decryptStoredJson } from "./src/utils/storedJsonCrypto";
 import { whiteboardRealtimeHub } from "./src/services/whiteboard/whiteboardRealtimeHub";
 import { DEFAULT_CFO_SUBJECTS } from "./src/data/cfoSubjects";
 
@@ -1121,60 +1122,6 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || defaultClientId;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const CALENDAR_SESSION_FILE = path.join(process.cwd(), "data", "calendar-session.json");
 
-// ── Key Derivation: SHA-256 era fraco para senhas com baixa entropia.
-// Versão 1 (legada): sha256(secret) — mantido apenas para descriptografar dados antigos.
-// Versão 2 (atual): scrypt(secret, contextSalt, 32) — resistente a ataques de dicionário.
-function deriveDataKeyLegacy(): Buffer {
-  const secret = process.env.DATA_ENCRYPTION_KEY || process.env.SESSION_SECRET;
-  if (!secret) throw new Error('DATA_ENCRYPTION_KEY ou SESSION_SECRET e obrigatoria para persistir segredos');
-  return crypto.createHash('sha256').update(secret).digest();
-}
-
-const derivedDataKeyCache = new Map<string, Buffer>();
-function deriveDataKey(): Buffer {
-  const secret = process.env.DATA_ENCRYPTION_KEY || process.env.SESSION_SECRET;
-  if (!secret) throw new Error('DATA_ENCRYPTION_KEY ou SESSION_SECRET e obrigatoria para persistir segredos');
-  // scrypt com salt de contexto fixo; N=16384, r=8, p=1 → ~0.1s em hardware moderno
-  // scrypt e deliberadamente caro (~50-100 ms de CPU bloqueante) e deterministico
-  // para o mesmo segredo: deriva uma unica vez por segredo.
-  let key = derivedDataKeyCache.get(secret);
-  if (!key) {
-    key = crypto.scryptSync(secret, 'cfo-data-enc-v1', 32, { N: 16384, r: 8, p: 1 });
-    derivedDataKeyCache.clear();
-    derivedDataKeyCache.set(secret, key);
-  }
-  return Buffer.from(key);
-}
-
-function encryptStoredJson(value: unknown): string {
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', deriveDataKey(), iv);
-  const encrypted = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
-  return JSON.stringify({
-    version: 2,
-    algorithm: 'aes-256-gcm',
-    iv: iv.toString('base64'),
-    tag: cipher.getAuthTag().toString('base64'),
-    data: encrypted.toString('base64'),
-  });
-}
-
-function decryptStoredJson<T>(raw: string): { value: T; legacy: boolean } {
-  const parsed = JSON.parse(raw);
-  const version = parsed?.version;
-  if (version !== 1 && version !== 2) {
-    // Payload plaintext sem envelope (legado anterior à criptografia)
-    return { value: parsed as T, legacy: true };
-  }
-  // Versão 1 usa sha256 direto; versão 2 usa scrypt
-  const key = version === 1 ? deriveDataKeyLegacy() : deriveDataKey();
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(parsed.iv, 'base64'));
-  decipher.setAuthTag(Buffer.from(parsed.tag, 'base64'));
-  const clear = Buffer.concat([decipher.update(Buffer.from(parsed.data, 'base64')), decipher.final()]).toString('utf8');
-  // version 1 está desatualizado → sinalizar para re-criptografar com v2
-  return { value: JSON.parse(clear) as T, legacy: version === 1 };
-}
-
 // Google Calendar is a shared administrative integration.
 const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || process.env.CALENDAR_EMAIL || process.env.ADMIN_USER_EMAIL || '')
   .split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
@@ -1201,18 +1148,32 @@ function getSystemIntegrationRepo(): SystemIntegrationRepository | null {
   }
 }
 
+let lastCalendarDecryptWarnHash: string | null = null;
+
 function readCalendarSession(): CalendarSession | null {
   // 1. Tentar ler do banco de dados relacional (PostgreSQL em produção no Render / SQLite local)
   try {
     const repo = getSystemIntegrationRepo();
     const integration = repo?.get("google_calendar");
     if (integration?.encryptedPayload) {
-      const stored = decryptStoredJson<CalendarSession>(integration.encryptedPayload);
-      if (stored.legacy) saveCalendarSession(stored.value);
-      return stored.value;
+      try {
+        const stored = decryptStoredJson<CalendarSession>(integration.encryptedPayload);
+        lastCalendarDecryptWarnHash = null;
+        if (stored.legacy) saveCalendarSession(stored.value);
+        return stored.value;
+      } catch (err: any) {
+        const payloadHash = crypto.createHash('sha256').update(integration.encryptedPayload).digest('hex').slice(0, 12);
+        if (lastCalendarDecryptWarnHash !== payloadHash) {
+          lastCalendarDecryptWarnHash = payloadHash;
+          console.warn(
+            `Falha ao descriptografar sessão do Google Agenda no banco de dados (registro ${payloadHash}; chave incompatível ou payload inválido). Reconecte via OAuth.`,
+            err?.message || err
+          );
+        }
+      }
     }
   } catch (err) {
-    console.warn("Falha ao ler sessão do Google Agenda no banco de dados:", err);
+    console.warn("Falha ao consultar sessão do Google Agenda no banco de dados:", err);
   }
 
   // 2. Fallback de migração transparente do arquivo local legado
@@ -5393,10 +5354,13 @@ app.get("/api/calendar/status", async (_req: Request, res: Response) => {
   try {
     const session = readCalendarSession();
     if (!session || (!session.access_token && !session.refresh_token)) {
+      const hasUnreadableSession = !session && Boolean(getSystemIntegrationRepo()?.get("google_calendar")?.encryptedPayload);
       return res.json({
         connected: false,
         permanent: false,
         hasRefreshToken: false,
+        needsReconnect: hasUnreadableSession,
+        reconnectReason: hasUnreadableSession ? 'KEY_MISMATCH_OR_CORRUPTED' : undefined,
         needsClientSecret: !GOOGLE_CLIENT_SECRET,
         clientIdConfigured: !!GOOGLE_CLIENT_ID,
       });

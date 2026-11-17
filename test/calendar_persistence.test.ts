@@ -117,3 +117,73 @@ test('Google Calendar Persistence Suite', async (t) => {
     assert.equal(fromDb, null, 'Registro deve ser completamente removido após desconexão.');
   });
 });
+
+import {
+  encryptStoredJson as encryptSharedJson,
+  decryptStoredJson as decryptSharedJson,
+} from '../src/utils/storedJsonCrypto';
+
+test('StoredJsonCrypto: key rotation fallback, validation, and GCM auth integrity', async (t) => {
+  const prevDataKey = process.env.DATA_ENCRYPTION_KEY;
+  const prevSessionSecret = process.env.SESSION_SECRET;
+  const prevPrevious = process.env.DATA_ENCRYPTION_KEY_PREVIOUS;
+
+  try {
+    await t.test('1. Recovers session encrypted with SESSION_SECRET when DATA_ENCRYPTION_KEY is later added', () => {
+      delete process.env.DATA_ENCRYPTION_KEY;
+      delete process.env.DATA_ENCRYPTION_KEY_PREVIOUS;
+      process.env.SESSION_SECRET = 'railway-session-secret-32chars-min';
+
+      const encryptedOnRailway = encryptSharedJson({ refresh_token: 'rt_123', email: 'cadete@cbmerj.rj.gov.br' });
+
+      // Simulates Render adding DATA_ENCRYPTION_KEY while keeping SESSION_SECRET
+      process.env.DATA_ENCRYPTION_KEY = 'render-new-data-encryption-key-32ch';
+      const decrypted = decryptSharedJson<{ refresh_token: string; email: string }>(encryptedOnRailway);
+      assert.equal(decrypted.value.refresh_token, 'rt_123');
+      assert.equal(decrypted.legacy, true);
+    });
+
+    await t.test('2. Recovers session via DATA_ENCRYPTION_KEY_PREVIOUS during key rotation', () => {
+      process.env.DATA_ENCRYPTION_KEY = 'old-key-before-rotation-12345678';
+      delete process.env.DATA_ENCRYPTION_KEY_PREVIOUS;
+      const encryptedOld = encryptSharedJson({ refresh_token: 'rt_rotated' });
+
+      process.env.DATA_ENCRYPTION_KEY = 'new-primary-key-after-rotation-99';
+      process.env.DATA_ENCRYPTION_KEY_PREVIOUS = 'old-key-before-rotation-12345678';
+      const decrypted = decryptSharedJson<{ refresh_token: string }>(encryptedOld);
+      assert.equal(decrypted.value.refresh_token, 'rt_rotated');
+      assert.equal(decrypted.legacy, true);
+    });
+
+    await t.test('3. Rejects tampered payload or wrong key without disabling GCM auth', () => {
+      process.env.DATA_ENCRYPTION_KEY = 'primary-key-test-1234567890123456';
+      process.env.SESSION_SECRET = 'session-key-test-1234567890123456';
+      delete process.env.DATA_ENCRYPTION_KEY_PREVIOUS;
+
+      const encrypted = encryptSharedJson({ refresh_token: 'rt_secret' });
+
+      process.env.DATA_ENCRYPTION_KEY = 'completely-different-key-12345678';
+      process.env.SESSION_SECRET = 'another-different-key-12345678901';
+      assert.throws(() => decryptSharedJson(encrypted), /Unsupported state or unable to authenticate data|STORED_JSON_AUTH_FAILED/);
+    });
+
+    await t.test('4. Rejects malformed IV or auth tag lengths cleanly', () => {
+      process.env.DATA_ENCRYPTION_KEY = 'primary-key-test-1234567890123456';
+      const malformed = JSON.stringify({
+        version: 2,
+        algorithm: 'aes-256-gcm',
+        iv: Buffer.from('short').toString('base64'),
+        tag: Buffer.from('shorttag').toString('base64'),
+        data: Buffer.from('abc').toString('base64'),
+      });
+      assert.throws(() => decryptSharedJson(malformed), /IV|tag|inválido/i);
+    });
+  } finally {
+    if (prevDataKey !== undefined) process.env.DATA_ENCRYPTION_KEY = prevDataKey;
+    else delete process.env.DATA_ENCRYPTION_KEY;
+    if (prevSessionSecret !== undefined) process.env.SESSION_SECRET = prevSessionSecret;
+    else delete process.env.SESSION_SECRET;
+    if (prevPrevious !== undefined) process.env.DATA_ENCRYPTION_KEY_PREVIOUS = prevPrevious;
+    else delete process.env.DATA_ENCRYPTION_KEY_PREVIOUS;
+  }
+});
