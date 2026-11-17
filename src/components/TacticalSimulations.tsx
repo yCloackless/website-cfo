@@ -26,8 +26,15 @@ import {
   RefreshCw,
   Calculator,
   Plus,
+  Loader2,
+  ClipboardCheck,
+  Layers,
 } from 'lucide-react';
-import { AppTheme } from '../types';
+import { AppTheme, Subject } from '../types';
+import { apiFetch } from '../services/apiFetch';
+import { AnswerSheetInput } from './AnswerSheetInput';
+import { AnswerOption, SubjectScoreEntry, gradeAnswerSheet } from '../utils/answerSheet';
+import type { SimulationDiagnosisResult } from '../services/simulationDiagnosisService';
 
 export interface SimulationRecord {
   id: string;
@@ -37,21 +44,28 @@ export interface SimulationRecord {
   totalQuestions: number; // Quantas questões fiz
   correctCount: number; // Quantas acertei
   wrongCount: number; // Quantas errei (total - acertos)
+  targetCutoffPct?: number;
   concept: 'A' | 'B' | 'C' | 'D' | 'Risco';
   selfEvaluation: string;
   reviewTargets: string[];
+  studentAnswers?: AnswerOption[];
+  officialKey?: AnswerOption[];
+  subjectScores?: SubjectScoreEntry[];
+  aiDiagnosis?: SimulationDiagnosisResult | null;
   createdAt: string;
 }
 
 interface TacticalSimulationsProps {
   theme?: AppTheme;
-  showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+  subjects?: Subject[];
+  showToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
 }
 
 import { getUserStorageKey } from '../utils/userStorage';
 
 export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
   theme = 'dark',
+  subjects = [],
   showToast,
 }) => {
   const isDark = theme === 'dark';
@@ -59,39 +73,67 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
   // 1. Estado de Filtro de Tempo
   const [timeFilter, setTimeFilter] = useState<'7d' | '30d' | 'all'>('all');
 
-  // 2. Estado de Simulados com persistência em localStorage (Totalmente vazio por padrão, sem dados de exemplo)
-  const [simulations, setSimulations] = useState<SimulationRecord[]>(() => {
-    try {
-      const storageKey = getUserStorageKey('cfo_tactical_simulations');
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          // Remove dados mockados antigos de exemplo (sim_01, sim_02, etc.)
-          const userSims = parsed.filter(
-            (s: any) =>
-              s &&
-              s.id &&
-              !['sim_01', 'sim_02', 'sim_03', 'sim_04'].includes(s.id) &&
-              !s.title?.includes('Modelo Oficial UERJ EQ')
-          );
-          return userSims;
-        }
-      }
-    } catch (e) {
-      console.warn('[Simulations] Falha ao ler do localStorage:', e);
-    }
-    return [];
-  });
+  // 2. Simulados persistidos no banco (/api/simulations), com migração única silenciosa do localStorage legado
+  const [simulations, setSimulations] = useState<SimulationRecord[]>([]);
+  const [gapDiagnosis, setGapDiagnosis] = useState<SimulationDiagnosisResult | null>(null);
+  const [diagnosingTarget, setDiagnosingTarget] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      const storageKey = getUserStorageKey('cfo_tactical_simulations');
-      localStorage.setItem(storageKey, JSON.stringify(simulations));
-    } catch (e) {
-      console.error('[Simulations] Falha ao salvar no localStorage:', e);
-    }
-  }, [simulations]);
+    let active = true;
+    const syncAndMigrate = async () => {
+      try {
+        const storageKey = getUserStorageKey('cfo_tactical_simulations');
+        const legacyRaw = localStorage.getItem(storageKey);
+        if (legacyRaw) {
+          const parsed = JSON.parse(legacyRaw);
+          if (Array.isArray(parsed)) {
+            const validLegacy = parsed.filter(
+              (s: any) =>
+                s &&
+                s.id &&
+                !['sim_01', 'sim_02', 'sim_03', 'sim_04'].includes(s.id) &&
+                !String(s.title || '').includes('Modelo Oficial UERJ EQ')
+            );
+            for (const item of validLegacy) {
+              await apiFetch('/api/simulations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  clientLegacyId: String(item.id),
+                  dateStr: item.dateStr,
+                  title: item.title,
+                  examType: item.examType,
+                  totalQuestions: item.totalQuestions,
+                  correctCount: item.correctCount,
+                  selfEvaluation: item.selfEvaluation,
+                  reviewTargets: item.reviewTargets,
+                  createdAt: item.createdAt,
+                }),
+              }).catch(() => {});
+            }
+          }
+          localStorage.removeItem(storageKey);
+        }
+
+        const res = await apiFetch('/api/simulations');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (active && Array.isArray(data.simulations)) {
+          setSimulations(data.simulations);
+          const firstWithDiag = data.simulations.find((s: SimulationRecord) => s.aiDiagnosis);
+          if (firstWithDiag?.aiDiagnosis) {
+            setGapDiagnosis(firstWithDiag.aiDiagnosis);
+          }
+        }
+      } catch (e) {
+        console.warn('[Simulations] Falha ao carregar simulados:', e);
+      }
+    };
+    void syncAndMigrate();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // 3. Estado do Formulário de Inserção (Limpo, sem valores pré-preenchidos)
   const [formData, setFormData] = useState({
@@ -100,10 +142,17 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
     title: '',
     totalQuestions: '',
     correctCount: '',
+    targetCutoffPct: '70',
     selfEvaluation: '',
     tagInput: '',
     reviewTargets: [] as string[],
   });
+
+  const [showAnswerSheet, setShowAnswerSheet] = useState(true);
+  const [studentAnswers, setStudentAnswers] = useState<AnswerOption[]>([]);
+  const [officialKey, setOfficialKey] = useState<AnswerOption[]>([]);
+  const [subjectScores, setSubjectScores] = useState<SubjectScoreEntry[]>([]);
+  const [isSubmittingSim, setIsSubmittingSim] = useState(false);
 
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
   const [isAiRegenerating, setIsAiRegenerating] = useState(false);
@@ -111,7 +160,20 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
 
   // Cálculos dinâmicos em tempo real do formulário
   const totalNum = Number(formData.totalQuestions) || 0;
-  const correctNum = Number(formData.correctCount) || 0;
+  const hasOfficialKeyInForm = officialKey.some((k) => k && k !== 'U');
+  const gradedForm = useMemo(() => {
+    if (!hasOfficialKeyInForm || totalNum <= 0) return null;
+    return gradeAnswerSheet(
+      Array.from({ length: totalNum }, (_, i) => studentAnswers[i] ?? null),
+      Array.from({ length: totalNum }, (_, i) => officialKey[i] ?? null)
+    );
+  }, [hasOfficialKeyInForm, totalNum, studentAnswers, officialKey]);
+
+  const correctNum = gradedForm
+    ? gradedForm.correctCount
+    : formData.correctCount === '' && subjectScores.length > 0
+    ? subjectScores.reduce((sum, s) => sum + s.correctCount, 0)
+    : Number(formData.correctCount) || 0;
   // Quantas errou = Total - Acertos (mínimo 0)
   const wrongNum = Math.max(0, totalNum - correctNum);
   const calculatedAccuracy = totalNum > 0 ? Math.round((correctNum / totalNum) * 100) : 0;
@@ -148,7 +210,7 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
     }));
   };
 
-  const handleSubmitSimulation = (e: React.FormEvent) => {
+  const handleSubmitSimulation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.title.trim()) {
       showToast?.('Por favor, informe a identificação do simulado.', 'error');
@@ -165,40 +227,97 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
       return;
     }
 
-    const newSim: SimulationRecord = {
-      id: `sim_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      dateStr: formData.dateStr,
-      title: formData.title.trim(),
-      examType: formData.examType.trim() || 'Geral',
-      totalQuestions: totalNum,
-      correctCount: correctNum,
-      wrongCount: wrongNum,
-      concept: calculatedConcept,
-      selfEvaluation: formData.selfEvaluation.trim(),
-      reviewTargets: formData.reviewTargets,
-      createdAt: new Date().toISOString(),
-    };
+    try {
+      setIsSubmittingSim(true);
+      const res = await apiFetch('/api/simulations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dateStr: formData.dateStr,
+          title: formData.title.trim(),
+          examType: formData.examType.trim() || 'Geral',
+          totalQuestions: totalNum,
+          correctCount: correctNum,
+          targetCutoffPct: Number(formData.targetCutoffPct) || 70,
+          selfEvaluation: formData.selfEvaluation.trim(),
+          reviewTargets: formData.reviewTargets,
+          studentAnswers,
+          officialKey,
+          subjectScores,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.simulation) {
+        showToast?.(data.message || 'Falha ao salvar simulado no banco.', 'error');
+        return;
+      }
 
-    setSimulations((prev) => [newSim, ...prev]);
-    showToast?.('Simulado registrado com sucesso no histórico!', 'success');
+      setSimulations((prev) => [data.simulation, ...prev]);
+      showToast?.('Simulado salvo com sucesso no histórico!', 'success');
 
-    // Reseta campos do formulário para vazio
-    setFormData({
-      dateStr: new Date().toISOString().split('T')[0],
-      examType: '',
-      title: '',
-      totalQuestions: '',
-      correctCount: '',
-      selfEvaluation: '',
-      tagInput: '',
-      reviewTargets: [],
-    });
+      setFormData({
+        dateStr: new Date().toISOString().split('T')[0],
+        examType: '',
+        title: '',
+        totalQuestions: '',
+        correctCount: '',
+        targetCutoffPct: '70',
+        selfEvaluation: '',
+        tagInput: '',
+        reviewTargets: [],
+      });
+      setStudentAnswers([]);
+      setOfficialKey([]);
+      setSubjectScores([]);
+    } catch {
+      showToast?.('Erro de conexão ao salvar simulado.', 'error');
+    } finally {
+      setIsSubmittingSim(false);
+    }
   };
 
-  const handleDeleteSimulation = (id: string) => {
-    if (confirm('Deseja remover este registro de simulado do histórico?')) {
-      setSimulations((prev) => prev.filter((s) => s.id !== id));
-      showToast?.('Simulado removido com sucesso.', 'info');
+  const handleDeleteSimulation = async (id: string) => {
+    if (!confirm('Deseja remover este registro de simulado do histórico?')) return;
+    try {
+      const res = await apiFetch(`/api/simulations/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setSimulations((prev) => prev.filter((s) => s.id !== id));
+        showToast?.('Simulado removido com sucesso.', 'info');
+      } else {
+        showToast?.('Não foi possível excluir o simulado.', 'error');
+      }
+    } catch {
+      showToast?.('Erro de conexão ao remover simulado.', 'error');
+    }
+  };
+
+  const handleRunGapDiagnosis = async (simId?: string) => {
+    const key = simId || 'consolidated';
+    try {
+      setDiagnosingTarget(key);
+      const url = simId ? `/api/simulations/${simId}/ai-diagnosis` : '/api/simulations/ai-diagnosis';
+      const res = await apiFetch(url, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.diagnosis) {
+        showToast?.(data.message || 'Falha ao gerar diagnóstico dos simulados.', 'error');
+        return;
+      }
+      setGapDiagnosis(data.diagnosis);
+      if (simId) {
+        setSimulations((prev) =>
+          prev.map((s) => (s.id === simId ? { ...s, aiDiagnosis: data.diagnosis } : s))
+        );
+      }
+      showToast?.(
+        data.diagnosis.source === 'gemini'
+          ? 'IA concluiu o diagnóstico de lacunas nos simulados!'
+          : 'Diagnóstico gerado com base nas suas horas reais + simulados.',
+        'success'
+      );
+    } catch {
+      showToast?.('Erro de conexão ao analisar simulado(s).', 'error');
+    } finally {
+      setDiagnosingTarget(null);
     }
   };
 
@@ -463,16 +582,21 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
               </span>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 text-[10px] text-emerald-400">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block" />
-                <span className="hidden sm:inline">ONLINE [IA ATIVA]</span>
-              </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => void handleRunGapDiagnosis(undefined)}
+                disabled={diagnosingTarget !== null || simulations.length === 0}
+                className="px-3 py-1 rounded-lg bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-500 hover:to-sky-500 text-white text-[10px] font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
+              >
+                {diagnosingTarget === 'consolidated' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                <span>{diagnosingTarget === 'consolidated' ? 'Analisando...' : 'Visão Consolidada IA'}</span>
+              </button>
               <button
                 type="button"
                 onClick={handleRegenerateAi}
                 disabled={isAiRegenerating}
-                title="Recalcular diretrizes com base nos simulados cadastrados"
+                title="Alternar diretriz rápida"
                 className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-[10px] flex items-center gap-1 transition-all cursor-pointer"
               >
                 <RefreshCw className={`w-3 h-3 ${isAiRegenerating ? 'animate-spin text-emerald-400' : ''}`} />
@@ -491,6 +615,80 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
               {currentDirective.body}
               <span className="inline-block w-2 h-4 bg-emerald-400 ml-1 translate-y-0.5 animate-pulse" />
             </div>
+
+            {gapDiagnosis && (
+              <div className="mt-4 pt-4 border-t border-slate-800 space-y-3 font-sans">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-xs font-extrabold text-sky-400 flex items-center gap-1.5">
+                    <Layers className="w-4 h-4" />
+                    Mapa de Lacunas dos Simulados ({gapDiagnosis.source === 'gemini' ? 'Gemini AI' : 'Análise Cruzada'})
+                  </span>
+                  <span className="text-[11px] text-slate-400">{gapDiagnosis.summary}</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {/* Ver pela 1ª vez */}
+                  <div className="rounded-xl border border-rose-500/30 bg-rose-950/20 p-3 space-y-2">
+                    <div className="text-[11px] font-black uppercase text-rose-400">
+                      Ver pela 1ª Vez ({gapDiagnosis.firstTime.length})
+                    </div>
+                    {gapDiagnosis.firstTime.length === 0 ? (
+                      <p className="text-[11px] text-slate-400">Nenhuma matéria zerada nos erros.</p>
+                    ) : (
+                      gapDiagnosis.firstTime.map((item, i) => (
+                        <div key={i} className="text-[11px] border-t border-rose-500/20 pt-1.5">
+                          <div className="font-bold text-slate-100">{item.subject} ({item.accuracyPct}%)</div>
+                          <p className="text-slate-400">{item.reason}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Rever */}
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 space-y-2">
+                    <div className="text-[11px] font-black uppercase text-amber-400">
+                      Rever ({gapDiagnosis.review.length})
+                    </div>
+                    {gapDiagnosis.review.length === 0 ? (
+                      <p className="text-[11px] text-slate-400">Sem quedas por esquecimento detectadas.</p>
+                    ) : (
+                      gapDiagnosis.review.map((item, i) => (
+                        <div key={i} className="text-[11px] border-t border-amber-500/20 pt-1.5">
+                          <div className="font-bold text-slate-100">{item.subject} ({item.accuracyPct}%)</div>
+                          <p className="text-slate-400">{item.reason}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Aprofundar */}
+                  <div className="rounded-xl border border-sky-500/30 bg-sky-950/20 p-3 space-y-2">
+                    <div className="text-[11px] font-black uppercase text-sky-400">
+                      Aprofundar ({gapDiagnosis.deepen.length})
+                    </div>
+                    {gapDiagnosis.deepen.length === 0 ? (
+                      <p className="text-[11px] text-slate-400">Nenhuma matéria travada abaixo do corte.</p>
+                    ) : (
+                      gapDiagnosis.deepen.map((item, i) => (
+                        <div key={i} className="text-[11px] border-t border-sky-500/20 pt-1.5">
+                          <div className="font-bold text-slate-100">{item.subject} ({item.accuracyPct}%)</div>
+                          <p className="text-slate-400">{item.reason}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {gapDiagnosis.actionPlan.length > 0 && (
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs space-y-1">
+                    <div className="font-bold text-emerald-400">Plano de Ataque Recomendado:</div>
+                    {gapDiagnosis.actionPlan.map((step, i) => (
+                      <p key={i} className="text-slate-300">• {step}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -711,9 +909,9 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
                     type="number"
                     min={0}
                     max={totalNum || 500}
-                    required
+                    required={!hasOfficialKeyInForm && subjectScores.length === 0}
                     placeholder="Ex: 50"
-                    value={formData.correctCount}
+                    value={hasOfficialKeyInForm ? String(correctNum) : formData.correctCount}
                     onChange={(e) => setFormData({ ...formData, correctCount: e.target.value })}
                     className={`w-full text-sm font-black rounded-xl px-3 py-2.5 border transition-colors ${
                       isDark
@@ -875,14 +1073,64 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
               )}
             </div>
 
+            {/* Cartão-Resposta OMR + Chat Rápido + Gabarito Oficial (Foto / Texto / Clique) + Acertos por Matéria */}
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAnswerSheet((v) => !v)}
+                  className="inline-flex items-center gap-1.5 text-xs font-extrabold text-sky-400 hover:text-sky-300 cursor-pointer"
+                >
+                  <ClipboardCheck className="w-4 h-4" />
+                  <span>
+                    {showAnswerSheet
+                      ? 'Cartão-Resposta, Chat (E A B B C U), Gabarito & Matérias ▲'
+                      : 'Abrir Cartão-Resposta & Gabarito ▼'}
+                  </span>
+                </button>
+                <div className="flex items-center gap-2 text-xs">
+                  <label className="text-[11px] font-bold text-slate-400">Nota de corte (%):</label>
+                  <input
+                    type="number"
+                    min={40}
+                    max={100}
+                    value={formData.targetCutoffPct}
+                    onChange={(e) => setFormData({ ...formData, targetCutoffPct: e.target.value })}
+                    className={`w-16 rounded-lg border px-2 py-1 text-xs font-bold tabular-nums ${
+                      isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-300 text-slate-900'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              {showAnswerSheet && (
+                <AnswerSheetInput
+                  theme={theme}
+                  subjects={subjects}
+                  totalQuestions={totalNum || 60}
+                  onChangeTotalQuestions={(nextTotal) =>
+                    setFormData((prev) => ({ ...prev, totalQuestions: String(nextTotal) }))
+                  }
+                  studentAnswers={studentAnswers}
+                  onChangeStudentAnswers={setStudentAnswers}
+                  officialKey={officialKey}
+                  onChangeOfficialKey={setOfficialKey}
+                  subjectScores={subjectScores}
+                  onChangeSubjectScores={setSubjectScores}
+                  showToast={showToast}
+                />
+              )}
+            </div>
+
             {/* Botão de Envio */}
             <div className="pt-2">
               <button
                 type="submit"
-                className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-red-700 via-red-800 to-red-900 hover:from-red-600 hover:to-red-800 text-white font-black tracking-widest text-xs uppercase shadow-xl shadow-red-950/60 hover:shadow-red-900/70 transition-all flex items-center justify-center gap-2 active:scale-[0.99] cursor-pointer"
+                disabled={isSubmittingSim}
+                className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-red-700 via-red-800 to-red-900 hover:from-red-600 hover:to-red-800 text-white font-black tracking-widest text-xs uppercase shadow-xl shadow-red-950/60 hover:shadow-red-900/70 transition-all flex items-center justify-center gap-2 active:scale-[0.99] cursor-pointer disabled:opacity-50"
               >
-                <ShieldCheck className="w-4 h-4 text-red-200" />
-                <span>Salvar Simulado no Histórico</span>
+                {isSubmittingSim ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4 text-red-200" />}
+                <span>{isSubmittingSim ? 'Salvando...' : 'Salvar Simulado no Histórico'}</span>
               </button>
             </div>
           </form>
@@ -1125,20 +1373,31 @@ export const TacticalSimulations: React.FC<TacticalSimulationsProps> = ({
                       </div>
                     )}
 
-                    {/* Rodapé do Card: ID e Botão Excluir */}
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-700/50">
+                    {/* Rodapé do Card: ID, Botão IA e Botão Excluir */}
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-700/50 flex-wrap">
                       <span className="text-[10px] text-slate-500 font-mono">
                         ID: {sim.id.slice(-6)}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteSimulation(sim.id)}
-                        className="text-slate-500 hover:text-red-500 text-xs transition-colors flex items-center gap-1 p-1 cursor-pointer"
-                        title="Remover simulado do histórico"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>Excluir</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={diagnosingTarget === sim.id}
+                          onClick={() => void handleRunGapDiagnosis(sim.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/35 border border-indigo-500/40 text-indigo-300 text-[11px] font-bold cursor-pointer disabled:opacity-50"
+                        >
+                          {diagnosingTarget === sim.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                          <span>{sim.aiDiagnosis ? 'Reanalisar IA' : 'Diagnosticar com IA'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteSimulation(sim.id)}
+                          className="text-slate-500 hover:text-red-500 text-xs transition-colors flex items-center gap-1 p-1 cursor-pointer"
+                          title="Remover simulado do histórico"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Excluir</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );

@@ -98,6 +98,7 @@ import { ExamJobWorker } from "./src/services/examJobWorker";
 import { StudentLearningService } from "./src/services/studentLearningService";
 import { GamificationService } from "./src/services/gamificationService";
 import { ExamRadarService } from "./src/services/examRadarService";
+import { SimulationDiagnosisService } from "./src/services/simulationDiagnosisService";
 import { parseAnswerTokens, formatAnswerTokens, clampQuestionCount } from "./src/utils/answerSheet";
 import { getBoardIntelligenceService } from "./src/services/boardIntelligenceService";
 import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtimeHub";
@@ -1486,6 +1487,7 @@ const examJobWorker = new ExamJobWorker(examJobRepoInstance, examServiceInstance
 const studentLearningService = new StudentLearningService(getDb().getRawDb());
 const gamificationService = new GamificationService(getDb().getRawDb());
 const examRadarService = new ExamRadarService(getDb().getRawDb());
+const simulationDiagnosisService = new SimulationDiagnosisService(getDb().getRawDb());
 const rawDb = getDb().getRawDb();
 const boardIntelligenceServiceInstance = getBoardIntelligenceService();
 
@@ -9069,6 +9071,76 @@ app.post("/api/exams/:id/ai-diagnosis", requireUserAuth, aiLimiter, async (req: 
     }
     console.error("[Radar Exam AI Diagnosis Error]:", err);
     return res.status(500).json({ error: "EXAM_AI_DIAGNOSIS_ERROR" });
+  }
+});
+
+// 3.3. Simulados Táticos + Diagnóstico IA de Lacunas (Ver 1ª vez / Rever / Aprofundar)
+app.get("/api/simulations", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const simulations = simulationDiagnosisService.listSimulations(user.userId);
+    return res.json({ success: true, simulations });
+  } catch (err: any) {
+    console.error("[Simulations List Error]:", err);
+    return res.status(500).json({ error: "LIST_SIMULATIONS_ERROR" });
+  }
+});
+
+app.post("/api/simulations", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const simulation = simulationDiagnosisService.createSimulation(user.userId, req.body || {});
+    return res.status(201).json({ success: true, simulation });
+  } catch (err: any) {
+    if (err?.message === "INVALID_TITLE") {
+      return res.status(400).json({ error: "INVALID_TITLE", message: "Informe a identificação do simulado." });
+    }
+    console.error("[Simulation Save Error]:", err);
+    return res.status(500).json({ error: "SAVE_SIMULATION_ERROR" });
+  }
+});
+
+app.post("/api/simulations/ai-diagnosis", requireUserAuth, aiLimiter, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const diagnosis = await simulationDiagnosisService.diagnose(user.userId, undefined, getGeminiClient());
+    return res.json({ success: true, diagnosis });
+  } catch (err: any) {
+    if (err?.message === "NO_SIMULATIONS_FOUND") {
+      return res.status(404).json({ error: "NO_SIMULATIONS_FOUND", message: "Cadastre pelo menos 1 simulado primeiro." });
+    }
+    console.error("[Consolidated Simulation AI Error]:", err);
+    return res.status(500).json({ error: "SIMULATION_AI_ERROR" });
+  }
+});
+
+app.post("/api/simulations/:id/ai-diagnosis", requireUserAuth, aiLimiter, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const diagnosis = await simulationDiagnosisService.diagnose(
+      user.userId,
+      String(req.params.id),
+      getGeminiClient()
+    );
+    return res.json({ success: true, diagnosis });
+  } catch (err: any) {
+    if (err?.message === "SIMULATION_NOT_FOUND") {
+      return res.status(404).json({ error: "SIMULATION_NOT_FOUND" });
+    }
+    console.error("[Simulation AI Error]:", err);
+    return res.status(500).json({ error: "SIMULATION_AI_ERROR" });
+  }
+});
+
+app.delete("/api/simulations/:id", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const removed = simulationDiagnosisService.deleteSimulation(user.userId, String(req.params.id));
+    if (!removed) return res.status(404).json({ error: "SIMULATION_NOT_FOUND" });
+    return res.json({ success: true, removed: true });
+  } catch (err: any) {
+    console.error("[Simulation Delete Error]:", err);
+    return res.status(500).json({ error: "DELETE_SIMULATION_ERROR" });
   }
 });
 

@@ -2806,10 +2806,17 @@ export default function App() {
 
         {/* Render Tab: Simulados & Métricas Táticas */}
         {activeTab === 'simulations' && (
-          <>
-            <Release3StudyPanel theme={theme} showToast={showToast} />
-            <TacticalSimulations theme={theme} showToast={showToast} />
-          </>
+          <div className="space-y-6">
+            <TacticalSimulations theme={theme} showToast={showToast} subjects={subjects} />
+            <details className={`rounded-2xl border p-4 ${isDark ? 'border-slate-800 bg-slate-900/40' : 'border-slate-200 bg-slate-50'}`}>
+              <summary className="cursor-pointer text-xs font-bold uppercase tracking-wider text-slate-400">
+                Simulados Adaptativos do Banco de Questões (Modo Avançado)
+              </summary>
+              <div className="mt-4">
+                <Release3StudyPanel theme={theme} showToast={showToast} />
+              </div>
+            </details>
+          </div>
         )}
 
         {activeTab === 'leveling' && (
