@@ -5,7 +5,6 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { initRumCollector } from './services/rumCollector.ts';
 import { appUpdateService } from './services/appUpdateService.ts';
-import './index.css';
 
 if (typeof document !== 'undefined') {
   // Em ambiente de desenvolvimento local, limpa Service Workers antigos para evitar cache stale

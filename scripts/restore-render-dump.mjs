@@ -60,7 +60,7 @@ function parseDatLine(line, colNames) {
 async function restore() {
   const pool = new Pool({
     connectionString: targetUrl,
-    ssl: { rejectUnauthorized: false },
+    ssl: { rejectUnauthorized: true },
     max: 2,
     connectionTimeoutMillis: 15000,
   });

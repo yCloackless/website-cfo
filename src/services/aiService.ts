@@ -25,6 +25,12 @@ export async function fetchAIStudyAnalysis(
     }
   }
 
+  return buildDeterministicStudyAnalysis(summary);
+}
+
+export function buildDeterministicStudyAnalysis(
+  summary: MonthlyStudySummary
+): { source: string; data: AIAnalysisResult } {
   // Deterministic client fallback grounded solely in real user monthly data (never fabricates hours or subjects)
   const hasRealStudy = summary.totalMinutes > 0 || summary.totalSessions > 0;
   const top = summary.subjectsStudied[0];

@@ -307,3 +307,64 @@ test('FASE 11: 7. Recuperação de Senha Completa (forgot-password e reset-passw
   const loginCheck = await authService.login(testEmail, newPassword);
   assert.equal(loginCheck.success, true);
 });
+
+test('FASE 11: 8. Avatar cacheável (/api/user/avatar/:userId) e payload enxuto em /api/user/profile', async () => {
+  const cadetUser = userRepo.findByUsername('cadete')!;
+  sessionRepo.revokeAllUserSessions(cadetUser.id);
+  const cadetLogin = await authService.login('cadete', 'fixture-cadet-password-2026');
+  assert.ok(cadetLogin.success && cadetLogin.token);
+
+  const otherUser = userRepo.findByEmail('aluno_rec_phase11@cbmerj.com')!;
+  sessionRepo.revokeAllUserSessions(otherUser.id);
+  const otherLogin = await authService.login(otherUser.email, 'novaSenhaForte2026!');
+  assert.ok(otherLogin.success && otherLogin.token);
+
+  const validPng = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+  ]).toString('base64');
+
+  const uploadRes = await fetch(`${baseUrl}/api/user/avatar`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${cadetLogin.token}`,
+    },
+    body: JSON.stringify({ imageBase64: `data:image/png;base64,${validPng}` }),
+  });
+  assert.equal(uploadRes.status, 200);
+  const uploadData = await uploadRes.json();
+  assert.match(uploadData.avatarUrl, new RegExp(`^/api/user/avatar/${cadetUser.id}\\?v=[a-f0-9]+$`));
+
+  const profileRes = await fetch(`${baseUrl}/api/user/profile`, {
+    headers: { Authorization: `Bearer ${cadetLogin.token}` },
+  });
+  assert.equal(profileRes.status, 200);
+  const profileData = await profileRes.json();
+  assert.equal(profileData.user.avatarUrl, uploadData.avatarUrl);
+
+  const unauthAvatarRes = await fetch(`${baseUrl}${uploadData.avatarUrl}`);
+  assert.equal(unauthAvatarRes.status, 401);
+
+  const otherAvatarRes = await fetch(`${baseUrl}${uploadData.avatarUrl}`, {
+    headers: { Authorization: `Bearer ${otherLogin.token}` },
+  });
+  assert.equal(otherAvatarRes.status, 403);
+
+  const avatarRes = await fetch(`${baseUrl}${uploadData.avatarUrl}`, {
+    headers: { Authorization: `Bearer ${cadetLogin.token}` },
+  });
+  assert.equal(avatarRes.status, 200);
+  assert.equal(avatarRes.headers.get('content-type'), 'image/png');
+  assert.match(avatarRes.headers.get('cache-control') || '', /max-age=86400/);
+  const etag = avatarRes.headers.get('etag');
+  assert.ok(etag);
+
+  const notModifiedRes = await fetch(`${baseUrl}${uploadData.avatarUrl}`, {
+    headers: {
+      Authorization: `Bearer ${cadetLogin.token}`,
+      'If-None-Match': etag!,
+    },
+  });
+  assert.equal(notModifiedRes.status, 304);
+});

@@ -19,7 +19,8 @@ import os from 'node:os';
 import { DatabaseService } from '../src/db/database';
 import { UserRepository, ProfileRepository } from '../src/db/repositories';
 import { AuthService } from '../src/db/authService';
-import { validateImageBuffer, saveUserAvatar, MAX_AVATAR_SIZE_BYTES } from '../src/services/avatarService';
+import * as avatarService from '../src/services/avatarService';
+const { validateImageBuffer, saveUserAvatar, MAX_AVATAR_SIZE_BYTES } = avatarService;
 
 function createTempDb(): {
   dbService: DatabaseService;
@@ -235,4 +236,27 @@ test('4. Anti-IDOR & Ownership: Isolamento Rigoroso de Dados entre Usuários', a
   } catch {}
 
   cleanup();
+});
+
+test('5. Helpers de URL compacta e decodificação segura de avatar em base64', () => {
+  const toPublicAvatarUrl = (avatarService as any).toPublicAvatarUrl;
+  const decodeAvatarDataUrl = (avatarService as any).decodeAvatarDataUrl;
+  assert.equal(typeof toPublicAvatarUrl, 'function');
+  assert.equal(typeof decodeAvatarDataUrl, 'function');
+
+  assert.equal(toPublicAvatarUrl('u1', null), null);
+  assert.equal(toPublicAvatarUrl('u1', '/avatars/legacy.png'), '/avatars/legacy.png');
+  assert.equal(toPublicAvatarUrl('u1', 'https://cdn.example.com/a.webp'), 'https://cdn.example.com/a.webp');
+
+  const samplePngBase64 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64');
+  const dataUrl = `data:image/png;base64,${samplePngBase64}`;
+  const publicUrl = toPublicAvatarUrl('u-123', dataUrl);
+  assert.match(publicUrl, /^\/api\/user\/avatar\/u-123\?v=[a-f0-9]{10}$/);
+
+  const decoded = decodeAvatarDataUrl(dataUrl);
+  assert.ok(decoded);
+  assert.equal(decoded.mimeType, 'image/png');
+  assert.ok(Buffer.isBuffer(decoded.buffer));
+  assert.match(decoded.etag, /^"[a-f0-9]{16}"$/);
+  assert.equal(decodeAvatarDataUrl('data:text/html;base64,PHNjcmlwdD4='), null);
 });

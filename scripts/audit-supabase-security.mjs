@@ -9,7 +9,7 @@ if (!connectionString) {
 
 const pool = new Pool({
   connectionString,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: true }
 });
 
 async function main() {
@@ -25,12 +25,12 @@ async function main() {
   const rlsDisabled = rlsRes.rows.filter(r => !r.rowsecurity);
   const rlsEnabled = rlsRes.rows.filter(r => r.rowsecurity);
   console.log(`[1] TABELAS NO SCHEMA PUBLIC: Total = ${rlsRes.rows.length}`);
-  console.log(`    - RLS ATIVADO: ${rlsEnabled.length} (100% BLINDADAS)`);
+  console.log(`    - RLS ATIVADO: ${rlsEnabled.length}`);
   console.log(`    - RLS DESATIVADO: ${rlsDisabled.length}`);
   if (rlsDisabled.length > 0) {
     console.log(`    ⚠️ TABELAS COM RLS DESATIVADO:`, rlsDisabled.map(r => r.tablename));
   } else {
-    console.log(`    ✅ TODAS AS 73 TABELAS POSSUEM ROW LEVEL SECURITY ATIVADO!`);
+    console.log(`    Todas as tabelas encontradas possuem Row Level Security ativado.`);
   }
 
   // 2. Policies

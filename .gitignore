@@ -18,6 +18,7 @@ calendar-session.json
 .agents/
 public/avatars/*
 !public/avatars/.gitkeep
+public/cfo-extensao-cbmerj/
 test-results/
 playwright-report/
 Python/

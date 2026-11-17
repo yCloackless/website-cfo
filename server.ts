@@ -90,7 +90,7 @@ import {
 } from "./src/db/repositories";
 import { honeypotRouter, honeytokenDetectionMiddleware } from "./src/services/honeypot/honeypotRoutes";
 import { UserRole, DbUser, DbExamPaper } from "./src/db/schema";
-import { validateImageBuffer } from "./src/services/avatarService";
+import { validateImageBuffer, toPublicAvatarUrl, decodeAvatarDataUrl } from "./src/services/avatarService";
 import { secureUploadService, SecureUploadService } from "./src/services/secureUploadService";
 import { putExamPdf, getExamPdf, deleteExamPdf } from "./src/services/exam/examPdfStorage";
 import { ExamService } from "./src/services/examService";
@@ -3281,7 +3281,7 @@ app.post("/api/admin/impersonation/start", requireAdminWriteAuth, requireStepUpA
       username: targetUser.username,
       role: targetUser.role,
       canAccessNotion: targetUser.canAccessNotion,
-      profile: { id: targetUser.id, fullName: profile?.fullName || targetUser.username, avatarUrl: profile?.avatarUrl || null },
+      profile: { id: targetUser.id, fullName: profile?.fullName || targetUser.username, avatarUrl: toPublicAvatarUrl(targetUser.id, profile?.avatarUrl) },
     });
   } catch (err: any) {
     console.error('[Admin Impersonation Start Error]:', err);
@@ -3925,7 +3925,7 @@ app.get("/api/admin/users/:id", requireAdminAuth, (req: Request, res: Response) 
           phone: profile?.phone || null,
           targetExam: profile?.targetExam || null,
           bio: profile?.bio || null,
-          avatarUrl: profile?.avatarUrl || null,
+          avatarUrl: toPublicAvatarUrl(targetUser.id, profile?.avatarUrl),
         },
         activeSessions,
         securityEvents,
@@ -4910,7 +4910,7 @@ app.get("/api/user/profile", requireUserAuth, (req: Request, res: Response) => {
         phone: profile?.phone || "",
         targetExam: profile?.targetExam || "CFO CBMERJ 2026",
         bio: profile?.bio || "",
-        avatarUrl: profile?.avatarUrl || null,
+        avatarUrl: toPublicAvatarUrl(user.id, profile?.avatarUrl),
         createdAt: user.createdAt,
       },
     });
@@ -4977,7 +4977,7 @@ app.patch("/api/user/profile", requireUserAuth, (req: Request, res: Response) =>
         phone: updatedProfile.phone || "",
         targetExam: updatedProfile.targetExam || "",
         bio: updatedProfile.bio || "",
-        avatarUrl: updatedProfile.avatarUrl || null,
+        avatarUrl: toPublicAvatarUrl(user.id, updatedProfile.avatarUrl),
       },
     });
   } catch (err: any) {
@@ -5021,11 +5021,45 @@ app.post("/api/user/avatar", requireUserAuth, uploadLimiter, rejectOversizedAvat
     return res.json({
       success: true,
       message: "Foto de perfil atualizada com sucesso!",
-      avatarUrl,
+      avatarUrl: toPublicAvatarUrl(user.id, avatarUrl),
     });
   } catch (err: any) {
     console.error("[Avatar Upload Error]:", err);
     return res.status(500).json({ success: false, message: "Falha ao processar e salvar foto de perfil." });
+  }
+});
+
+// 4. Entrega Binária Cacheável de Avatar (Evita 3+ MB no JSON do Perfil)
+app.get("/api/user/avatar/:userId", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const sessionUser = (req as any).user;
+    const targetUserId = String(req.params.userId || "").trim();
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, message: "Usuário inválido." });
+    }
+    if (sessionUser.userId !== targetUserId && sessionUser.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Acesso negado ao avatar solicitado." });
+    }
+
+    const profile = profileRepoInstance.findByUserId(targetUserId);
+    const decoded = decodeAvatarDataUrl(profile?.avatarUrl);
+    if (!decoded) {
+      return res.status(404).json({ success: false, message: "Avatar não encontrado." });
+    }
+
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.setHeader("ETag", decoded.etag);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+
+    if (req.headers["if-none-match"] === decoded.etag) {
+      return res.status(304).end();
+    }
+
+    res.setHeader("Content-Type", decoded.mimeType);
+    return res.status(200).send(decoded.buffer);
+  } catch (err: any) {
+    console.error("[Avatar Fetch Error]:", err);
+    return res.status(500).json({ success: false, message: "Falha ao carregar avatar." });
   }
 });
 

@@ -53,7 +53,7 @@ import {
   disconnectBackendCalendar,
   saveClientTokenToBackend,
 } from './services/calendarService';
-import { fetchAIStudyAnalysis } from './services/aiService';
+import { fetchAIStudyAnalysis, buildDeterministicStudyAnalysis } from './services/aiService';
 import { buildMonthlyStudySummary, getCurrentYearMonthAndToday } from './utils/studyBalance';
 import type { MonthlyStudySessionDay } from './types';
 import { getMondayOfWeek, getWeekDaysList, isTodayDate, formatBRDate, toISODate } from './utils/dateUtils';
@@ -934,15 +934,14 @@ export default function App() {
 
   }, [isTerminalUnlocked, isPersistentStateReady, showToast, refreshCalendarStatus]);
 
-  // Trigger automated AI analysis whenever cycle entries change or subjects load
+  // Atualiza diagnóstico determinístico local sem disparar chamadas automáticas ao endpoint de IA (evita 429)
   useEffect(() => {
-    if (subjects.length > 0 && currentCycle) {
-      const timer = setTimeout(() => {
-        runAIAnalysis(false);
-      }, 600);
-      return () => clearTimeout(timer);
-    }
-  }, [currentCycle?.updatedAt, subjects.length, runAIAnalysis]);
+    if (subjects.length === 0 || !currentCycle) return;
+    if (analysisSource === 'gemini') return;
+    const result = buildDeterministicStudyAnalysis(studySummary);
+    setAiAnalysis(result.data);
+    setAnalysisSource(result.source);
+  }, [subjects.length, currentCycle, studySummary, analysisSource]);
 
   // Google Sign In Handler (Inicia OAuth 2.0 offline do backend)
   const handleSignIn = async () => {

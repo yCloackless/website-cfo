@@ -77,3 +77,45 @@ export function saveUserAvatar(userId: string, buffer: Buffer, extension: string
   fs.writeFileSync(filePath, buffer);
   return `/avatars/${filename}`;
 }
+
+export interface DecodedAvatarData {
+  mimeType: string;
+  buffer: Buffer;
+  etag: string;
+}
+
+/**
+ * Decodifica data URL de avatar validando magic bytes antes de servir bytes binários.
+ */
+export function decodeAvatarDataUrl(rawUrl: string | null | undefined): DecodedAvatarData | null {
+  if (!rawUrl || typeof rawUrl !== 'string') return null;
+  const match = rawUrl.match(/^data:(image\/(?:png|jpeg|jpg|webp));base64,([A-Za-z0-9+/=\s]+)$/i);
+  if (!match) return null;
+
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(match[2].replace(/\s+/g, ''), 'base64');
+  } catch {
+    return null;
+  }
+
+  const validation = validateImageBuffer(buffer);
+  if (!validation.valid || !validation.detectedMime) return null;
+
+  const etag = `"${crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 16)}"`;
+  return {
+    mimeType: validation.detectedMime,
+    buffer,
+    etag,
+  };
+}
+
+/**
+ * Converte data:image/... pesado do banco em URL curta cacheável no endpoint autenticado.
+ */
+export function toPublicAvatarUrl(userId: string, rawAvatarUrl: string | null | undefined): string | null {
+  if (!rawAvatarUrl || typeof rawAvatarUrl !== 'string') return null;
+  if (!rawAvatarUrl.startsWith('data:image/')) return rawAvatarUrl;
+  const version = crypto.createHash('sha256').update(rawAvatarUrl).digest('hex').slice(0, 10);
+  return `/api/user/avatar/${encodeURIComponent(userId)}?v=${version}`;
+}
