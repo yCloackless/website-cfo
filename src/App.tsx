@@ -51,7 +51,9 @@ import {
   disconnectBackendCalendar,
   saveClientTokenToBackend,
 } from './services/calendarService';
-import { buildWeeklyStudySummary, fetchAIStudyAnalysis } from './services/aiService';
+import { fetchAIStudyAnalysis } from './services/aiService';
+import { buildMonthlyStudySummary, getCurrentYearMonthAndToday } from './utils/studyBalance';
+import type { MonthlyStudySessionDay } from './types';
 import { getMondayOfWeek, getWeekDaysList, isTodayDate, formatBRDate, toISODate } from './utils/dateUtils';
 import { WEEK_DAYS } from './data/cfoSubjects';
 import { hydratePersistentState, startPersistentStateSync, clearPersistentStateCache } from './services/remotePersistence';
@@ -463,6 +465,8 @@ export default function App() {
     localStorage.removeItem('cfo_can_access_notion');
     localStorage.removeItem('cfo_can_access_ifrj');
     setUserProfile(null);
+    setMonthlySessionDays({});
+    setAiAnalysis(null);
     setCanAccessNotion(true);
     setCanAccessIfrj(false);
     setIsTerminalUnlocked(false);
@@ -542,6 +546,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [monthlySessionDays, setMonthlySessionDays] = useState<Record<string, MonthlyStudySessionDay>>({});
 
   // Backend Google Calendar connection status (permanent session) com cache síncrono local
   const [backendCalendar, setBackendCalendar] = useState<{
@@ -696,6 +701,8 @@ export default function App() {
       setSwitchStepUpOpen(false);
       setPendingAccountId(null);
       setIsPersistentStateReady(false);
+      setMonthlySessionDays({});
+      setAiAnalysis(null);
       clearPersistentStateCache();
       await hydratePersistentState();
       setIsPersistentStateReady(true);
@@ -749,6 +756,8 @@ export default function App() {
       setCanAccessNotion(true);
       setCanAccessIfrj(true);
       setIsPersistentStateReady(false);
+      setMonthlySessionDays({});
+      setAiAnalysis(null);
       clearPersistentStateCache();
       await hydratePersistentState();
       setIsPersistentStateReady(true);
@@ -758,10 +767,10 @@ export default function App() {
     }
   }, [showToast]);
 
-  // Compute weekly study summary
+  // Compute monthly study summary (real per-user data across current month)
   const studySummary = useMemo(() => {
-    return buildWeeklyStudySummary(subjects, currentCycle);
-  }, [subjects, currentCycle]);
+    return buildMonthlyStudySummary(subjects, currentCycle, cyclesHistory, monthlySessionDays);
+  }, [subjects, currentCycle, cyclesHistory, monthlySessionDays]);
 
   // Run AI Analysis function (supports automated background execution)
   const runAIAnalysis = useCallback(
@@ -769,7 +778,7 @@ export default function App() {
       if (subjects.length === 0) return;
       setIsLoadingAI(true);
       try {
-        const summary = buildWeeklyStudySummary(subjects, currentCycle);
+        const summary = buildMonthlyStudySummary(subjects, currentCycle, cyclesHistory, monthlySessionDays);
         const result = await fetchAIStudyAnalysis(summary);
         setAiAnalysis(result.data);
         setAnalysisSource(result.source);
@@ -790,7 +799,7 @@ export default function App() {
         setIsLoadingAI(false);
       }
     },
-    [subjects, currentCycle, showToast]
+    [subjects, currentCycle, cyclesHistory, monthlySessionDays, showToast]
   );
 
   // Hydrate server-side user state before loading the study stores. This makes the
@@ -1534,12 +1543,13 @@ export default function App() {
     [currentCycle, weekDays, showToast]
   );
 
-  // Sincroniza sessões de estudo registradas no backend (Agenda de Horas / Banco) com o Ciclo Semanal atual
+  // Sincroniza sessões de estudo do mês e da semana registradas no backend (Agenda de Horas / Banco)
   const syncWeeklyStudySessionsWithBackend = useCallback(async () => {
     if (!currentCycle || !isTerminalUnlocked) return;
     try {
-      const startDate = currentCycle.startDate;
-      const endDate = currentCycle.endDate;
+      const { monthStart, todayStr } = getCurrentYearMonthAndToday();
+      const startDate = currentCycle.startDate && currentCycle.startDate < monthStart ? currentCycle.startDate : monthStart;
+      const endDate = currentCycle.endDate && currentCycle.endDate > todayStr ? currentCycle.endDate : todayStr;
       if (!startDate || !endDate) return;
 
       const res = await apiFetch(`/api/study-sessions/range?startDate=${startDate}&endDate=${endDate}&_t=${Date.now()}`, {
@@ -1559,6 +1569,7 @@ export default function App() {
           subjects: Array<{ subjectId: string; subjectName: string; durationSeconds: number }>;
         }
       >;
+      setMonthlySessionDays(dailySummary);
 
       let hasChanges = false;
       const updatedEntries = { ...(currentCycle.entries || {}) };

@@ -233,3 +233,23 @@ test('notionBackend paginates next_cursor, parses mes4-mes10, and updates mes5 w
     if (prevDb === undefined) delete process.env.NOTION_DATABASE_ID; else process.env.NOTION_DATABASE_ID = prevDb;
   }
 });
+
+test('fetchAIStudyAnalysis client fallback never fabricates hours, score, or unrelated subjects', async () => {
+  const { fetchAIStudyAnalysis } = await import('../src/services/aiService');
+  const zeroSummary = buildMonthlyStudySummary(
+    [{ id: 'hist', name: 'História', category: 'Humanas', color: '#8b5cf6' }],
+    null,
+    [],
+    {},
+    new Date('2026-11-17T12:00:00Z'),
+  );
+  const res = await fetchAIStudyAnalysis(zeroSummary);
+  assert.equal(res.source, 'heuristic');
+  assert.equal(res.data.equilibriumScore, 0);
+  assert.equal(res.data.topStudiedSubject.hours, 0);
+  assert.equal(res.data.topStudiedSubject.sessions, 0);
+  assert.equal(
+    res.data.prioritySubjectsForNextWeek.some((p) => p.name === 'Física' || p.name === 'Química'),
+    false,
+  );
+});
