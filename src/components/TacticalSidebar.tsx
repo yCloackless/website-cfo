@@ -672,13 +672,6 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         aria-hidden="true"
       />
 
-      {/* Hover edge for the collapsed desktop menu */}
-      <div
-        className="hidden md:block fixed top-0 bottom-0 left-[68px] w-3 z-30 pointer-events-auto"
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-      />
-
       {/* Floating Animated Sidebar Drawer */}
       <aside
         aria-label="Navegação Principal do Sistema"
