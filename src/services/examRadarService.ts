@@ -79,7 +79,7 @@ function parseJsonSafe<T>(raw: string | null | undefined, fallback: T): T {
 export function sanitizeSubjectScores(scores: unknown): SubjectScoreEntry[] {
   if (!Array.isArray(scores)) return [];
   return scores
-    .map((entry: any) => {
+    .map((entry: any): SubjectScoreEntry | null => {
       const subjectName = String(entry?.subjectName || '').trim().slice(0, 120);
       if (!subjectName) return null;
       const totalCount = Math.max(1, Math.min(200, Math.round(Number(entry?.totalCount) || 0)));
