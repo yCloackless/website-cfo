@@ -292,9 +292,9 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
   const hairline = isDark ? "border-white/[0.07]" : "border-[#ececeb]";
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-4 space-y-3">
-      {/* Barra compacta estilo Notion (substitui os cards empilhados) */}
-      <div className={`px-4 py-3 rounded-xl border flex flex-col lg:flex-row lg:items-center justify-between gap-3 ${surfaceBar}`}>
+    <div className="w-full flex-1 flex flex-col min-h-[calc(100dvh-65px)]">
+      {/* Barra compacta estilo Notion ocupando 100% da largura */}
+      <div className={`px-4 py-2.5 border-b flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 ${surfaceBar}`}>
         <div className="flex items-center gap-3 flex-wrap min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-base">📕</span>
@@ -423,7 +423,7 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
       {/* Aviso se não configurado */}
       {dataSource === "unavailable" && !isLoading && items.length === 0 && (
         <div
-          className={`px-4 py-3 rounded-xl border flex items-center gap-2.5 text-xs ${
+          className={`mx-4 my-2 px-4 py-3 rounded-xl border flex items-center gap-2.5 text-xs ${
             isDark
               ? "bg-amber-950/20 border-amber-800/40 text-amber-300"
               : "bg-amber-50 border-amber-200 text-amber-900"
@@ -455,10 +455,10 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
         />
       ) : (
         <div
-          className={`rounded-xl border overflow-hidden ${
+          className={`flex-1 flex flex-col overflow-hidden ${
             isDark
-              ? "bg-[#191919] border-white/[0.08] text-[#e6e6e4]"
-              : "bg-white border-[#e6e6e3] text-[#37352f]"
+              ? "bg-[#191919] text-[#e6e6e4]"
+              : "bg-white text-[#37352f]"
           }`}
         >
           {/* Filtros limpos */}

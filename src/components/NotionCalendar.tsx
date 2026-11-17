@@ -801,7 +801,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
   };
 
   return (
-    <div className={`w-full rounded-xl border overflow-hidden shadow-sm ${notionCanvas}`}>
+    <div className={`w-full flex-1 flex flex-col overflow-hidden ${notionCanvas}`}>
       {/* Barra superior estilo Notion Calendar */}
       <div
         className={`px-3 sm:px-4 py-2.5 border-b flex flex-wrap items-center justify-between gap-2.5 ${hairline} ${
@@ -1027,13 +1027,13 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
 
       {/* Estado de Carregamento */}
       {isLoading && reviews.length === 0 ? (
-        <div className={`py-16 text-center text-xs ${isDark ? "text-white/50" : "text-[#37352f]/60"}`}>
+        <div className={`flex-1 flex items-center justify-center py-16 text-center text-xs ${isDark ? "text-white/50" : "text-[#37352f]/60"}`}>
           Sincronizando calendário com o Notion...
         </div>
       ) : viewMode === "week" ? (
         /* ================== VISUALIZAÇÃO SEMANAL (ESTILO NOTION CALENDAR) ================== */
-        <div className="overflow-x-auto">
-          <div className="min-w-[820px]">
+        <div className="flex-1 flex flex-col overflow-x-auto">
+          <div className="min-w-[820px] flex-1 flex flex-col">
             {/* Cabeçalho dos 7 dias (dom 15, seg 16, ter [17], ...) */}
             <div
               className={`grid grid-cols-[52px_repeat(7,minmax(0,1fr))] border-b ${hairline} ${
@@ -1137,14 +1137,14 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
             </div>
 
             {/* Grade horária visual do Notion Calendar com linha vermelha ao vivo */}
-            <div className="relative">
-              <div className="grid grid-cols-[52px_repeat(7,minmax(0,1fr))]">
+            <div className="relative flex-1 flex flex-col">
+              <div className="flex-1 grid grid-cols-[52px_repeat(7,minmax(0,1fr))]">
                 {/* Coluna esquerda de horários */}
-                <div className={`border-r ${hairline}`}>
+                <div className={`flex flex-col border-r ${hairline}`}>
                   {HOUR_SLOTS.map((hour) => (
                     <div
                       key={hour}
-                      className={`h-9 pr-1.5 flex items-start justify-end text-[10px] tabular-nums -mt-1.5 ${
+                      className={`flex-1 min-h-[48px] pr-1.5 flex items-start justify-end text-[10px] tabular-nums -mt-1.5 ${
                         isDark ? "text-white/25" : "text-[#37352f]/35"
                       }`}
                     >
@@ -1157,12 +1157,12 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
                 {weekDays.map((day) => (
                   <div
                     key={day.dateStr}
-                    className={`relative border-r last:border-r-0 ${hairline} ${
+                    className={`relative flex flex-col border-r last:border-r-0 ${hairline} ${
                       day.isToday ? (isDark ? "bg-white/[0.015]" : "bg-[#fffafa]") : ""
                     }`}
                   >
                     {HOUR_SLOTS.map((hour) => (
-                      <div key={hour} className={`h-9 border-b last:border-b-0 ${hairline}`} />
+                      <div key={hour} className={`flex-1 min-h-[48px] border-b last:border-b-0 ${hairline}`} />
                     ))}
 
                     {/* Indicador de hora atual no dia de hoje */}
@@ -1195,8 +1195,8 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
         </div>
       ) : (
         /* ================== VISUALIZAÇÃO MENSAL (ESTILO NOTION CALENDAR) ================== */
-        <div className="overflow-x-auto">
-          <div className="min-w-[680px]">
+        <div className="flex-1 flex flex-col overflow-x-auto">
+          <div className="min-w-[680px] flex-1 flex flex-col">
             {/* Cabeçalho dias da semana */}
             <div
               className={`grid grid-cols-7 border-b py-1.5 text-center text-[11px] font-medium ${hairline} ${
@@ -1209,7 +1209,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
             </div>
 
             {/* Grade mensal */}
-            <div className={`grid grid-cols-7 divide-x divide-y ${divideHairline}`}>
+            <div className={`flex-1 grid grid-cols-7 grid-rows-6 divide-x divide-y ${divideHairline}`}>
               {monthCells.map((cell) => {
                 const dayReviews = reviewsByDate[cell.dateStr] || [];
                 const maxVisible = 4;

@@ -2068,14 +2068,10 @@ export default function App() {
         />
 
         {/* Main Content Area */}
-        <main className={`flex-1 max-w-none w-full mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-7 space-y-6 min-w-0 ${
+        <main className={`flex-1 max-w-none w-full min-w-0 ${
           isNotionShell
-            ? isDark
-              ? 'bg-[#191919]'
-              : 'bg-white'
-            : isDark
-              ? 'bg-[#0B0F17]'
-              : 'bg-white'
+            ? `flex flex-col p-0 ${isDark ? 'bg-[#191919]' : 'bg-white'}`
+            : `mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-7 space-y-6 ${isDark ? 'bg-[#0B0F17]' : 'bg-white'}`
         }`}>
 
         {/* Alerta Tático para Administradores se a página estiver em manutenção para alunos */}
@@ -2610,15 +2606,17 @@ export default function App() {
           </>
         )}
 
-        {/* Footer */}
-        <footer
-          className={`mt-8 pt-6 border-t flex flex-col sm:flex-row justify-between items-center gap-2 text-[10px] uppercase tracking-[0.2em] pb-4 transition-colors ${
-            isDark ? 'border-slate-800/80 text-slate-500' : 'border-slate-200 text-slate-400'
-          }`}
-        >
-          <span>Conselho: Disciplina é a ponte entre metas e conquistas.</span>
-          <span>Versão 1.1.0 • CFO CBMERJ Dashboard</span>
-        </footer>
+        {/* Footer (oculto no modo tela cheia da Agenda Notion) */}
+        {!isNotionShell && (
+          <footer
+            className={`mt-8 pt-6 border-t flex flex-col sm:flex-row justify-between items-center gap-2 text-[10px] uppercase tracking-[0.2em] pb-4 transition-colors ${
+              isDark ? 'border-slate-800/80 text-slate-500' : 'border-slate-200 text-slate-400'
+            }`}
+          >
+            <span>Conselho: Disciplina é a ponte entre metas e conquistas.</span>
+            <span>Versão 1.1.0 • CFO CBMERJ Dashboard</span>
+          </footer>
+        )}
 
       </main>
       </div>
