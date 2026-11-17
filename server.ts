@@ -104,10 +104,8 @@ import { createAnkiRouter } from "./src/routes/ankiRouter";
 import { AnkiRepository } from "./src/db/ankiRepository";
 import { logR2StartupCheck } from "./src/services/anki/ankiMediaStorage";
 import { isValidImportance, normalizeImportance } from "./src/services/anki/ankiImportance";
-import { createWhiteboardRouter } from "./src/routes/whiteboardRouter";
 import { createMathRouter } from "./src/routes/mathRouter";
 import { encryptStoredJson, decryptStoredJson } from "./src/utils/storedJsonCrypto";
-import { whiteboardRealtimeHub } from "./src/services/whiteboard/whiteboardRealtimeHub";
 import { DEFAULT_CFO_SUBJECTS } from "./src/data/cfoSubjects";
 
 const app = express();
@@ -170,13 +168,12 @@ app.use(
         styleSrcElem: ["'self'", "'sha256-hii1GvifzLiObm11mxWcUszTcw1MQwk4Xrh9I9h7RwA='"],
         // KaTeX, Motion and Recharts still require runtime style attributes.
         styleSrcAttr: ["'unsafe-inline'"],
-        fontSrc: ["'self'", "data:", "https://cdn.tldraw.com"],
-        imgSrc: ["'self'", "data:", "blob:", "https://cdn.tldraw.com"],
+        fontSrc: ["'self'", "data:"],
+        imgSrc: ["'self'", "data:", "blob:"],
         frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com"],
         connectSrc: isProduction
           ? [
               "'self'",
-              "https://cdn.tldraw.com",
               "https://challenges.cloudflare.com",
               "https://*.googleapis.com",
               "https://generativelanguage.googleapis.com",
@@ -188,7 +185,6 @@ app.use(
               "wss:",
               "http://localhost:*",
               "http://127.0.0.1:*",
-              "https://cdn.tldraw.com",
               "https://challenges.cloudflare.com",
               "https://*.googleapis.com",
               "https://generativelanguage.googleapis.com",
@@ -8393,11 +8389,6 @@ app.post('/api/flashcards/decks/:deckId/cards/batch', requireUserAuth, (req: Req
 app.use('/api/anki', createAnkiRouter(requireUserAuth));
 
 // =========================================================================
-// 🎨 CLOUD WHITEBOARD ROUTER (Infinite canvas, real-time sync, assets)
-// =========================================================================
-app.use('/api', createWhiteboardRouter(requireUserAuth));
-
-// =========================================================================
 // 🧮 MATH CHAT CALCULATOR ROUTER (WolframAlpha + Local CAS + Vision OCR)
 // =========================================================================
 app.use('/api/math', createMathRouter(requireUserAuth));
@@ -9390,7 +9381,6 @@ async function startServer() {
     examJobWorker.stop();
     stopBackupScheduler();
     adminRealtimeHub.destroy();
-    whiteboardRealtimeHub.destroy();
     server.close(() => {
       try { getDb().close(); } catch (error) { logInternalError('Database shutdown', error); }
       process.exit(0);

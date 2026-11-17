@@ -155,7 +155,6 @@ test('6. Security boundaries: verified TLS, shared upload limits, and generic in
   const migration = source('scripts/migrate-sqlite-to-postgres.ts');
   const redis = source('src/services/redisService.ts');
   const server = source('server.ts');
-  const whiteboard = source('src/routes/whiteboardRouter.ts');
   const anki = source('src/routes/ankiRouter.ts');
 
   for (const config of [postgres, migration, redis]) {
@@ -166,10 +165,7 @@ test('6. Security boundaries: verified TLS, shared upload limits, and generic in
   assert.match(source('src/db/postgresTls.ts'), /rejectUnauthorized: true/);
   assert.match(redis, /REDIS_TLS_CA\s*\?\s*\{\s*ca:\s*process\.env\.REDIS_TLS_CA\s*\}\s*:\s*\{\}/);
   assert.match(server, /createRateLimitRedisStore\('upload'\)/);
-  assert.match(whiteboard, /createRateLimitRedisStore\('whiteboard_upload'\)/);
-  for (const router of [anki, whiteboard]) {
-    assert.doesNotMatch(router, /status\(500\).*message:\s*err\??\.message/);
-  }
+  assert.doesNotMatch(anki, /status\(500\).*message:\s*err\??\.message/);
 });
 
 test('7. Local Compose separates bootstrap and restricted PostgreSQL application roles', () => {

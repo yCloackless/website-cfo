@@ -105,9 +105,6 @@ test('Maintenance Mode Persistence and Configuration Suite', async (t) => {
     const ifrij = eligible.find((m) => m.id === 'ifrij');
     assert.ok(ifrij, 'Rumo ao VEST (ifrij) deve constar automaticamente');
 
-    const whiteboard = eligible.find((m) => m.id === 'whiteboard');
-    assert.ok(whiteboard, 'Quadro Branco (whiteboard) deve constar automaticamente');
-
     // Validação de busca por ID
     const found = getModuleById('boardIntelligence');
     assert.ok(found);

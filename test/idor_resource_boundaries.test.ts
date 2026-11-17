@@ -65,16 +65,6 @@ test.after(async () => {
 });
 
 test('two authenticated users cannot read, mutate, or delete each other’s private resources by ID', async () => {
-  // Whiteboards: GET, PATCH, DELETE are all owner-scoped.
-  const boardCreate = await request(tokenA, '/api/whiteboards', 'POST', { title: 'A private board', userId: userBId });
-  assert.equal(boardCreate.response.status, 201);
-  const boardId = boardCreate.data.board.id;
-  for (const [method, body] of [['GET', undefined], ['PATCH', { title: 'B changed this', ownerId: userBId }], ['DELETE', undefined]] as const) {
-    const blocked = await request(tokenB, `/api/whiteboards/${boardId}`, method, body);
-    assert.equal(blocked.response.status, 404, `User B ${method} whiteboard must be hidden`);
-  }
-  assert.equal((await request(tokenA, `/api/whiteboards/${boardId}`)).response.status, 200);
-
   // Flashcards: authenticated identity overrides userId/ownerId in the body.
   const subject = await request(tokenA, '/api/flashcards/subjects', 'POST', { name: 'A subject', userId: userBId });
   assert.equal(subject.response.status, 201);

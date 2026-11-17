@@ -94,10 +94,8 @@ const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard').th
 const MaintenanceScreen = lazy(() => import('./components/MaintenanceScreen').then(({ MaintenanceScreen }) => ({ default: MaintenanceScreen })));
 const NotFound = lazy(() => import('./components/NotFound').then(({ NotFound }) => ({ default: NotFound })));
 const IfriStudyTab = lazy(() => import('./components/IfriStudyTab').then(({ IfriStudyTab }) => ({ default: IfriStudyTab })));
-const WhiteboardWorkspace = lazy(() => import('./components/whiteboard/WhiteboardWorkspace').then(({ WhiteboardWorkspace }) => ({ default: WhiteboardWorkspace })));
 const MathChatTab = lazy(() => import('./components/calculator/MathChatTab').then(({ MathChatTab }) => ({ default: MathChatTab })));
 import { ConfirmModal } from './components/ConfirmModal';
-import { clearUserOfflineCache } from './utils/whiteboardOfflineCache';
 
 export default function App() {
   const location = useLocation();
@@ -105,14 +103,8 @@ export default function App() {
 
   // Active Tab derivado diretamente da URL
   const activeTab = useMemo<TabType>(() => {
-    if (location.pathname.startsWith('/whiteboard')) return 'whiteboard';
     if (location.pathname.startsWith('/banco-de-provas')) return 'examBank';
     return ROUTE_TAB_MAP[location.pathname] || 'table';
-  }, [location.pathname]);
-
-  const whiteboardBoardId = useMemo(() => {
-    const match = location.pathname.match(/^\/whiteboard\/([a-zA-Z0-9_-]+)/);
-    return match ? match[1] : undefined;
   }, [location.pathname]);
 
   const handleSelectTab = useCallback((tab: TabType) => {
@@ -470,9 +462,6 @@ export default function App() {
     localStorage.removeItem('cfo_terminal_role');
     localStorage.removeItem('cfo_can_access_notion');
     localStorage.removeItem('cfo_can_access_ifrj');
-    if (userProfile?.id) {
-      clearUserOfflineCache(userProfile.id).catch(() => {});
-    }
     setUserProfile(null);
     setCanAccessNotion(true);
     setCanAccessIfrj(false);
@@ -1824,7 +1813,6 @@ export default function App() {
     '/configuracoes',
     '/extensao',
     '/admin',
-    '/whiteboard',
     '/calculadora',
   ];
 
@@ -1832,7 +1820,6 @@ export default function App() {
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
   const isValidRoute = VALID_APP_ROUTES.includes(normalizedPath)
     || normalizedPath.startsWith('/admin')
-    || normalizedPath.startsWith('/whiteboard')
     || normalizedPath.startsWith('/banco-de-provas');
 
   if (!isValidRoute) {
@@ -2577,16 +2564,6 @@ export default function App() {
         {activeTab === 'flashcards' && (
           <ErrorNotebookTab
             theme={theme}
-            showToast={showToast}
-          />
-        )}
-
-        {/* Render Tab: Quadro Branco / Cloud Workspace de Questões */}
-        {activeTab === 'whiteboard' && (
-          <WhiteboardWorkspace
-            userId={userProfile?.id}
-            boardId={whiteboardBoardId}
-            onNavigateBack={() => handleSelectTab('table')}
             showToast={showToast}
           />
         )}
