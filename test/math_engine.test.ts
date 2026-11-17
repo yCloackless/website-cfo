@@ -191,3 +191,51 @@ test('wolframClient: returns null when WOLFRAM_APP_ID is absent or fetch fails',
   if (prev !== undefined) process.env.WOLFRAM_APP_ID = prev;
   else delete process.env.WOLFRAM_APP_ID;
 });
+
+import {
+  validateMathImageBuffer,
+  extractMathFromImage,
+} from '../src/services/math/imageExtractor';
+
+test('imageExtractor: validates PNG, JPEG, WEBP magic bytes and rejects disguised files/oversize', () => {
+  const pngBuf = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);
+  assert.deepEqual(validateMathImageBuffer(pngBuf, 'image/png'), {
+    valid: true,
+    mimeType: 'image/png',
+  });
+
+  const jpgBuf = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+  assert.deepEqual(validateMathImageBuffer(jpgBuf, 'image/jpeg'), {
+    valid: true,
+    mimeType: 'image/jpeg',
+  });
+
+  const webpBuf = Buffer.from('524946460000000057454250', 'hex');
+  assert.deepEqual(validateMathImageBuffer(webpBuf, 'image/webp'), {
+    valid: true,
+    mimeType: 'image/webp',
+  });
+
+  const disguisedSvg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+  const svgRes = validateMathImageBuffer(disguisedSvg, 'image/png');
+  assert.equal(svgRes.valid, false);
+
+  const tooBig = Buffer.alloc(5 * 1024 * 1024 + 10);
+  const bigRes = validateMathImageBuffer(tooBig, 'image/png');
+  assert.equal(bigRes.valid, false);
+});
+
+test('imageExtractor: returns friendly error when no vision API key is configured', async () => {
+  const prevGemini = process.env.GEMINI_API_KEY;
+  const prevOpenai = process.env.OPENAI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+
+  const pngBuf = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);
+  const res = await extractMathFromImage(pngBuf, 'image/png');
+  assert.equal(res.ok, false);
+  assert.ok((res.error || '').length > 10);
+
+  if (prevGemini !== undefined) process.env.GEMINI_API_KEY = prevGemini;
+  if (prevOpenai !== undefined) process.env.OPENAI_API_KEY = prevOpenai;
+});
