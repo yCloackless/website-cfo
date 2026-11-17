@@ -123,3 +123,71 @@ test('localMathEngine: rejects unsafe payloads, long strings, and division by ze
   assert.equal(divZero.ok, false);
   assert.match(divZero.error || '', /zero|indefinid|divis/i);
 });
+
+import {
+  isWolframConfigured,
+  buildWolframQuery,
+  parseWolframJsonResponse,
+  solveWithWolfram,
+} from '../src/services/math/wolframClient';
+
+test('wolframClient: buildWolframQuery translates slash commands', () => {
+  assert.equal(buildWolframQuery('x^2', '/derivar'), 'derivative of x^2');
+  assert.equal(buildWolframQuery('3*x^2', '/integrar'), 'integrate 3*x^2');
+  assert.equal(buildWolframQuery('124/4'), '124/4');
+});
+
+test('wolframClient: parseWolframJsonResponse extracts exact result, decimal, and steps', () => {
+  const mockJson = {
+    queryresult: {
+      success: true,
+      error: false,
+      pods: [
+        {
+          title: 'Input',
+          id: 'Input',
+          subpods: [{ plaintext: '124 / 4' }],
+        },
+        {
+          title: 'Exact result',
+          id: 'Result',
+          primary: true,
+          subpods: [{ plaintext: '31' }],
+        },
+        {
+          title: 'Step-by-step solution',
+          id: 'StepByStep',
+          subpods: [{ plaintext: 'Divide 124 by 4 to get 31.' }],
+        },
+      ],
+    },
+  };
+
+  const parsed = parseWolframJsonResponse(mockJson, '124/4');
+  assert.ok(parsed);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.source, 'wolfram');
+  assert.equal(parsed.exactResult, '31');
+  assert.ok(parsed.steps.length >= 1);
+});
+
+test('wolframClient: returns null when WOLFRAM_APP_ID is absent or fetch fails', async () => {
+  const prev = process.env.WOLFRAM_APP_ID;
+  delete process.env.WOLFRAM_APP_ID;
+  assert.equal(isWolframConfigured(), false);
+  const noKeyRes = await solveWithWolfram('124/4');
+  assert.equal(noKeyRes, null);
+
+  process.env.WOLFRAM_APP_ID = 'DEMO_KEY';
+  const failingFetch = (async () => ({
+    ok: false,
+    status: 500,
+    json: async () => ({}),
+  })) as unknown as typeof fetch;
+
+  const failRes = await solveWithWolfram('124/4', undefined, failingFetch);
+  assert.equal(failRes, null);
+
+  if (prev !== undefined) process.env.WOLFRAM_APP_ID = prev;
+  else delete process.env.WOLFRAM_APP_ID;
+});
