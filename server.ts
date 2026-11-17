@@ -1264,7 +1264,7 @@ async function getValidCalendarAccessToken(clientToken?: string): Promise<string
   if (session) {
     const now = Date.now();
     // 5 min buffer
-    const isStillValid = session.expiry_date && session.expiry_date > now + 300000;
+    const isStillValid = Boolean(session.expiry_date && session.expiry_date > now + 300000);
 
     if (isStillValid && session.access_token) {
       return session.access_token;
@@ -1297,15 +1297,23 @@ async function getValidCalendarAccessToken(clientToken?: string): Promise<string
           console.log("Token do Google Agenda renovado com sucesso!");
           return session.access_token;
         } else {
-          const errText = await refreshResp.text();
-          console.warn("Falha ao renovar token do Google:", errText ? 'provider_error' : 'unknown_error');
+          const errData = (await refreshResp.json().catch(() => ({}))) as any;
+          const errCode = errData?.error || 'provider_error';
+          console.warn("Falha ao renovar token do Google:", errCode);
+          // Clear revoked/expired refresh tokens so status reports disconnected instead of silently looping on dead credentials.
+          if (errCode === 'invalid_grant') {
+            clearCalendarSession();
+            return clientToken || null;
+          }
         }
       } catch (err) {
         console.error("Erro durante renovação de token do Google Agenda.");
       }
     }
 
-    if (session.access_token) {
+    // Never return a known-expired access_token after refresh failed.
+    const isKnownExpired = session.expiry_date !== undefined && now >= session.expiry_date;
+    if (session.access_token && !isKnownExpired) {
       return session.access_token;
     }
   }
@@ -5366,16 +5374,18 @@ app.get("/api/calendar/status", async (_req: Request, res: Response) => {
     }
 
     const now = Date.now();
-    const isExpired = session.expiry_date ? now >= session.expiry_date : false;
+    const isExpired = session.expiry_date !== undefined ? now >= session.expiry_date : false;
     const canRefresh = !!(session.refresh_token && GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
 
     // Se estiver expirado mas puder renovar, tenta renovação prévia
     let activeToken = session.access_token;
-    if (isExpired && canRefresh) {
-      activeToken = (await getValidCalendarAccessToken()) || "";
+    if (isExpired) {
+      activeToken = canRefresh ? (await getValidCalendarAccessToken()) || "" : "";
     }
 
-    const isConnected = !!activeToken && (!isExpired || canRefresh);
+    let isConnected = !!activeToken;
+    let needsReconnect = !isConnected;
+    let reconnectReason: string | undefined = !isConnected ? 'TOKEN_EXPIRED' : undefined;
 
     let apiOperational: boolean | null = null;
     let apiErrorMessage: string | null = null;
@@ -5392,7 +5402,11 @@ app.get("/api/calendar/status", async (_req: Request, res: Response) => {
         } else {
           const errData = (await testResp.json().catch(() => ({}))) as any;
           const errMsg = errData?.error?.message || "";
-          if (testResp.status === 403 && errMsg.includes("Google Calendar API has not been used")) {
+          if (testResp.status === 401) {
+            isConnected = false;
+            needsReconnect = true;
+            reconnectReason = 'TOKEN_EXPIRED';
+          } else if (testResp.status === 403 && errMsg.includes("Calendar API has not been used")) {
             apiOperational = false;
             apiErrorMessage = errMsg;
             const projectNumber = (GOOGLE_CLIENT_ID || "").split("-")[0] || "1077493396610";
@@ -5404,10 +5418,12 @@ app.get("/api/calendar/status", async (_req: Request, res: Response) => {
 
     return res.json({
       connected: isConnected,
-      permanent: !!session.refresh_token,
+      permanent: isConnected && !!session.refresh_token,
       email: session.email || null,
       name: session.name || null,
-      hasRefreshToken: !!session.refresh_token,
+      hasRefreshToken: isConnected && !!session.refresh_token,
+      needsReconnect,
+      reconnectReason,
       needsClientSecret: !GOOGLE_CLIENT_SECRET,
       clientIdConfigured: !!GOOGLE_CLIENT_ID,
       updatedAt: session.updatedAt,
@@ -5552,6 +5568,24 @@ app.post("/api/calendar/verify-token", requireAdminAuth, calendarLimiter, async 
   }
 });
 
+function sendCalendarSyncError(res: Response, error: any, context: string, fallbackMessage: string) {
+  if (error?.status === 401) {
+    return res.status(401).json({
+      error: "TOKEN_EXPIRED",
+      message: "A autorização do Google Agenda expirou. Por favor, reconecte sua conta.",
+    });
+  }
+  logInternalError(context, error);
+  const googleMsg = String(error?.googleError?.error?.message || error?.message || '');
+  const isApiDisabled = googleMsg.includes('Calendar API has not been used');
+  return res.status(502).json({
+    error: isApiDisabled ? "GOOGLE_CALENDAR_API_DISABLED" : "CALENDAR_SYNC_FAILED",
+    message: isApiDisabled
+      ? 'A Google Calendar API precisa ser ativada no Google Cloud Console.'
+      : fallbackMessage,
+  });
+}
+
 // 7. Create single Calendar Event endpoint (com auto-refresh de token)
 app.post("/api/calendar/create-event", requireAdminWriteAuth, calendarLimiter, async (req: Request, res: Response) => {
   try {
@@ -5595,16 +5629,7 @@ app.post("/api/calendar/create-event", requireAdminWriteAuth, calendarLimiter, a
       throw apiErr;
     }
   } catch (error: any) {
-    logInternalError('Calendar event sync', error);
-    const isApiDisabled = error?.googleError?.error?.message?.includes('Google Calendar API has not been used') ||
-                          error?.message?.includes('Google Calendar API has not been used');
-    const message = isApiDisabled
-      ? 'A Google Calendar API precisa ser ativada no Google Cloud Console.'
-      : 'Falha ao criar evento na Google Agenda.';
-    return res.status(502).json({
-      error: isApiDisabled ? "GOOGLE_CALENDAR_API_DISABLED" : "CALENDAR_SYNC_FAILED",
-      message,
-    });
+    return sendCalendarSyncError(res, error, 'Calendar event sync', 'Falha ao criar evento na Google Agenda.');
   }
 });
 
@@ -5683,16 +5708,7 @@ app.post("/api/calendar/batch-sync", requireAdminWriteAuth, calendarLimiter, asy
       throw syncErr;
     }
   } catch (error: any) {
-    logInternalError('Calendar batch sync', error);
-    const isApiDisabled = error?.googleError?.error?.message?.includes('Google Calendar API has not been used') ||
-                          error?.message?.includes('Google Calendar API has not been used');
-    const message = isApiDisabled
-      ? 'A Google Calendar API precisa ser ativada no Google Cloud Console.'
-      : 'Falha ao sincronizar eventos com Google Agenda.';
-    return res.status(502).json({
-      error: isApiDisabled ? "GOOGLE_CALENDAR_API_DISABLED" : "CALENDAR_SYNC_FAILED",
-      message,
-    });
+    return sendCalendarSyncError(res, error, 'Calendar batch sync', 'Falha ao sincronizar eventos com Google Agenda.');
   }
 });
 
