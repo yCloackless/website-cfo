@@ -97,6 +97,8 @@ import { ExamService } from "./src/services/examService";
 import { ExamJobWorker } from "./src/services/examJobWorker";
 import { StudentLearningService } from "./src/services/studentLearningService";
 import { GamificationService } from "./src/services/gamificationService";
+import { ExamRadarService } from "./src/services/examRadarService";
+import { parseAnswerTokens, formatAnswerTokens, clampQuestionCount } from "./src/utils/answerSheet";
 import { getBoardIntelligenceService } from "./src/services/boardIntelligenceService";
 import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtimeHub";
 import { createAuthMiddlewares } from "./src/middleware/auth";
@@ -738,6 +740,7 @@ function isLargeJsonBodyRoute(req: Request): boolean {
   const pathname = String(req.originalUrl || req.url).split('?')[0];
   return pathname === '/api/uploads/file'
     || pathname === '/api/user/avatar'
+    || pathname === '/api/ai/parse-answer-key-image'
     || pathname === '/api/exams/upload-and-process'
     || /^\/api\/admin\/board-intelligence\/profiles\/[^/]+\/import-exam\/?$/.test(pathname);
 }
@@ -1482,6 +1485,7 @@ const examServiceInstance = new ExamService(
 const examJobWorker = new ExamJobWorker(examJobRepoInstance, examServiceInstance);
 const studentLearningService = new StudentLearningService(getDb().getRawDb());
 const gamificationService = new GamificationService(getDb().getRawDb());
+const examRadarService = new ExamRadarService(getDb().getRawDb());
 const rawDb = getDb().getRawDb();
 const boardIntelligenceServiceInstance = getBoardIntelligenceService();
 
@@ -8971,6 +8975,100 @@ app.get("/api/exams/stats", requireUserAuth, (req: Request, res: Response) => {
       error: "STATS_ERROR",
       message: "Falha ao carregar métricas reais do banco de provas.",
     });
+  }
+});
+
+// 3.1. Leitura Multimodal de Foto do Gabarito Oficial (Sob Demanda)
+app.post("/api/ai/parse-answer-key-image", requireUserAuth, aiLimiter, rejectOversizedAvatarJsonBody, avatarJsonBodyParser, async (req: Request, res: Response) => {
+  try {
+    const { imageBase64, totalQuestions } = req.body || {};
+    if (!imageBase64 || typeof imageBase64 !== "string") {
+      return res.status(400).json({ error: "MISSING_IMAGE", message: "Envie ou cole a imagem do gabarito." });
+    }
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+    const buffer = Buffer.from(base64Data, "base64");
+    const validation = validateImageBuffer(buffer, 5 * 1024 * 1024);
+    if (!validation.valid || !validation.detectedMime) {
+      return res.status(400).json({ error: "INVALID_IMAGE", message: validation.error || "Imagem de gabarito inválida." });
+    }
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      return res.status(503).json({ error: "GEMINI_NOT_CONFIGURED", message: "Chave da IA não configurada no servidor." });
+    }
+
+    const limit = clampQuestionCount(Number(totalQuestions) || 90);
+    const models = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-flash-latest"];
+    for (const model of models) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: [
+            { inlineData: { mimeType: validation.detectedMime, data: buffer.toString("base64") } },
+            {
+              text: `Extraia em ordem sequencial (questão 1 até ${limit}) as letras do gabarito oficial visível na imagem (A, B, C, D ou E; use "U" caso anulada ou ilegível). Retorne APENAS JSON neste formato: {"letters": ["A","C","D"]}.`,
+            },
+          ],
+          config: { responseMimeType: "application/json", temperature: 0.1 },
+        });
+        const parsed = JSON.parse(String(response.text || "{}"));
+        const rawArr = Array.isArray(parsed?.letters) ? parsed.letters : [];
+        const letters = parseAnswerTokens(rawArr.join(" "), limit, true);
+        return res.json({ success: true, letters, rawText: formatAnswerTokens(letters) });
+      } catch {}
+    }
+
+    return res.status(502).json({ error: "OCR_FAILED", message: "Não foi possível ler o gabarito na imagem." });
+  } catch (err: any) {
+    console.error("[Answer Key OCR Error]:", err);
+    return res.status(500).json({ error: "INTERNAL_ERROR", message: "Falha ao processar imagem do gabarito." });
+  }
+});
+
+// 3.2. Radar de Provas: Listagem, Registro de Cartão-Resposta e Diagnóstico Sob Demanda
+app.get("/api/exams/attempts", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const exams = examRadarService.listRadarExams(user.userId);
+    return res.json({ success: true, exams });
+  } catch (err: any) {
+    console.error("[Radar Exams List Error]:", err);
+    return res.status(500).json({ error: "RADAR_EXAMS_ERROR" });
+  }
+});
+
+app.post("/api/exams/:id/attempts", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const attempt = examRadarService.saveAttempt(user.userId, String(req.params.id), req.body || {});
+    return res.status(201).json({ success: true, attempt });
+  } catch (err: any) {
+    if (err?.message === "EXAM_NOT_FOUND") {
+      return res.status(404).json({ error: "EXAM_NOT_FOUND", message: "Prova não encontrada para esta conta." });
+    }
+    console.error("[Radar Exam Attempt Save Error]:", err);
+    return res.status(500).json({ error: "SAVE_EXAM_ATTEMPT_ERROR" });
+  }
+});
+
+app.post("/api/exams/:id/ai-diagnosis", requireUserAuth, aiLimiter, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const attemptId = typeof req.body?.attemptId === "string" ? req.body.attemptId : undefined;
+    const diagnosis = await examRadarService.diagnoseExam(
+      user.userId,
+      String(req.params.id),
+      attemptId,
+      getGeminiClient(),
+      getExamPdf
+    );
+    return res.json({ success: true, diagnosis });
+  } catch (err: any) {
+    if (err?.message === "EXAM_NOT_FOUND" || err?.message === "ATTEMPT_NOT_FOUND") {
+      return res.status(404).json({ error: err.message, message: "Registre seus acertos na prova antes de gerar o diagnóstico." });
+    }
+    console.error("[Radar Exam AI Diagnosis Error]:", err);
+    return res.status(500).json({ error: "EXAM_AI_DIAGNOSIS_ERROR" });
   }
 });
 

@@ -42,6 +42,8 @@ files.push('perf_cache_and_invalidation');
 files.push('user_state_repository');
 files.push('remote_persistence_resilience');
 files.push('gamification_ranks');
+files.push('answer_sheet');
+files.push('exam_radar_diagnosis');
 files.push('cronograma_drag_and_drop_studies');
 files.push('cronograma_data_transfer_and_robustness');
 files.push('study_balance_real');

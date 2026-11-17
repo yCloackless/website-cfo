@@ -83,8 +83,6 @@ const TacticalSimulations = lazy(() => import('./components/TacticalSimulations'
 import { useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { TacticalSidebar, TabType, TAB_ROUTE_MAP, ROUTE_TAB_MAP } from './components/TacticalSidebar';
 const StudentRadarTab = lazy(() => import('./components/StudentRadarTab').then(({ StudentRadarTab }) => ({ default: StudentRadarTab })));
-const StudentCoachPanel = lazy(() => import('./components/StudentCoachPanel').then(({ StudentCoachPanel }) => ({ default: StudentCoachPanel })));
-const StudentAnalyticsPanel = lazy(() => import('./components/StudentAnalyticsPanel').then(({ StudentAnalyticsPanel }) => ({ default: StudentAnalyticsPanel })));
 const Release3StudyPanel = lazy(() => import('./components/Release3StudyPanel').then(({ Release3StudyPanel }) => ({ default: Release3StudyPanel })));
 const ErrorNotebookTab = lazy(() => import('./components/ErrorNotebookTab').then(({ ErrorNotebookTab }) => ({ default: ErrorNotebookTab })));
 const ExamBankTab = lazy(() => import('./components/ExamBankTab').then(({ ExamBankTab }) => ({ default: ExamBankTab })));
@@ -2785,7 +2783,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'learning' && <><StudentCoachPanel theme={theme} /><StudentAnalyticsPanel theme={theme} /><StudentRadarTab theme={theme} /></>}
+        {activeTab === 'learning' && <StudentRadarTab theme={theme} subjects={subjects} showToast={showToast} />}
 
         {/* Render Tab 4: Equilíbrio & IA Gemini */}
         {activeTab === 'ai' && (
