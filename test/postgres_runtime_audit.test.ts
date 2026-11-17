@@ -201,3 +201,26 @@ test('8. PostgreSQL TLS verifies external providers and keeps private Compose tr
   assert.equal(new URL(renderExternal.connectionString).hostname, 'dpg-cfodb123.oregon-postgres.render.com');
   assert.equal(renderExternal.ssl?.rejectUnauthorized, true);
 });
+
+test('10. PostgreSQL TLS normalizes sslmode aliases to verify-full without pg deprecation warnings', async () => {
+  const warnings: string[] = [];
+  const onWarning = (warning: Error) => {
+    warnings.push(warning.message);
+  };
+  process.on('warning', onWarning);
+  try {
+    for (const mode of ['prefer', 'require', 'verify-ca']) {
+      const opts = postgresConnectionOptions(
+        `postgresql://cfo_app:pass@db.example.test:5432/cfo?sslmode=${mode}`,
+        { NODE_ENV: 'production' } as NodeJS.ProcessEnv,
+      );
+      assert.equal(new URL(opts.connectionString).searchParams.get('sslmode'), 'verify-full');
+      assert.equal(opts.ssl?.rejectUnauthorized, true);
+      new pg.Client(opts);
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    process.off('warning', onWarning);
+  }
+  assert.deepEqual(warnings, []);
+});
