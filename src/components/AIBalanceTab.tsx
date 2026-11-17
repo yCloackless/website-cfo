@@ -27,7 +27,7 @@ import {
   WeeklyCycle,
 } from '../types';
 import { StudyColumnCharts } from './StudyColumnCharts';
-import { checkinRevision, fetchNotionRevisoes } from '../services/notionService';
+import { checkinRevision, fetchNotionRevisoes, getNotionConnectionStatus } from '../services/notionService';
 import { summarizeOverdueNotionRevisions } from '../utils/notionRevisions';
 import { getCurrentYearMonthAndToday } from '../utils/studyBalance';
 
@@ -79,6 +79,11 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
   const [notionLoading, setNotionLoading] = useState(false);
   const [notionSource, setNotionSource] = useState<'notion_api' | 'local_cache' | 'unavailable'>('unavailable');
   const [notionError, setNotionError] = useState<string | undefined>(undefined);
+  const [notionConfigStatus, setNotionConfigStatus] = useState<{
+    isConfigured: boolean;
+    hasApiKey: boolean;
+    hasDatabaseId: boolean;
+  } | null>(null);
   const [expandedMaterias, setExpandedMaterias] = useState<Record<string, boolean>>({});
   const [checkingPageId, setCheckingPageId] = useState<string | null>(null);
 
@@ -86,10 +91,14 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
     if (!canAccessNotion) return;
     setNotionLoading(true);
     try {
-      const res = await fetchNotionRevisoes();
+      const [res, status] = await Promise.all([
+        fetchNotionRevisoes(),
+        getNotionConnectionStatus(),
+      ]);
       setNotionItems(res.items);
       setNotionSource(res.source);
       setNotionError(res.error);
+      setNotionConfigStatus(status);
     } finally {
       setNotionLoading(false);
     }
@@ -297,22 +306,34 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
                   <h3 className={`text-base font-bold ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
                     Revisões do Notion Pendentes até Hoje
                   </h3>
-                  {overdueNotionSummary && (
+                  {!notionLoading && notionSource === 'unavailable' && notionItems.length === 0 ? (
                     <span
-                      className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border tabular-nums ${
-                        overdueNotionSummary.totalPending > 0
-                          ? isDark
-                            ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
-                            : 'bg-rose-50 text-rose-700 border-rose-200'
-                          : isDark
-                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                            : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                        isDark
+                          ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                          : 'bg-amber-50 text-amber-800 border-amber-200'
                       }`}
                     >
-                      {overdueNotionSummary.totalPending > 0
-                        ? `${overdueNotionSummary.totalPending} pendente(s) até ${formatDateBR(todayStr)}`
-                        : `Em dia até ${formatDateBR(todayStr)}`}
+                      Desconectado
                     </span>
+                  ) : (
+                    overdueNotionSummary && (
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border tabular-nums ${
+                          overdueNotionSummary.totalPending > 0
+                            ? isDark
+                              ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                              : 'bg-rose-50 text-rose-700 border-rose-200'
+                            : isDark
+                              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        }`}
+                      >
+                        {overdueNotionSummary.totalPending > 0
+                          ? `${overdueNotionSummary.totalPending} pendente(s) até ${formatDateBR(todayStr)}`
+                          : `Em dia até ${formatDateBR(todayStr)}`}
+                      </span>
+                    )
                   )}
                 </div>
                 <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
@@ -351,7 +372,14 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>
                 {notionError === 'NOTION_NOT_CONFIGURED'
-                  ? 'Integração do Notion não configurada no ambiente (NOTION_API_KEY / NOTION_DATABASE_ID).'
+                  ? `Integração do Notion não configurada no servidor. Faltando no ambiente: ${
+                      [
+                        !notionConfigStatus?.hasApiKey ? 'NOTION_API_KEY' : null,
+                        !notionConfigStatus?.hasDatabaseId ? 'NOTION_DATABASE_ID' : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' e ') || 'NOTION_API_KEY / NOTION_DATABASE_ID'
+                    }.`
                   : 'Não foi possível ler sua base do Notion no momento. Nenhum dado fictício foi exibido.'}
               </span>
             </div>
