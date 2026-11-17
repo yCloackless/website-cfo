@@ -112,7 +112,46 @@ export interface BizuItem {
   updatedAt: string;
 }
 
-export type RevisionCycleKey = 'semana' | 'mes1' | 'mes2' | 'mes3';
+export type RevisionCycleKey =
+  | 'semana'
+  | 'mes1'
+  | 'mes2'
+  | 'mes3'
+  | 'mes4'
+  | 'mes5'
+  | 'mes6'
+  | 'mes7'
+  | 'mes8'
+  | 'mes9'
+  | 'mes10';
+
+export const NOTION_CYCLE_ORDER: RevisionCycleKey[] = [
+  'semana',
+  'mes1',
+  'mes2',
+  'mes3',
+  'mes4',
+  'mes5',
+  'mes6',
+  'mes7',
+  'mes8',
+  'mes9',
+  'mes10',
+];
+
+export const NOTION_CYCLE_LABELS: Record<RevisionCycleKey, string> = {
+  semana: 'Semana',
+  mes1: 'Mês 1',
+  mes2: 'Mês 2',
+  mes3: 'Mês 3',
+  mes4: 'Mês 4',
+  mes5: 'Mês 5',
+  mes6: 'Mês 6',
+  mes7: 'Mês 7',
+  mes8: 'Mês 8',
+  mes9: 'Mês 9',
+  mes10: 'Mês 10',
+};
 
 export interface NotionRevisionItem {
   id: string;
@@ -125,8 +164,70 @@ export interface NotionRevisionItem {
   mes1: boolean; // 30 dias
   mes2: boolean; // 60 dias
   mes3: boolean; // 90 dias
+  mes4?: boolean;
+  mes5?: boolean;
+  mes6?: boolean;
+  mes7?: boolean;
+  mes8?: boolean;
+  mes9?: boolean;
+  mes10?: boolean;
   url?: string;
   updatedAt?: string;
+}
+
+export interface MonthlyStudySessionDay {
+  dateStr: string;
+  subjects: Array<{
+    subjectId: string;
+    subjectName: string;
+    durationSeconds: number;
+  }>;
+}
+
+export type BalanceTier = 'neutral' | 'critical' | 'attention' | 'balanced';
+
+export interface SubjectMonthlyBalance {
+  subjectId: string;
+  name: string;
+  category: string;
+  originalColor: string;
+  minutes: number;
+  hours: number;
+  sessions: number;
+  sharePct: number;
+  ratioToAvg: number;
+  tier: BalanceTier;
+  statusLabel: string;
+  accentColor: string;
+}
+
+export interface MonthlyStudySummary {
+  yearMonth: string;
+  totalSessions: number;
+  totalMinutes: number;
+  totalHours: number;
+  equilibriumScore: number;
+  subjectsStudied: {
+    id: string;
+    name: string;
+    category: string;
+    color: string;
+    sessions: number;
+    minutes: number;
+    topics: string[];
+  }[];
+  subjectsNotStudied: {
+    id: string;
+    name: string;
+    category: string;
+    color: string;
+  }[];
+  allSubjects: {
+    id: string;
+    name: string;
+    category: string;
+  }[];
+  bySubject: Record<string, SubjectMonthlyBalance>;
 }
 
 export interface NotionCalendarEvent {
