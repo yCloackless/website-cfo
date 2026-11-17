@@ -1672,6 +1672,73 @@ export const MIGRATIONS: Migration[] = [
     name: '038_postgres_boolean_column_types',
     sql: POSTGRES_BOOLEAN_TYPE_MIGRATION,
   },
+  {
+    id: 39,
+    name: '039_gamification_radar_simulations',
+    sql: `
+      CREATE TABLE IF NOT EXISTS user_gamification_state (
+        user_id TEXT PRIMARY KEY,
+        current_streak INTEGER NOT NULL DEFAULT 0,
+        best_streak INTEGER NOT NULL DEFAULT 0,
+        ice_shields INTEGER NOT NULL DEFAULT 1,
+        last_studied_date TEXT,
+        last_evaluated_date TEXT,
+        last_shield_milestone_streak INTEGER NOT NULL DEFAULT 0,
+        shielded_dates_json TEXT NOT NULL DEFAULT '[]',
+        pending_shield_event_json TEXT,
+        rank_id TEXT NOT NULL DEFAULT 'recruta',
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS exam_attempts (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        exam_paper_id TEXT NOT NULL,
+        total_questions INTEGER NOT NULL,
+        correct_count INTEGER NOT NULL DEFAULT 0,
+        wrong_count INTEGER NOT NULL DEFAULT 0,
+        blank_count INTEGER NOT NULL DEFAULT 0,
+        student_answers_json TEXT NOT NULL DEFAULT '[]',
+        official_key_json TEXT NOT NULL DEFAULT '[]',
+        subject_scores_json TEXT NOT NULL DEFAULT '[]',
+        ai_diagnosis_json TEXT,
+        ai_analyzed_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (exam_paper_id) REFERENCES exam_papers(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_exam_attempts_user_paper ON exam_attempts(user_id, exam_paper_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS user_simulations (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        client_legacy_id TEXT,
+        date_str TEXT NOT NULL,
+        title TEXT NOT NULL,
+        exam_type TEXT NOT NULL DEFAULT 'Geral',
+        total_questions INTEGER NOT NULL,
+        correct_count INTEGER NOT NULL DEFAULT 0,
+        wrong_count INTEGER NOT NULL DEFAULT 0,
+        blank_count INTEGER NOT NULL DEFAULT 0,
+        target_cutoff_pct REAL NOT NULL DEFAULT 70,
+        concept TEXT NOT NULL DEFAULT 'Risco',
+        self_evaluation TEXT NOT NULL DEFAULT '',
+        review_targets_json TEXT NOT NULL DEFAULT '[]',
+        student_answers_json TEXT NOT NULL DEFAULT '[]',
+        official_key_json TEXT NOT NULL DEFAULT '[]',
+        subject_scores_json TEXT NOT NULL DEFAULT '[]',
+        ai_diagnosis_json TEXT,
+        ai_analyzed_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_simulations_user_date ON user_simulations(user_id, date_str DESC, created_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_user_simulations_legacy_dedup ON user_simulations(user_id, client_legacy_id);
+    `,
+  },
 ];
 
 

@@ -24,7 +24,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 
-import { Subject, StudyEntry, StudyEntryType, WeeklyCycle, SmartRevisionItem, AppTheme, AIAnalysisResult, BizuItem } from './types';
+import { Subject, StudyEntry, StudyEntryType, WeeklyCycle, SmartRevisionItem, AppTheme, AIAnalysisResult, BizuItem, GamificationStatus } from './types';
 import {
   loadSubjects,
   saveSubjects,
@@ -62,6 +62,8 @@ import { hydratePersistentState, startPersistentStateSync, clearPersistentStateC
 import { apiFetch } from './services/apiFetch';
 
 import { Header } from './components/Header';
+import { RankProgressPill } from './components/RankProgressPill';
+import { IceShieldModal } from './components/IceShieldModal';
 const HorizontalWeeklyTable = lazy(() => import('./components/HorizontalWeeklyTable').then(({ HorizontalWeeklyTable }) => ({ default: HorizontalWeeklyTable })));
 const AIBalanceTab = lazy(() => import('./components/AIBalanceTab').then(({ AIBalanceTab }) => ({ default: AIBalanceTab })));
 const BizuarioTab = lazy(() => import('./components/BizuarioTab').then(({ BizuarioTab }) => ({ default: BizuarioTab })));
@@ -468,6 +470,7 @@ export default function App() {
     localStorage.removeItem('cfo_can_access_ifrj');
     setUserProfile(null);
     setMonthlySessionDays({});
+    setGamification(null);
     setAiAnalysis(null);
     setCanAccessNotion(true);
     setCanAccessIfrj(false);
@@ -549,6 +552,37 @@ export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [monthlySessionDays, setMonthlySessionDays] = useState<Record<string, MonthlyStudySessionDay>>({});
+  const [gamification, setGamification] = useState<GamificationStatus | null>(null);
+
+  const refreshGamification = useCallback(async () => {
+    if (!isTerminalUnlocked) return;
+    try {
+      const res = await apiFetch('/api/gamification/status');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.gamification) setGamification(data.gamification);
+    } catch {}
+  }, [isTerminalUnlocked]);
+
+  const handleAckShieldEvent = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/gamification/shield-event/ack', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.gamification) {
+          setGamification(data.gamification);
+          return;
+        }
+      }
+    } catch {}
+    setGamification((prev) => (prev ? { ...prev, pendingShieldEvent: null } : prev));
+  }, []);
+
+  useEffect(() => {
+    if (isTerminalUnlocked && isPersistentStateReady) {
+      void refreshGamification();
+    }
+  }, [isTerminalUnlocked, isPersistentStateReady, refreshGamification]);
 
   // Backend Google Calendar connection status (permanent session) com cache síncrono local
   const [backendCalendar, setBackendCalendar] = useState<{
@@ -704,6 +738,7 @@ export default function App() {
       setPendingAccountId(null);
       setIsPersistentStateReady(false);
       setMonthlySessionDays({});
+      setGamification(null);
       setAiAnalysis(null);
       clearPersistentStateCache();
       await hydratePersistentState();
@@ -759,6 +794,7 @@ export default function App() {
       setCanAccessIfrj(true);
       setIsPersistentStateReady(false);
       setMonthlySessionDays({});
+      setGamification(null);
       setAiAnalysis(null);
       clearPersistentStateCache();
       await hydratePersistentState();
@@ -1742,6 +1778,7 @@ export default function App() {
         }
       >;
       setMonthlySessionDays(dailySummary);
+      void refreshGamification();
 
       let hasChanges = false;
       const updatedEntries = { ...(currentCycle.entries || {}) };
@@ -2241,6 +2278,7 @@ export default function App() {
           unreadNotificationsCount={unreadNotificationsCount}
           canAccessNotion={canAccessNotion}
           userProfile={userProfile || { username: localStorage.getItem('cfo_terminal_user') || 'perfil', role: localStorage.getItem('cfo_terminal_role') || undefined }}
+          gamification={gamification}
           isAdmin={isCurrentAdmin && !isImpersonating}
           canReturnToAdmin={isImpersonating}
           onOpenAccountSwitcher={openAccountSwitcher}
@@ -2640,7 +2678,9 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center flex-wrap gap-3">
+                  <RankProgressPill gamification={gamification} theme={theme} />
+
                   <button
                     onClick={() => handleSelectTab('ai')}
                     className="inline-flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 font-semibold transition-colors"
@@ -2673,6 +2713,7 @@ export default function App() {
                   onDeleteCustomSubject={handleDeleteCustomSubject}
                   onMoveStudyEntry={handleMoveStudyEntry}
                   hasGoogleCalendar={isCalendarLinked}
+                  gamification={gamification}
                   theme={theme}
                 />
               </Suspense>
@@ -2996,6 +3037,15 @@ export default function App() {
       />
 
       <UpdateNoticeModal />
+
+      {gamification?.pendingShieldEvent && (
+        <IceShieldModal
+          event={gamification.pendingShieldEvent}
+          maxShields={gamification.maxIceShields}
+          theme={theme}
+          onAcknowledge={handleAckShieldEvent}
+        />
+      )}
 
       {/* Modal de Confirmação Global do App */}
       {appConfirmState && (

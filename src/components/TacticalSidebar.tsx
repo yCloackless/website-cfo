@@ -17,6 +17,8 @@ import {
   Bell,
   Settings,
   ShieldCheck,
+  Shield,
+  Award,
   UserCog,
   X,
   CircleUserRound,
@@ -29,7 +31,7 @@ import {
   Heart,
   Calculator,
 } from 'lucide-react';
-import { AppTheme } from '../types';
+import { AppTheme, GamificationStatus } from '../types';
 
 export type TabType =
   | 'table'
@@ -95,6 +97,7 @@ interface TacticalSidebarProps {
   unreadNotificationsCount?: number;
   canAccessNotion?: boolean;
   userProfile?: { fullName?: string; username?: string; avatarUrl?: string | null; role?: string } | null;
+  gamification?: GamificationStatus | null;
   isAdmin?: boolean;
   canReturnToAdmin?: boolean;
   onOpenAccountSwitcher?: () => void;
@@ -138,6 +141,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
   unreadNotificationsCount = 0,
   canAccessNotion = true,
   userProfile,
+  gamification,
   isAdmin = false,
   canReturnToAdmin = false,
   onOpenAccountSwitcher,
@@ -576,10 +580,65 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
             </div>
 
             {(userProfile || canReturnToAdmin) && (
-              <div className={`px-3 py-2 border-b flex items-center gap-2 ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
-                <button type="button" onClick={onOpenSettings} className="min-w-0 flex-1 flex items-center gap-3 text-left" aria-label="Abrir perfil e configurações">
-                  {userProfile?.avatarUrl ? <img src={userProfile.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" /> : <CircleUserRound size={22} className="text-blue-400" />}
-                  <span className="min-w-0"><span className="block text-xs font-semibold truncate">{userProfile?.fullName || userProfile?.username || 'Perfil'}</span><span className="block text-[11px] text-slate-400 truncate">@{userProfile?.username || 'conta'}</span></span>
+              <div className={`px-3 py-2.5 border-b flex items-center gap-2 ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  className={`min-w-0 flex-1 flex items-center gap-3 text-left rounded-2xl p-2 transition-all cursor-pointer ${
+                    isDark
+                      ? 'bg-gradient-to-r from-slate-900/90 via-slate-900/60 to-transparent hover:from-slate-800/90 border border-slate-800/90'
+                      : 'bg-slate-50 hover:bg-slate-100 border border-slate-200/80'
+                  }`}
+                  aria-label="Abrir perfil e configurações"
+                >
+                  <span
+                    className="relative shrink-0 rounded-full p-[2px]"
+                    style={{
+                      background: gamification?.rank?.badgeColor
+                        ? `linear-gradient(135deg, ${gamification.rank.badgeColor}, rgba(56,189,248,0.55))`
+                        : 'linear-gradient(135deg, #3b82f6, #0ea5e9)',
+                    }}
+                  >
+                    {userProfile?.avatarUrl ? (
+                      <img src={userProfile.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover bg-slate-900" />
+                    ) : (
+                      <span className={`w-9 h-9 rounded-full flex items-center justify-center ${isDark ? 'bg-slate-900' : 'bg-white'}`}>
+                        <CircleUserRound size={22} className="text-blue-400" />
+                      </span>
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className={`text-[13px] font-bold tracking-tight truncate ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {userProfile?.fullName || userProfile?.username || 'Perfil'}
+                      </span>
+                      {gamification && (
+                        <span
+                          className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums shrink-0 ${
+                            gamification.currentStreakDays > 0
+                              ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30'
+                              : isDark
+                              ? 'bg-slate-800 text-slate-400 border border-slate-700'
+                              : 'bg-slate-200 text-slate-600'
+                          }`}
+                          title={`${gamification.currentStreakDays} dias seguidos • ${gamification.iceShields} escudo(s) de gelo`}
+                        >
+                          <Flame className={`w-3 h-3 ${gamification.currentStreakDays > 0 ? 'fill-orange-500/50 animate-flame-flicker' : ''}`} />
+                          {gamification.currentStreakDays}
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-0.5 flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 truncate">
+                      <Award className="w-3 h-3 shrink-0" style={{ color: gamification?.rank?.badgeColor || '#38bdf8' }} />
+                      <span className="truncate">{gamification?.rank?.name || 'CFO CBMERJ'}</span>
+                      {gamification && gamification.iceShields > 0 && (
+                        <span className="inline-flex items-center gap-0.5 text-sky-400 ml-auto shrink-0">
+                          <Shield className="w-2.5 h-2.5 fill-sky-400/25" />
+                          {gamification.iceShields}
+                        </span>
+                      )}
+                    </span>
+                  </span>
                 </button>
                 {isAdmin && onOpenAccountSwitcher && <button type="button" onClick={onOpenAccountSwitcher} className="p-2 rounded-lg text-slate-400 hover:bg-slate-800" aria-label="Trocar de conta"><ArrowLeftRight size={16} /></button>}
                 {canReturnToAdmin && onReturnToAdmin && <button type="button" onClick={onReturnToAdmin} className="px-2 py-1 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-300">ADM</button>}
@@ -746,11 +805,71 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
         </div>
 
         {(userProfile || canReturnToAdmin) && (
-          <div className={`px-2 py-2 border-b shrink-0 ${isDark ? 'border-slate-800/80' : 'border-slate-200/80'}`}>
-            <div className="flex items-center">
-              <button type="button" onClick={onOpenSettings} className="min-w-0 flex-1 flex items-center h-11 rounded-xl hover:bg-white/5 text-left" title="Abrir perfil e configurações" aria-label="Abrir perfil e configurações">
-                <span className="w-[56px] flex justify-center shrink-0">{userProfile?.avatarUrl ? <img src={userProfile.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" /> : <CircleUserRound size={22} className="text-blue-400" />}</span>
-                <span className={`min-w-0 text-xs font-semibold truncate transition-opacity ${isExpandedDesktop ? 'opacity-100' : 'opacity-0'}`}>{userProfile?.fullName || userProfile?.username || 'Perfil'}<span className="block text-[10px] font-normal text-slate-400">@{userProfile?.username || 'conta'}</span></span>
+          <div className={`px-2 py-2.5 border-b shrink-0 ${isDark ? 'border-slate-800/80' : 'border-slate-200/80'}`}>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className={`min-w-0 flex-1 flex items-center h-12 rounded-2xl text-left transition-all cursor-pointer ${
+                  isExpandedDesktop
+                    ? isDark
+                      ? 'bg-gradient-to-r from-slate-900/95 via-slate-900/50 to-transparent hover:from-slate-800/90 border border-slate-800/80 pr-2.5'
+                      : 'bg-slate-50 hover:bg-slate-100 border border-slate-200/90 pr-2.5'
+                    : 'hover:bg-white/5'
+                }`}
+                title="Abrir perfil e configurações"
+                aria-label="Abrir perfil e configurações"
+              >
+                <span className="w-[56px] flex justify-center shrink-0">
+                  <span
+                    className="relative rounded-full p-[2px]"
+                    style={{
+                      background: gamification?.rank?.badgeColor
+                        ? `linear-gradient(135deg, ${gamification.rank.badgeColor}, rgba(56,189,248,0.55))`
+                        : 'linear-gradient(135deg, #3b82f6, #0ea5e9)',
+                    }}
+                  >
+                    {userProfile?.avatarUrl ? (
+                      <img src={userProfile.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover bg-slate-900" />
+                    ) : (
+                      <span className={`w-8 h-8 rounded-full flex items-center justify-center ${isDark ? 'bg-slate-900' : 'bg-white'}`}>
+                        <CircleUserRound size={20} className="text-blue-400" />
+                      </span>
+                    )}
+                  </span>
+                </span>
+                <span className={`min-w-0 flex-1 transition-opacity duration-200 ${isExpandedDesktop ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <span className={`text-[13px] font-bold tracking-tight truncate ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+                      {userProfile?.fullName || userProfile?.username || 'Perfil'}
+                    </span>
+                    {gamification && (
+                      <span
+                        className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums shrink-0 ${
+                          gamification.currentStreakDays > 0
+                            ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30'
+                            : isDark
+                            ? 'bg-slate-800 text-slate-400 border border-slate-700'
+                            : 'bg-slate-200 text-slate-600'
+                        }`}
+                        title={`${gamification.currentStreakDays} dias seguidos • ${gamification.iceShields} escudo(s)`}
+                      >
+                        <Flame className={`w-3 h-3 ${gamification.currentStreakDays > 0 ? 'fill-orange-500/50 animate-flame-flicker' : ''}`} />
+                        {gamification.currentStreakDays}
+                      </span>
+                    )}
+                  </span>
+                  <span className="mt-0.5 flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 truncate">
+                    <Award className="w-3 h-3 shrink-0" style={{ color: gamification?.rank?.badgeColor || '#38bdf8' }} />
+                    <span className="truncate">{gamification?.rank?.name || 'CFO CBMERJ'}</span>
+                    {gamification && gamification.iceShields > 0 && (
+                      <span className="inline-flex items-center gap-0.5 text-sky-400 ml-auto shrink-0 tabular-nums">
+                        <Shield className="w-2.5 h-2.5 fill-sky-400/25" />
+                        {gamification.iceShields}
+                      </span>
+                    )}
+                  </span>
+                </span>
               </button>
               {isExpandedDesktop && isAdmin && onOpenAccountSwitcher && <button type="button" onClick={onOpenAccountSwitcher} title="Trocar de conta" aria-label="Trocar de conta" className="p-2 text-slate-400 hover:text-white"><ArrowLeftRight size={16} /></button>}
               {isExpandedDesktop && canReturnToAdmin && onReturnToAdmin && <button type="button" onClick={onReturnToAdmin} className="px-2 py-1 text-[10px] rounded-lg bg-amber-500/20 text-amber-300" aria-label="Voltar ao ADM">ADM</button>}

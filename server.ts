@@ -96,6 +96,7 @@ import { putExamPdf, getExamPdf, deleteExamPdf } from "./src/services/exam/examP
 import { ExamService } from "./src/services/examService";
 import { ExamJobWorker } from "./src/services/examJobWorker";
 import { StudentLearningService } from "./src/services/studentLearningService";
+import { GamificationService } from "./src/services/gamificationService";
 import { getBoardIntelligenceService } from "./src/services/boardIntelligenceService";
 import { adminRealtimeHub, AdminRealtimeEventType } from "./src/services/realtimeHub";
 import { createAuthMiddlewares } from "./src/middleware/auth";
@@ -1480,6 +1481,7 @@ const examServiceInstance = new ExamService(
 );
 const examJobWorker = new ExamJobWorker(examJobRepoInstance, examServiceInstance);
 const studentLearningService = new StudentLearningService(getDb().getRawDb());
+const gamificationService = new GamificationService(getDb().getRawDb());
 const rawDb = getDb().getRawDb();
 const boardIntelligenceServiceInstance = getBoardIntelligenceService();
 
@@ -2349,6 +2351,7 @@ app.post('/api/study-sessions/desktop', (req: Request, res: Response) => {
     );
     const session = db.prepare('SELECT * FROM study_sessions WHERE user_id = ? AND source = ? AND local_session_id = ?')
       .get(userId, 'desktop_timer', localSessionId);
+    try { gamificationService.recomputeFromSessions(userId); } catch {}
     console.info('[Desktop study sync]', { result: insert.changes ? 'inserted' : 'duplicate', userId, subjectId: mapping.id, durationSeconds: duration, sessionId: (session as any)?.id });
     return res.status(200).json({ success: true, session });
   } catch (err) {
@@ -2467,6 +2470,7 @@ app.post("/api/timer/save-session", (req: Request, res: Response) => {
         if (saved) inserted.push(saved);
       }
       databaseService.getRawDb().exec('COMMIT;');
+      try { gamificationService.recomputeFromSessions(userId); } catch {}
     } catch (txErr) {
       try { databaseService.getRawDb().exec('ROLLBACK;'); } catch {}
       throw txErr;
@@ -2549,6 +2553,7 @@ app.post("/api/study-sessions/manual", (req: Request, res: Response) => {
       studySessionRepoInstance.deleteByDateAndSubjectForUser(userId, cleanDate, cleanSubjectId);
       studySessionRepoInstance.deleteByIdForUser(sessionId, userId);
       if (parsedMinutes === 0) {
+        try { gamificationService.recomputeFromSessions(userId); } catch {}
         logAuditEvent({
           action: "STUDY_SESSION_DELETED",
           actor: (req as any).user?.username || userId,
@@ -2572,6 +2577,7 @@ app.post("/api/study-sessions/manual", (req: Request, res: Response) => {
       endedAt: now.toISOString(),
       notes: cleanNotes,
     });
+    try { gamificationService.recomputeFromSessions(userId); } catch {}
 
     logAuditEvent({
       action: "STUDY_SESSION_MANUAL_SAVED",
@@ -2700,6 +2706,7 @@ app.delete("/api/study-sessions/day-subject", (req: Request, res: Response) => {
     }
 
     studySessionRepoInstance.deleteByDateAndSubjectForUser(userId, cleanDate, cleanSubjectId);
+    try { gamificationService.recomputeFromSessions(userId); } catch {}
 
     logAuditEvent({
       action: "STUDY_SESSION_DELETED",
@@ -2729,6 +2736,7 @@ app.delete("/api/study-sessions/day/:dateStr", (req: Request, res: Response) => 
     }
 
     studySessionRepoInstance.deleteByDateForUser(userId, dateStr);
+    try { gamificationService.recomputeFromSessions(userId); } catch {}
 
     logAuditEvent({
       action: "STUDY_DAY_CLEARED",
@@ -2765,6 +2773,7 @@ app.delete("/api/study-sessions/:id", (req: Request, res: Response) => {
     }
 
     studySessionRepoInstance.deleteByIdForUser(existing.id, userId);
+    try { gamificationService.recomputeFromSessions(userId); } catch {}
 
     logAuditEvent({
       action: "STUDY_SESSION_DELETED",
@@ -2779,6 +2788,31 @@ app.delete("/api/study-sessions/:id", (req: Request, res: Response) => {
   } catch (err: any) {
     console.error("Erro ao excluir sessão de estudo:", err);
     return res.status(500).json({ error: "INTERNAL_ERROR", message: "Falha ao excluir sessão de estudo." });
+  }
+});
+
+// 10. Gamificação Militar: Foguinho, Escudo de Gelo Quinzenal e Patentes (1h-12h/dia)
+app.get("/api/gamification/status", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+    const gamification = gamificationService.getStatus(userId);
+    return res.json({ success: true, gamification });
+  } catch (err: any) {
+    console.error("[Gamification Status Error]:", err);
+    return res.status(500).json({ error: "GAMIFICATION_ERROR" });
+  }
+});
+
+app.post("/api/gamification/shield-event/ack", requireUserAuth, (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+    const gamification = gamificationService.acknowledgeShieldEvent(userId);
+    return res.json({ success: true, gamification });
+  } catch (err: any) {
+    console.error("[Gamification Shield Ack Error]:", err);
+    return res.status(500).json({ error: "GAMIFICATION_ACK_ERROR" });
   }
 });
 

@@ -242,3 +242,47 @@ export interface NotionCalendarEvent {
   tipoRevisao: string[];
 }
 
+export interface MilitaryRankDef {
+  id: string;
+  order: number;
+  name: string;
+  shortName: string;
+  badgeColor: string;
+  minEffectiveHours: number;
+  minStreakDays: number;
+  targetDailyHours: number;
+}
+
+export interface ShieldSaveEvent {
+  savedStreakDays: number;
+  missedDates: string[];
+  remainingShields: number;
+  activatedAt: string;
+}
+
+export interface NextRankProgress {
+  id: string;
+  name: string;
+  targetDailyHours: number;
+  minStreakDays: number;
+  daysRemaining: number;
+  hoursDeficitPerDay: number;
+}
+
+export interface GamificationStatus {
+  currentStreakDays: number;
+  bestStreakDays: number;
+  iceShields: number;
+  maxIceShields: number;
+  nextShieldInDays: number;
+  studiedTodaySeconds: number;
+  qualifiedToday: boolean;
+  avgDailyHours14d: number;
+  effectiveDailyPaceHours: number;
+  consistencyFactor: number;
+  rank: MilitaryRankDef;
+  nextRank: NextRankProgress | null;
+  pendingShieldEvent: ShieldSaveEvent | null;
+  todayStr: string;
+}
+

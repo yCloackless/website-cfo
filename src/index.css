@@ -754,3 +754,51 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
   border: 1px solid rgba(63, 63, 70, 0.5);
   background-color: rgba(9, 9, 11, 0.5);
 }
+
+/* =========================================================================
+   Gamificação Militar: Escudo de Gelo Animado & Foguinho de Constância
+   ========================================================================= */
+@keyframes iceShieldEnterSpin {
+  0% {
+    opacity: 0;
+    transform: translateY(-48px) scale(0.35) rotateY(-220deg) rotate(-18deg);
+  }
+  45% {
+    opacity: 1;
+    transform: translateY(6px) scale(1.1) rotateY(360deg) rotate(4deg);
+  }
+  70% {
+    transform: translateY(-2px) scale(0.97) rotateY(700deg) rotate(-2deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotateY(720deg) rotate(0deg);
+  }
+}
+
+@keyframes iceShieldIdleOrbit {
+  0%, 100% {
+    transform: translateY(0px) rotateY(0deg);
+    filter: drop-shadow(0 0 18px rgba(56, 189, 248, 0.55));
+  }
+  50% {
+    transform: translateY(-4px) rotateY(14deg);
+    filter: drop-shadow(0 0 28px rgba(125, 211, 252, 0.85));
+  }
+}
+
+@keyframes flameFlicker {
+  0%, 100% { transform: scale(1) rotate(-2deg); }
+  50% { transform: scale(1.12) rotate(3deg); }
+}
+
+.animate-ice-shield-enter {
+  animation:
+    iceShieldEnterSpin 1.15s cubic-bezier(0.22, 1, 0.36, 1) forwards,
+    iceShieldIdleOrbit 3.4s ease-in-out 1.15s infinite;
+  transform-style: preserve-3d;
+}
+
+.animate-flame-flicker {
+  animation: flameFlicker 1.8s ease-in-out infinite;
+}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Check, CheckCircle2, Calendar, Sparkles, Plus, Edit2, Trash2, RotateCcw } from 'lucide-react';
-import { Subject, StudyEntry, AppTheme, SubjectMonthlyBalance } from '../types';
+import { Check, CheckCircle2, Calendar, Sparkles, Plus, Edit2, Trash2, RotateCcw, Flame } from 'lucide-react';
+import { Subject, StudyEntry, AppTheme, SubjectMonthlyBalance, GamificationStatus } from '../types';
 import { WEEK_DAYS } from '../data/cfoSubjects';
 import { formatBRDateShort } from '../utils/dateUtils';
 import { ConfirmModal } from './ConfirmModal';
@@ -33,6 +33,7 @@ interface HorizontalWeeklyTableProps {
     toDateStr: string
   ) => Promise<void> | void;
   hasGoogleCalendar: boolean;
+  gamification?: GamificationStatus | null;
   theme?: AppTheme;
 }
 
@@ -48,6 +49,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
   onDeleteCustomSubject,
   onMoveStudyEntry,
   hasGoogleCalendar,
+  gamification,
   theme = 'dark',
 }) => {
   const isDark = theme === 'dark';
@@ -123,6 +125,21 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                 <div className="flex items-center justify-between gap-1">
                   <span className="truncate">Matérias CFO</span>
                   <div className="flex items-center gap-1.5 shrink-0">
+                    {gamification && (
+                      <span
+                        className={`inline-flex items-center gap-1 text-[10px] font-extrabold normal-case px-1.5 py-0.5 rounded border tabular-nums ${
+                          gamification.currentStreakDays > 0
+                            ? 'bg-orange-500/15 text-orange-400 border-orange-500/30'
+                            : isDark
+                            ? 'bg-slate-800/80 text-slate-400 border-slate-700'
+                            : 'bg-slate-100 text-slate-600 border-slate-200'
+                        }`}
+                        title={`Ofensiva atual: ${gamification.currentStreakDays} dia(s) • Patente: ${gamification.rank.name}`}
+                      >
+                        <Flame className={`w-3 h-3 ${gamification.currentStreakDays > 0 ? 'fill-orange-500/50 animate-flame-flicker' : ''}`} />
+                        {gamification.currentStreakDays}d
+                      </span>
+                    )}
                     <span
                       className={`text-[10px] font-semibold normal-case hidden sm:inline px-1.5 py-0.5 rounded border ${
                         isDark
