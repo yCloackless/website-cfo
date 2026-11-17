@@ -253,3 +253,21 @@ test('fetchAIStudyAnalysis client fallback never fabricates hours, score, or unr
     false,
   );
 });
+
+test('fetchNotionRevisoes returns empty and clears access on 403 NOTION_FORBIDDEN for non-admin accounts', async () => {
+  const { fetchNotionRevisoes } = await import('../src/services/notionService');
+  const nativeFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ error: 'NOTION_FORBIDDEN' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch;
+  try {
+    const res = await fetchNotionRevisoes();
+    assert.equal(res.items.length, 0);
+    assert.equal(res.source, 'unavailable');
+    assert.equal(res.error, 'NOTION_FORBIDDEN');
+  } finally {
+    globalThis.fetch = nativeFetch;
+  }
+});

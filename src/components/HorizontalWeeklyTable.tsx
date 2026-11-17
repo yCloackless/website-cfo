@@ -1,14 +1,25 @@
 import React, { useState } from 'react';
 import { Check, CheckCircle2, Calendar, Sparkles, Plus, Edit2, Trash2, RotateCcw } from 'lucide-react';
-import { Subject, StudyEntry, AppTheme } from '../types';
+import { Subject, StudyEntry, AppTheme, SubjectMonthlyBalance } from '../types';
 import { WEEK_DAYS } from '../data/cfoSubjects';
 import { formatBRDateShort } from '../utils/dateUtils';
 import { ConfirmModal } from './ConfirmModal';
+
+function formatMonthDuration(minutes: number): string {
+  const rounded = Math.round(minutes);
+  if (rounded <= 0) return '0m/mês';
+  const h = Math.floor(rounded / 60);
+  const m = rounded % 60;
+  if (h > 0 && m > 0) return `${h}h ${m}m/mês`;
+  if (h > 0) return `${h}h/mês`;
+  return `${m}m/mês`;
+}
 
 interface HorizontalWeeklyTableProps {
   subjects: Subject[];
   weekDays: Array<{ index: number; dateStr: string; displayShort: string; isToday: boolean }>;
   entries: Record<string, StudyEntry>;
+  monthlyBalanceBySubject?: Record<string, SubjectMonthlyBalance>;
   onCellClick: (subject: Subject, dayIndex: number, dateStr: string) => void;
   onQuickToggle: (subject: Subject, dayIndex: number, dateStr: string, e: React.MouseEvent) => void;
   onClearCell?: (subjectId: string, dayIndex: number, e: React.MouseEvent) => void;
@@ -29,6 +40,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
   subjects,
   weekDays,
   entries,
+  monthlyBalanceBySubject,
   onCellClick,
   onQuickToggle,
   onClearCell,
@@ -182,6 +194,22 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
             {subjects.map((subject) => {
               const stats = getSubjectStats(subject.id);
               const progressPct = Math.round((stats.completedCount / 7) * 100);
+              const balance = monthlyBalanceBySubject?.[subject.id];
+              const accentColor = balance?.accentColor || subject.color;
+              const pillClasses =
+                balance?.tier === 'critical'
+                  ? isDark
+                    ? 'bg-rose-500/12 text-rose-300 border-rose-500/25'
+                    : 'bg-rose-50 text-rose-700 border-rose-200'
+                  : balance?.tier === 'attention'
+                    ? isDark
+                      ? 'bg-amber-500/12 text-amber-300 border-amber-500/25'
+                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                    : balance?.tier === 'balanced'
+                      ? isDark
+                        ? 'bg-emerald-500/12 text-emerald-300 border-emerald-500/25'
+                        : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : '';
 
               return (
                 <tr
@@ -201,8 +229,9 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div
-                          className="w-2 h-7 rounded-full shrink-0"
-                          style={{ backgroundColor: subject.color }}
+                          className="w-1.5 h-8 rounded-full shrink-0 transition-colors duration-300"
+                          style={{ backgroundColor: accentColor }}
+                          title={balance ? `${balance.statusLabel} (${formatMonthDuration(balance.minutes)})` : subject.name}
                         />
                         <div className="min-w-0">
                           <p
@@ -212,13 +241,27 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                           >
                             {subject.name}
                           </p>
-                          <p
-                            className={`text-[10px] font-medium truncate uppercase tracking-wider ${
-                              isDark ? 'text-slate-500' : 'text-slate-400'
-                            }`}
-                          >
-                            {subject.category}
-                          </p>
+                          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                            <p
+                              className={`text-[10px] font-medium truncate uppercase tracking-wider ${
+                                isDark ? 'text-slate-500' : 'text-slate-400'
+                              }`}
+                            >
+                              {subject.category}
+                            </p>
+                            {balance && balance.tier !== 'neutral' && (
+                              <span
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md text-[9px] font-semibold border tabular-nums ${pillClasses}`}
+                                title={`${balance.statusLabel} (${balance.sharePct}% do estudo mensal)`}
+                              >
+                                <span
+                                  className="w-1.5 h-1.5 rounded-full"
+                                  style={{ backgroundColor: accentColor }}
+                                />
+                                {formatMonthDuration(balance.minutes)}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -479,7 +522,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                           className="h-full rounded-full transition-all duration-300"
                           style={{
                             width: `${progressPct}%`,
-                            backgroundColor: subject.color,
+                            backgroundColor: accentColor,
                           }}
                         />
                       </div>

@@ -2463,6 +2463,7 @@ export default function App() {
                   subjects={subjects}
                   weekDays={weekDays}
                   entries={currentCycle?.entries || {}}
+                  monthlyBalanceBySubject={studySummary.bySubject}
                   onCellClick={handleCellClick}
                   onQuickToggle={handleQuickToggle}
                   onClearCell={handleClearCellEntry}
@@ -2556,6 +2557,9 @@ export default function App() {
             subjects={subjects}
             currentCycle={currentCycle}
             cyclesHistory={cyclesHistory}
+            monthlySessionDays={monthlySessionDays}
+            canAccessNotion={canAccessNotion}
+            showToast={showToast}
           />
         )}
 
