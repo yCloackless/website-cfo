@@ -2,30 +2,29 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   ChevronLeft,
   ChevronRight,
-  Calendar as CalendarIcon,
   Check,
   RefreshCw,
   Search,
-  Filter,
-  AlertCircle,
-  Clock,
-  Sparkles,
-  CheckSquare,
-  Square,
-  Layers,
   X,
+  Plus,
+  ExternalLink,
+  Calendar as CalendarIcon,
+  Clock,
+  Tag,
+  BookOpen,
 } from "lucide-react";
 import {
+  AppTheme,
   NOTION_CYCLE_LABELS,
   NOTION_CYCLE_ORDER,
+  NotionRevisionItem,
   RevisionCycleKey,
-  AppTheme,
 } from "../types";
-import { checkinRevision } from "../services/notionService";
-import { getNextPendingNotionCycle } from "../utils/notionRevisions";
+import { checkinRevision, fetchNotionRevisoes } from "../services/notionService";
+import { getNextCycleLabelAfter, getNextPendingNotionCycle } from "../utils/notionRevisions";
 
 /**
- * Propriedades do Notion mapeadas para a estrutura do Calendário Tático
+ * Compatível com o shape da API `/api/notion/revisoes` (Semana até Mês 10).
  */
 export interface NotionReviewRecord {
   id: string;
@@ -48,12 +47,59 @@ export interface NotionReviewRecord {
   url?: string;
 }
 
-function mapApiItemToReviewRecord(it: any): NotionReviewRecord {
+interface NotionCalendarProps {
+  theme?: AppTheme;
+  showToast?: (message: string, type: "success" | "error" | "info") => void;
+  externalItems?: NotionRevisionItem[];
+  externalLoading?: boolean;
+  externalSyncing?: boolean;
+  onExternalSync?: () => void;
+  onExternalItemUpdated?: (item: NotionRevisionItem) => void;
+  onQuickCreate?: (dateStr?: string) => void;
+}
+
+type CalendarViewMode = "week" | "month";
+
+const WEEK_DAYS_SHORT = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+
+const MONTH_NAMES = [
+  "Janeiro",
+  "Fevereiro",
+  "Março",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro",
+];
+
+const HOUR_SLOTS = [8, 10, 12, 14, 16, 18, 20, 22];
+
+function toDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function formatDateBR(dateStr?: string): string {
+  if (!dateStr) return "—";
+  const parts = dateStr.slice(0, 10).split("-");
+  if (parts.length !== 3) return dateStr;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function mapApiItemToReviewRecord(it: NotionRevisionItem | NotionReviewRecord): NotionReviewRecord {
+  const dataEstudo = "data" in it ? it.data : it.dataEstudo;
   return {
     id: it.id,
     assunto: it.assunto || "Sem Assunto",
     materia: it.materia || "Geral",
-    dataEstudo: it.data || it.dataEstudo || "",
+    dataEstudo: dataEstudo || "",
     proximaRevisao: it.proximaRevisao || "",
     semana: Boolean(it.semana),
     mes1: Boolean(it.mes1),
@@ -71,209 +117,231 @@ function mapApiItemToReviewRecord(it: any): NotionReviewRecord {
   };
 }
 
-interface NotionCalendarProps {
-  theme?: AppTheme;
-  showToast?: (message: string, type: "success" | "error" | "info") => void;
+function mapReviewRecordToApiItem(r: NotionReviewRecord): NotionRevisionItem {
+  return {
+    id: r.id,
+    assunto: r.assunto,
+    materia: r.materia,
+    data: r.dataEstudo,
+    proximaRevisao: r.proximaRevisao || undefined,
+    semana: r.semana,
+    mes1: r.mes1,
+    mes2: r.mes2,
+    mes3: r.mes3,
+    mes4: r.mes4,
+    mes5: r.mes5,
+    mes6: r.mes6,
+    mes7: r.mes7,
+    mes8: r.mes8,
+    mes9: r.mes9,
+    mes10: r.mes10,
+    tipoRevisao: r.tipoRevisao || [],
+    url: r.url,
+  };
 }
 
-const WEEK_DAYS = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"];
-
-const MONTH_NAMES = [
-  "Janeiro",
-  "Fevereiro",
-  "Março",
-  "Abril",
-  "Maio",
-  "Junho",
-  "Julho",
-  "Agosto",
-  "Setembro",
-  "Outubro",
-  "Novembro",
-  "Dezembro",
-];
-
-// Paleta tática para matérias do CFO CBMERJ
-const MATERIA_BADGES: Record<string, string> = {
-  Química: "bg-red-950/60 text-red-300 border-red-800/60",
-  "Química I": "bg-red-950/60 text-red-300 border-red-800/60",
-  Português: "bg-amber-950/60 text-amber-300 border-amber-800/60",
-  "Língua Portuguesa": "bg-amber-950/60 text-amber-300 border-amber-800/60",
-  História: "bg-emerald-950/60 text-emerald-300 border-emerald-800/60",
-  "Matemática I": "bg-purple-950/60 text-purple-300 border-purple-800/60",
-  "Matemática II": "bg-purple-950/60 text-purple-300 border-purple-800/60",
-  "Matemática III": "bg-purple-950/60 text-purple-300 border-purple-800/60",
-  Matemática: "bg-purple-950/60 text-purple-300 border-purple-800/60",
-  "Física I": "bg-orange-950/60 text-orange-300 border-orange-800/60",
-  "Física II": "bg-orange-950/60 text-orange-300 border-orange-800/60",
-  Física: "bg-orange-950/60 text-orange-300 border-orange-800/60",
-  Geografia: "bg-sky-950/60 text-sky-300 border-sky-800/60",
-  Biologia: "bg-teal-950/60 text-teal-300 border-teal-800/60",
-  Redação: "bg-rose-950/60 text-rose-300 border-rose-800/60",
-  Default: "bg-slate-900/60 text-slate-300 border-slate-700/60",
+/**
+ * Ícone circular tracejado estilo Notion Calendar (ou check sólido quando todos os 11 ciclos acabam).
+ */
+const NotionStatusGlyph: React.FC<{
+  completed: boolean;
+  isBusy?: boolean;
+  isDueOrOverdue?: boolean;
+  isDark: boolean;
+}> = ({ completed, isBusy, isDueOrOverdue, isDark }) => {
+  if (isBusy) {
+    return (
+      <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin shrink-0 opacity-80" />
+    );
+  }
+  if (completed) {
+    return (
+      <span
+        className={`w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 ${
+          isDark ? "bg-emerald-500/90 text-[#191919]" : "bg-emerald-600 text-white"
+        }`}
+      >
+        <Check className="w-2.5 h-2.5 stroke-[3]" />
+      </span>
+    );
+  }
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={`w-3.5 h-3.5 shrink-0 transition-transform group-hover/check:scale-110 ${
+        isDueOrOverdue
+          ? isDark
+            ? "text-[#ff8f85]"
+            : "text-[#c43e36]"
+          : isDark
+          ? "text-[#e59a94]/80"
+          : "text-[#b84a42]/80"
+      }`}
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle
+        cx="8"
+        cy="8"
+        r="5.75"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeDasharray="2.3 2.1"
+      />
+    </svg>
+  );
 };
 
 export const NotionCalendar: React.FC<NotionCalendarProps> = ({
   theme = "dark",
-  showToast = (_msg: string, _type?: "success" | "error" | "info") => {},
+  showToast = () => {},
+  externalItems,
+  externalLoading,
+  externalSyncing,
+  onExternalSync,
+  onExternalItemUpdated,
+  onQuickCreate,
 }) => {
   const isDark = theme === "dark";
+  const isControlled = Array.isArray(externalItems);
 
-  // Estado das revisões vindas exclusivamente do Notion
-  const [reviews, setReviews] = useState<NotionReviewRecord[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [internalReviews, setInternalReviews] = useState<NotionReviewRecord[]>([]);
+  const [internalLoading, setInternalLoading] = useState<boolean>(!isControlled);
+  const [internalSyncing, setInternalSyncing] = useState<boolean>(false);
 
-  // Mês e Ano atualmente visíveis no grid
-  const [currentDate, setCurrentDate] = useState<Date>(() => new Date(2026, 8, 1)); // Padrão Setembro/2026
+  const reviews = useMemo(
+    () => (isControlled ? externalItems!.map(mapApiItemToReviewRecord) : internalReviews),
+    [isControlled, externalItems, internalReviews]
+  );
+  const isLoading = isControlled ? Boolean(externalLoading) : internalLoading;
+  const isSyncing = isControlled ? Boolean(externalSyncing) : internalSyncing;
 
-  // Filtros táticos
+  const [viewMode, setViewMode] = useState<CalendarViewMode>("week");
+  const [anchorDate, setAnchorDate] = useState<Date>(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  });
+
   const [selectedMateria, setSelectedMateria] = useState<string>("TODAS");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [onlyPending, setOnlyPending] = useState<boolean>(false);
 
-  // Modal de Detalhes do Dia
+  const [busyPageId, setBusyPageId] = useState<string | null>(null);
   const [selectedDayDetail, setSelectedDayDetail] = useState<{
     dateStr: string;
     items: NotionReviewRecord[];
   } | null>(null);
-
-  // Modal de Detalhes de um Estudo Específico
   const [activeItemModal, setActiveItemModal] = useState<NotionReviewRecord | null>(null);
 
-  // Hoje no formato YYYY-MM-DD
-  const todayStr = useMemo(() => {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
+  // Relógio atual para a linha vermelha do Notion Calendar
+  const [nowTick, setNowTick] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(new Date()), 60_000);
+    return () => window.clearInterval(id);
   }, []);
 
-  /**
-   * 2. Função de busca e mapeamento das Revisões do Notion
-   * Consulta o endpoint seguro do backend que integra com a API oficial do Notion
-   */
-  const fetchNotionReviews = useCallback(async (force = false) => {
-    if (force) setIsSyncing(true);
-    else setIsLoading(true);
+  const todayStr = useMemo(() => toDateStr(nowTick), [nowTick]);
 
-    try {
-      const res = await fetch("/api/notion/revisoes");
-      if (!res.ok) throw new Error("Falha ao comunicar com o servidor");
-      const data = await res.json();
-
-      if (data && Array.isArray(data.items)) {
-        const mapped: NotionReviewRecord[] = data.items.map(mapApiItemToReviewRecord);
-
-        setReviews(mapped);
-        if (force) {
-          showToast("Dados de revisões atualizados diretamente do Notion!", "success");
-        }
+  const fetchNotionReviews = useCallback(
+    async (force = false) => {
+      if (isControlled && onExternalSync) {
+        onExternalSync();
+        return;
       }
-    } catch (err: any) {
-      console.warn("Erro ao carregar revisões do Notion:", err);
-      showToast("Não foi possível carregar os dados atualizados do Notion.", "error");
-    } finally {
-      setIsLoading(false);
-      setIsSyncing(false);
-    }
-  }, [showToast]);
+      if (force) setInternalSyncing(true);
+      else setInternalLoading(true);
+      try {
+        const res = await fetchNotionRevisoes();
+        setInternalReviews(res.items.map(mapApiItemToReviewRecord));
+        if (force) {
+          showToast(
+            res.source === "notion_api"
+              ? "Agenda sincronizada com o Notion."
+              : "Agenda atualizada via cache sincronizado.",
+            "success"
+          );
+        }
+      } catch {
+        showToast("Não foi possível carregar as revisões do Notion.", "error");
+      } finally {
+        setInternalLoading(false);
+        setInternalSyncing(false);
+      }
+    },
+    [isControlled, onExternalSync, showToast]
+  );
 
   useEffect(() => {
-    fetchNotionReviews();
-  }, [fetchNotionReviews]);
+    if (!isControlled) {
+      void fetchNotionReviews(false);
+    }
+  }, [isControlled, fetchNotionReviews]);
 
-  /**
-   * Determina qual o próximo ciclo de revisão pendente (Semana .. Mês 10)
-   */
-  const getNextReviewCycle = (item: NotionReviewRecord): RevisionCycleKey | null => {
-    return getNextPendingNotionCycle(item);
-  };
+  const applyUpdatedRecord = useCallback(
+    (record: NotionReviewRecord) => {
+      if (isControlled) {
+        onExternalItemUpdated?.(mapReviewRecordToApiItem(record));
+      } else {
+        setInternalReviews((prev) => prev.map((r) => (r.id === record.id ? record : r)));
+      }
+      setActiveItemModal((prev) => (prev && prev.id === record.id ? record : prev));
+      setSelectedDayDetail((prev) =>
+        prev
+          ? { ...prev, items: prev.items.map((r) => (r.id === record.id ? record : r)) }
+          : null
+      );
+    },
+    [isControlled, onExternalItemUpdated]
+  );
 
-  /**
-   * 3. Sincronização Bidirecional (Ação no Site -> Notion)
-   * Processa o clique no checkbox com Optimistic UI e atualiza com a resposta real do Notion
-   */
-  const handleCheckReview = async (
-    pageId: string,
-    targetCycle?: RevisionCycleKey
-  ) => {
+  const handleCheckReview = async (pageId: string, targetCycle?: RevisionCycleKey) => {
+    if (busyPageId) return;
     const item = reviews.find((r) => r.id === pageId);
     if (!item) return;
 
-    // Se não especificado o ciclo, marca o próximo pendente (Semana .. Mês 10)
-    const cycleToMark = targetCycle || getNextReviewCycle(item);
+    const cycleToMark = targetCycle || getNextPendingNotionCycle(item);
     if (!cycleToMark) {
-      showToast(`'${item.assunto}' já concluiu todos os ciclos de revisão!`, "info");
+      showToast(`'${item.assunto}' já concluiu todos os ciclos de revisão.`, "info");
       return;
     }
 
     const nextVal = !Boolean(item[cycleToMark]);
+    const cycleLabel = NOTION_CYCLE_LABELS[cycleToMark];
 
-    // Optimistic UI apenas no checkbox clicado; a nova Próxima Revisão virá da fórmula real do Notion
-    setReviews((prev) =>
-      prev.map((r) => (r.id === pageId ? { ...r, [cycleToMark]: nextVal } : r))
-    );
-
-    if (activeItemModal && activeItemModal.id === pageId) {
-      setActiveItemModal((prev) => (prev ? { ...prev, [cycleToMark]: nextVal } : null));
-    }
-
-    if (selectedDayDetail) {
-      setSelectedDayDetail((prev) =>
-        prev
-          ? {
-              ...prev,
-              items: prev.items.map((r) => (r.id === pageId ? { ...r, [cycleToMark]: nextVal } : r)),
-            }
-          : null
-      );
-    }
-
-    const cycleLabelMap: Record<RevisionCycleKey, string> = NOTION_CYCLE_LABELS;
+    // Optimistic UI apenas no checkbox clicado; Próxima Revisão real vem da fórmula do Notion
+    const optimistic: NotionReviewRecord = { ...item, [cycleToMark]: nextVal };
+    applyUpdatedRecord(optimistic);
+    setBusyPageId(pageId);
 
     try {
       const res = await checkinRevision(pageId, cycleToMark, nextVal);
       if (!res.success) {
-        throw new Error(res.error || "Erro na resposta do servidor");
+        throw new Error(res.error || "Erro ao atualizar Notion");
       }
 
-      let nextDateHint = "";
+      let nextHint = "";
       if (res.item) {
         const serverRecord = mapApiItemToReviewRecord(res.item);
-        setReviews((prev) => prev.map((r) => (r.id === pageId ? serverRecord : r)));
-        setActiveItemModal((prev) => (prev && prev.id === pageId ? serverRecord : prev));
-        setSelectedDayDetail((prev) =>
-          prev
-            ? {
-                ...prev,
-                items: prev.items.map((r) => (r.id === pageId ? serverRecord : r)),
-              }
-            : null
-        );
+        applyUpdatedRecord(serverRecord);
         if (serverRecord.proximaRevisao && serverRecord.proximaRevisao !== item.proximaRevisao) {
-          const [y, m, d] = serverRecord.proximaRevisao.split("-");
-          if (y && m && d) {
-            nextDateHint = ` (Próxima: ${d}/${m}/${y})`;
-          }
+          nextHint = ` • Próxima: ${formatDateBR(serverRecord.proximaRevisao)}`;
         }
       }
 
       showToast(
         nextVal
-          ? `Notion: marcado '${cycleLabelMap[cycleToMark]}' para ${item.assunto}!${nextDateHint}`
-          : `Notion: desmarcado '${cycleLabelMap[cycleToMark]}' de ${item.assunto}.${nextDateHint}`,
+          ? `Notion: '${cycleLabel}' marcado em ${item.assunto}${nextHint}`
+          : `Notion: '${cycleLabel}' desmarcado em ${item.assunto}${nextHint}`,
         "success"
       );
-    } catch (e) {
-      console.error("Falha ao sincronizar com o Notion:", e);
-      showToast("Falha ao salvar no Notion. Revertendo alteração local...", "error");
-      fetchNotionReviews();
+    } catch (err: any) {
+      applyUpdatedRecord(item);
+      showToast(err?.message || "Falha ao sincronizar com o Notion. Alteração revertida.", "error");
+    } finally {
+      setBusyPageId(null);
     }
   };
 
-  // Lista de disciplinas únicas
   const materias = useMemo(() => {
     const s = new Set<string>();
     reviews.forEach((r) => {
@@ -282,27 +350,55 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
     return Array.from(s).sort();
   }, [reviews]);
 
-  // Navegação de mês
-  const handlePrevMonth = () => {
-    setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  // Navegação Semana / Mês
+  const handlePrev = () => {
+    setAnchorDate((prev) =>
+      viewMode === "week"
+        ? new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 7)
+        : new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
+    );
   };
 
-  const handleNextMonth = () => {
-    setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  const handleNext = () => {
+    setAnchorDate((prev) =>
+      viewMode === "week"
+        ? new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 7)
+        : new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
+    );
   };
 
-  const handleGoToToday = () => {
+  const handleToday = () => {
     const now = new Date();
-    setCurrentDate(new Date(now.getFullYear(), now.getMonth(), 1));
+    setAnchorDate(new Date(now.getFullYear(), now.getMonth(), now.getDate()));
   };
 
-  // Mapeamento dos dias do mês para renderização no grid (42 células)
-  const calendarCells = useMemo(() => {
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
+  // Dias da semana atual (DOM -> SÁB) como no Notion Calendar
+  const weekDays = useMemo(() => {
+    const start = new Date(
+      anchorDate.getFullYear(),
+      anchorDate.getMonth(),
+      anchorDate.getDate() - anchorDate.getDay()
+    );
+    return Array.from({ length: 7 }, (_, idx) => {
+      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + idx);
+      const dateStr = toDateStr(d);
+      return {
+        date: d,
+        dateStr,
+        dayNum: d.getDate(),
+        weekdayLabel: WEEK_DAYS_SHORT[d.getDay()],
+        isToday: dateStr === todayStr,
+        isPast: dateStr < todayStr,
+      };
+    });
+  }, [anchorDate, todayStr]);
 
-    const firstDayOfWeek = new Date(year, month, 1).getDay(); // 0 = Domingo
-    const daysInCurrentMonth = new Date(year, month + 1, 0).getDate();
+  // Células do mês (42 dias)
+  const monthCells = useMemo(() => {
+    const year = anchorDate.getFullYear();
+    const month = anchorDate.getMonth();
+    const firstDayOfWeek = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
     const daysInPrevMonth = new Date(year, month, 0).getDate();
 
     const cells: Array<{
@@ -310,462 +406,637 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
       dayNum: number;
       isCurrentMonth: boolean;
       isToday: boolean;
+      isPast: boolean;
     }> = [];
 
-    // 1. Dias do mês anterior
     for (let i = firstDayOfWeek - 1; i >= 0; i--) {
       const dayNum = daysInPrevMonth - i;
-      const prevMonthDate = new Date(year, month - 1, dayNum);
-      const y = prevMonthDate.getFullYear();
-      const m = String(prevMonthDate.getMonth() + 1).padStart(2, "0");
-      const d = String(dayNum).padStart(2, "0");
-      const dateStr = `${y}-${m}-${d}`;
+      const d = new Date(year, month - 1, dayNum);
+      const dateStr = toDateStr(d);
       cells.push({
         dateStr,
         dayNum,
         isCurrentMonth: false,
         isToday: dateStr === todayStr,
+        isPast: dateStr < todayStr,
       });
     }
 
-    // 2. Dias do mês atual
-    for (let day = 1; day <= daysInCurrentMonth; day++) {
-      const y = year;
-      const m = String(month + 1).padStart(2, "0");
-      const d = String(day).padStart(2, "0");
-      const dateStr = `${y}-${m}-${d}`;
+    for (let day = 1; day <= daysInMonth; day++) {
+      const d = new Date(year, month, day);
+      const dateStr = toDateStr(d);
       cells.push({
         dateStr,
         dayNum: day,
         isCurrentMonth: true,
         isToday: dateStr === todayStr,
+        isPast: dateStr < todayStr,
       });
     }
 
-    // 3. Dias do próximo mês para completar 42 ou 35 células
     const remaining = 42 - cells.length;
     for (let day = 1; day <= remaining; day++) {
-      const nextMonthDate = new Date(year, month + 1, day);
-      const y = nextMonthDate.getFullYear();
-      const m = String(nextMonthDate.getMonth() + 1).padStart(2, "0");
-      const d = String(day).padStart(2, "0");
-      const dateStr = `${y}-${m}-${d}`;
+      const d = new Date(year, month + 1, day);
+      const dateStr = toDateStr(d);
       cells.push({
         dateStr,
         dayNum: day,
         isCurrentMonth: false,
         isToday: dateStr === todayStr,
+        isPast: dateStr < todayStr,
       });
     }
 
     return cells;
-  }, [currentDate, todayStr]);
+  }, [anchorDate, todayStr]);
 
-  // Indexação rápida de revisões por data de Próxima Revisão
+  // Título dinâmico do cabeçalho (ex: "Novembro 2026" ou "Nov – Dez 2026")
+  const periodTitle = useMemo(() => {
+    if (viewMode === "month") {
+      return `${MONTH_NAMES[anchorDate.getMonth()]} ${anchorDate.getFullYear()}`;
+    }
+    const first = weekDays[0]?.date || anchorDate;
+    const last = weekDays[6]?.date || anchorDate;
+    if (first.getMonth() === last.getMonth()) {
+      return `${MONTH_NAMES[first.getMonth()]} ${first.getFullYear()}`;
+    }
+    const m1 = MONTH_NAMES[first.getMonth()].slice(0, 3);
+    const m2 = MONTH_NAMES[last.getMonth()].slice(0, 3);
+    return first.getFullYear() === last.getFullYear()
+      ? `${m1} – ${m2} ${last.getFullYear()}`
+      : `${m1} ${first.getFullYear()} – ${m2} ${last.getFullYear()}`;
+  }, [viewMode, anchorDate, weekDays]);
+
+  // Indexa revisões filtradas pela Próxima Revisão real do Notion
   const reviewsByDate = useMemo(() => {
     const map: Record<string, NotionReviewRecord[]> = {};
+    const q = searchQuery.trim().toLowerCase();
 
     reviews.forEach((item) => {
-      // 1. Filtro de busca textual
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        if (!item.assunto.toLowerCase().includes(q) && !item.materia.toLowerCase().includes(q)) {
-          return;
-        }
+      if (q && !item.assunto.toLowerCase().includes(q) && !item.materia.toLowerCase().includes(q)) {
+        return;
       }
-
-      // 2. Filtro de matéria
       if (selectedMateria !== "TODAS" && item.materia !== selectedMateria) {
         return;
       }
-
-      // 3. Filtro de pendentes
-      if (onlyPending) {
-        const isDone = !getNextReviewCycle(item);
-        if (isDone) return;
+      if (onlyPending && !getNextPendingNotionCycle(item)) {
+        return;
       }
-
-      // Indexa apenas pela Próxima Revisão que vem do Notion
       if (item.proximaRevisao) {
-        if (!map[item.proximaRevisao]) map[item.proximaRevisao] = [];
-        map[item.proximaRevisao].push(item);
+        const dateKey = item.proximaRevisao.slice(0, 10);
+        if (!map[dateKey]) map[dateKey] = [];
+        map[dateKey].push(item);
       }
     });
 
     return map;
   }, [reviews, searchQuery, selectedMateria, onlyPending]);
 
-  // Contadores do mês visível
-  const monthStats = useMemo(() => {
-    const year = currentDate.getFullYear();
-    const monthStr = String(currentDate.getMonth() + 1).padStart(2, "0");
-    const prefix = `${year}-${monthStr}`;
-
-    let totalMonth = 0;
-    let pendingMonth = 0;
-
-    reviews.forEach((it) => {
-      if (it.proximaRevisao && it.proximaRevisao.startsWith(prefix)) {
-        totalMonth++;
-        const isDone = !getNextReviewCycle(it);
-        if (!isDone) pendingMonth++;
-      }
+  // Estatísticas do período visível
+  const periodStats = useMemo(() => {
+    const visibleDates = new Set(
+      viewMode === "week"
+        ? weekDays.map((d) => d.dateStr)
+        : monthCells.filter((c) => c.isCurrentMonth).map((c) => c.dateStr)
+    );
+    let total = 0;
+    let pending = 0;
+    visibleDates.forEach((ds) => {
+      const list = reviewsByDate[ds] || [];
+      total += list.length;
+      pending += list.filter((it) => Boolean(getNextPendingNotionCycle(it))).length;
     });
+    return { total, pending };
+  }, [viewMode, weekDays, monthCells, reviewsByDate]);
 
-    return { totalMonth, pendingMonth };
-  }, [reviews, currentDate]);
+  // Posição da linha de hora atual no grid semanal (entre 08:00 e 22:00)
+  const currentTimeIndicator = useMemo(() => {
+    const hours = nowTick.getHours() + nowTick.getMinutes() / 60;
+    const minH = 7;
+    const maxH = 23;
+    const clamped = Math.max(minH, Math.min(maxH, hours));
+    const pct = ((clamped - minH) / (maxH - minH)) * 100;
+    const hh = String(nowTick.getHours()).padStart(2, "0");
+    const mm = String(nowTick.getMinutes()).padStart(2, "0");
+    return { pct, label: `${hh}:${mm}`, shortMinutes: `:${mm}` };
+  }, [nowTick]);
+
+  // Superfícies estilo Notion Calendar
+  const notionCanvas = isDark
+    ? "bg-[#191919] border-white/[0.08] text-[#e6e6e4]"
+    : "bg-white border-[#e6e6e3] text-[#37352f]";
+  const hairline = isDark ? "border-white/[0.06]" : "border-[#ececeb]";
+  const divideHairline = isDark ? "divide-white/[0.06]" : "divide-[#ececeb]";
+
+  const renderEventPill = (item: NotionReviewRecord, compact = false) => {
+    const nextCycle = getNextPendingNotionCycle(item);
+    const isAllDone = !nextCycle;
+    const dueDate = item.proximaRevisao?.slice(0, 10) || "";
+    const isDueTodayOrOverdue = !isAllDone && Boolean(dueDate) && dueDate <= todayStr;
+    const isBusy = busyPageId === item.id;
+
+    // Paleta fiel ao Notion Calendar do print (coral/terracotta para revisões, sálvia para concluído total)
+    const pillColors = isAllDone
+      ? isDark
+        ? "bg-[#1d3226]/90 hover:bg-[#233d2e] text-[#9fd4b2]"
+        : "bg-[#eaf5ee] hover:bg-[#dcf0e3] text-[#1f6239]"
+      : isDueOrOverdueStyle(isDueTodayOrOverdue, isDark);
+
+    const accentBarColor = isAllDone
+      ? isDark
+        ? "bg-[#4ea86d]"
+        : "bg-[#2e8550]"
+      : isDueTodayOrOverdue
+      ? "bg-[#eb5757]"
+      : isDark
+      ? "bg-[#c8564d]"
+      : "bg-[#d44c47]";
+
+    const nextLabel = nextCycle ? NOTION_CYCLE_LABELS[nextCycle] : "Concluído";
+
+    return (
+      <div
+        key={item.id}
+        onClick={() => setActiveItemModal(item)}
+        className={`group relative flex items-center gap-1.5 rounded-[5px] pr-1.5 pl-0 overflow-hidden cursor-pointer transition-colors ${
+          compact ? "py-[2px] text-[11px]" : "py-[3.5px] text-[11.5px]"
+        } ${pillColors}`}
+        title={`${item.assunto} • ${item.materia} (${
+          isAllDone ? "Todos os ciclos concluídos" : `Próxima etapa: ${nextLabel}`
+        })`}
+      >
+        {/* Barra lateral vertical característica do Notion Calendar */}
+        <span className={`w-[3px] self-stretch shrink-0 ${accentBarColor}`} />
+
+        {/* Botão de check direto com círculo tracejado do Notion Calendar */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            void handleCheckReview(item.id, nextCycle || "mes10");
+          }}
+          disabled={isBusy}
+          className="group/check ml-1 shrink-0 rounded-full p-0.5 -m-0.5 focus:outline-none cursor-pointer"
+          title={
+            isAllDone
+              ? "Revisão concluída até Mês 10"
+              : `Marcar '${nextLabel}' como revisado no Notion`
+          }
+          aria-label={`Marcar ${nextLabel} de ${item.assunto}`}
+        >
+          <NotionStatusGlyph
+            completed={isAllDone}
+            isBusy={isBusy}
+            isDueOrOverdue={isDueTodayOrOverdue}
+            isDark={isDark}
+          />
+        </button>
+
+        {/* Título do assunto */}
+        <span
+          className={`truncate font-medium leading-tight flex-1 ${
+            isAllDone ? "opacity-75" : ""
+          }`}
+        >
+          {item.assunto}
+        </span>
+
+        {/* Tag sutil do ciclo pendente ao passar o mouse (desktop) */}
+        {nextCycle && (
+          <span
+            className={`hidden xl:inline-block shrink-0 text-[9.5px] font-medium px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${
+              isDark ? "bg-black/30 text-white/75" : "bg-white/70 text-[#7c2924]"
+            }`}
+          >
+            {nextLabel}
+          </span>
+        )}
+      </div>
+    );
+  };
 
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-4 select-none">
-      {/* 1. Barra Superior Tática de Controle */}
-      <div className={`border rounded-2xl p-4 sm:p-5 shadow-2xl backdrop-blur-md ${isDark ? "bg-slate-950/90 border-slate-800/90" : "bg-white border-slate-300 shadow-sm"}`}>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          {/* Título & Identificador Tático */}
-          <div className="flex items-start gap-3 min-w-0">
-            <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shadow-lg ${isDark ? "bg-green-950/70 border-green-700/50 text-green-400 shadow-green-950/30" : "bg-emerald-100 border-emerald-300 text-emerald-800"}`}>
-              <CalendarIcon className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h2 className={`text-base sm:text-lg font-black tracking-wider uppercase font-mono break-words ${isDark ? "text-white" : "text-black"}`}>
-                  Calendário de Revisões Tático
-                </h2>
-                <span className={`px-2 py-0.5 rounded text-[9.5px] font-mono font-bold uppercase border ${isDark ? "bg-green-950/60 text-green-400 border-green-800/60" : "bg-emerald-100 text-emerald-950 border-emerald-400"}`}>
-                  Notion Sync
-                </span>
-              </div>
-              <p className={`text-xs font-mono mt-0.5 break-words ${isDark ? "text-slate-400" : "text-slate-700 font-semibold"}`}>
-                Exibição exclusiva de matérias agendadas em <strong className={isDark ? "text-green-400 font-semibold" : "text-emerald-800 font-black"}>Próxima Revisão</strong> no Notion
-              </p>
-            </div>
-          </div>
-
-          {/* Navegação de Mês & Ações Rápidas */}
-          <div className="flex flex-wrap items-center justify-end gap-2 self-end md:self-center max-w-full">
+    <div className={`w-full rounded-xl border overflow-hidden shadow-sm ${notionCanvas}`}>
+      {/* Barra superior estilo Notion Calendar */}
+      <div
+        className={`px-3 sm:px-4 py-2.5 border-b flex flex-wrap items-center justify-between gap-2.5 ${hairline} ${
+          isDark ? "bg-[#202020]" : "bg-[#fbfbfa]"
+        }`}
+      >
+        {/* Esquerda: Título do Mês + Setas + Hoje */}
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          <div className="flex items-center gap-1">
             <button
-              onClick={() => fetchNotionReviews(true)}
-              disabled={isSyncing}
-              className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${isDark ? "border-slate-800 bg-slate-900/80 hover:bg-slate-800 text-slate-300" : "border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold"}`}
-              title="Sincronizar dados do Notion"
+              type="button"
+              onClick={handlePrev}
+              className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                isDark
+                  ? "text-white/60 hover:text-white hover:bg-white/[0.07]"
+                  : "text-[#37352f]/70 hover:text-[#37352f] hover:bg-black/[0.05]"
+              }`}
+              title={viewMode === "week" ? "Semana anterior" : "Mês anterior"}
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-green-400" : ""}`} />
-              <span className="hidden sm:inline">Sincronizar</span>
+              <ChevronLeft className="w-4 h-4" />
             </button>
-
             <button
-              onClick={handleGoToToday}
-              className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-semibold transition-all cursor-pointer ${isDark ? "border-slate-800 bg-slate-900/80 hover:bg-slate-800 text-slate-300" : "border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold"}`}
+              type="button"
+              onClick={handleToday}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors cursor-pointer ${
+                isDark
+                  ? "border-white/[0.1] bg-white/[0.04] hover:bg-white/[0.09] text-[#e6e6e4]"
+                  : "border-[#dfdfdc] bg-white hover:bg-[#f1f1ef] text-[#37352f]"
+              }`}
             >
               Hoje
             </button>
-
-            <div className={`flex items-center border rounded-lg overflow-hidden ${isDark ? "border-slate-800 bg-black/60" : "border-slate-300 bg-slate-100"}`}>
-              <button
-                onClick={handlePrevMonth}
-                className={`p-2 transition-colors cursor-pointer ${isDark ? "text-slate-400 hover:text-white hover:bg-slate-900" : "text-slate-600 hover:text-black hover:bg-slate-200"}`}
-                title="Mês Anterior"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className={`px-3 text-xs font-mono font-bold uppercase min-w-[130px] text-center tracking-wider ${isDark ? "text-white" : "text-black font-black"}`}>
-                {MONTH_NAMES[currentDate.getMonth()]} {currentDate.getFullYear()}
-              </span>
-              <button
-                onClick={handleNextMonth}
-                className={`p-2 transition-colors cursor-pointer ${isDark ? "text-slate-400 hover:text-white hover:bg-slate-900" : "text-slate-600 hover:text-black hover:bg-slate-200"}`}
-                title="Próximo Mês"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Linha de Filtros e Busca Tática */}
-        <div className={`mt-4 pt-3.5 border-t flex flex-wrap items-center justify-between gap-3 text-xs font-mono ${isDark ? "border-slate-800/80" : "border-slate-200"}`}>
-          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-            {/* Campo de Busca */}
-            <div className="relative w-full sm:w-56">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filtrar assunto..."
-                className={`w-full pl-8 pr-2.5 py-1.5 rounded-lg border text-xs font-mono ${isDark ? "bg-black/80 border-slate-800 text-white placeholder-slate-600 focus:border-green-600" : "bg-white border-slate-300 text-black placeholder-slate-500 font-medium focus:border-green-600"}`}
-              />
-            </div>
-
-            {/* Filtro por Disciplina */}
-            <select
-              value={selectedMateria}
-              onChange={(e) => setSelectedMateria(e.target.value)}
-              className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono cursor-pointer ${isDark ? "bg-black/80 border-slate-800 text-slate-300 focus:border-green-600" : "bg-white border-slate-300 text-slate-900 font-bold focus:border-green-600"}`}
-            >
-              <option value="TODAS">Todas as Matérias</option>
-              {materias.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-
-            {/* Toggle de Apenas Pendentes */}
             <button
-              onClick={() => setOnlyPending((prev) => !prev)}
-              className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors flex items-center gap-1.5 cursor-pointer ${
-                onlyPending
-                  ? isDark
-                    ? "bg-amber-950/40 border-amber-600/50 text-amber-300 font-bold"
-                    : "bg-amber-100 border-amber-500 text-amber-950 font-black"
-                  : isDark
-                  ? "bg-black/60 border-slate-800 text-slate-400 hover:text-white"
-                  : "bg-slate-100 border-slate-300 text-slate-800 hover:text-black font-bold"
+              type="button"
+              onClick={handleNext}
+              className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                isDark
+                  ? "text-white/60 hover:text-white hover:bg-white/[0.07]"
+                  : "text-[#37352f]/70 hover:text-[#37352f] hover:bg-black/[0.05]"
               }`}
+              title={viewMode === "week" ? "Próxima semana" : "Próximo mês"}
             >
-              {onlyPending ? <CheckSquare className="w-3.5 h-3.5 text-amber-400" /> : <Square className="w-3.5 h-3.5" />}
-              <span>Apenas Pendentes</span>
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Badges Táticos de Resumo do Mês */}
-          <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
-            <span className={`px-2 py-0.5 rounded border ${isDark ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-slate-100 border-slate-300 text-slate-800 font-semibold"}`}>
-              No Mês: <strong className={isDark ? "text-white" : "text-black font-black"}>{monthStats.totalMonth}</strong>
+          <h2 className="text-sm sm:text-base font-semibold tracking-tight tabular-nums">
+            {periodTitle}
+          </h2>
+
+          <span
+            className={`hidden sm:inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-md ${
+              isDark ? "bg-white/[0.05] text-white/60" : "bg-[#f1f1ef] text-[#37352f]/70"
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-[#eb5757]" />
+            <span className="tabular-nums">
+              {periodStats.pending} pendente(s) de {periodStats.total}
             </span>
-            <span className={`px-2 py-0.5 rounded border ${isDark ? "bg-green-950/40 border-green-800/50 text-green-400" : "bg-emerald-100 border-emerald-300 text-emerald-950 font-bold"}`}>
-              Pendentes: <strong className={isDark ? "text-green-300" : "text-emerald-950 font-black"}>{monthStats.pendingMonth}</strong>
-            </span>
+          </span>
+        </div>
+
+        {/* Direita: Busca, Filtro de Matéria, Apenas Pendentes, Semana/Mês, Sync */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="relative w-36 sm:w-44">
+            <Search
+              className={`w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 ${
+                isDark ? "text-white/35" : "text-[#37352f]/40"
+              }`}
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar assunto..."
+              className={`w-full pl-8 pr-2 py-1 rounded-md text-xs border focus:outline-none transition-colors ${
+                isDark
+                  ? "bg-[#191919] border-white/[0.08] text-[#e6e6e4] placeholder-white/35 focus:border-white/25"
+                  : "bg-white border-[#dfdfdc] text-[#37352f] placeholder-[#37352f]/40 focus:border-[#37352f]/40"
+              }`}
+            />
           </div>
+
+          <select
+            value={selectedMateria}
+            onChange={(e) => setSelectedMateria(e.target.value)}
+            className={`px-2 py-1 rounded-md text-xs border focus:outline-none cursor-pointer ${
+              isDark
+                ? "bg-[#191919] border-white/[0.08] text-[#e6e6e4]"
+                : "bg-white border-[#dfdfdc] text-[#37352f]"
+            }`}
+          >
+            <option value="TODAS">Todas as matérias</option>
+            {materias.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            onClick={() => setOnlyPending((prev) => !prev)}
+            className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors cursor-pointer ${
+              onlyPending
+                ? isDark
+                  ? "bg-[#eb5757]/15 border-[#eb5757]/40 text-[#ff8f85]"
+                  : "bg-[#fdeceb] border-[#eb5757]/50 text-[#b42c24]"
+                : isDark
+                ? "bg-white/[0.03] border-white/[0.08] text-white/65 hover:text-white"
+                : "bg-white border-[#dfdfdc] text-[#37352f]/75 hover:text-[#37352f]"
+            }`}
+          >
+            Pendentes
+          </button>
+
+          {/* Alternador Semana / Mês como no Notion Calendar */}
+          <div
+            className={`inline-flex items-center p-0.5 rounded-md border ${
+              isDark ? "bg-[#191919] border-white/[0.08]" : "bg-[#f1f1ef] border-[#e6e6e3]"
+            }`}
+          >
+            <button
+              type="button"
+              onClick={() => setViewMode("week")}
+              className={`px-2.5 py-0.5 rounded text-xs font-medium transition-colors cursor-pointer ${
+                viewMode === "week"
+                  ? isDark
+                    ? "bg-white/[0.11] text-white shadow-2xs"
+                    : "bg-white text-[#37352f] shadow-2xs"
+                  : isDark
+                  ? "text-white/55 hover:text-white"
+                  : "text-[#37352f]/65 hover:text-[#37352f]"
+              }`}
+            >
+              Semana
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("month")}
+              className={`px-2.5 py-0.5 rounded text-xs font-medium transition-colors cursor-pointer ${
+                viewMode === "month"
+                  ? isDark
+                    ? "bg-white/[0.11] text-white shadow-2xs"
+                    : "bg-white text-[#37352f] shadow-2xs"
+                  : isDark
+                  ? "text-white/55 hover:text-white"
+                  : "text-[#37352f]/65 hover:text-[#37352f]"
+              }`}
+            >
+              Mês
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void fetchNotionReviews(true)}
+            disabled={isSyncing}
+            className={`p-1.5 rounded-md border transition-colors cursor-pointer disabled:opacity-50 ${
+              isDark
+                ? "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.08] text-white/70"
+                : "border-[#dfdfdc] bg-white hover:bg-[#f1f1ef] text-[#37352f]/75"
+            }`}
+            title="Sincronizar com Notion"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin" : ""}`} />
+          </button>
         </div>
       </div>
 
-      {/* 2. Grid do Calendário Mensal Tático */}
-      <div className={`border rounded-2xl overflow-hidden shadow-2xl min-w-0 ${isDark ? "bg-slate-950 border-slate-800" : "bg-white border-slate-300 shadow-sm"}`}>
-        <div className="overflow-x-auto">
-        <div className="min-w-[560px]">
-        {/* Cabeçalho dos Dias da Semana */}
-        <div className={`grid grid-cols-7 border-b text-center py-2.5 text-[10px] sm:text-[11px] font-mono font-bold tracking-widest ${isDark ? "border-slate-800 bg-black text-slate-400" : "border-slate-300 bg-slate-100 text-slate-900 font-black"}`}>
-          {WEEK_DAYS.map((dayName, idx) => (
-            <div
-              key={dayName}
-              className={idx === 0 || idx === 6 ? (isDark ? "text-slate-500" : "text-slate-600") : (isDark ? "text-slate-300" : "text-slate-900")}
-            >
-              <span className="hidden sm:inline">{dayName}</span>
-              <span className="sm:hidden">{dayName.slice(0, 3)}</span>
-            </div>
-          ))}
+      {/* Estado de Carregamento */}
+      {isLoading && reviews.length === 0 ? (
+        <div className={`py-16 text-center text-xs ${isDark ? "text-white/50" : "text-[#37352f]/60"}`}>
+          Sincronizando calendário com o Notion...
         </div>
-
-        {/* Células do Mês */}
-        <div className={`grid grid-cols-7 divide-x divide-y ${isDark ? "divide-slate-800/80 bg-slate-950" : "divide-slate-200 bg-white"}`}>
-          {calendarCells.map((cell) => {
-            const dayReviews = reviewsByDate[cell.dateStr] || [];
-            const hasReviews = dayReviews.length > 0;
-            const maxVisible = 3;
-            const visibleReviews = dayReviews.slice(0, maxVisible);
-            const extraCount = dayReviews.length - maxVisible;
-
-            return (
+      ) : viewMode === "week" ? (
+        /* ================== VISUALIZAÇÃO SEMANAL (ESTILO NOTION CALENDAR) ================== */
+        <div className="overflow-x-auto">
+          <div className="min-w-[820px]">
+            {/* Cabeçalho dos 7 dias (dom 15, seg 16, ter [17], ...) */}
+            <div
+              className={`grid grid-cols-[52px_repeat(7,minmax(0,1fr))] border-b ${hairline} ${
+                isDark ? "bg-[#191919]" : "bg-white"
+              }`}
+            >
               <div
-                key={cell.dateStr}
-                className={`min-h-[110px] sm:min-h-[125px] p-1.5 sm:p-2 transition-colors flex flex-col justify-between ${
-                  !cell.isCurrentMonth
-                    ? isDark
-                      ? "bg-black/40 opacity-40"
-                      : "bg-slate-100/60 opacity-60"
-                    : cell.isToday
-                    ? isDark
-                      ? "bg-green-950/15 ring-1 ring-inset ring-green-600/40"
-                      : "bg-emerald-50/80 ring-1 ring-inset ring-emerald-500/60"
-                    : isDark
-                    ? "hover:bg-slate-900/30"
-                    : "hover:bg-slate-50"
+                className={`border-r flex items-center justify-center text-[10px] font-medium ${hairline} ${
+                  isDark ? "text-white/30" : "text-[#37352f]/40"
                 }`}
               >
-                {/* Topo da Célula: Número do Dia */}
-                <div className="flex items-center justify-between mb-1">
+                GMT-3
+              </div>
+              {weekDays.map((day) => (
+                <div
+                  key={day.dateStr}
+                  className={`group/dayhead relative px-2 py-2 border-r last:border-r-0 flex items-center justify-center gap-1.5 text-xs ${hairline} ${
+                    day.isToday
+                      ? isDark
+                        ? "bg-white/[0.025]"
+                        : "bg-[#fff8f7]"
+                      : ""
+                  }`}
+                >
                   <span
-                    className={`inline-flex items-center justify-center text-xs font-mono font-bold rounded-md px-1.5 py-0.5 ${
-                      cell.isToday
-                        ? "bg-green-600 text-black font-black shadow-xs shadow-green-400/50"
-                        : cell.isCurrentMonth
+                    className={
+                      day.isToday
                         ? isDark
-                          ? "text-slate-300"
-                          : "text-slate-950 font-black"
+                          ? "text-white font-semibold"
+                          : "text-[#37352f] font-semibold"
                         : isDark
-                        ? "text-slate-600"
-                        : "text-slate-400 font-medium"
+                        ? "text-white/55 font-medium"
+                        : "text-[#37352f]/60 font-medium"
+                    }
+                  >
+                    {day.weekdayLabel}
+                  </span>
+                  <span
+                    className={`inline-flex items-center justify-center tabular-nums leading-none ${
+                      day.isToday
+                        ? "bg-[#eb5757] text-white font-semibold px-1.5 py-0.5 rounded-[5px] text-[11px]"
+                        : isDark
+                        ? "text-white/75 font-medium"
+                        : "text-[#37352f]/80 font-medium"
                     }`}
                   >
-                    {cell.dayNum}
+                    {day.dayNum}
                   </span>
 
-                  {hasReviews && (
-                    <span className={`text-[9.5px] font-mono font-bold ${isDark ? "text-green-500" : "text-emerald-700"}`}>
-                      {dayReviews.length} rev
-                    </span>
-                  )}
-                </div>
-
-                {/* Lista de Itens Verdinhos Agendados no Dia */}
-                <div className="space-y-1.5 flex-1 overflow-hidden">
-                  {visibleReviews.map((item) => {
-                    const nextCycle = getNextReviewCycle(item);
-                    const isAllDone = !nextCycle;
-
-                    return (
-                      <div
-                        key={item.id}
-                        className={`group relative rounded px-1.5 py-1 border text-[11px] font-mono flex items-center justify-between gap-1.5 transition-all shadow-xs ${
-                          isAllDone
-                            ? isDark
-                              ? "bg-slate-900/40 border-slate-800 text-slate-500 line-through opacity-60"
-                              : "bg-slate-100 border-slate-300 text-slate-500 line-through"
-                            : isDark
-                            ? "bg-green-900/30 hover:bg-green-900/50 text-green-300 border-green-800/50 hover:border-green-600/70"
-                            : "bg-emerald-100 hover:bg-emerald-200 text-emerald-950 font-bold border-emerald-400 shadow-2xs"
-                        }`}
-                        title={`${item.assunto} (${item.materia}) - Clique no checkbox para marcar no Notion`}
-                      >
-                        {/* Nome do Assunto (Clicável para ver detalhes) */}
-                        <span
-                          onClick={() => setActiveItemModal(item)}
-                          className="truncate cursor-pointer hover:underline flex-1"
-                        >
-                          {item.assunto}
-                        </span>
-
-                        {/* Checkbox Customizado Tático:
-                            Fundo escuro, borda carmesim/vermelha no hover, e check estilizado ao marcar */}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCheckReview(item.id, nextCycle || "mes10");
-                          }}
-                          className={`w-4 h-4 rounded shrink-0 flex items-center justify-center transition-all cursor-pointer border ${
-                            isAllDone
-                              ? "border-green-500 bg-green-950/80 text-green-400"
-                              : isDark
-                              ? "bg-black border-slate-700 hover:border-rose-500 hover:scale-110 text-transparent hover:text-rose-400/50"
-                              : "bg-white border-slate-400 hover:border-rose-600 hover:scale-110 text-transparent hover:text-rose-600/50 shadow-2xs"
-                          }`}
-                          title={
-                            isAllDone
-                              ? "Revisão concluída em todos os ciclos (Semana a Mês 10)"
-                              : `Clique para marcar '${NOTION_CYCLE_LABELS[nextCycle]}' no Notion`
-                          }
-                        >
-                          <Check className={`w-3 h-3 stroke-[3] ${isAllDone ? "text-green-400" : ""}`} />
-                        </button>
-                      </div>
-                    );
-                  })}
-
-                  {/* Botão +X mais */}
-                  {extraCount > 0 && (
+                  {onQuickCreate && (
                     <button
-                      onClick={() =>
-                        setSelectedDayDetail({
-                          dateStr: cell.dateStr,
-                          items: dayReviews,
-                        })
-                      }
-                      className="w-full text-center text-[10px] font-mono text-green-400/90 hover:text-green-300 bg-green-950/30 hover:bg-green-950/50 border border-green-800/30 rounded py-0.5 transition-colors cursor-pointer"
+                      type="button"
+                      onClick={() => onQuickCreate(day.dateStr)}
+                      className={`absolute right-1.5 opacity-0 group-hover/dayhead:opacity-100 p-0.5 rounded transition-opacity cursor-pointer ${
+                        isDark ? "hover:bg-white/[0.08] text-white/50" : "hover:bg-black/[0.06] text-[#37352f]/60"
+                      }`}
+                      title={`Adicionar estudo em ${formatDateBR(day.dateStr)}`}
                     >
-                      +{extraCount} mais
+                      <Plus className="w-3 h-3" />
                     </button>
                   )}
                 </div>
-              </div>
-            );
-          })}
-        </div>
-        </div>
-      </div>
-      </div>
-
-      {/* 3. Modal Tático de Detalhes do Dia (caso clique em +X mais) */}
-      {selectedDayDetail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xs animate-in fade-in duration-150">
-          <div
-            className={`w-full max-w-lg rounded-2xl p-5 shadow-2xl font-mono space-y-4 border ${
-              isDark
-                ? "bg-slate-950 border-slate-800 text-white"
-                : "bg-white border-slate-300 text-black shadow-2xl"
-            }`}
-          >
-            <div
-              className={`flex items-center justify-between pb-3 border-b ${
-                isDark ? "border-slate-800" : "border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <CalendarIcon className="w-4 h-4 text-green-600" />
-                <h3 className={`font-bold text-sm ${isDark ? "text-green-300" : "text-black font-black"}`}>
-                  Revisões Programadas para {selectedDayDetail.dateStr}
-                </h3>
-              </div>
-              <button
-                onClick={() => setSelectedDayDetail(null)}
-                className={`p-1 rounded-lg ${
-                  isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-black"
-                }`}
-              >
-                <X className="w-4 h-4" />
-              </button>
+              ))}
             </div>
 
-            <div className="max-h-[60vh] overflow-y-auto space-y-2 pr-1">
-              {selectedDayDetail.items.map((item) => {
-                const nextCycle = getNextReviewCycle(item);
-                const isAllDone = !nextCycle;
+            {/* Faixa Pinned / Dia Inteiro com todas as revisões do Notion (pílulas fiéis ao Notion Calendar) */}
+            <div
+              className={`grid grid-cols-[52px_repeat(7,minmax(0,1fr))] border-b ${hairline} ${
+                isDark ? "bg-[#191919]" : "bg-white"
+              }`}
+            >
+              <div
+                className={`border-r px-1.5 py-2 flex flex-col justify-start items-end text-[9.5px] ${hairline} ${
+                  isDark ? "text-white/30" : "text-[#37352f]/40"
+                }`}
+              >
+                <span>Dia todo</span>
+              </div>
+
+              {weekDays.map((day) => {
+                const dayReviews = reviewsByDate[day.dateStr] || [];
+                return (
+                  <div
+                    key={day.dateStr}
+                    className={`border-r last:border-r-0 p-1.5 space-y-1 min-h-[72px] ${hairline} ${
+                      day.isToday
+                        ? isDark
+                          ? "bg-white/[0.02]"
+                          : "bg-[#fffaf9]"
+                        : day.isPast
+                        ? isDark
+                          ? "bg-black/[0.08]"
+                          : "bg-[#fafaf9]/60"
+                        : ""
+                    }`}
+                  >
+                    {dayReviews.map((item) => renderEventPill(item, false))}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Grade horária visual do Notion Calendar com linha vermelha ao vivo */}
+            <div className="relative">
+              <div className="grid grid-cols-[52px_repeat(7,minmax(0,1fr))]">
+                {/* Coluna esquerda de horários */}
+                <div className={`border-r ${hairline}`}>
+                  {HOUR_SLOTS.map((hour) => (
+                    <div
+                      key={hour}
+                      className={`h-9 pr-1.5 flex items-start justify-end text-[10px] tabular-nums -mt-1.5 ${
+                        isDark ? "text-white/25" : "text-[#37352f]/35"
+                      }`}
+                    >
+                      {String(hour).padStart(2, "0")}:00
+                    </div>
+                  ))}
+                </div>
+
+                {/* Colunas dos 7 dias com linhas horizontais sutis */}
+                {weekDays.map((day) => (
+                  <div
+                    key={day.dateStr}
+                    className={`relative border-r last:border-r-0 ${hairline} ${
+                      day.isToday ? (isDark ? "bg-white/[0.015]" : "bg-[#fffafa]") : ""
+                    }`}
+                  >
+                    {HOUR_SLOTS.map((hour) => (
+                      <div key={hour} className={`h-9 border-b last:border-b-0 ${hairline}`} />
+                    ))}
+
+                    {/* Indicador de hora atual no dia de hoje */}
+                    {day.isToday && (
+                      <div
+                        className="absolute inset-x-0 pointer-events-none z-10 flex items-center"
+                        style={{ top: `${currentTimeIndicator.pct}%` }}
+                      >
+                        <span className="w-[2px] h-2.5 bg-[#eb5757] -ml-[1px] rounded-full" />
+                        <span className="h-[1.5px] flex-1 bg-[#eb5757]" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Etiqueta vermelha do horário atual na barra esquerda (como `:27` no Notion Calendar) */}
+              {weekDays.some((d) => d.isToday) && (
+                <div
+                  className="absolute left-0 w-[52px] flex justify-end pr-1 pointer-events-none z-20 -translate-y-1/2"
+                  style={{ top: `${currentTimeIndicator.pct}%` }}
+                >
+                  <span className="px-1 py-[1px] rounded bg-[#eb5757] text-white text-[9.5px] font-semibold tabular-nums leading-none shadow-xs">
+                    {currentTimeIndicator.label}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* ================== VISUALIZAÇÃO MENSAL (ESTILO NOTION CALENDAR) ================== */
+        <div className="overflow-x-auto">
+          <div className="min-w-[680px]">
+            {/* Cabeçalho dias da semana */}
+            <div
+              className={`grid grid-cols-7 border-b py-1.5 text-center text-[11px] font-medium ${hairline} ${
+                isDark ? "bg-[#191919] text-white/50" : "bg-white text-[#37352f]/55"
+              }`}
+            >
+              {WEEK_DAYS_SHORT.map((dayName) => (
+                <div key={dayName}>{dayName}</div>
+              ))}
+            </div>
+
+            {/* Grade mensal */}
+            <div className={`grid grid-cols-7 divide-x divide-y ${divideHairline}`}>
+              {monthCells.map((cell) => {
+                const dayReviews = reviewsByDate[cell.dateStr] || [];
+                const maxVisible = 4;
+                const visibleReviews = dayReviews.slice(0, maxVisible);
+                const extraCount = dayReviews.length - maxVisible;
 
                 return (
                   <div
-                    key={item.id}
-                    className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
-                      isDark
-                        ? "border-slate-800 bg-black/60 hover:border-slate-700"
-                        : "border-slate-300 bg-slate-50 hover:border-slate-400 shadow-2xs"
+                    key={cell.dateStr}
+                    className={`min-h-[120px] p-1.5 flex flex-col transition-colors ${
+                      !cell.isCurrentMonth
+                        ? isDark
+                          ? "bg-black/[0.22] opacity-45"
+                          : "bg-[#fafaf9] opacity-60"
+                        : cell.isToday
+                        ? isDark
+                          ? "bg-white/[0.03]"
+                          : "bg-[#fff9f8]"
+                        : isDark
+                        ? "hover:bg-white/[0.02]"
+                        : "hover:bg-[#fafaf9]"
                     }`}
                   >
-                    <div className="space-y-1">
+                    <div className="flex items-center justify-between mb-1 px-0.5">
                       <span
-                        className={`text-[9.5px] px-2 py-0.5 rounded border font-bold ${
-                          isDark
-                            ? MATERIA_BADGES[item.materia] || MATERIA_BADGES.Default
-                            : "bg-slate-200 text-black border-slate-400 font-black"
+                        className={`inline-flex items-center justify-center text-[11px] tabular-nums leading-none ${
+                          cell.isToday
+                            ? "bg-[#eb5757] text-white font-semibold px-1.5 py-0.5 rounded-[5px]"
+                            : isDark
+                            ? "text-white/75 font-medium"
+                            : "text-[#37352f]/80 font-medium"
                         }`}
                       >
-                        {item.materia}
+                        {cell.dayNum}
                       </span>
-                      <h4 className={`text-xs font-bold leading-snug ${isDark ? "text-white" : "text-black font-black"}`}>
-                        {item.assunto}
-                      </h4>
-                      <p className={`text-[10px] ${isDark ? "text-slate-500" : "text-slate-800 font-bold"}`}>
-                        Estudado em: {item.dataEstudo || "-"}
-                      </p>
+
+                      {dayReviews.length > 0 && (
+                        <span
+                          className={`text-[10px] tabular-nums ${
+                            isDark ? "text-white/35" : "text-[#37352f]/45"
+                          }`}
+                        >
+                          {dayReviews.length}
+                        </span>
+                      )}
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleCheckReview(item.id, nextCycle || "mes10")}
-                        className={`w-6 h-6 rounded flex items-center justify-center transition-all border cursor-pointer ${
-                          isAllDone
-                            ? isDark
-                              ? "border-green-500 text-green-400 bg-green-950/60"
-                              : "border-green-600 text-green-950 bg-green-200"
-                            : isDark
-                            ? "bg-black border-slate-700 hover:border-rose-500 hover:scale-105 text-slate-700 hover:text-rose-400"
-                            : "bg-white border-slate-400 hover:border-rose-600 hover:scale-105 text-slate-400 hover:text-rose-700 shadow-2xs"
-                        }`}
-                        title="Marcar no Notion"
-                      >
-                        <Check className="w-3.5 h-3.5 stroke-[3]" />
-                      </button>
+                    <div className="space-y-1 flex-1 overflow-hidden">
+                      {visibleReviews.map((item) => renderEventPill(item, true))}
+
+                      {extraCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedDayDetail({ dateStr: cell.dateStr, items: dayReviews })
+                          }
+                          className={`w-full text-left px-1.5 py-0.5 rounded text-[10.5px] font-medium transition-colors cursor-pointer ${
+                            isDark
+                              ? "text-white/60 hover:text-white hover:bg-white/[0.06]"
+                              : "text-[#37352f]/70 hover:text-[#37352f] hover:bg-black/[0.05]"
+                          }`}
+                        >
+                          +{extraCount} mais
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -775,95 +1046,248 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
         </div>
       )}
 
-      {/* 4. Modal de Inspeção Completa dos Checkboxes do Notion (Semana a Mês 10) */}
-      {activeItemModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xs animate-in fade-in duration-150">
+      {/* Popover/Modal do Dia (+X mais) estilo Notion */}
+      {selectedDayDetail && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-[2px] animate-in fade-in duration-150"
+          onClick={() => setSelectedDayDetail(null)}
+        >
           <div
-            className={`w-full max-w-md rounded-2xl p-5 shadow-2xl font-mono space-y-4 border ${
+            onClick={(e) => e.stopPropagation()}
+            className={`w-full max-w-md rounded-xl border p-4 shadow-2xl space-y-3 ${
               isDark
-                ? "bg-slate-950 border-slate-800 text-white"
-                : "bg-white border-slate-300 text-black shadow-2xl"
+                ? "bg-[#202020] border-white/[0.1] text-[#e6e6e4]"
+                : "bg-white border-[#dfdfdc] text-[#37352f]"
             }`}
           >
-            <div
-              className={`flex items-center justify-between pb-3 border-b ${
-                isDark ? "border-slate-800" : "border-slate-200"
-              }`}
-            >
+            <div className={`flex items-center justify-between pb-2.5 border-b ${hairline}`}>
               <div className="flex items-center gap-2">
-                <span className="text-base">📕</span>
-                <h3 className={`font-bold text-sm ${isDark ? "text-green-300" : "text-black font-black"}`}>
-                  Controle do Notion
+                <CalendarIcon className="w-4 h-4 text-[#eb5757]" />
+                <h3 className="text-sm font-semibold">
+                  Revisões de {formatDateBR(selectedDayDetail.dateStr)}
                 </h3>
               </div>
               <button
-                onClick={() => setActiveItemModal(null)}
-                className={`p-1 rounded-lg ${
-                  isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-black"
+                type="button"
+                onClick={() => setSelectedDayDetail(null)}
+                className={`p-1 rounded-md cursor-pointer ${
+                  isDark ? "text-white/50 hover:text-white hover:bg-white/[0.08]" : "text-[#37352f]/60 hover:bg-black/[0.05]"
                 }`}
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <span
-                  className={`text-[10px] px-2 py-0.5 rounded border font-bold ${
-                    isDark
-                      ? MATERIA_BADGES[activeItemModal.materia] || MATERIA_BADGES.Default
-                      : "bg-slate-200 text-black border-slate-400 font-black"
-                  }`}
-                >
-                  {activeItemModal.materia}
-                </span>
-                <h3 className={`text-sm font-bold mt-1.5 leading-snug ${isDark ? "text-white" : "text-black font-black"}`}>
-                  {activeItemModal.assunto}
-                </h3>
-                <div className={`text-[11px] mt-1 flex items-center justify-between ${isDark ? "text-slate-400" : "text-slate-900 font-bold"}`}>
-                  <span>Data do Estudo: {activeItemModal.dataEstudo}</span>
-                  <span>Próxima: {activeItemModal.proximaRevisao || "Concluída"}</span>
-                </div>
-              </div>
-
-              {/* Checkboxes do Notion (Semana a Mês 10) */}
-              <div className={`pt-3 border-t space-y-2 ${isDark ? "border-slate-800" : "border-slate-200"}`}>
-                <span className={`text-xs font-bold uppercase tracking-wider block ${isDark ? "text-slate-400" : "text-black font-black"}`}>
-                  Caixas de Revisão no Notion:
-                </span>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {NOTION_CYCLE_ORDER.map((cycleKey) => {
-                    const checked = Boolean(activeItemModal[cycleKey]);
-                    const label = NOTION_CYCLE_LABELS[cycleKey];
-                    return (
-                    <button
-                      key={cycleKey}
-                      type="button"
-                      onClick={() => handleCheckReview(activeItemModal.id, cycleKey)}
-                      className={`p-2.5 rounded-xl border text-left transition-all flex items-center justify-between cursor-pointer ${
-                        checked
-                          ? isDark
-                            ? "bg-green-950/50 border-green-500/80 text-green-300 font-bold"
-                            : "bg-emerald-100 border-emerald-600 text-emerald-950 font-black shadow-xs"
-                          : isDark
-                          ? "bg-black border-slate-800 text-slate-400 hover:border-rose-500 hover:text-rose-300"
-                          : "bg-slate-50 border-slate-300 text-black font-bold hover:border-rose-600 hover:bg-slate-100 shadow-2xs"
+            <div className="max-h-[60vh] overflow-y-auto space-y-1.5 pr-0.5">
+              {selectedDayDetail.items.map((item) => {
+                const nextCycle = getNextPendingNotionCycle(item);
+                const nextLabel = nextCycle ? NOTION_CYCLE_LABELS[nextCycle] : "Concluído";
+                return (
+                  <div key={item.id} className="space-y-0.5">
+                    {renderEventPill(item, false)}
+                    <div
+                      className={`px-2 text-[10px] flex items-center justify-between ${
+                        isDark ? "text-white/40" : "text-[#37352f]/55"
                       }`}
                     >
-                      <span className="text-xs">{label}</span>
+                      <span>{item.materia}</span>
+                      <span>{nextCycle ? `Próxima etapa: ${nextLabel}` : "Ciclo completo"}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inspector Notion da Matéria (Semana -> Mês 10 + Check direto) */}
+      {activeItemModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-[2px] animate-in fade-in duration-150"
+          onClick={() => setActiveItemModal(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={`w-full max-w-lg rounded-xl border shadow-2xl overflow-hidden ${
+              isDark
+                ? "bg-[#202020] border-white/[0.1] text-[#e6e6e4]"
+                : "bg-white border-[#dfdfdc] text-[#37352f]"
+            }`}
+          >
+            {/* Header limpo do Inspector */}
+            <div className={`px-5 py-3.5 border-b flex items-center justify-between ${hairline}`}>
+              <div className="flex items-center gap-2 text-xs font-medium opacity-75">
+                <span>📕</span>
+                <span>Revisões • Notion</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {activeItemModal.url && (
+                  <a
+                    href={activeItemModal.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                      isDark
+                        ? "text-white/70 hover:text-white hover:bg-white/[0.08]"
+                        : "text-[#37352f]/70 hover:text-[#37352f] hover:bg-black/[0.05]"
+                    }`}
+                  >
+                    <span>Abrir no Notion</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setActiveItemModal(null)}
+                  className={`p-1 rounded-md cursor-pointer ${
+                    isDark ? "text-white/50 hover:text-white hover:bg-white/[0.08]" : "text-[#37352f]/60 hover:bg-black/[0.05]"
+                  }`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Título + Botão principal da próxima revisão pendente */}
+              <div className="space-y-3">
+                <h3 className="text-lg font-semibold leading-snug">{activeItemModal.assunto}</h3>
+
+                {(() => {
+                  const nextCycle = getNextPendingNotionCycle(activeItemModal);
+                  if (!nextCycle) {
+                    return (
                       <div
-                        className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
-                          checked
-                            ? "bg-green-600 border-green-500 text-white"
-                            : isDark
-                            ? "border-slate-700 bg-slate-900 group-hover:border-rose-500"
-                            : "border-slate-400 bg-white"
+                        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium ${
+                          isDark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-800"
                         }`}
                       >
-                        {checked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Todos os ciclos (Semana a Mês 10) concluídos!</span>
                       </div>
+                    );
+                  }
+                  const nextLabel = NOTION_CYCLE_LABELS[nextCycle];
+                  const afterLabel = getNextCycleLabelAfter(nextCycle);
+                  const isBusy = busyPageId === activeItemModal.id;
+                  return (
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => void handleCheckReview(activeItemModal.id, nextCycle)}
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold bg-[#eb5757] hover:bg-[#d94848] text-white transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>
+                        {isBusy
+                          ? "Salvando no Notion..."
+                          : afterLabel
+                          ? `Marcar ${nextLabel} como revisado → avança para ${afterLabel}`
+                          : `Marcar ${nextLabel} como revisado`}
+                      </span>
                     </button>
+                  );
+                })()}
+              </div>
+
+              {/* Propriedades estilo tabela do Notion */}
+              <div className={`pt-3 border-t space-y-2 text-xs ${hairline}`}>
+                <div className="grid grid-cols-[120px_1fr] items-center gap-2">
+                  <span className={`inline-flex items-center gap-1.5 ${isDark ? "text-white/45" : "text-[#37352f]/55"}`}>
+                    <BookOpen className="w-3.5 h-3.5" />
+                    Matéria
+                  </span>
+                  <span className="font-medium">{activeItemModal.materia}</span>
+                </div>
+
+                <div className="grid grid-cols-[120px_1fr] items-center gap-2">
+                  <span className={`inline-flex items-center gap-1.5 ${isDark ? "text-white/45" : "text-[#37352f]/55"}`}>
+                    <CalendarIcon className="w-3.5 h-3.5" />
+                    Data do estudo
+                  </span>
+                  <span className="tabular-nums">{formatDateBR(activeItemModal.dataEstudo)}</span>
+                </div>
+
+                <div className="grid grid-cols-[120px_1fr] items-center gap-2">
+                  <span className={`inline-flex items-center gap-1.5 ${isDark ? "text-white/45" : "text-[#37352f]/55"}`}>
+                    <Clock className="w-3.5 h-3.5" />
+                    Próxima revisão
+                  </span>
+                  <span className="tabular-nums font-medium">
+                    {formatDateBR(activeItemModal.proximaRevisao)}
+                  </span>
+                </div>
+
+                {activeItemModal.tipoRevisao && activeItemModal.tipoRevisao.length > 0 && (
+                  <div className="grid grid-cols-[120px_1fr] items-center gap-2">
+                    <span className={`inline-flex items-center gap-1.5 ${isDark ? "text-white/45" : "text-[#37352f]/55"}`}>
+                      <Tag className="w-3.5 h-3.5" />
+                      Tipo
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {activeItemModal.tipoRevisao.map((t) => (
+                        <span
+                          key={t}
+                          className={`px-2 py-0.5 rounded text-[11px] font-medium ${
+                            isDark ? "bg-white/[0.07] text-white/80" : "bg-[#f1f1ef] text-[#37352f]"
+                          }`}
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Grade completa de Checkboxes do Notion (Semana até Mês 10) */}
+              <div className={`pt-3 border-t space-y-2 ${hairline}`}>
+                <span className={`text-[11px] font-medium block ${isDark ? "text-white/50" : "text-[#37352f]/60"}`}>
+                  Etapas sincronizadas com o Notion (Semana a Mês 10)
+                </span>
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                  {NOTION_CYCLE_ORDER.map((cycleKey) => {
+                    const checked = Boolean(activeItemModal[cycleKey]);
+                    const nextPending = getNextPendingNotionCycle(activeItemModal);
+                    const isNext = nextPending === cycleKey;
+                    const label = NOTION_CYCLE_LABELS[cycleKey];
+
+                    return (
+                      <button
+                        key={cycleKey}
+                        type="button"
+                        disabled={busyPageId === activeItemModal.id}
+                        onClick={() => void handleCheckReview(activeItemModal.id, cycleKey)}
+                        className={`px-2.5 py-2 rounded-lg border text-xs flex items-center justify-between transition-colors cursor-pointer disabled:opacity-50 ${
+                          checked
+                            ? isDark
+                              ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300 font-medium"
+                              : "bg-emerald-50 border-emerald-300 text-emerald-900 font-medium"
+                            : isNext
+                            ? isDark
+                              ? "bg-[#eb5757]/15 border-[#eb5757]/50 text-[#ff9f96] font-medium"
+                              : "bg-[#fdeceb] border-[#eb5757]/50 text-[#b42c24] font-medium"
+                            : isDark
+                            ? "bg-white/[0.03] border-white/[0.08] text-white/60 hover:text-white hover:border-white/20"
+                            : "bg-[#fafaf9] border-[#e6e6e3] text-[#37352f]/75 hover:border-[#37352f]/30"
+                        }`}
+                      >
+                        <span>{label}</span>
+                        <span
+                          className={`w-4 h-4 rounded flex items-center justify-center border ${
+                            checked
+                              ? "bg-emerald-500 border-emerald-500 text-white"
+                              : isNext
+                              ? "border-[#eb5757]/70"
+                              : isDark
+                              ? "border-white/20"
+                              : "border-[#cfcfcb]"
+                          }`}
+                        >
+                          {checked && <Check className="w-3 h-3 stroke-[3]" />}
+                        </span>
+                      </button>
                     );
                   })}
                 </div>
@@ -875,3 +1299,14 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
     </div>
   );
 };
+
+function isDueOrOverdueStyle(isDueOrOverdue: boolean, isDark: boolean): string {
+  if (isDueOrOverdue) {
+    return isDark
+      ? "bg-[#52241f]/95 hover:bg-[#632b25] text-[#fae6e4]"
+      : "bg-[#fde8e6] hover:bg-[#fad5d2] text-[#8c231c]";
+  }
+  return isDark
+    ? "bg-[#361e1c]/90 hover:bg-[#472623] text-[#e5c5c2]"
+    : "bg-[#fdf3f2] hover:bg-[#fae4e2] text-[#9e3c35]";
+}
