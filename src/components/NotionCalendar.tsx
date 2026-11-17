@@ -15,7 +15,14 @@ import {
   Layers,
   X,
 } from "lucide-react";
-import { NOTION_CYCLE_LABELS, NotionRevisionItem, RevisionCycleKey, AppTheme } from "../types";
+import {
+  NOTION_CYCLE_LABELS,
+  NOTION_CYCLE_ORDER,
+  RevisionCycleKey,
+  AppTheme,
+} from "../types";
+import { checkinRevision } from "../services/notionService";
+import { getNextPendingNotionCycle } from "../utils/notionRevisions";
 
 /**
  * Propriedades do Notion mapeadas para a estrutura do Calendário Tático
@@ -30,8 +37,38 @@ export interface NotionReviewRecord {
   mes1: boolean;
   mes2: boolean;
   mes3: boolean;
+  mes4?: boolean;
+  mes5?: boolean;
+  mes6?: boolean;
+  mes7?: boolean;
+  mes8?: boolean;
+  mes9?: boolean;
+  mes10?: boolean;
   tipoRevisao?: string[];
   url?: string;
+}
+
+function mapApiItemToReviewRecord(it: any): NotionReviewRecord {
+  return {
+    id: it.id,
+    assunto: it.assunto || "Sem Assunto",
+    materia: it.materia || "Geral",
+    dataEstudo: it.data || it.dataEstudo || "",
+    proximaRevisao: it.proximaRevisao || "",
+    semana: Boolean(it.semana),
+    mes1: Boolean(it.mes1),
+    mes2: Boolean(it.mes2),
+    mes3: Boolean(it.mes3),
+    mes4: Boolean(it.mes4),
+    mes5: Boolean(it.mes5),
+    mes6: Boolean(it.mes6),
+    mes7: Boolean(it.mes7),
+    mes8: Boolean(it.mes8),
+    mes9: Boolean(it.mes9),
+    mes10: Boolean(it.mes10),
+    tipoRevisao: it.tipoRevisao || [],
+    url: it.url,
+  };
 }
 
 interface NotionCalendarProps {
@@ -127,19 +164,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
       const data = await res.json();
 
       if (data && Array.isArray(data.items)) {
-        const mapped: NotionReviewRecord[] = data.items.map((it: any) => ({
-          id: it.id,
-          assunto: it.assunto || "Sem Assunto",
-          materia: it.materia || "Geral",
-          dataEstudo: it.data || "",
-          proximaRevisao: it.proximaRevisao || "",
-          semana: Boolean(it.semana),
-          mes1: Boolean(it.mes1),
-          mes2: Boolean(it.mes2),
-          mes3: Boolean(it.mes3),
-          tipoRevisao: it.tipoRevisao || [],
-          url: it.url,
-        }));
+        const mapped: NotionReviewRecord[] = data.items.map(mapApiItemToReviewRecord);
 
         setReviews(mapped);
         if (force) {
@@ -160,19 +185,15 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
   }, [fetchNotionReviews]);
 
   /**
-   * Determina qual o próximo ciclo de revisão pendente
+   * Determina qual o próximo ciclo de revisão pendente (Semana .. Mês 10)
    */
   const getNextReviewCycle = (item: NotionReviewRecord): RevisionCycleKey | null => {
-    if (!item.semana) return "semana";
-    if (!item.mes1) return "mes1";
-    if (!item.mes2) return "mes2";
-    if (!item.mes3) return "mes3";
-    return null; // Já completou todos os 4 ciclos
+    return getNextPendingNotionCycle(item);
   };
 
   /**
    * 3. Sincronização Bidirecional (Ação no Site -> Notion)
-   * Processa o clique no checkbox com Optimistic UI e chamada PATCH segura ao backend
+   * Processa o clique no checkbox com Optimistic UI e atualiza com a resposta real do Notion
    */
   const handleCheckReview = async (
     pageId: string,
@@ -181,87 +202,76 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
     const item = reviews.find((r) => r.id === pageId);
     if (!item) return;
 
-    // Se não especificado o ciclo, marca o próximo pendente
+    // Se não especificado o ciclo, marca o próximo pendente (Semana .. Mês 10)
     const cycleToMark = targetCycle || getNextReviewCycle(item);
     if (!cycleToMark) {
       showToast(`'${item.assunto}' já concluiu todos os ciclos de revisão!`, "info");
       return;
     }
 
-    const nextVal = !item[cycleToMark];
+    const nextVal = !Boolean(item[cycleToMark]);
 
-    // Optimistic UI: Atualiza imediatamente o estado local
+    // Optimistic UI apenas no checkbox clicado; a nova Próxima Revisão virá da fórmula real do Notion
     setReviews((prev) =>
-      prev.map((r) => {
-        if (r.id !== pageId) return r;
-        const updated = { ...r, [cycleToMark]: nextVal };
-
-        // Recálculo da Próxima Revisão
-        if (!updated.semana) {
-          updated.proximaRevisao = addDaysToDate(updated.dataEstudo, 7);
-        } else if (!updated.mes1) {
-          updated.proximaRevisao = addDaysToDate(updated.dataEstudo, 37);
-        } else if (!updated.mes2) {
-          updated.proximaRevisao = addDaysToDate(updated.dataEstudo, 97);
-        } else if (!updated.mes3) {
-          updated.proximaRevisao = addDaysToDate(updated.dataEstudo, 127);
-        } else {
-          updated.proximaRevisao = "";
-        }
-
-        return updated;
-      })
+      prev.map((r) => (r.id === pageId ? { ...r, [cycleToMark]: nextVal } : r))
     );
 
-    const cycleLabelMap: Record<RevisionCycleKey, string> = NOTION_CYCLE_LABELS;
-
-    // Atualização também no modal aberto se houver
     if (activeItemModal && activeItemModal.id === pageId) {
       setActiveItemModal((prev) => (prev ? { ...prev, [cycleToMark]: nextVal } : null));
     }
 
-    try {
-      // Dispara a requisição em background para o backend seguro
-      const res = await fetch("/api/notion/checkin", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pageId,
-          cycleKey: cycleToMark,
-          checked: nextVal,
-        }),
-      });
+    if (selectedDayDetail) {
+      setSelectedDayDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              items: prev.items.map((r) => (r.id === pageId ? { ...r, [cycleToMark]: nextVal } : r)),
+            }
+          : null
+      );
+    }
 
-      if (!res.ok) {
-        throw new Error("Erro na resposta do servidor");
+    const cycleLabelMap: Record<RevisionCycleKey, string> = NOTION_CYCLE_LABELS;
+
+    try {
+      const res = await checkinRevision(pageId, cycleToMark, nextVal);
+      if (!res.success) {
+        throw new Error(res.error || "Erro na resposta do servidor");
+      }
+
+      let nextDateHint = "";
+      if (res.item) {
+        const serverRecord = mapApiItemToReviewRecord(res.item);
+        setReviews((prev) => prev.map((r) => (r.id === pageId ? serverRecord : r)));
+        setActiveItemModal((prev) => (prev && prev.id === pageId ? serverRecord : prev));
+        setSelectedDayDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                items: prev.items.map((r) => (r.id === pageId ? serverRecord : r)),
+              }
+            : null
+        );
+        if (serverRecord.proximaRevisao && serverRecord.proximaRevisao !== item.proximaRevisao) {
+          const [y, m, d] = serverRecord.proximaRevisao.split("-");
+          if (y && m && d) {
+            nextDateHint = ` (Próxima: ${d}/${m}/${y})`;
+          }
+        }
       }
 
       showToast(
         nextVal
-          ? `Notion: marcado '${cycleLabelMap[cycleToMark]}' para ${item.assunto}!`
-          : `Notion: desmarcado '${cycleLabelMap[cycleToMark]}' de ${item.assunto}.`,
+          ? `Notion: marcado '${cycleLabelMap[cycleToMark]}' para ${item.assunto}!${nextDateHint}`
+          : `Notion: desmarcado '${cycleLabelMap[cycleToMark]}' de ${item.assunto}.${nextDateHint}`,
         "success"
       );
     } catch (e) {
       console.error("Falha ao sincronizar com o Notion:", e);
       showToast("Falha ao salvar no Notion. Revertendo alteração local...", "error");
-      // Reverter estado chamando o fetch
       fetchNotionReviews();
     }
   };
-
-  // Função auxiliar para somar dias a uma data
-  function addDaysToDate(dateStr: string, days: number): string {
-    if (!dateStr) return "";
-    const parts = dateStr.split("-");
-    if (parts.length !== 3) return dateStr;
-    const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-    d.setDate(d.getDate() + days);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  }
 
   // Lista de disciplinas únicas
   const materias = useMemo(() => {
@@ -371,7 +381,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
 
       // 3. Filtro de pendentes
       if (onlyPending) {
-        const isDone = item.semana && item.mes1 && item.mes2 && item.mes3;
+        const isDone = !getNextReviewCycle(item);
         if (isDone) return;
       }
 
@@ -397,7 +407,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
     reviews.forEach((it) => {
       if (it.proximaRevisao && it.proximaRevisao.startsWith(prefix)) {
         totalMonth++;
-        const isDone = it.semana && it.mes1 && it.mes2 && it.mes3;
+        const isDone = !getNextReviewCycle(it);
         if (!isDone) pendingMonth++;
       }
     });
@@ -632,7 +642,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleCheckReview(item.id, nextCycle || "mes3");
+                            handleCheckReview(item.id, nextCycle || "mes10");
                           }}
                           className={`w-4 h-4 rounded shrink-0 flex items-center justify-center transition-all cursor-pointer border ${
                             isAllDone
@@ -643,8 +653,8 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
                           }`}
                           title={
                             isAllDone
-                              ? "Revisão concluída em todos os ciclos (Semana, Mês 1, Mês 2, Mês 3)"
-                              : `Clique para marcar '${nextCycle?.toUpperCase()}' no Notion`
+                              ? "Revisão concluída em todos os ciclos (Semana a Mês 10)"
+                              : `Clique para marcar '${NOTION_CYCLE_LABELS[nextCycle]}' no Notion`
                           }
                         >
                           <Check className={`w-3 h-3 stroke-[3] ${isAllDone ? "text-green-400" : ""}`} />
@@ -742,7 +752,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => handleCheckReview(item.id, nextCycle || "mes3")}
+                        onClick={() => handleCheckReview(item.id, nextCycle || "mes10")}
                         className={`w-6 h-6 rounded flex items-center justify-center transition-all border cursor-pointer ${
                           isAllDone
                             ? isDark
@@ -765,7 +775,7 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
         </div>
       )}
 
-      {/* 4. Modal de Inspeção Completa dos 4 Checkboxes do Notion */}
+      {/* 4. Modal de Inspeção Completa dos Checkboxes do Notion (Semana a Mês 10) */}
       {activeItemModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xs animate-in fade-in duration-150">
           <div
@@ -816,25 +826,23 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
                 </div>
               </div>
 
-              {/* 4 Checkboxes do Notion */}
+              {/* Checkboxes do Notion (Semana a Mês 10) */}
               <div className={`pt-3 border-t space-y-2 ${isDark ? "border-slate-800" : "border-slate-200"}`}>
                 <span className={`text-xs font-bold uppercase tracking-wider block ${isDark ? "text-slate-400" : "text-black font-black"}`}>
                   Caixas de Revisão no Notion:
                 </span>
 
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { key: "semana" as RevisionCycleKey, label: "Semana (7D)", checked: activeItemModal.semana },
-                    { key: "mes1" as RevisionCycleKey, label: "Mês 1 (30D)", checked: activeItemModal.mes1 },
-                    { key: "mes2" as RevisionCycleKey, label: "Mês 2 (60D)", checked: activeItemModal.mes2 },
-                    { key: "mes3" as RevisionCycleKey, label: "Mês 3 (90D)", checked: activeItemModal.mes3 },
-                  ].map((box) => (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {NOTION_CYCLE_ORDER.map((cycleKey) => {
+                    const checked = Boolean(activeItemModal[cycleKey]);
+                    const label = NOTION_CYCLE_LABELS[cycleKey];
+                    return (
                     <button
-                      key={box.key}
+                      key={cycleKey}
                       type="button"
-                      onClick={() => handleCheckReview(activeItemModal.id, box.key)}
+                      onClick={() => handleCheckReview(activeItemModal.id, cycleKey)}
                       className={`p-2.5 rounded-xl border text-left transition-all flex items-center justify-between cursor-pointer ${
-                        box.checked
+                        checked
                           ? isDark
                             ? "bg-green-950/50 border-green-500/80 text-green-300 font-bold"
                             : "bg-emerald-100 border-emerald-600 text-emerald-950 font-black shadow-xs"
@@ -843,20 +851,21 @@ export const NotionCalendar: React.FC<NotionCalendarProps> = ({
                           : "bg-slate-50 border-slate-300 text-black font-bold hover:border-rose-600 hover:bg-slate-100 shadow-2xs"
                       }`}
                     >
-                      <span className="text-xs">{box.label}</span>
+                      <span className="text-xs">{label}</span>
                       <div
                         className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
-                          box.checked
+                          checked
                             ? "bg-green-600 border-green-500 text-white"
                             : isDark
                             ? "border-slate-700 bg-slate-900 group-hover:border-rose-500"
                             : "border-slate-400 bg-white"
                         }`}
                       >
-                        {box.checked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                        {checked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                       </div>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
