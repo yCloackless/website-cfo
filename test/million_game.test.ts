@@ -1,7 +1,18 @@
 process.env.NODE_ENV = 'test';
+delete process.env.DATABASE_URL;
+process.env.SESSION_SECRET ??= 'test-session-secret-million-game-64-characters-long-padding-1234';
+process.env.DATA_ENCRYPTION_KEY ??= 'test-data-encryption-key-million-game-64-characters-padding';
+process.env.CADET_PASSWORD ??= 'fixture-cadet-password-2026';
+process.env.ADMIN_PASSWORD ??= 'fixture-admin-password-2026';
+process.env.SUPPORT_PASSWORD ??= 'fixture-support-password-2026';
+process.env.ADMIN_REQUIRE_2FA = 'false';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
 
 function createMemoryRepo() {
   const store = new Map<string, string>();
@@ -289,4 +300,101 @@ test('stopMillionMatch stops at Q1 with 0 and at Q6 with 5_000', async () => {
   assert.equal(stop6.ok, true);
   assert.equal(stop6.data.status, 'STOPPED');
   assert.equal(stop6.data.earnedPrize, 5_000);
+});
+
+test('HTTP /api/million-game/* enforces auth, IDOR isolation, AI input bounds, and protects /api/user/state keys', async (t) => {
+  const prevCwd = process.cwd();
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfo-million-http-'));
+  process.chdir(tempDir);
+
+  const { app } = await import('../server');
+  const { getDb } = await import('../src/db/database');
+  const { AuthService } = await import('../src/db/authService');
+  const { UserStateRepository } = await import('../src/db/repositories');
+  const { MILLION_ACTIVE_KEY, MILLION_HISTORY_KEY } = await import('../src/services/millionGameService');
+
+  const db = getDb();
+  const authService = new AuthService(db);
+  await authService.ensureDefaultAccounts();
+  const cadetLogin = await authService.login('cadete', process.env.CADET_PASSWORD!);
+  const adminLogin = await authService.login('admin', process.env.ADMIN_PASSWORD!);
+  assert.ok(cadetLogin.token && cadetLogin.user?.id);
+  assert.ok(adminLogin.token && adminLogin.user?.id);
+
+  const userStateRepo = new UserStateRepository(db.getRawDb());
+  userStateRepo.upsertValue(
+    cadetLogin.user.id,
+    MILLION_ACTIVE_KEY,
+    JSON.stringify({ id: 'match-owned-by-cadet', userId: cadetLogin.user.id, status: 'IN_PROGRESS', currentLevel: 1, earnedPrize: 0, questions: buildValidGeneratedPayload().questions, reservesByBlock: { '1': null, '2': null, '3': null }, helps: { cardsUsed: false, universitariosUsed: false, skipsUsed: 0, skipsUsedByBlock: { '1': false, '2': false, '3': false } }, currentQuestionState: { questionId: 'q_1', eliminatedIndices: [], universitariosHint: null }, answeredHistory: [], topic: 'História', focusHint: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+  );
+  userStateRepo.upsertValue(
+    cadetLogin.user.id,
+    MILLION_HISTORY_KEY,
+    JSON.stringify([{ id: 'prev', topic: 'História', status: 'WON', earnedPrize: 1_000_000, reachedLevel: 16, correctCount: 16, finishedAt: new Date().toISOString() }])
+  );
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const baseUrl = `http://127.0.0.1:${(server.address() as any).port}`;
+
+  t.after(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    process.chdir(prevCwd);
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+  });
+
+  const unauth = await fetch(`${baseUrl}/api/million-game/state`);
+  assert.equal(unauth.status, 401);
+
+  const stateRes = await fetch(`${baseUrl}/api/million-game/state`, {
+    headers: { Authorization: `Bearer ${cadetLogin.token}` },
+  });
+  assert.equal(stateRes.status, 200);
+  const stateBody = await stateRes.json() as any;
+  assert.equal(stateBody.activeMatch?.id, 'match-owned-by-cadet');
+  assert.equal(stateBody.stats?.bestPrize, 1_000_000);
+
+  // Oversized topic rejected by AI validation
+  const oversized = await fetch(`${baseUrl}/api/ai/million-game/start`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cadetLogin.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ topic: 'X'.repeat(500) }),
+  });
+  assert.equal(oversized.status, 413);
+
+  // IDOR: admin cannot answer or stop cadet's match
+  const idorStop = await fetch(`${baseUrl}/api/million-game/stop`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${adminLogin.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ matchId: 'match-owned-by-cadet' }),
+  });
+  assert.equal(idorStop.status, 404);
+
+  // PUT and PATCH /api/user/state cannot overwrite or wipe million game keys
+  const putRes = await fetch(`${baseUrl}/api/user/state`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${cadetLogin.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      state: {
+        cfo_theme: 'dark',
+        [MILLION_ACTIVE_KEY]: '{"tampered":true}',
+        [MILLION_HISTORY_KEY]: '[]',
+      },
+    }),
+  });
+  assert.equal(putRes.status, 200);
+  assert.ok(userStateRepo.getValue(cadetLogin.user.id, MILLION_ACTIVE_KEY)?.includes('match-owned-by-cadet'));
+  assert.ok(userStateRepo.getValue(cadetLogin.user.id, MILLION_HISTORY_KEY)?.includes('1000000'));
+
+  const patchRes = await fetch(`${baseUrl}/api/user/state`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${cadetLogin.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      state: {
+        [MILLION_HISTORY_KEY]: '[]',
+      },
+    }),
+  });
+  assert.equal(patchRes.status, 200);
+  assert.ok(userStateRepo.getValue(cadetLogin.user.id, MILLION_HISTORY_KEY)?.includes('1000000'));
 });

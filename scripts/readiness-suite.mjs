@@ -48,6 +48,7 @@ files.push('simulation_ai_diagnosis');
 files.push('cronograma_drag_and_drop_studies');
 files.push('cronograma_data_transfer_and_robustness');
 files.push('study_balance_real');
+files.push('million_game');
 files.splice(files.indexOf('exam_bank'), 0, 'board_intelligence');
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|HOME|USERPROFILE|COMSPEC|PATHEXT)$/i.test(key)));

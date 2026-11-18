@@ -56,6 +56,17 @@ import { NOTION_CYCLE_ORDER } from "./src/types";
 import { summarizeOverdueNotionRevisions } from "./src/utils/notionRevisions";
 import { getCurrentYearMonthAndToday } from "./src/utils/studyBalance";
 import {
+  MILLION_ACTIVE_KEY,
+  MILLION_HISTORY_KEY,
+  answerMillionQuestion,
+  getMillionState,
+  startMillionMatch,
+  stopMillionMatch,
+  useMillionHelp,
+  type MillionHelpType,
+  type ServiceResult,
+} from "./src/services/millionGameService";
+import {
   createFullBackup,
   getBackupStatus,
   loadBackupIndex,
@@ -6898,6 +6909,100 @@ A MATÉRIA QUE EU QUERO É: ${topic}`;
   }
 });
 
+// ============================================================================
+// 🏆 SHOW DO MILHÃO CFO CBMERJ (Motor Autoritativo & Geração IA por Blocos)
+// ============================================================================
+function sendMillionResult<T extends object>(res: Response, result: ServiceResult<T>, wrapKey?: string) {
+  if (!result.ok) {
+    return res.status(result.status).json({ error: result.error, message: result.message });
+  }
+  return res.json(wrapKey ? { success: true, [wrapKey]: result.data } : { success: true, ...result.data });
+}
+
+app.get("/api/million-game/state", requireUserAuth, (req: Request, res: Response) => {
+  const userId = String((req as any).user?.userId || "");
+  if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+  return res.json({ success: true, ...getMillionState(userStateRepoInstance, userId) });
+});
+
+app.post("/api/ai/million-game/start", requireUserAuth, aiLimiter, async (req: Request, res: Response) => {
+  try {
+    const userId = String((req as any).user?.userId || "");
+    if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+    const topic = req.body?.topic ?? "";
+    const focusHint = req.body?.focusHint ?? "";
+    if (!validateAiTextFields(res, [
+      { name: "topic", value: topic, maxBytes: 200 },
+      { name: "focusHint", value: focusHint, maxBytes: 500 },
+    ])) return;
+
+    const result = await startMillionMatch({
+      repo: userStateRepoInstance,
+      userId,
+      topic,
+      focusHint,
+      aiClient: getGeminiClient(),
+    });
+    return sendMillionResult(res, result, "match");
+  } catch (error) {
+    console.error("[MillionGame] Falha ao iniciar partida:", error);
+    return res.status(500).json({ error: "MILLION_START_ERROR", message: "Falha ao iniciar o Show do Milhão." });
+  }
+});
+
+app.post("/api/million-game/answer", requireUserAuth, (req: Request, res: Response) => {
+  const userId = String((req as any).user?.userId || "");
+  if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+  const matchId = String(req.body?.matchId || "").trim();
+  const questionId = String(req.body?.questionId || "").trim();
+  const selectedIndex = Number(req.body?.selectedIndex);
+  if (!matchId || !questionId) {
+    return res.status(400).json({ error: "INVALID_PARAMS", message: "matchId e questionId são obrigatórios." });
+  }
+  const result = answerMillionQuestion({
+    repo: userStateRepoInstance,
+    userId,
+    matchId,
+    questionId,
+    selectedIndex,
+  });
+  return sendMillionResult(res, result);
+});
+
+app.post("/api/million-game/help", requireUserAuth, (req: Request, res: Response) => {
+  const userId = String((req as any).user?.userId || "");
+  if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+  const matchId = String(req.body?.matchId || "").trim();
+  const questionId = String(req.body?.questionId || "").trim();
+  const helpType = String(req.body?.helpType || "").trim() as MillionHelpType;
+  if (!matchId || !questionId) {
+    return res.status(400).json({ error: "INVALID_PARAMS", message: "matchId e questionId são obrigatórios." });
+  }
+  const result = useMillionHelp({
+    repo: userStateRepoInstance,
+    userId,
+    matchId,
+    questionId,
+    helpType,
+  });
+  return sendMillionResult(res, result);
+});
+
+app.post("/api/million-game/stop", requireUserAuth, (req: Request, res: Response) => {
+  const userId = String((req as any).user?.userId || "");
+  if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+  const matchId = String(req.body?.matchId || "").trim();
+  if (!matchId) {
+    return res.status(400).json({ error: "INVALID_PARAMS", message: "matchId é obrigatório." });
+  }
+  const result = stopMillionMatch({
+    repo: userStateRepoInstance,
+    userId,
+    matchId,
+  });
+  return sendMillionResult(res, result);
+});
+
 // ==========================================
 // ROTAS DE INTEGRAÇÃO NOTION - REVISÕES CFO
 // ==========================================
@@ -7128,14 +7233,18 @@ app.put("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
     const sanitized: Record<string, string> = {};
     for (const [key, value] of Object.entries(state)) {
       if (!/^(cfo_[a-zA-Z0-9_.-]+|.*anki_[a-zA-Z0-9_.-]+)$/.test(key)) continue;
-      if (key === TIMER_STATE_STORAGE_KEY) continue;
+      if (key === TIMER_STATE_STORAGE_KEY || key === MILLION_ACTIVE_KEY || key === MILLION_HISTORY_KEY) continue;
       if (typeof value !== 'string' || value.length > 2_000_000) return res.status(413).json({ error: 'STATE_VALUE_TOO_LARGE' });
       sanitized[key] = value;
     }
     const timerState = userStateRepoInstance.getValue(userId, TIMER_STATE_STORAGE_KEY);
+    const millionActiveState = userStateRepoInstance.getValue(userId, MILLION_ACTIVE_KEY);
+    const millionHistoryState = userStateRepoInstance.getValue(userId, MILLION_HISTORY_KEY);
     const savedAt = userStateRepoInstance.upsert(userId, {
       ...sanitized,
       ...(timerState ? { [TIMER_STATE_STORAGE_KEY]: timerState } : {}),
+      ...(millionActiveState ? { [MILLION_ACTIVE_KEY]: millionActiveState } : {}),
+      ...(millionHistoryState ? { [MILLION_HISTORY_KEY]: millionHistoryState } : {}),
     });
     logAuditEvent({ action: 'USER_STATE_SYNC', actor: (req as any).user.username || userId, resource: 'user_state_snapshots', status: 'SUCCESS', ip: getClientIp(req), details: { userId, keys: Object.keys(sanitized).length } });
     return res.json({ success: true, savedAt });
@@ -7153,7 +7262,7 @@ app.patch("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
     const sanitized: Record<string, string> = {};
     for (const [key, value] of Object.entries(state)) {
       if (!/^(cfo_[a-zA-Z0-9_.-]+|.*anki_[a-zA-Z0-9_.-]+)$/.test(key)) continue;
-      if (key === TIMER_STATE_STORAGE_KEY) continue;
+      if (key === TIMER_STATE_STORAGE_KEY || key === MILLION_ACTIVE_KEY || key === MILLION_HISTORY_KEY) continue;
       if (typeof value !== 'string' || value.length > 2_000_000) return res.status(413).json({ error: 'STATE_VALUE_TOO_LARGE' });
       sanitized[key] = value;
     }
