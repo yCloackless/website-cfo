@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { EventEmitter } from "events";
 import { NOTION_CYCLE_LABELS, NOTION_CYCLE_ORDER, RevisionCycleKey } from "./src/types";
 
 export interface BackendNotionRevisionItem {
@@ -24,24 +25,65 @@ export interface BackendNotionRevisionItem {
   updatedAt?: string;
 }
 
-const NOTION_CACHE_FILE = path.join(process.cwd(), "data", "notion-revisoes-cache.json");
+export interface NotionChangeEvent {
+  type: "notion_updated";
+  action: "upsert" | "delete" | "refresh";
+  pageId?: string;
+  updatedAt: string;
+}
+
 const MAX_NOTION_QUERY_PAGES = 20;
+const notionEvents = new EventEmitter();
+notionEvents.setMaxListeners(100);
 
 let memoryCache: BackendNotionRevisionItem[] | null = null;
+let memoryCacheDir: string | null = null;
 let lastFetchTime = 0;
 const CACHE_TTL_MS = 2 * 60 * 1000;
+
+function getNotionCacheFile(): string {
+  return path.join(process.cwd(), "data", "notion-revisoes-cache.json");
+}
+
+export function isValidNotionPageId(pageId: string): boolean {
+  const clean = String(pageId || "").trim();
+  return Boolean(clean) && clean.length <= 128 && !/[\/\\?#\s]/.test(clean) && !clean.includes("..");
+}
+
+export function subscribeNotionChanges(listener: (event: NotionChangeEvent) => void): () => void {
+  notionEvents.on("change", listener);
+  return () => {
+    notionEvents.off("change", listener);
+  };
+}
+
+export function emitNotionChange(action: NotionChangeEvent["action"], pageId?: string): void {
+  notionEvents.emit("change", {
+    type: "notion_updated",
+    action,
+    ...(pageId ? { pageId } : {}),
+    updatedAt: new Date().toISOString(),
+  } satisfies NotionChangeEvent);
+}
 
 /**
  * Reads only previously synced real Notion data from local cache; never fabricates seed data.
  */
 export function readLocalRevisoes(): BackendNotionRevisionItem[] {
+  const cwd = process.cwd();
+  if (memoryCacheDir !== cwd) {
+    memoryCache = null;
+    memoryCacheDir = cwd;
+    lastFetchTime = 0;
+  }
   if (memoryCache && Date.now() - lastFetchTime < CACHE_TTL_MS) {
     return memoryCache;
   }
 
   try {
-    if (fs.existsSync(NOTION_CACHE_FILE)) {
-      const raw = fs.readFileSync(NOTION_CACHE_FILE, "utf-8");
+    const cacheFile = getNotionCacheFile();
+    if (fs.existsSync(cacheFile)) {
+      const raw = fs.readFileSync(cacheFile, "utf-8");
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         memoryCache = parsed;
@@ -61,13 +103,35 @@ export function readLocalRevisoes(): BackendNotionRevisionItem[] {
 export function saveLocalRevisoes(items: BackendNotionRevisionItem[]): void {
   try {
     memoryCache = items;
+    memoryCacheDir = process.cwd();
     lastFetchTime = Date.now();
-    const dir = path.dirname(NOTION_CACHE_FILE);
+    const cacheFile = getNotionCacheFile();
+    const dir = path.dirname(cacheFile);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(NOTION_CACHE_FILE, JSON.stringify(items, null, 2), "utf-8");
+    fs.writeFileSync(cacheFile, JSON.stringify(items, null, 2), "utf-8");
   } catch (e) {
     console.error("[Notion] Falha ao salvar no cache local:", e);
   }
+}
+
+export function upsertCachedRevisionItem(item: BackendNotionRevisionItem): BackendNotionRevisionItem[] {
+  const items = [...readLocalRevisoes()];
+  const index = items.findIndex((it) => it.id === item.id);
+  if (index >= 0) {
+    items[index] = item;
+  } else {
+    items.unshift(item);
+  }
+  saveLocalRevisoes(items);
+  emitNotionChange("upsert", item.id);
+  return items;
+}
+
+export function removeCachedRevisionItem(pageId: string): BackendNotionRevisionItem[] {
+  const items = readLocalRevisoes().filter((it) => it.id !== pageId);
+  saveLocalRevisoes(items);
+  emitNotionChange("delete", pageId);
+  return items;
 }
 
 export function getNotionConfig() {
@@ -232,15 +296,11 @@ function notionHeaders(apiKey: string): Record<string, string> {
   };
 }
 
-function getAuthorizedNotionTarget(pageId: string): {
-  items?: BackendNotionRevisionItem[];
-  index?: number;
-  targetItem?: BackendNotionRevisionItem;
-  apiKey?: string;
-  error?: string;
-} {
-  if (!pageId || /[\/\\?#]/.test(pageId)) {
-    return { error: "NOTION_PAGE_NOT_FOUND" };
+function getAuthorizedNotionTarget(pageId: string):
+  | { ok: true; items: BackendNotionRevisionItem[]; index: number; targetItem: BackendNotionRevisionItem; apiKey: string }
+  | { ok: false; error: string } {
+  if (!isValidNotionPageId(pageId)) {
+    return { ok: false, error: "NOTION_PAGE_NOT_FOUND" };
   }
 
   const items = readLocalRevisoes();
@@ -249,15 +309,15 @@ function getAuthorizedNotionTarget(pageId: string): {
 
   // Authorization boundary: only operate on a page already loaded from the configured database.
   if (!targetItem) {
-    return { error: "NOTION_PAGE_NOT_FOUND" };
+    return { ok: false, error: "NOTION_PAGE_NOT_FOUND" };
   }
 
   const { isConfigured, apiKey } = getNotionConfig();
   if (!isConfigured) {
-    return { error: "NOTION_NOT_CONFIGURED" };
+    return { ok: false, error: "NOTION_NOT_CONFIGURED" };
   }
 
-  return { items, index, targetItem, apiKey };
+  return { ok: true, items, index, targetItem, apiKey };
 }
 
 /**
@@ -274,8 +334,8 @@ export async function updateCheckinInNotion(
   }
 
   const authTarget = getAuthorizedNotionTarget(pageId);
-  if (authTarget.error || !authTarget.items || authTarget.index === undefined || !authTarget.targetItem || !authTarget.apiKey) {
-    return { success: false, error: authTarget.error || "NOTION_PAGE_NOT_FOUND" };
+  if (authTarget.ok === false) {
+    return { success: false, error: authTarget.error };
   }
   const { items, index, targetItem, apiKey } = authTarget;
 
@@ -307,6 +367,7 @@ export async function updateCheckinInNotion(
 
     items[index] = updatedItem;
     saveLocalRevisoes(items);
+    emitNotionChange("upsert", updatedItem.id);
 
     return {
       success: true,
@@ -376,6 +437,7 @@ export async function createStudyInNotion(newStudy: {
     const items = readLocalRevisoes();
     items.unshift(createdItem);
     saveLocalRevisoes(items);
+    emitNotionChange("upsert", createdItem.id);
 
     return {
       success: true,
@@ -401,8 +463,8 @@ export async function renameStudyInNotion(
   }
 
   const authTarget = getAuthorizedNotionTarget(pageId);
-  if (authTarget.error || !authTarget.items || authTarget.index === undefined || !authTarget.targetItem || !authTarget.apiKey) {
-    return { success: false, error: authTarget.error || "NOTION_PAGE_NOT_FOUND" };
+  if (authTarget.ok === false) {
+    return { success: false, error: authTarget.error };
   }
   const { items, index, targetItem, apiKey } = authTarget;
 
@@ -451,6 +513,7 @@ export async function renameStudyInNotion(
 
     items[index] = updatedItem;
     saveLocalRevisoes(items);
+    emitNotionChange("upsert", updatedItem.id);
 
     return { success: true, item: updatedItem };
   } catch (e) {
@@ -466,8 +529,8 @@ export async function duplicateStudyInNotion(
   pageId: string
 ): Promise<{ success: boolean; item?: BackendNotionRevisionItem; error?: string }> {
   const authTarget = getAuthorizedNotionTarget(pageId);
-  if (authTarget.error || !authTarget.targetItem) {
-    return { success: false, error: authTarget.error || "NOTION_PAGE_NOT_FOUND" };
+  if (authTarget.ok === false) {
+    return { success: false, error: authTarget.error };
   }
   const { targetItem } = authTarget;
   const baseTitle = (targetItem.assunto || "Sem Título").trim();
@@ -498,8 +561,8 @@ export async function deleteStudyInNotion(
   pageId: string
 ): Promise<{ success: boolean; deletedId?: string; error?: string }> {
   const authTarget = getAuthorizedNotionTarget(pageId);
-  if (authTarget.error || !authTarget.items || !authTarget.apiKey) {
-    return { success: false, error: authTarget.error || "NOTION_PAGE_NOT_FOUND" };
+  if (authTarget.ok === false) {
+    return { success: false, error: authTarget.error };
   }
   const { items, apiKey } = authTarget;
 
@@ -517,6 +580,7 @@ export async function deleteStudyInNotion(
     }
 
     saveLocalRevisoes(items.filter((it) => it.id !== pageId));
+    emitNotionChange("delete", pageId);
     return { success: true, deletedId: pageId };
   } catch (e) {
     console.error("[Notion API] Erro de rede ao excluir página:", e);
