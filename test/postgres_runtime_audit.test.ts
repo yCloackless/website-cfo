@@ -198,7 +198,7 @@ test('8. PostgreSQL TLS verifies external providers and keeps private Compose tr
   assert.equal(renderExternal.ssl?.rejectUnauthorized, true);
 });
 
-test('10. PostgreSQL TLS normalizes sslmode aliases to verify-full without pg deprecation warnings', async () => {
+test('10. PostgreSQL TLS removes sslmode so pg preserves the verified CA options', async () => {
   const warnings: string[] = [];
   const onWarning = (warning: Error) => {
     warnings.push(warning.message);
@@ -208,11 +208,10 @@ test('10. PostgreSQL TLS normalizes sslmode aliases to verify-full without pg de
     for (const mode of ['prefer', 'require', 'verify-ca']) {
       const opts = postgresConnectionOptions(
         `postgresql://cfo_app:pass@db.example.test:5432/cfo?sslmode=${mode}`,
-        { NODE_ENV: 'production' } as NodeJS.ProcessEnv,
+        { NODE_ENV: 'production', DATABASE_SSL_CA: 'test-ca' } as NodeJS.ProcessEnv,
       );
-      assert.equal(new URL(opts.connectionString).searchParams.get('sslmode'), 'verify-full');
-      assert.equal(opts.ssl?.rejectUnauthorized, true);
-      new pg.Client(opts);
+      assert.equal(new URL(opts.connectionString).searchParams.has('sslmode'), false);
+      assert.deepEqual((new pg.Client(opts) as unknown as { connectionParameters: { ssl: unknown } }).connectionParameters.ssl, { rejectUnauthorized: true, ca: 'test-ca' });
     }
     await new Promise((resolve) => setImmediate(resolve));
   } finally {

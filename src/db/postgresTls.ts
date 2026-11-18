@@ -16,10 +16,9 @@ export function postgresConnectionOptions(databaseUrl: string, env: NodeJS.Proce
     parsed.hostname.endsWith('.supabase.co') ||
     parsed.hostname.endsWith('.supabase.com')
   );
-  if (requiresTls && aliasSslMode && parsed.searchParams.get('uselibpqcompat') !== 'true') {
-    // pg-connection-string emits a SECURITY WARNING for prefer/require/verify-ca;
-    // ssl.rejectUnauthorized=true already enforces verify-full semantics.
-    parsed.searchParams.set('sslmode', 'verify-full');
+  if (requiresTls) {
+    // pg reparses sslmode after merging options and drops the explicit SSL CA.
+    parsed.searchParams.delete('sslmode');
   }
   return {
     connectionString: parsed.toString(),
