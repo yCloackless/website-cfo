@@ -224,6 +224,42 @@ export async function fetchRevisoesFromNotion(): Promise<{
   }
 }
 
+function notionHeaders(apiKey: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    "Notion-Version": "2022-06-28",
+    "Content-Type": "application/json",
+  };
+}
+
+function getAuthorizedNotionTarget(pageId: string): {
+  items?: BackendNotionRevisionItem[];
+  index?: number;
+  targetItem?: BackendNotionRevisionItem;
+  apiKey?: string;
+  error?: string;
+} {
+  if (!pageId || /[\/\\?#]/.test(pageId)) {
+    return { error: "NOTION_PAGE_NOT_FOUND" };
+  }
+
+  const items = readLocalRevisoes();
+  const index = items.findIndex((it) => it.id === pageId);
+  const targetItem = index >= 0 ? { ...items[index] } : null;
+
+  // Authorization boundary: only operate on a page already loaded from the configured database.
+  if (!targetItem) {
+    return { error: "NOTION_PAGE_NOT_FOUND" };
+  }
+
+  const { isConfigured, apiKey } = getNotionConfig();
+  if (!isConfigured) {
+    return { error: "NOTION_NOT_CONFIGURED" };
+  }
+
+  return { items, index, targetItem, apiKey };
+}
+
 /**
  * Checks a revision cycle checkbox (Semana or Mês 1..Mês 10) in Notion and returns
  * the updated page parsed directly from Notion's response (including recalculated Próxima Revisão).
@@ -237,30 +273,18 @@ export async function updateCheckinInNotion(
     return { success: false, error: "INVALID_CYCLE_KEY" };
   }
 
-  const items = readLocalRevisoes();
-  const index = items.findIndex((it) => it.id === pageId);
-  const targetItem = index >= 0 ? { ...items[index] } : null;
-
-  // Authorization boundary: only operate on a page already loaded from the configured database.
-  if (!targetItem) {
-    return { success: false, error: "NOTION_PAGE_NOT_FOUND" };
+  const authTarget = getAuthorizedNotionTarget(pageId);
+  if (authTarget.error || !authTarget.items || authTarget.index === undefined || !authTarget.targetItem || !authTarget.apiKey) {
+    return { success: false, error: authTarget.error || "NOTION_PAGE_NOT_FOUND" };
   }
-
-  const { isConfigured, apiKey } = getNotionConfig();
-  if (!isConfigured) {
-    return { success: false, error: "NOTION_NOT_CONFIGURED" };
-  }
+  const { items, index, targetItem, apiKey } = authTarget;
 
   const notionProp = NOTION_CYCLE_LABELS[cycleKey];
 
   try {
     const patchRes = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
       method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Notion-Version": "2022-06-28",
-        "Content-Type": "application/json",
-      },
+      headers: notionHeaders(apiKey),
       body: JSON.stringify({
         properties: {
           [notionProp]: {
@@ -312,34 +336,32 @@ export async function createStudyInNotion(newStudy: {
     ? newStudy.tipoRevisao
     : ["Questões"];
 
+  const properties: Record<string, any> = {
+    Assunto: {
+      title: [{ text: { content: newStudy.assunto } }],
+    },
+    "Matéria": {
+      select: { name: newStudy.materia || "Geral" },
+    },
+    "Tipo de Revisão": {
+      multi_select: types.map((t) => ({ name: t })),
+    },
+    Semana: { checkbox: false },
+    "Mês 1": { checkbox: false },
+    "Mês 2": { checkbox: false },
+    "Mês 3": { checkbox: false },
+  };
+  if (newStudy.data && /^\d{4}-\d{2}-\d{2}$/.test(newStudy.data)) {
+    properties.Data = { date: { start: newStudy.data } };
+  }
+
   try {
     const createRes = await fetch("https://api.notion.com/v1/pages", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Notion-Version": "2022-06-28",
-        "Content-Type": "application/json",
-      },
+      headers: notionHeaders(apiKey),
       body: JSON.stringify({
         parent: { database_id: databaseId },
-        properties: {
-          Assunto: {
-            title: [{ text: { content: newStudy.assunto } }],
-          },
-          "Matéria": {
-            select: { name: newStudy.materia },
-          },
-          Data: {
-            date: { start: newStudy.data },
-          },
-          "Tipo de Revisão": {
-            multi_select: types.map((t) => ({ name: t })),
-          },
-          Semana: { checkbox: false },
-          "Mês 1": { checkbox: false },
-          "Mês 2": { checkbox: false },
-          "Mês 3": { checkbox: false },
-        },
+        properties,
       }),
     });
 
@@ -363,5 +385,141 @@ export async function createStudyInNotion(newStudy: {
   } catch (e) {
     console.error("[Notion API] Falha ao enviar nova página:", e);
     return { success: false, syncedToNotion: false, error: "NOTION_CREATE_FAILED" };
+  }
+}
+
+/**
+ * Renames the title ("Assunto" or detected title property) of a Notion revision page.
+ */
+export async function renameStudyInNotion(
+  pageId: string,
+  assunto: string
+): Promise<{ success: boolean; item?: BackendNotionRevisionItem; error?: string }> {
+  const cleanAssunto = String(assunto || "").trim().slice(0, 200);
+  if (!cleanAssunto) {
+    return { success: false, error: "INVALID_ASSUNTO" };
+  }
+
+  const authTarget = getAuthorizedNotionTarget(pageId);
+  if (authTarget.error || !authTarget.items || authTarget.index === undefined || !authTarget.targetItem || !authTarget.apiKey) {
+    return { success: false, error: authTarget.error || "NOTION_PAGE_NOT_FOUND" };
+  }
+  const { items, index, targetItem, apiKey } = authTarget;
+
+  try {
+    let titlePropName = "Assunto";
+    try {
+      const pageRes = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
+        method: "GET",
+        headers: notionHeaders(apiKey),
+      });
+      if (pageRes.ok) {
+        const pageJson = await pageRes.json();
+        const foundTitle = Object.entries(pageJson?.properties || {}).find(
+          ([, val]: [string, any]) => val?.type === "title"
+        );
+        if (foundTitle?.[0]) {
+          titlePropName = foundTitle[0];
+        }
+      }
+    } catch {
+      // Fallback to default "Assunto" title property
+    }
+
+    const patchRes = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
+      method: "PATCH",
+      headers: notionHeaders(apiKey),
+      body: JSON.stringify({
+        properties: {
+          [titlePropName]: {
+            title: [{ text: { content: cleanAssunto } }],
+          },
+        },
+      }),
+    });
+
+    if (!patchRes.ok) {
+      const err = await patchRes.text();
+      console.warn("[Notion API] Falha ao renomear página:", err);
+      return { success: false, error: "NOTION_UPDATE_FAILED" };
+    }
+
+    const updatedRaw = await patchRes.json();
+    const updatedItem = updatedRaw?.properties
+      ? parseNotionPage(updatedRaw)
+      : { ...targetItem, assunto: cleanAssunto, updatedAt: new Date().toISOString() };
+
+    items[index] = updatedItem;
+    saveLocalRevisoes(items);
+
+    return { success: true, item: updatedItem };
+  } catch (e) {
+    console.error("[Notion API] Erro de rede ao renomear página:", e);
+    return { success: false, error: "NOTION_UPDATE_FAILED" };
+  }
+}
+
+/**
+ * Duplicates a Notion revision row as a new unchecked item in the same database.
+ */
+export async function duplicateStudyInNotion(
+  pageId: string
+): Promise<{ success: boolean; item?: BackendNotionRevisionItem; error?: string }> {
+  const authTarget = getAuthorizedNotionTarget(pageId);
+  if (authTarget.error || !authTarget.targetItem) {
+    return { success: false, error: authTarget.error || "NOTION_PAGE_NOT_FOUND" };
+  }
+  const { targetItem } = authTarget;
+  const baseTitle = (targetItem.assunto || "Sem Título").trim();
+  const suffix = " (cópia)";
+  const copyTitle =
+    baseTitle.length + suffix.length <= 200
+      ? `${baseTitle}${suffix}`
+      : `${baseTitle.slice(0, 200 - suffix.length)}${suffix}`;
+
+  const created = await createStudyInNotion({
+    assunto: copyTitle,
+    materia: targetItem.materia || "Geral",
+    data: targetItem.data || "",
+    tipoRevisao: targetItem.tipoRevisao,
+  });
+
+  if (!created.success || !created.item) {
+    return { success: false, error: created.error || "NOTION_CREATE_FAILED" };
+  }
+
+  return { success: true, item: created.item };
+}
+
+/**
+ * Archives (trashes) a Notion revision page and removes it from local cache.
+ */
+export async function deleteStudyInNotion(
+  pageId: string
+): Promise<{ success: boolean; deletedId?: string; error?: string }> {
+  const authTarget = getAuthorizedNotionTarget(pageId);
+  if (authTarget.error || !authTarget.items || !authTarget.apiKey) {
+    return { success: false, error: authTarget.error || "NOTION_PAGE_NOT_FOUND" };
+  }
+  const { items, apiKey } = authTarget;
+
+  try {
+    const patchRes = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
+      method: "PATCH",
+      headers: notionHeaders(apiKey),
+      body: JSON.stringify({ archived: true }),
+    });
+
+    if (!patchRes.ok) {
+      const err = await patchRes.text();
+      console.warn("[Notion API] Falha ao excluir/arquivar página:", err);
+      return { success: false, error: "NOTION_DELETE_FAILED" };
+    }
+
+    saveLocalRevisoes(items.filter((it) => it.id !== pageId));
+    return { success: true, deletedId: pageId };
+  } catch (e) {
+    console.error("[Notion API] Erro de rede ao excluir página:", e);
+    return { success: false, error: "NOTION_DELETE_FAILED" };
   }
 }

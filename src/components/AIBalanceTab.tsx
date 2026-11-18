@@ -16,6 +16,12 @@ import {
   ExternalLink,
   RefreshCw,
   Layers,
+  MoreVertical,
+  Pencil,
+  Copy,
+  Trash2,
+  Check,
+  X,
 } from 'lucide-react';
 import {
   AIAnalysisResult,
@@ -27,7 +33,15 @@ import {
   WeeklyCycle,
 } from '../types';
 import { StudyColumnCharts } from './StudyColumnCharts';
-import { checkinRevision, fetchNotionRevisoes, getNotionConnectionStatus } from '../services/notionService';
+import { ConfirmModal } from './ConfirmModal';
+import {
+  checkinRevision,
+  deleteNotionStudy,
+  duplicateNotionStudy,
+  fetchNotionRevisoes,
+  getNotionConnectionStatus,
+  renameNotionStudy,
+} from '../services/notionService';
 import { summarizeOverdueNotionRevisions } from '../utils/notionRevisions';
 import { getCurrentYearMonthAndToday } from '../utils/studyBalance';
 
@@ -86,6 +100,32 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
   } | null>(null);
   const [expandedMaterias, setExpandedMaterias] = useState<Record<string, boolean>>({});
   const [checkingPageId, setCheckingPageId] = useState<string | null>(null);
+  const [openMenuPageId, setOpenMenuPageId] = useState<string | null>(null);
+  const [renamingPageId, setRenamingPageId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [deleteTargetItem, setDeleteTargetItem] = useState<NotionRevisionItem | null>(null);
+  const [mutatingPageId, setMutatingPageId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!openMenuPageId) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest('[data-notion-menu]')) {
+        setOpenMenuPageId(null);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenMenuPageId(null);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [openMenuPageId]);
 
   const loadNotionRevisions = useCallback(async () => {
     if (!canAccessNotion) return;
@@ -145,6 +185,78 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
 
   const toggleMateria = (materia: string) => {
     setExpandedMaterias((prev) => ({ ...prev, [materia]: !prev[materia] }));
+  };
+
+  const handleStartRename = (item: NotionRevisionItem) => {
+    setOpenMenuPageId(null);
+    setRenamingPageId(item.id);
+    setRenameDraft(item.assunto);
+  };
+
+  const handleCancelRename = () => {
+    setRenamingPageId(null);
+    setRenameDraft('');
+  };
+
+  const handleSubmitRename = async (item: NotionRevisionItem) => {
+    const trimmed = renameDraft.trim();
+    if (!trimmed) {
+      showToast?.('Informe um nome válido para o estudo.', 'error');
+      return;
+    }
+    if (trimmed === item.assunto) {
+      handleCancelRename();
+      return;
+    }
+    if (mutatingPageId) return;
+    setMutatingPageId(item.id);
+    try {
+      const res = await renameNotionStudy(item.id, trimmed);
+      if (res.success && res.item) {
+        setNotionItems((prev) => prev.map((it) => (it.id === item.id ? res.item! : it)));
+        handleCancelRename();
+        showToast?.(`Estudo renomeado para "${res.item.assunto}" no Notion.`, 'success');
+      } else {
+        showToast?.(res.error || 'Não foi possível renomear o estudo no Notion.', 'error');
+      }
+    } finally {
+      setMutatingPageId(null);
+    }
+  };
+
+  const handleDuplicateNotionItem = async (item: NotionRevisionItem) => {
+    if (mutatingPageId) return;
+    setOpenMenuPageId(null);
+    setMutatingPageId(item.id);
+    try {
+      const res = await duplicateNotionStudy(item.id);
+      if (res.success && res.item) {
+        setNotionItems((prev) => [res.item!, ...prev]);
+        showToast?.(`"${res.item.assunto}" duplicado no Notion.`, 'success');
+      } else {
+        showToast?.(res.error || 'Não foi possível duplicar o estudo no Notion.', 'error');
+      }
+    } finally {
+      setMutatingPageId(null);
+    }
+  };
+
+  const handleConfirmDeleteNotionItem = async () => {
+    if (!deleteTargetItem || mutatingPageId) return;
+    const target = deleteTargetItem;
+    setMutatingPageId(target.id);
+    try {
+      const res = await deleteNotionStudy(target.id);
+      if (res.success) {
+        setNotionItems((prev) => prev.filter((it) => it.id !== target.id));
+        setDeleteTargetItem(null);
+        showToast?.(`"${target.assunto}" excluído das revisões do Notion.`, 'success');
+      } else {
+        showToast?.(res.error || 'Não foi possível excluir o estudo no Notion.', 'error');
+      }
+    } finally {
+      setMutatingPageId(null);
+    }
   };
 
   // Real monthly metrics (never fabricated)
@@ -401,13 +513,15 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
                 return (
                   <div
                     key={group.materia}
-                    className={`rounded-xl border overflow-hidden transition-colors ${subSurface}`}
+                    className={`rounded-xl border transition-colors ${subSurface}`}
                   >
                     <button
                       type="button"
                       onClick={() => toggleMateria(group.materia)}
                       aria-expanded={isExpanded}
                       className={`w-full px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors cursor-pointer ${
+                        isExpanded ? 'rounded-t-xl' : 'rounded-xl'
+                      } ${
                         isDark ? 'hover:bg-slate-900/80' : 'hover:bg-slate-100/80'
                       }`}
                     >
@@ -454,12 +568,15 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
 
                     {isExpanded && (
                       <div
-                        className={`px-4 pb-3 pt-2 space-y-2 border-t ${
+                        className={`px-4 pb-3 pt-2 space-y-2 border-t rounded-b-xl ${
                           isDark ? 'border-slate-800/70 bg-slate-950/40' : 'border-slate-200 bg-white/80'
                         }`}
                       >
                         {group.items.map((topic) => {
                           const isBusy = checkingPageId === topic.item.id;
+                          const isMutating = mutatingPageId === topic.item.id;
+                          const isRenaming = renamingPageId === topic.item.id;
+                          const isMenuOpen = openMenuPageId === topic.item.id;
                           return (
                             <div
                               key={topic.item.id}
@@ -469,23 +586,77 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
                                   : 'bg-slate-50 border-slate-200'
                               }`}
                             >
-                              <div className="min-w-0 space-y-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <p className={`text-xs sm:text-sm font-bold ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
-                                    {topic.item.assunto}
-                                  </p>
-                                  {topic.item.url && (
-                                    <a
-                                      href={topic.item.url}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="text-slate-400 hover:text-[#0056D2] dark:hover:text-sky-400"
-                                      title="Abrir no Notion"
+                              <div className="min-w-0 flex-1 space-y-1">
+                                {isRenaming ? (
+                                  <form
+                                    onSubmit={(e) => {
+                                      e.preventDefault();
+                                      void handleSubmitRename(topic.item);
+                                    }}
+                                    className="flex items-center gap-1.5 flex-wrap"
+                                  >
+                                    <input
+                                      type="text"
+                                      value={renameDraft}
+                                      onChange={(e) => setRenameDraft(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Escape') {
+                                          e.preventDefault();
+                                          handleCancelRename();
+                                        }
+                                      }}
+                                      autoFocus
+                                      maxLength={200}
+                                      disabled={isMutating}
+                                      aria-label="Novo nome do estudo"
+                                      className={`flex-1 min-w-[180px] px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold border outline-none focus:ring-2 focus:ring-[#0056D2]/40 ${
+                                        isDark
+                                          ? 'bg-slate-950 border-slate-700 text-slate-100'
+                                          : 'bg-white border-slate-300 text-slate-900'
+                                      }`}
+                                    />
+                                    <button
+                                      type="submit"
+                                      disabled={isMutating}
+                                      title="Salvar nome"
+                                      aria-label="Salvar nome"
+                                      className="p-1.5 rounded-lg bg-[#0056D2] hover:bg-blue-600 text-white cursor-pointer disabled:opacity-50"
                                     >
-                                      <ExternalLink className="w-3.5 h-3.5" />
-                                    </a>
-                                  )}
-                                </div>
+                                      <Check className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={isMutating}
+                                      onClick={handleCancelRename}
+                                      title="Cancelar"
+                                      aria-label="Cancelar"
+                                      className={`p-1.5 rounded-lg border cursor-pointer disabled:opacity-50 ${
+                                        isDark
+                                          ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
+                                          : 'border-slate-300 text-slate-700 hover:bg-slate-200'
+                                      }`}
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </form>
+                                ) : (
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className={`text-xs sm:text-sm font-bold ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+                                      {topic.item.assunto}
+                                    </p>
+                                    {topic.item.url && (
+                                      <a
+                                        href={topic.item.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-slate-400 hover:text-[#0056D2] dark:hover:text-sky-400"
+                                        title="Abrir no Notion"
+                                      >
+                                        <ExternalLink className="w-3.5 h-3.5" />
+                                      </a>
+                                    )}
+                                  </div>
+                                )}
 
                                 <div className="flex items-center gap-2 flex-wrap text-[11px] tabular-nums">
                                   <span
@@ -520,25 +691,97 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
                                 </div>
                               </div>
 
-                              <button
-                                type="button"
-                                disabled={Boolean(checkingPageId)}
-                                onClick={() =>
-                                  void handleMarkNotionReviewed(
-                                    topic.item,
-                                    topic.pendingCycleKey,
-                                    topic.pendingCycleLabel
-                                  )
-                                }
-                                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all shrink-0 cursor-pointer disabled:opacity-50"
-                              >
-                                <CheckCircle2 className={`w-3.5 h-3.5 ${isBusy ? 'animate-spin' : ''}`} />
-                                <span>
-                                  {isBusy
-                                    ? 'Atualizando Notion...'
-                                    : `Marcar revisado (${topic.pendingCycleLabel})`}
-                                </span>
-                              </button>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  disabled={Boolean(checkingPageId) || isMutating}
+                                  onClick={() =>
+                                    void handleMarkNotionReviewed(
+                                      topic.item,
+                                      topic.pendingCycleKey,
+                                      topic.pendingCycleLabel
+                                    )
+                                  }
+                                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all shrink-0 cursor-pointer disabled:opacity-50"
+                                >
+                                  <CheckCircle2 className={`w-3.5 h-3.5 ${isBusy ? 'animate-spin' : ''}`} />
+                                  <span>
+                                    {isBusy
+                                      ? 'Atualizando Notion...'
+                                      : `Marcar revisado (${topic.pendingCycleLabel})`}
+                                  </span>
+                                </button>
+
+                                <div className="relative" data-notion-menu>
+                                  <button
+                                    type="button"
+                                    disabled={Boolean(mutatingPageId)}
+                                    onClick={() =>
+                                      setOpenMenuPageId((prev) => (prev === topic.item.id ? null : topic.item.id))
+                                    }
+                                    aria-haspopup="menu"
+                                    aria-expanded={isMenuOpen}
+                                    aria-label={`Ações para ${topic.item.assunto}`}
+                                    title="Mais ações"
+                                    className={`p-2 rounded-xl border transition-colors cursor-pointer disabled:opacity-50 ${
+                                      isDark
+                                        ? 'bg-slate-950/70 hover:bg-slate-800 border-slate-800 text-slate-300'
+                                        : 'bg-white hover:bg-slate-100 border-slate-200 text-slate-700'
+                                    }`}
+                                  >
+                                    <MoreVertical className="w-4 h-4" />
+                                  </button>
+
+                                  {isMenuOpen && (
+                                    <div
+                                      role="menu"
+                                      aria-label={`Opções de ${topic.item.assunto}`}
+                                      className={`absolute right-0 mt-1.5 w-44 rounded-xl border shadow-xl py-1 z-30 ${
+                                        isDark
+                                          ? 'bg-[#111218] border-slate-800 text-slate-200 shadow-black/60'
+                                          : 'bg-white border-slate-200 text-slate-800 shadow-slate-300/60'
+                                      }`}
+                                    >
+                                      <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => handleStartRename(topic.item)}
+                                        className={`w-full px-3 py-2 text-left text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${
+                                          isDark ? 'hover:bg-slate-800/80' : 'hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        <Pencil className="w-3.5 h-3.5 text-sky-400" />
+                                        <span>Renomear</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => void handleDuplicateNotionItem(topic.item)}
+                                        className={`w-full px-3 py-2 text-left text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${
+                                          isDark ? 'hover:bg-slate-800/80' : 'hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                                        <span>Duplicar</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => {
+                                          setOpenMenuPageId(null);
+                                          setDeleteTargetItem(topic.item);
+                                        }}
+                                        className={`w-full px-3 py-2 text-left text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer text-rose-400 ${
+                                          isDark ? 'hover:bg-rose-950/40' : 'hover:bg-rose-50 text-rose-600'
+                                        }`}
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        <span>Excluir</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           );
                         })}
@@ -774,6 +1017,27 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={Boolean(deleteTargetItem)}
+        title="Excluir estudo do Notion"
+        description={
+          deleteTargetItem
+            ? `Tem certeza que deseja excluir "${deleteTargetItem.assunto}" (${deleteTargetItem.materia}) das revisões do Notion? A página será arquivada na lixeira do Notion.`
+            : undefined
+        }
+        badgeText={deleteTargetItem?.assunto}
+        confirmLabel="Excluir do Notion"
+        cancelLabel="Cancelar"
+        isDestructive
+        iconType="danger"
+        theme={theme}
+        loading={Boolean(deleteTargetItem && mutatingPageId === deleteTargetItem.id)}
+        onConfirm={() => void handleConfirmDeleteNotionItem()}
+        onClose={() => {
+          if (!mutatingPageId) setDeleteTargetItem(null);
+        }}
+      />
     </div>
   );
 };

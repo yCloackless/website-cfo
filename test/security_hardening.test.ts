@@ -173,3 +173,28 @@ test('F-07: extension token is restricted to extension synchronization routes', 
   assert.equal(profile.response.status, 401);
   assert.equal(profile.body.error, 'UNAUTHORIZED');
 });
+
+test('F-08: Notion study rename, duplicate, and delete routes reject non-admin callers and unknown page IDs', async () => {
+  const before = notionFetches;
+  for (const [method, path, body] of [
+    ['PATCH', '/api/notion/estudo/page-1', JSON.stringify({ assunto: 'Invasão' })],
+    ['POST', '/api/notion/estudo/page-1/duplicar', undefined],
+    ['DELETE', '/api/notion/estudo/page-1', undefined],
+  ] as const) {
+    const forbidden = await request(path, {
+      method,
+      headers: { Authorization: `Bearer ${cadetToken}` },
+      body,
+    });
+    assert.equal(forbidden.response.status, 403);
+    assert.equal(forbidden.body.error, 'NOTION_FORBIDDEN');
+  }
+
+  const missing = await request('/api/notion/estudo/nonexistent-page-id', {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(missing.response.status, 404);
+  assert.equal(missing.body.error, 'NOTION_PAGE_NOT_FOUND');
+  assert.equal(notionFetches, before);
+});

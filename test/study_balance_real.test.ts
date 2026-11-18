@@ -271,3 +271,119 @@ test('fetchNotionRevisoes returns empty and clears access on 403 NOTION_FORBIDDE
     globalThis.fetch = nativeFetch;
   }
 });
+
+test('notionBackend renames, duplicates, archives (deletes), and blocks unauthorized page IDs', async () => {
+  const prevKey = process.env.NOTION_API_KEY;
+  const prevDb = process.env.NOTION_DATABASE_ID;
+  const nativeFetch = globalThis.fetch;
+  process.env.NOTION_API_KEY = 'test-notion-key';
+  process.env.NOTION_DATABASE_ID = 'test-notion-db';
+
+  let notionCalls = 0;
+  let lastPatchBody: any = null;
+  let lastPostBody: any = null;
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.startsWith('https://api.notion.com/')) {
+      notionCalls += 1;
+      if (url.endsWith('/databases/test-notion-db/query')) {
+        return new Response(JSON.stringify({
+          has_more: false,
+          results: [{
+            id: 'page-1111-2222-3333-444444444444',
+            properties: {
+              Assunto: { title: [{ plain_text: 'Estequiometria' }] },
+              'Matéria': { select: { name: 'Química' } },
+              Data: { date: { start: '2026-11-10' } },
+              'Tipo de Revisão': { multi_select: [{ name: 'Questões' }] },
+              'Próxima Revisão': { date: { start: '2026-11-17' } },
+              Semana: { checkbox: false },
+            },
+          }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/pages/page-1111-2222-3333-444444444444') && (!init?.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({
+          id: 'page-1111-2222-3333-444444444444',
+          properties: {
+            Assunto: { type: 'title', title: [{ plain_text: 'Estequiometria' }] },
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/pages/page-1111-2222-3333-444444444444') && init?.method === 'PATCH') {
+        lastPatchBody = JSON.parse(String(init.body));
+        if (lastPatchBody.archived === true) {
+          return new Response(JSON.stringify({ id: 'page-1111-2222-3333-444444444444', archived: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response(JSON.stringify({
+          id: 'page-1111-2222-3333-444444444444',
+          properties: {
+            Assunto: { title: [{ plain_text: lastPatchBody.properties.Assunto.title[0].text.content }] },
+            'Matéria': { select: { name: 'Química' } },
+            Data: { date: { start: '2026-11-10' } },
+            'Tipo de Revisão': { multi_select: [{ name: 'Questões' }] },
+            'Próxima Revisão': { date: { start: '2026-11-17' } },
+            Semana: { checkbox: false },
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/v1/pages') && init?.method === 'POST') {
+        lastPostBody = JSON.parse(String(init.body));
+        return new Response(JSON.stringify({
+          id: 'page-copy-5555-6666-777777777777',
+          properties: {
+            Assunto: { title: [{ plain_text: lastPostBody.properties.Assunto.title[0].text.content }] },
+            'Matéria': { select: { name: lastPostBody.properties['Matéria'].select.name } },
+            Data: { date: { start: lastPostBody.properties.Data.date.start } },
+            'Tipo de Revisão': { multi_select: [{ name: 'Questões' }] },
+            Semana: { checkbox: false },
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+    return nativeFetch(input, init);
+  }) as typeof fetch;
+
+  try {
+    const {
+      fetchRevisoesFromNotion,
+      renameStudyInNotion,
+      duplicateStudyInNotion,
+      deleteStudyInNotion,
+      readLocalRevisoes,
+    } = await import('../notionBackend');
+
+    await fetchRevisoesFromNotion();
+
+    const callsBeforeRejected = notionCalls;
+    const rejected = await deleteStudyInNotion('../other-page');
+    assert.equal(rejected.success, false);
+    assert.equal(rejected.error, 'NOTION_PAGE_NOT_FOUND');
+    assert.equal(notionCalls, callsBeforeRejected);
+
+    const renamed = await renameStudyInNotion('page-1111-2222-3333-444444444444', 'Estequiometria Avançada');
+    assert.equal(renamed.success, true);
+    assert.equal(renamed.item?.assunto, 'Estequiometria Avançada');
+    assert.equal(lastPatchBody.properties.Assunto.title[0].text.content, 'Estequiometria Avançada');
+
+    const duplicated = await duplicateStudyInNotion('page-1111-2222-3333-444444444444');
+    assert.equal(duplicated.success, true);
+    assert.equal(duplicated.item?.id, 'page-copy-5555-6666-777777777777');
+    assert.equal(duplicated.item?.assunto, 'Estequiometria Avançada (cópia)');
+    assert.equal(lastPostBody.properties['Matéria'].select.name, 'Química');
+
+    const deleted = await deleteStudyInNotion('page-1111-2222-3333-444444444444');
+    assert.equal(deleted.success, true);
+    assert.equal(lastPatchBody.archived, true);
+    assert.equal(readLocalRevisoes().some((it) => it.id === 'page-1111-2222-3333-444444444444'), false);
+    assert.equal(readLocalRevisoes().some((it) => it.id === 'page-copy-5555-6666-777777777777'), true);
+  } finally {
+    globalThis.fetch = nativeFetch;
+    if (prevKey === undefined) delete process.env.NOTION_API_KEY; else process.env.NOTION_API_KEY = prevKey;
+    if (prevDb === undefined) delete process.env.NOTION_DATABASE_ID; else process.env.NOTION_DATABASE_ID = prevDb;
+  }
+});

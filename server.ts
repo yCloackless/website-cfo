@@ -48,6 +48,9 @@ import {
   fetchRevisoesFromNotion,
   updateCheckinInNotion,
   createStudyInNotion,
+  renameStudyInNotion,
+  duplicateStudyInNotion,
+  deleteStudyInNotion,
 } from "./notionBackend";
 import { NOTION_CYCLE_ORDER } from "./src/types";
 import { summarizeOverdueNotionRevisions } from "./src/utils/notionRevisions";
@@ -7024,6 +7027,79 @@ app.post("/api/notion/novo-estudo", async (req: Request, res: Response) => {
       error: "CREATE_STUDY_ERROR",
       message: "Falha ao registrar estudo no Notion",
     });
+  }
+});
+
+function notionErrorStatus(errorCode?: string): number {
+  if (errorCode === "INVALID_ASSUNTO") return 400;
+  if (errorCode === "NOTION_PAGE_NOT_FOUND") return 404;
+  if (errorCode === "NOTION_NOT_CONFIGURED") return 503;
+  return 502;
+}
+
+// 5. Renomear Estudo/Assunto no Notion
+app.patch("/api/notion/estudo/:pageId", async (req: Request, res: Response) => {
+  try {
+    const pageId = String(req.params.pageId || "").trim();
+    const assunto = String(req.body?.assunto || "").trim();
+    const result = await renameStudyInNotion(pageId, assunto);
+    if (!result.success) {
+      return res.status(notionErrorStatus(result.error)).json({
+        error: result.error || "NOTION_UPDATE_FAILED",
+        message:
+          result.error === "INVALID_ASSUNTO"
+            ? "Informe um nome válido para o estudo."
+            : result.error === "NOTION_PAGE_NOT_FOUND"
+              ? "O estudo informado não pertence ao conjunto autorizado."
+              : "Não foi possível renomear o estudo no Notion.",
+      });
+    }
+    return res.json({ success: true, item: result.item });
+  } catch (e: any) {
+    console.error("Erro ao renomear estudo no Notion:", e);
+    return res.status(500).json({ error: "RENAME_STUDY_ERROR", message: "Falha ao renomear estudo no Notion." });
+  }
+});
+
+// 6. Duplicar Estudo no Notion
+app.post("/api/notion/estudo/:pageId/duplicar", async (req: Request, res: Response) => {
+  try {
+    const pageId = String(req.params.pageId || "").trim();
+    const result = await duplicateStudyInNotion(pageId);
+    if (!result.success) {
+      return res.status(notionErrorStatus(result.error)).json({
+        error: result.error || "NOTION_CREATE_FAILED",
+        message:
+          result.error === "NOTION_PAGE_NOT_FOUND"
+            ? "O estudo informado não pertence ao conjunto autorizado."
+            : "Não foi possível duplicar o estudo no Notion.",
+      });
+    }
+    return res.status(201).json({ success: true, item: result.item });
+  } catch (e: any) {
+    console.error("Erro ao duplicar estudo no Notion:", e);
+    return res.status(500).json({ error: "DUPLICATE_STUDY_ERROR", message: "Falha ao duplicar estudo no Notion." });
+  }
+});
+
+// 7. Excluir (Arquivar) Estudo no Notion
+app.delete("/api/notion/estudo/:pageId", async (req: Request, res: Response) => {
+  try {
+    const pageId = String(req.params.pageId || "").trim();
+    const result = await deleteStudyInNotion(pageId);
+    if (!result.success) {
+      return res.status(notionErrorStatus(result.error)).json({
+        error: result.error || "NOTION_DELETE_FAILED",
+        message:
+          result.error === "NOTION_PAGE_NOT_FOUND"
+            ? "O estudo informado não pertence ao conjunto autorizado."
+            : "Não foi possível excluir o estudo no Notion.",
+      });
+    }
+    return res.json({ success: true, deletedId: result.deletedId });
+  } catch (e: any) {
+    console.error("Erro ao excluir estudo no Notion:", e);
+    return res.status(500).json({ error: "DELETE_STUDY_ERROR", message: "Falha ao excluir estudo no Notion." });
   }
 });
 

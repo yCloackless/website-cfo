@@ -201,6 +201,17 @@ export async function checkinRevision(
   }
 }
 
+function updateCachedNotionItems(updater: (items: NotionRevisionItem[]) => NotionRevisionItem[]): void {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updater(parsed)));
+    }
+  } catch (_) {}
+}
+
 /**
  * Cria um novo estudo no Notion
  */
@@ -219,10 +230,70 @@ export async function createNewStudy(study: {
 
     if (res.ok) {
       const data = await res.json();
+      if (data.item) {
+        updateCachedNotionItems((items) => [data.item, ...items]);
+      }
       return { success: true, item: data.item };
     }
     const err = await res.json();
     return { success: false, error: err.message || "Erro ao criar estudo" };
+  } catch (e: any) {
+    return { success: false, error: e.message || "Falha de rede" };
+  }
+}
+
+export async function renameNotionStudy(
+  pageId: string,
+  assunto: string
+): Promise<{ success: boolean; item?: NotionRevisionItem; error?: string }> {
+  try {
+    const res = await fetch(`/api/notion/estudo/${encodeURIComponent(pageId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assunto }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.item) {
+      updateCachedNotionItems((items) => items.map((it) => (it.id === pageId ? data.item : it)));
+      return { success: true, item: data.item };
+    }
+    return { success: false, error: data.message || "Erro ao renomear estudo no Notion" };
+  } catch (e: any) {
+    return { success: false, error: e.message || "Falha de rede" };
+  }
+}
+
+export async function duplicateNotionStudy(
+  pageId: string
+): Promise<{ success: boolean; item?: NotionRevisionItem; error?: string }> {
+  try {
+    const res = await fetch(`/api/notion/estudo/${encodeURIComponent(pageId)}/duplicar`, {
+      method: "POST",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.item) {
+      updateCachedNotionItems((items) => [data.item, ...items]);
+      return { success: true, item: data.item };
+    }
+    return { success: false, error: data.message || "Erro ao duplicar estudo no Notion" };
+  } catch (e: any) {
+    return { success: false, error: e.message || "Falha de rede" };
+  }
+}
+
+export async function deleteNotionStudy(
+  pageId: string
+): Promise<{ success: boolean; deletedId?: string; error?: string }> {
+  try {
+    const res = await fetch(`/api/notion/estudo/${encodeURIComponent(pageId)}`, {
+      method: "DELETE",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      updateCachedNotionItems((items) => items.filter((it) => it.id !== pageId));
+      return { success: true, deletedId: data.deletedId || pageId };
+    }
+    return { success: false, error: data.message || "Erro ao excluir estudo no Notion" };
   } catch (e: any) {
     return { success: false, error: e.message || "Falha de rede" };
   }
