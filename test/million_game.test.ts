@@ -398,3 +398,18 @@ test('HTTP /api/million-game/* enforces auth, IDOR isolation, AI input bounds, a
   assert.equal(patchRes.status, 200);
   assert.ok(userStateRepo.getValue(cadetLogin.user.id, MILLION_HISTORY_KEY)?.includes('1000000'));
 });
+
+test('millionPresenterAudio exposes all 7 presenter cues and millionAudio plays safely without DOM', async () => {
+  const { MILLION_PRESENTER_AUDIO_CONFIG, MILLION_PRESENTER_CUE_LABELS } = await import('../src/config/millionPresenterAudio');
+  const { playMillionCue, isMillionAudioMuted, setMillionAudioMuted } = await import('../src/utils/millionAudio');
+
+  const expectedCues = ['intro', 'nextQuestion', 'correct', 'wrong', 'help', 'stop', 'millionWin'] as const;
+  for (const cue of expectedCues) {
+    assert.ok(cue in MILLION_PRESENTER_AUDIO_CONFIG.clips);
+    assert.ok(typeof MILLION_PRESENTER_CUE_LABELS[cue] === 'string' && MILLION_PRESENTER_CUE_LABELS[cue].length > 0);
+    assert.doesNotThrow(() => playMillionCue(cue));
+  }
+
+  assert.equal(typeof isMillionAudioMuted(), 'boolean');
+  assert.doesNotThrow(() => setMillionAudioMuted(true));
+});
