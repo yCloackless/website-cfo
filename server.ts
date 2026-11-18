@@ -51,7 +51,16 @@ import {
   renameStudyInNotion,
   duplicateStudyInNotion,
   deleteStudyInNotion,
+  upsertCachedRevisionItem,
+  removeCachedRevisionItem,
+  subscribeNotionChanges,
+  emitNotionChange,
 } from "./notionBackend";
+import {
+  desktopNotionAuthorizedUser,
+  validateDesktopSyncPayload,
+  buildDesktopStudyBalancePayload,
+} from "./src/services/notionDesktopSync";
 import { NOTION_CYCLE_ORDER } from "./src/types";
 import { summarizeOverdueNotionRevisions } from "./src/utils/notionRevisions";
 import { getCurrentYearMonthAndToday } from "./src/utils/studyBalance";
@@ -7007,6 +7016,83 @@ app.post("/api/million-game/stop", requireUserAuth, (req: Request, res: Response
 // ROTAS DE INTEGRAÇÃO NOTION - REVISÕES CFO
 // ==========================================
 
+// 🔌 SINCRONIZAÇÃO DESKTOP -> SITE (Bearer token timing-safe + usuário autorizado Notion)
+app.get("/api/notion/desktop/revisoes", async (req: Request, res: Response) => {
+  const auth = desktopNotionAuthorizedUser(req, userRepoInstance);
+  if (auth.ok === false) {
+    return res.status(auth.status).json({ error: auth.error });
+  }
+  try {
+    const result = await fetchRevisoesFromNotion();
+    return res.json({
+      success: true,
+      items: result.items,
+      source: result.source,
+      error: result.error,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (e: any) {
+    console.error("Erro ao consultar revisões Notion para desktop:", e);
+    return res.status(500).json({ error: "NOTION_FETCH_ERROR" });
+  }
+});
+
+app.get("/api/notion/desktop/study-balance", (req: Request, res: Response) => {
+  const auth = desktopNotionAuthorizedUser(req, userRepoInstance);
+  if (auth.ok === false) {
+    return res.status(auth.status).json({ error: auth.error });
+  }
+  const todayRange = getCurrentYearMonthAndToday();
+  const startDate = String(req.query.startDate || `${todayRange.yearMonth}-01`);
+  const endDate = String(req.query.endDate || todayRange.todayStr);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    return res.status(400).json({ error: "INVALID_DATE_RANGE" });
+  }
+  try {
+    return res.json(
+      buildDesktopStudyBalancePayload(
+        auth.userId,
+        startDate,
+        endDate,
+        userRepoInstance,
+        userStateRepoInstance,
+        studySessionRepoInstance
+      )
+    );
+  } catch (e: any) {
+    console.error("Erro ao montar study-balance para desktop:", e);
+    return res.status(500).json({ error: "STUDY_BALANCE_ERROR" });
+  }
+});
+
+app.post("/api/notion/desktop/sync", async (req: Request, res: Response) => {
+  const auth = desktopNotionAuthorizedUser(req, userRepoInstance);
+  if (auth.ok === false) {
+    return res.status(auth.status).json({ error: auth.error });
+  }
+  const validation = validateDesktopSyncPayload(req.body);
+  if (validation.ok === false) {
+    return res.status(400).json({ error: validation.error });
+  }
+
+  try {
+    if (validation.payload.action === "upsert") {
+      upsertCachedRevisionItem(validation.payload.item);
+      return res.json({ success: true, action: "upsert", pageId: validation.payload.item.id });
+    }
+    if (validation.payload.action === "delete") {
+      removeCachedRevisionItem(validation.payload.pageId);
+      return res.json({ success: true, action: "delete", pageId: validation.payload.pageId });
+    }
+    const refreshed = await fetchRevisoesFromNotion();
+    emitNotionChange("refresh");
+    return res.json({ success: true, action: "refresh", count: refreshed.items.length, source: refreshed.source });
+  } catch (e: any) {
+    console.error("Erro ao processar sync desktop do Notion:", e);
+    return res.status(500).json({ error: "NOTION_SYNC_ERROR" });
+  }
+});
+
 // 🛑 MIDDLEWARE DE SEGURANÇA NOTION: Acesso exclusivo do Administrador
 app.use("/api/notion", (req: Request, res: Response, next: NextFunction) => {
   const token = requestSessionToken(req) || (req.headers["x-terminal-session"] as string);
@@ -7021,6 +7107,37 @@ app.use("/api/notion", (req: Request, res: Response, next: NextFunction) => {
   }
 
   next();
+});
+
+// 0. Stream SSE em tempo real para atualizar abas Admin quando o app desktop alterar o Notion
+app.get("/api/notion/events", (req: Request, res: Response) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  res.write(`data: ${JSON.stringify({ type: "connected", updatedAt: new Date().toISOString() })}\n\n`);
+
+  const unsubscribe = subscribeNotionChanges((event) => {
+    try {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    } catch {
+      // Ignore broken client stream
+    }
+  });
+
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(`: keep-alive\n\n`);
+    } catch {
+      clearInterval(heartbeat);
+    }
+  }, 25000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
 });
 
 // 1. Status da Conexão com o Notion
