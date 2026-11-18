@@ -155,3 +155,20 @@ test("validateDesktopSyncPayload rejects invalid actions, path traversal pageIds
   });
   assert.equal(validUpsert.ok, true);
 });
+
+test("parseNotionSseChunk extracts notion_updated events from partial SSE stream chunks", async () => {
+  const ns = await import("../src/services/notionService");
+  const chunk1 = `data: {"type":"connected"}\n\n: keep-alive\n\ndata: {"type":"notion_up`;
+  const first = ns.parseNotionSseChunk("", chunk1);
+  assert.equal(first.events.length, 1);
+  assert.equal(first.events[0]?.type, "connected");
+  assert.equal(first.rest, `data: {"type":"notion_up`);
+
+  const chunk2 = `dated","action":"upsert","pageId":"page-9"}\n\n`;
+  const second = ns.parseNotionSseChunk(first.rest, chunk2);
+  assert.equal(second.events.length, 1);
+  assert.equal(second.events[0]?.type, "notion_updated");
+  assert.equal(second.events[0]?.action, "upsert");
+  assert.equal(second.events[0]?.pageId, "page-9");
+  assert.equal(second.rest, "");
+});

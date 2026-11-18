@@ -5,6 +5,7 @@ import {
   NotionCalendarEvent,
   RevisionCycleKey,
 } from "../types";
+import { apiFetch } from "./apiFetch";
 
 const LOCAL_STORAGE_KEY = "cfo_notion_revisoes_cache_v1";
 
@@ -522,4 +523,102 @@ export function getRevisionsDueForDate(
   });
 
   return result;
+}
+
+export interface ParsedNotionSseEvent {
+  type: string;
+  action?: string;
+  pageId?: string;
+  updatedAt?: string;
+}
+
+export function parseNotionSseChunk(
+  buffer: string,
+  chunk: string
+): { events: ParsedNotionSseEvent[]; rest: string } {
+  const combined = `${buffer}${chunk}`.replace(/\r\n/g, "\n");
+  const blocks = combined.split("\n\n");
+  const rest = blocks.pop() ?? "";
+  const events: ParsedNotionSseEvent[] = [];
+
+  for (const block of blocks) {
+    const dataLines = block
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim());
+    if (dataLines.length === 0) continue;
+    try {
+      const parsed = JSON.parse(dataLines.join("\n"));
+      if (parsed && typeof parsed.type === "string") {
+        events.push(parsed as ParsedNotionSseEvent);
+      }
+    } catch {
+      // Ignore malformed SSE JSON payload
+    }
+  }
+
+  return { events, rest };
+}
+
+export function subscribeNotionEvents(onChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  let closed = false;
+  let controller: AbortController | null = null;
+  let reconnectTimer: number | null = null;
+  let attempt = 0;
+
+  const scheduleReconnect = () => {
+    if (closed) return;
+    const delayMs = Math.min(30000, 1500 * Math.pow(2, attempt));
+    attempt = Math.min(attempt + 1, 5);
+    reconnectTimer = window.setTimeout(() => {
+      void connect();
+    }, delayMs);
+  };
+
+  const connect = async () => {
+    if (closed) return;
+    controller = new AbortController();
+    try {
+      const res = await apiFetch("/api/notion/events", {
+        method: "GET",
+        headers: { Accept: "text/event-stream" },
+        signal: controller.signal,
+      });
+
+      if (!res.ok || !res.body) {
+        if (res.status === 401 || res.status === 403) return;
+        scheduleReconnect();
+        return;
+      }
+
+      attempt = 0;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (!closed) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value, { stream: true });
+        const parsed = parseNotionSseChunk(buffer, text);
+        buffer = parsed.rest;
+        if (parsed.events.some((ev) => ev.type === "notion_updated")) {
+          onChange();
+        }
+      }
+      if (!closed) scheduleReconnect();
+    } catch {
+      if (!closed) scheduleReconnect();
+    }
+  };
+
+  void connect();
+
+  return () => {
+    closed = true;
+    if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+    controller?.abort();
+  };
 }
