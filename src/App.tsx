@@ -2040,6 +2040,7 @@ export default function App() {
     '/equilibrio-ia',
     '/simulados',
     '/nivelamento',
+    '/show-do-milhao',
     '/flashcards',
     '/caderno-de-erros',
     '/agenda-notion',

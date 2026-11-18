@@ -13,6 +13,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import { fileURLToPath } from 'node:url';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function createMemoryRepo() {
   const store = new Map<string, string>();
@@ -302,6 +305,25 @@ test('stopMillionMatch stops at Q1 with 0 and at Q6 with 5_000', async () => {
   assert.equal(stop6.data.earnedPrize, 5_000);
 });
 
+let cachedAuthPromise: Promise<{
+  cadet: { token: string; user: { id: string } };
+  admin: { token: string; user: { id: string } };
+}> | null = null;
+
+async function getTestAuth(authService: any) {
+  if (!cachedAuthPromise) {
+    cachedAuthPromise = (async () => {
+      await authService.ensureDefaultAccounts();
+      const cadetLogin = await authService.login('cadete', process.env.CADET_PASSWORD!);
+      const adminLogin = await authService.login('admin', process.env.ADMIN_PASSWORD!);
+      assert.ok(cadetLogin.token && cadetLogin.user?.id);
+      assert.ok(adminLogin.token && adminLogin.user?.id);
+      return { cadet: cadetLogin, admin: adminLogin };
+    })();
+  }
+  return cachedAuthPromise;
+}
+
 test('HTTP /api/million-game/* enforces auth, IDOR isolation, AI input bounds, and protects /api/user/state keys', async (t) => {
   const prevCwd = process.cwd();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfo-million-http-'));
@@ -315,11 +337,7 @@ test('HTTP /api/million-game/* enforces auth, IDOR isolation, AI input bounds, a
 
   const db = getDb();
   const authService = new AuthService(db);
-  await authService.ensureDefaultAccounts();
-  const cadetLogin = await authService.login('cadete', process.env.CADET_PASSWORD!);
-  const adminLogin = await authService.login('admin', process.env.ADMIN_PASSWORD!);
-  assert.ok(cadetLogin.token && cadetLogin.user?.id);
-  assert.ok(adminLogin.token && adminLogin.user?.id);
+  const { cadet: cadetLogin, admin: adminLogin } = await getTestAuth(authService);
 
   const userStateRepo = new UserStateRepository(db.getRawDb());
   userStateRepo.upsertValue(
@@ -412,4 +430,162 @@ test('millionPresenterAudio exposes all 7 presenter cues and millionAudio plays 
 
   assert.equal(typeof isMillionAudioMuted(), 'boolean');
   assert.doesNotThrow(() => setMillionAudioMuted(true));
+});
+
+test('parseGeneratedBatch rejects coerced correctIndex (null/empty/false), missing reserve block, and enforces unique question IDs', async () => {
+  const { startMillionMatch, answerMillionQuestion } = await import('../src/services/millionGameService');
+  const repo = createMemoryRepo();
+
+  // Coerced correctIndex: "" or null must be rejected as 502 (not silently treated as 0)
+  const badCorrect = buildValidGeneratedPayload();
+  (badCorrect.questions[0] as any).correctIndex = '';
+  const rEmpty = await startMillionMatch({
+    repo,
+    userId: 'u-bad1',
+    topic: 'História',
+    aiClient: createFakeAiClient(badCorrect),
+  });
+  assert.equal(rEmpty.ok, false);
+  assert.equal(rEmpty.status, 502);
+
+  const badNull = buildValidGeneratedPayload();
+  (badNull.questions[0] as any).correctIndex = null;
+  const rNull = await startMillionMatch({
+    repo,
+    userId: 'u-bad2',
+    topic: 'História',
+    aiClient: createFakeAiClient(badNull),
+  });
+  assert.equal(rNull.ok, false);
+  assert.equal(rNull.status, 502);
+
+  // Missing reserve block 2 (two reserves claiming block 1) must be rejected
+  const badReserves = buildValidGeneratedPayload();
+  badReserves.reserves[1].block = 1;
+  const rRes = await startMillionMatch({
+    repo,
+    userId: 'u-bad3',
+    topic: 'História',
+    aiClient: createFakeAiClient(badReserves),
+  });
+  assert.equal(rRes.ok, false);
+  assert.equal(rRes.status, 502);
+
+  // Duplicate IDs returned by Gemini must be deduplicated so Q1 replay at Q2 is blocked
+  const dupIds = buildValidGeneratedPayload();
+  dupIds.questions.forEach((q) => { q.id = 'dup-id'; });
+  const rDup = await startMillionMatch({
+    repo,
+    userId: 'u-dup',
+    topic: 'História',
+    aiClient: createFakeAiClient(dupIds),
+  });
+  assert.equal(rDup.ok, true);
+  const q1Id = rDup.data.currentQuestion.id;
+  const ans1 = answerMillionQuestion({
+    repo,
+    userId: 'u-dup',
+    matchId: rDup.data.id,
+    questionId: q1Id,
+    selectedIndex: 1 % 4,
+  });
+  assert.equal(ans1.ok, true);
+  assert.notEqual(ans1.data.nextQuestion!.id, q1Id);
+
+  const replayQ1 = answerMillionQuestion({
+    repo,
+    userId: 'u-dup',
+    matchId: rDup.data.id,
+    questionId: q1Id,
+    selectedIndex: 2 % 4,
+  });
+  assert.equal(replayQ1.ok, false);
+  assert.equal(replayQ1.status, 409);
+  assert.equal(replayQ1.error, 'QUESTION_ALREADY_RESOLVED');
+});
+
+test('Review fixes: GET /api/user/state hides million_game keys, IDOR on /answer & /help, /show-do-milhao in VALID_APP_ROUTES, and Anki batch note save', async (t) => {
+  // 1. Check VALID_APP_ROUTES in src/App.tsx and MillionGameTab uses /api/anki/notes/batch
+  const appSource = fs.readFileSync(path.join(repoRoot, 'src/App.tsx'), 'utf8');
+  assert.match(appSource, /VALID_APP_ROUTES\s*=\s*\[[\s\S]*?'\/show-do-milhao'[\s\S]*?\]/);
+  const tabSource = fs.readFileSync(path.join(repoRoot, 'src/components/MillionGameTab.tsx'), 'utf8');
+  assert.match(tabSource, /\/api\/anki\/notes\/batch/);
+  const remoteSyncSource = fs.readFileSync(path.join(repoRoot, 'src/services/remotePersistence.ts'), 'utf8');
+  assert.match(remoteSyncSource, /million_game_active_v1/);
+
+  const prevCwd = process.cwd();
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfo-million-fixes-'));
+  process.chdir(tempDir);
+
+  const { app } = await import('../server');
+  const { getDb } = await import('../src/db/database');
+  const { AuthService } = await import('../src/db/authService');
+  const { UserStateRepository } = await import('../src/db/repositories');
+  const { MILLION_ACTIVE_KEY, MILLION_HISTORY_KEY } = await import('../src/services/millionGameService');
+
+  const db = getDb();
+  const authService = new AuthService(db);
+  const { cadet: cadetLogin, admin: adminLogin } = await getTestAuth(authService);
+
+  const userStateRepo = new UserStateRepository(db.getRawDb());
+  userStateRepo.upsertValue(
+    cadetLogin.user.id,
+    MILLION_ACTIVE_KEY,
+    JSON.stringify({ id: 'secret-match-1', userId: cadetLogin.user.id, status: 'IN_PROGRESS', currentLevel: 1, earnedPrize: 0, questions: buildValidGeneratedPayload().questions, reservesByBlock: { '1': null, '2': null, '3': null }, helps: { cardsUsed: false, universitariosUsed: false, skipsUsed: 0, skipsUsedByBlock: { '1': false, '2': false, '3': false } }, currentQuestionState: { questionId: 'q_1', eliminatedIndices: [], universitariosHint: null }, answeredHistory: [], topic: 'História', focusHint: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+  );
+  userStateRepo.upsertValue(cadetLogin.user.id, MILLION_HISTORY_KEY, JSON.stringify([{ id: 'h1', topic: 'História', status: 'WON', earnedPrize: 1_000_000, reachedLevel: 16, correctCount: 16, finishedAt: new Date().toISOString() }]));
+  userStateRepo.upsertValue(cadetLogin.user.id, 'cfo_theme', 'dark');
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const baseUrl = `http://127.0.0.1:${(server.address() as any).port}`;
+
+  t.after(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    process.chdir(prevCwd);
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+  });
+
+  // GET /api/user/state must NOT expose million_game_active_v1 (or correctIndex)
+  const getUserState = await fetch(`${baseUrl}/api/user/state`, {
+    headers: { Authorization: `Bearer ${cadetLogin.token}` },
+  });
+  assert.equal(getUserState.status, 200);
+  const userStateBody = await getUserState.json() as any;
+  assert.equal(userStateBody.state?.cfo_theme, 'dark');
+  assert.equal(MILLION_ACTIVE_KEY in (userStateBody.state || {}), false);
+  assert.equal(MILLION_HISTORY_KEY in (userStateBody.state || {}), false);
+
+  // IDOR on /answer and /help
+  const idorAns = await fetch(`${baseUrl}/api/million-game/answer`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${adminLogin.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ matchId: 'secret-match-1', questionId: 'q_1', selectedIndex: 1 }),
+  });
+  assert.equal(idorAns.status, 404);
+
+  const idorHelp = await fetch(`${baseUrl}/api/million-game/help`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${adminLogin.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ matchId: 'secret-match-1', questionId: 'q_1', helpType: 'cards' }),
+  });
+  assert.equal(idorHelp.status, 404);
+
+  // Anki deck + batch note creation works with the exact payload MillionGameTab sends
+  const deckRes = await fetch(`${baseUrl}/api/anki/decks`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cadetLogin.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Show do Milhão::Erros', description: 'Erros do Show do Milhão' }),
+  });
+  assert.equal(deckRes.status, 201);
+  const deckData = await deckRes.json() as any;
+  const noteRes = await fetch(`${baseUrl}/api/anki/notes/batch`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cadetLogin.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      deckId: deckData.deck.id,
+      notes: [{ fields: ['Pergunta teste', 'Resposta teste'], tags: ['show-do-milhao'], importance: 'high' }],
+    }),
+  });
+  assert.equal(noteRes.status, 201);
 });

@@ -6925,7 +6925,7 @@ app.get("/api/million-game/state", requireUserAuth, (req: Request, res: Response
   return res.json({ success: true, ...getMillionState(userStateRepoInstance, userId) });
 });
 
-app.post("/api/ai/million-game/start", requireUserAuth, aiLimiter, async (req: Request, res: Response) => {
+app.post("/api/ai/million-game/start", async (req: Request, res: Response) => {
   try {
     const userId = String((req as any).user?.userId || "");
     if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
@@ -7218,7 +7218,12 @@ app.get("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
     const userId = String((req as any).user.userId || '');
     if (!userId) return res.status(401).json({ error: 'UNAUTHORIZED' });
     const saved = userStateRepoInstance.get(userId);
-    return res.json({ success: true, state: saved?.payload || {}, updatedAt: saved?.updatedAt || null });
+    const filteredState: Record<string, string> = {};
+    for (const [k, v] of Object.entries(saved?.payload || {})) {
+      if (k === MILLION_ACTIVE_KEY || k === MILLION_HISTORY_KEY) continue;
+      filteredState[k] = v;
+    }
+    return res.json({ success: true, state: filteredState, updatedAt: saved?.updatedAt || null });
   } catch (err) {
     console.error('[User State] Falha ao carregar estado:', err);
     return res.status(500).json({ error: 'STATE_READ_ERROR' });
@@ -7237,14 +7242,16 @@ app.put("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
       if (typeof value !== 'string' || value.length > 2_000_000) return res.status(413).json({ error: 'STATE_VALUE_TOO_LARGE' });
       sanitized[key] = value;
     }
-    const timerState = userStateRepoInstance.getValue(userId, TIMER_STATE_STORAGE_KEY);
-    const millionActiveState = userStateRepoInstance.getValue(userId, MILLION_ACTIVE_KEY);
-    const millionHistoryState = userStateRepoInstance.getValue(userId, MILLION_HISTORY_KEY);
-    const savedAt = userStateRepoInstance.upsert(userId, {
-      ...sanitized,
-      ...(timerState ? { [TIMER_STATE_STORAGE_KEY]: timerState } : {}),
-      ...(millionActiveState ? { [MILLION_ACTIVE_KEY]: millionActiveState } : {}),
-      ...(millionHistoryState ? { [MILLION_HISTORY_KEY]: millionHistoryState } : {}),
+    const savedAt = getDb().transaction(() => {
+      const timerState = userStateRepoInstance.getValue(userId, TIMER_STATE_STORAGE_KEY);
+      const millionActiveState = userStateRepoInstance.getValue(userId, MILLION_ACTIVE_KEY);
+      const millionHistoryState = userStateRepoInstance.getValue(userId, MILLION_HISTORY_KEY);
+      return userStateRepoInstance.upsert(userId, {
+        ...sanitized,
+        ...(timerState ? { [TIMER_STATE_STORAGE_KEY]: timerState } : {}),
+        ...(millionActiveState ? { [MILLION_ACTIVE_KEY]: millionActiveState } : {}),
+        ...(millionHistoryState ? { [MILLION_HISTORY_KEY]: millionHistoryState } : {}),
+      });
     });
     logAuditEvent({ action: 'USER_STATE_SYNC', actor: (req as any).user.username || userId, resource: 'user_state_snapshots', status: 'SUCCESS', ip: getClientIp(req), details: { userId, keys: Object.keys(sanitized).length } });
     return res.json({ success: true, savedAt });

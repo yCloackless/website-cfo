@@ -378,15 +378,18 @@ export const MillionGameTab: React.FC<MillionGameTabProps> = ({ theme, showToast
         feedback.referenceTip ? `\n\nBizu CFO: ${feedback.referenceTip}` : ''
       }`;
 
-      const noteRes = await apiFetch('/api/anki/notes', {
+      const noteRes = await apiFetch('/api/anki/notes/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           deckId: deck.id,
-          front,
-          back,
-          tags: ['show-do-milhao', q.discipline.toLowerCase().replace(/\s+/g, '-')],
-          importance: 'HIGH',
+          notes: [
+            {
+              fields: [front, back],
+              tags: ['show-do-milhao', q.discipline.toLowerCase().replace(/\s+/g, '-')],
+              importance: 'high',
+            },
+          ],
         }),
       });
       if (!noteRes.ok) {

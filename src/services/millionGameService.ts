@@ -209,35 +209,46 @@ export function getMillionState(repo: UserStateStore, userId: string): MillionSt
   };
 }
 
-function normalizeQuestion(raw: any, fallbackId: string, block: MillionDifficultyBlock, level: number): StoredMillionQuestion | null {
+function normalizeQuestion(
+  raw: any,
+  fallbackId: string,
+  block: MillionDifficultyBlock,
+  level: number,
+  seenIds: Set<string>
+): StoredMillionQuestion | null {
   if (!raw || typeof raw !== 'object') return null;
   const statement = String(raw.statement || '').trim();
   const explanation = String(raw.explanation || '').trim();
   const discipline = String(raw.discipline || 'Edital CFO CBMERJ').trim() || 'Edital CFO CBMERJ';
   const referenceTip = String(raw.referenceTip || '').trim();
   const optionsRaw = Array.isArray(raw.options) ? raw.options.map((o: unknown) => String(o || '').trim()) : [];
-  const correctIndex = Number(raw.correctIndex);
+  const rawCorrect = raw.correctIndex;
 
   if (
     !statement ||
     !explanation ||
     optionsRaw.length !== 4 ||
     optionsRaw.some((o: string) => !o) ||
-    !Number.isInteger(correctIndex) ||
-    correctIndex < 0 ||
-    correctIndex > 3
+    typeof rawCorrect !== 'number' ||
+    !Number.isInteger(rawCorrect) ||
+    rawCorrect < 0 ||
+    rawCorrect > 3
   ) {
     return null;
   }
 
+  const candidateId = typeof raw.id === 'string' ? raw.id.trim() : '';
+  const id = candidateId && !seenIds.has(candidateId) ? candidateId : fallbackId;
+  seenIds.add(id);
+
   return {
-    id: String(raw.id || fallbackId).trim() || fallbackId,
+    id,
     level,
     block,
     discipline,
     statement,
     options: [optionsRaw[0], optionsRaw[1], optionsRaw[2], optionsRaw[3]],
-    correctIndex,
+    correctIndex: rawCorrect,
     explanation,
     referenceTip,
   };
@@ -259,20 +270,36 @@ function parseGeneratedBatch(rawText: string): {
   const rawReserves = Array.isArray(parsed?.reserves) ? parsed.reserves : [];
   if (rawQuestions.length < 16 || rawReserves.length < 3) return null;
 
+  const seenIds = new Set<string>();
   const questions: StoredMillionQuestion[] = [];
   for (let i = 0; i < 16; i += 1) {
     const level = i + 1;
     const expectedBlock = getPrizeStep(level).block;
-    const normalized = normalizeQuestion(rawQuestions[i], `q_${level}_${crypto.randomBytes(3).toString('hex')}`, expectedBlock, level);
+    const normalized = normalizeQuestion(
+      rawQuestions[i],
+      `q_${level}_${crypto.randomBytes(3).toString('hex')}`,
+      expectedBlock,
+      level,
+      seenIds
+    );
     if (!normalized) return null;
     questions.push(normalized);
   }
 
+  const usedReserves = new Set<unknown>();
   const reserves: StoredMillionQuestion[] = [];
   for (let i = 0; i < 3; i += 1) {
     const block = (i + 1) as 1 | 2 | 3;
-    const candidate = rawReserves.find((r: any) => Number(r?.block) === block) || rawReserves[i];
-    const normalized = normalizeQuestion(candidate, `res_b${block}_${crypto.randomBytes(3).toString('hex')}`, block, 0);
+    const candidate = rawReserves.find((r: any) => !usedReserves.has(r) && Number(r?.block) === block);
+    if (!candidate) return null;
+    usedReserves.add(candidate);
+    const normalized = normalizeQuestion(
+      candidate,
+      `res_b${block}_${crypto.randomBytes(3).toString('hex')}`,
+      block,
+      0,
+      seenIds
+    );
     if (!normalized) return null;
     reserves.push(normalized);
   }
