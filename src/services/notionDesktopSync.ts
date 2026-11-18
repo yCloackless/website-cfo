@@ -1,6 +1,6 @@
 import crypto from "crypto";
-import type { Request } from "express";
-import { BackendNotionRevisionItem, isValidNotionPageId } from "../../notionBackend";
+import type { Request, Response } from "express";
+import { BackendNotionRevisionItem, isValidNotionPageId, NotionChangeEvent } from "../../notionBackend";
 import { DEFAULT_CFO_SUBJECTS } from "../data/cfoSubjects";
 
 export type DesktopSyncPayload =
@@ -176,4 +176,67 @@ export function buildDesktopStudyBalancePayload(
     cyclesHistory: Array.isArray(cyclesHistory) ? cyclesHistory : [],
     monthlySessionDays,
   };
+}
+
+export function attachNotionSseStream(
+  req: Pick<Request, "on">,
+  res: Pick<Response, "setHeader" | "write" | "end"> & { flushHeaders?: () => void },
+  isSessionValid: () => boolean,
+  subscribe: (listener: (event: NotionChangeEvent) => void) => () => void,
+  heartbeatMs: number = 25000
+): void {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+
+  res.write(`data: ${JSON.stringify({ type: "connected", updatedAt: new Date().toISOString() })}\n\n`);
+
+  let closed = false;
+  let unsubscribe = () => {};
+  let heartbeat: ReturnType<typeof setInterval>;
+
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+    unsubscribe();
+  };
+
+  unsubscribe = subscribe((event) => {
+    if (!isSessionValid()) {
+      cleanup();
+      try {
+        res.end();
+      } catch {
+        // Ignore already closed stream
+      }
+      return;
+    }
+    try {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    } catch {
+      cleanup();
+    }
+  });
+
+  heartbeat = setInterval(() => {
+    if (!isSessionValid()) {
+      cleanup();
+      try {
+        res.end();
+      } catch {
+        // Ignore already closed stream
+      }
+      return;
+    }
+    try {
+      res.write(`: keep-alive\n\n`);
+    } catch {
+      cleanup();
+    }
+  }, heartbeatMs);
+
+  req.on("close", cleanup);
 }

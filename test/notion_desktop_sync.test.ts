@@ -172,3 +172,41 @@ test("parseNotionSseChunk extracts notion_updated events from partial SSE stream
   assert.equal(second.events[0]?.pageId, "page-9");
   assert.equal(second.rest, "");
 });
+
+test("attachNotionSseStream sets X-Accel-Buffering: no and closes stream when session is revoked", async () => {
+  const syncMod = await import("../src/services/notionDesktopSync");
+  const { EventEmitter } = await import("node:events");
+  const req = new EventEmitter();
+  const headers: Record<string, string> = {};
+  const chunks: string[] = [];
+  let ended = false;
+  const res = {
+    setHeader(k: string, v: string) {
+      headers[k] = v;
+    },
+    flushHeaders() {},
+    write(chunk: string) {
+      chunks.push(chunk);
+    },
+    end() {
+      ended = true;
+    },
+  };
+
+  let sessionValid = true;
+  const nb = await import("../notionBackend");
+  (syncMod as any).attachNotionSseStream(
+    req as any,
+    res as any,
+    () => sessionValid,
+    nb.subscribeNotionChanges,
+    50
+  );
+
+  assert.equal(headers["X-Accel-Buffering"], "no");
+  assert.equal(ended, false);
+
+  sessionValid = false;
+  nb.emitNotionChange("refresh");
+  assert.equal(ended, true);
+});

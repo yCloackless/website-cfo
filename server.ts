@@ -60,6 +60,7 @@ import {
   desktopNotionAuthorizedUser,
   validateDesktopSyncPayload,
   buildDesktopStudyBalancePayload,
+  attachNotionSseStream,
 } from "./src/services/notionDesktopSync";
 import { NOTION_CYCLE_ORDER } from "./src/types";
 import { summarizeOverdueNotionRevisions } from "./src/utils/notionRevisions";
@@ -7111,33 +7112,16 @@ app.use("/api/notion", (req: Request, res: Response, next: NextFunction) => {
 
 // 0. Stream SSE em tempo real para atualizar abas Admin quando o app desktop alterar o Notion
 app.get("/api/notion/events", (req: Request, res: Response) => {
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders?.();
-
-  res.write(`data: ${JSON.stringify({ type: "connected", updatedAt: new Date().toISOString() })}\n\n`);
-
-  const unsubscribe = subscribeNotionChanges((event) => {
-    try {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
-    } catch {
-      // Ignore broken client stream
-    }
-  });
-
-  const heartbeat = setInterval(() => {
-    try {
-      res.write(`: keep-alive\n\n`);
-    } catch {
-      clearInterval(heartbeat);
-    }
-  }, 25000);
-
-  req.on("close", () => {
-    clearInterval(heartbeat);
-    unsubscribe();
-  });
+  const token = requestSessionToken(req) || (req.headers["x-terminal-session"] as string);
+  attachNotionSseStream(
+    req,
+    res,
+    () => {
+      const check = verifyTerminalSession(token);
+      return check.valid && Boolean(check.canAccessNotion);
+    },
+    subscribeNotionChanges
+  );
 });
 
 // 1. Status da Conexão com o Notion
