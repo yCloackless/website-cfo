@@ -99,6 +99,7 @@ const MaintenanceScreen = lazy(() => import('./components/MaintenanceScreen').th
 const NotFound = lazy(() => import('./components/NotFound').then(({ NotFound }) => ({ default: NotFound })));
 const IfriStudyTab = lazy(() => import('./components/IfriStudyTab').then(({ IfriStudyTab }) => ({ default: IfriStudyTab })));
 const MathChatTab = lazy(() => import('./components/calculator/MathChatTab').then(({ MathChatTab }) => ({ default: MathChatTab })));
+const MillionGameTab = lazy(() => import('./components/MillionGameTab').then(({ MillionGameTab }) => ({ default: MillionGameTab })));
 import { ConfirmModal } from './components/ConfirmModal';
 
 export default function App() {
@@ -2821,6 +2822,11 @@ export default function App() {
 
         {activeTab === 'leveling' && (
           <LevelingTab theme={theme} showToast={showToast} />
+        )}
+
+        {/* Render Tab: Minigame Show do Milhão CFO CBMERJ */}
+        {activeTab === 'millionGame' && (
+          <MillionGameTab theme={theme} showToast={showToast} />
         )}
 
         {/* Render Tab: Caderno de Erros & Flashcards (Anki Style) */}

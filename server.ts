@@ -6913,7 +6913,7 @@ A MATÉRIA QUE EU QUERO É: ${topic}`;
 // 🏆 SHOW DO MILHÃO CFO CBMERJ (Motor Autoritativo & Geração IA por Blocos)
 // ============================================================================
 function sendMillionResult<T extends object>(res: Response, result: ServiceResult<T>, wrapKey?: string) {
-  if (!result.ok) {
+  if ('error' in result) {
     return res.status(result.status).json({ error: result.error, message: result.message });
   }
   return res.json(wrapKey ? { success: true, [wrapKey]: result.data } : { success: true, ...result.data });

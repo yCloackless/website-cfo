@@ -23,6 +23,7 @@ import {
   Shield,
   Scale,
   Power,
+  Crown,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -181,6 +182,17 @@ export const SYSTEM_MODULES: SystemModule[] = [
     groupLabel: 'Área do Aluno',
     maintenanceEligible: true,
     order: 110,
+  },
+  {
+    id: 'millionGame',
+    name: 'Show do Milhão CFO',
+    route: '/show-do-milhao',
+    icon: Crown,
+    description: 'Minigame interativo de 16 perguntas geradas por IA no estilo Show do Milhão',
+    group: 'student',
+    groupLabel: 'Área do Aluno',
+    maintenanceEligible: true,
+    order: 115,
   },
   {
     id: 'flashcards',

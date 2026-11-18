@@ -30,6 +30,7 @@ import {
   Puzzle,
   Heart,
   Calculator,
+  Crown,
 } from 'lucide-react';
 import { AppTheme, GamificationStatus } from '../types';
 
@@ -46,6 +47,7 @@ export type TabType =
   | 'simulations'
   | 'flashcards'
   | 'leveling'
+  | 'millionGame'
   | 'ifrij'
   | 'calculator';
 
@@ -61,6 +63,7 @@ export const TAB_ROUTE_MAP: Record<TabType, string> = {
   simulations: '/simulados',
   flashcards: '/flashcards',
   leveling: '/nivelamento',
+  millionGame: '/show-do-milhao',
   calendar: '/agenda-notion',
   ifrij: '/ifrj',
   calculator: '/calculadora',
@@ -80,6 +83,7 @@ export const ROUTE_TAB_MAP: Record<string, TabType> = {
   '/flashcards': 'flashcards',
   '/caderno-de-erros': 'flashcards',
   '/nivelamento': 'leveling',
+  '/show-do-milhao': 'millionGame',
   '/agenda-notion': 'calendar',
   '/ifrj': 'ifrij',
   '/calculadora': 'calculator',
@@ -347,6 +351,18 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
           badgeClass: {
             dark: 'bg-amber-400/15 text-amber-300 border-amber-400/30',
             light: 'bg-amber-100 text-amber-800 border-amber-200',
+          },
+        },
+        {
+          id: 'millionGame',
+          label: 'Show do Milhão',
+          icon: Crown,
+          tabId: 'millionGame',
+          route: '/show-do-milhao',
+          badge: '1M',
+          badgeClass: {
+            dark: 'bg-amber-500/20 text-amber-300 border-amber-400/40',
+            light: 'bg-amber-100 text-amber-900 border-amber-300',
           },
         },
         {
