@@ -23,6 +23,7 @@ import {
   checkinRevision,
   createNewStudy,
   getNotionConnectionStatus,
+  subscribeNotionEvents,
 } from "../services/notionService";
 import { getNextPendingNotionCycle } from "../utils/notionRevisions";
 
@@ -104,6 +105,26 @@ export const NotionAgendaTab: React.FC<NotionAgendaTabProps> = ({ theme, showToa
   useEffect(() => {
     void loadData(false);
   }, [loadData]);
+
+  useEffect(() => {
+    let debounceTimer: number | null = null;
+    const unsubscribe = subscribeNotionEvents(() => {
+      if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(async () => {
+        try {
+          const res = await fetchNotionRevisoes();
+          setItems(res.items);
+          setDataSource(res.source);
+        } catch {
+          // Silent refresh failure
+        }
+      }, 350);
+    });
+    return () => {
+      if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+      unsubscribe();
+    };
+  }, []);
 
   const handleItemUpdated = useCallback((updatedItem: NotionRevisionItem) => {
     setItems((prev) => prev.map((it) => (it.id === updatedItem.id ? updatedItem : it)));

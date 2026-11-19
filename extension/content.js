@@ -109,8 +109,19 @@
   }
 
   // Sincroniza sessão ativa do site com a extensão (suporte tanto a localStorage quanto a cookie)
+  const ALLOWED_AUTH_ORIGINS = new Set([
+    'https://cfo-oficial-agorasim.onrender.com',
+  ]);
+  function isAllowedAuthOrigin() {
+    const origin = window.location.origin;
+    if (ALLOWED_AUTH_ORIGINS.has(origin)) return true;
+    const host = window.location.hostname;
+    return host === 'localhost' || host === '127.0.0.1';
+  }
+
   let lastTokenSyncTime = 0;
   function syncAuthToken(force = false) {
+    if (!isAllowedAuthOrigin()) return;
     try {
       const session = window.localStorage.getItem('cfo_terminal_session');
       if (session && session !== 'cookie') {

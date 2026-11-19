@@ -66,7 +66,7 @@ export interface DeckConfigOptions {
   buryReviewSiblings: boolean;
   enableFSRS: boolean;
   desiredRetention: number; // e.g. 0.90 (90%)
-  fsrsWeights?: number[]; // FSRS v5 19 parameters
+  fsrsWeights?: number[]; // FSRS-5 (19) or FSRS-6 (21) parameters
 }
 
 export const DEFAULT_DECK_CONFIG: DeckConfigOptions = {
@@ -171,6 +171,7 @@ export interface AnkiCard {
   easeFactor: number;
   reps: number;
   lapses: number;
+  learningSteps?: number; // Current learning/relearning step index for ts-fsrs
   difficulty: number; // FSRS difficulty (D)
   stability: number; // FSRS stability (S)
   lastReviewAt?: string | null;
@@ -206,9 +207,17 @@ export interface AnkiCardStateSnapshot {
   easeFactor: number;
   reps: number;
   lapses: number;
+  learningSteps?: number;
   difficulty: number;
   stability: number;
   lastReviewAt?: string | null;
+}
+
+export interface FSRSCardMemoryState {
+  retrievability: number; // 0..1 recall probability right now
+  stability: number; // days (interval at R=90%)
+  difficulty: number; // 1..10
+  state: CardType;
 }
 
 export interface ScheduleIntervalPreview {
@@ -275,4 +284,10 @@ export interface AnkiStatsSummary {
   futureWorkload: Array<{ dayOffset: number; date: string; dueCount: number }>;
   intervalDistribution: Array<{ intervalRange: string; count: number }>;
   studyHeatmap: Array<{ date: string; count: number }>;
+  fsrsSummary?: {
+    reviewedCards: number;
+    avgStabilityDays: number;
+    avgDifficulty: number;
+    avgRetrievabilityPercent: number;
+  };
 }

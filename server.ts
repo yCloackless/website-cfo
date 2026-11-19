@@ -51,10 +51,31 @@ import {
   renameStudyInNotion,
   duplicateStudyInNotion,
   deleteStudyInNotion,
+  upsertCachedRevisionItem,
+  removeCachedRevisionItem,
+  subscribeNotionChanges,
+  emitNotionChange,
 } from "./notionBackend";
+import {
+  desktopNotionAuthorizedUser,
+  validateDesktopSyncPayload,
+  buildDesktopStudyBalancePayload,
+  attachNotionSseStream,
+} from "./src/services/notionDesktopSync";
 import { NOTION_CYCLE_ORDER } from "./src/types";
 import { summarizeOverdueNotionRevisions } from "./src/utils/notionRevisions";
 import { getCurrentYearMonthAndToday } from "./src/utils/studyBalance";
+import {
+  MILLION_ACTIVE_KEY,
+  MILLION_HISTORY_KEY,
+  answerMillionQuestion,
+  getMillionState,
+  startMillionMatch,
+  stopMillionMatch,
+  useMillionHelp,
+  type MillionHelpType,
+  type ServiceResult,
+} from "./src/services/millionGameService";
 import {
   createFullBackup,
   getBackupStatus,
@@ -836,7 +857,10 @@ app.use('/api', (req: Request, res: Response, next: NextFunction) => {
   if (sourceOrigin) {
     try {
       const originHost = new URL(sourceOrigin).host.toLowerCase();
-      const requestHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').toLowerCase();
+      const rawHostHeader = isTrustedEdge(req)
+        ? (req.headers['x-forwarded-host'] || req.headers.host || '')
+        : (req.headers.host || '');
+      const requestHost = String(rawHostHeader).toLowerCase();
       if (requestHost && (originHost === requestHost || originHost === requestHost.split(':')[0])) return next();
     } catch {}
   }
@@ -3601,7 +3625,7 @@ app.get("/api/admin/honeypot/metrics", requireAdminAuth, (_req: Request, res: Re
   }
 });
 
-app.post("/api/admin/honeypot/unblock", requireAdminWriteAuth, (req: Request, res: Response) => {
+app.post("/api/admin/honeypot/unblock", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const { ip } = req.body || {};
     if (!ip || typeof ip !== "string") {
@@ -4772,7 +4796,7 @@ app.get("/api/admin/maintenance", requireAdminAuth, (_req: Request, res: Respons
 });
 
 // 3. Atualização do Modo de Manutenção (Apenas Admin com permissão de escrita)
-app.post("/api/admin/maintenance", requireAdminWriteAuth, (req: Request, res: Response) => {
+app.post("/api/admin/maintenance", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const adminUser = (req as any).user;
     const { global, pages, message } = req.body || {};
@@ -6898,9 +6922,180 @@ A MATÉRIA QUE EU QUERO É: ${topic}`;
   }
 });
 
+// ============================================================================
+// 🏆 SHOW DO MILHÃO CFO CBMERJ (Motor Autoritativo & Geração IA por Blocos)
+// ============================================================================
+function sendMillionResult<T extends object>(res: Response, result: ServiceResult<T>, wrapKey?: string) {
+  if ('error' in result) {
+    return res.status(result.status).json({ error: result.error, message: result.message });
+  }
+  return res.json(wrapKey ? { success: true, [wrapKey]: result.data } : { success: true, ...result.data });
+}
+
+app.get("/api/million-game/state", requireUserAuth, (req: Request, res: Response) => {
+  const userId = String((req as any).user?.userId || "");
+  if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+  return res.json({ success: true, ...getMillionState(userStateRepoInstance, userId) });
+});
+
+app.post("/api/ai/million-game/start", async (req: Request, res: Response) => {
+  try {
+    const userId = String((req as any).user?.userId || "");
+    if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+    const topic = req.body?.topic ?? "";
+    const focusHint = req.body?.focusHint ?? "";
+    if (!validateAiTextFields(res, [
+      { name: "topic", value: topic, maxBytes: 200 },
+      { name: "focusHint", value: focusHint, maxBytes: 500 },
+    ])) return;
+
+    const result = await startMillionMatch({
+      repo: userStateRepoInstance,
+      userId,
+      topic,
+      focusHint,
+      aiClient: getGeminiClient(),
+    });
+    return sendMillionResult(res, result, "match");
+  } catch (error) {
+    console.error("[MillionGame] Falha ao iniciar partida:", error);
+    return res.status(500).json({ error: "MILLION_START_ERROR", message: "Falha ao iniciar o Show do Milhão." });
+  }
+});
+
+app.post("/api/million-game/answer", requireUserAuth, (req: Request, res: Response) => {
+  const userId = String((req as any).user?.userId || "");
+  if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+  const matchId = String(req.body?.matchId || "").trim();
+  const questionId = String(req.body?.questionId || "").trim();
+  const selectedIndex = Number(req.body?.selectedIndex);
+  if (!matchId || !questionId) {
+    return res.status(400).json({ error: "INVALID_PARAMS", message: "matchId e questionId são obrigatórios." });
+  }
+  const result = answerMillionQuestion({
+    repo: userStateRepoInstance,
+    userId,
+    matchId,
+    questionId,
+    selectedIndex,
+  });
+  return sendMillionResult(res, result);
+});
+
+app.post("/api/million-game/help", requireUserAuth, (req: Request, res: Response) => {
+  const userId = String((req as any).user?.userId || "");
+  if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+  const matchId = String(req.body?.matchId || "").trim();
+  const questionId = String(req.body?.questionId || "").trim();
+  const helpType = String(req.body?.helpType || "").trim() as MillionHelpType;
+  if (!matchId || !questionId) {
+    return res.status(400).json({ error: "INVALID_PARAMS", message: "matchId e questionId são obrigatórios." });
+  }
+  const result = useMillionHelp({
+    repo: userStateRepoInstance,
+    userId,
+    matchId,
+    questionId,
+    helpType,
+  });
+  return sendMillionResult(res, result);
+});
+
+app.post("/api/million-game/stop", requireUserAuth, (req: Request, res: Response) => {
+  const userId = String((req as any).user?.userId || "");
+  if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+  const matchId = String(req.body?.matchId || "").trim();
+  if (!matchId) {
+    return res.status(400).json({ error: "INVALID_PARAMS", message: "matchId é obrigatório." });
+  }
+  const result = stopMillionMatch({
+    repo: userStateRepoInstance,
+    userId,
+    matchId,
+  });
+  return sendMillionResult(res, result);
+});
+
 // ==========================================
 // ROTAS DE INTEGRAÇÃO NOTION - REVISÕES CFO
 // ==========================================
+
+// 🔌 SINCRONIZAÇÃO DESKTOP -> SITE (Bearer token timing-safe + usuário autorizado Notion)
+app.get("/api/notion/desktop/revisoes", async (req: Request, res: Response) => {
+  const auth = desktopNotionAuthorizedUser(req, userRepoInstance);
+  if (auth.ok === false) {
+    return res.status(auth.status).json({ error: auth.error });
+  }
+  try {
+    const result = await fetchRevisoesFromNotion();
+    return res.json({
+      success: true,
+      items: result.items,
+      source: result.source,
+      error: result.error,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (e: any) {
+    console.error("Erro ao consultar revisões Notion para desktop:", e);
+    return res.status(500).json({ error: "NOTION_FETCH_ERROR" });
+  }
+});
+
+app.get("/api/notion/desktop/study-balance", (req: Request, res: Response) => {
+  const auth = desktopNotionAuthorizedUser(req, userRepoInstance);
+  if (auth.ok === false) {
+    return res.status(auth.status).json({ error: auth.error });
+  }
+  const todayRange = getCurrentYearMonthAndToday();
+  const startDate = String(req.query.startDate || `${todayRange.yearMonth}-01`);
+  const endDate = String(req.query.endDate || todayRange.todayStr);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    return res.status(400).json({ error: "INVALID_DATE_RANGE" });
+  }
+  try {
+    return res.json(
+      buildDesktopStudyBalancePayload(
+        auth.userId,
+        startDate,
+        endDate,
+        userRepoInstance,
+        userStateRepoInstance,
+        studySessionRepoInstance
+      )
+    );
+  } catch (e: any) {
+    console.error("Erro ao montar study-balance para desktop:", e);
+    return res.status(500).json({ error: "STUDY_BALANCE_ERROR" });
+  }
+});
+
+app.post("/api/notion/desktop/sync", async (req: Request, res: Response) => {
+  const auth = desktopNotionAuthorizedUser(req, userRepoInstance);
+  if (auth.ok === false) {
+    return res.status(auth.status).json({ error: auth.error });
+  }
+  const validation = validateDesktopSyncPayload(req.body);
+  if (validation.ok === false) {
+    return res.status(400).json({ error: validation.error });
+  }
+
+  try {
+    if (validation.payload.action === "upsert") {
+      upsertCachedRevisionItem(validation.payload.item);
+      return res.json({ success: true, action: "upsert", pageId: validation.payload.item.id });
+    }
+    if (validation.payload.action === "delete") {
+      removeCachedRevisionItem(validation.payload.pageId);
+      return res.json({ success: true, action: "delete", pageId: validation.payload.pageId });
+    }
+    const refreshed = await fetchRevisoesFromNotion();
+    emitNotionChange("refresh");
+    return res.json({ success: true, action: "refresh", count: refreshed.items.length, source: refreshed.source });
+  } catch (e: any) {
+    console.error("Erro ao processar sync desktop do Notion:", e);
+    return res.status(500).json({ error: "NOTION_SYNC_ERROR" });
+  }
+});
 
 // 🛑 MIDDLEWARE DE SEGURANÇA NOTION: Acesso exclusivo do Administrador
 app.use("/api/notion", (req: Request, res: Response, next: NextFunction) => {
@@ -6916,6 +7111,20 @@ app.use("/api/notion", (req: Request, res: Response, next: NextFunction) => {
   }
 
   next();
+});
+
+// 0. Stream SSE em tempo real para atualizar abas Admin quando o app desktop alterar o Notion
+app.get("/api/notion/events", (req: Request, res: Response) => {
+  const token = requestSessionToken(req) || (req.headers["x-terminal-session"] as string);
+  attachNotionSseStream(
+    req,
+    res,
+    () => {
+      const check = verifyTerminalSession(token);
+      return check.valid && Boolean(check.canAccessNotion);
+    },
+    subscribeNotionChanges
+  );
 });
 
 // 1. Status da Conexão com o Notion
@@ -7113,7 +7322,12 @@ app.get("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
     const userId = String((req as any).user.userId || '');
     if (!userId) return res.status(401).json({ error: 'UNAUTHORIZED' });
     const saved = userStateRepoInstance.get(userId);
-    return res.json({ success: true, state: saved?.payload || {}, updatedAt: saved?.updatedAt || null });
+    const filteredState: Record<string, string> = {};
+    for (const [k, v] of Object.entries(saved?.payload || {})) {
+      if (k === MILLION_ACTIVE_KEY || k === MILLION_HISTORY_KEY) continue;
+      filteredState[k] = v;
+    }
+    return res.json({ success: true, state: filteredState, updatedAt: saved?.updatedAt || null });
   } catch (err) {
     console.error('[User State] Falha ao carregar estado:', err);
     return res.status(500).json({ error: 'STATE_READ_ERROR' });
@@ -7128,14 +7342,20 @@ app.put("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
     const sanitized: Record<string, string> = {};
     for (const [key, value] of Object.entries(state)) {
       if (!/^(cfo_[a-zA-Z0-9_.-]+|.*anki_[a-zA-Z0-9_.-]+)$/.test(key)) continue;
-      if (key === TIMER_STATE_STORAGE_KEY) continue;
+      if (key === TIMER_STATE_STORAGE_KEY || key === MILLION_ACTIVE_KEY || key === MILLION_HISTORY_KEY) continue;
       if (typeof value !== 'string' || value.length > 2_000_000) return res.status(413).json({ error: 'STATE_VALUE_TOO_LARGE' });
       sanitized[key] = value;
     }
-    const timerState = userStateRepoInstance.getValue(userId, TIMER_STATE_STORAGE_KEY);
-    const savedAt = userStateRepoInstance.upsert(userId, {
-      ...sanitized,
-      ...(timerState ? { [TIMER_STATE_STORAGE_KEY]: timerState } : {}),
+    const savedAt = getDb().transaction(() => {
+      const timerState = userStateRepoInstance.getValue(userId, TIMER_STATE_STORAGE_KEY);
+      const millionActiveState = userStateRepoInstance.getValue(userId, MILLION_ACTIVE_KEY);
+      const millionHistoryState = userStateRepoInstance.getValue(userId, MILLION_HISTORY_KEY);
+      return userStateRepoInstance.upsert(userId, {
+        ...sanitized,
+        ...(timerState ? { [TIMER_STATE_STORAGE_KEY]: timerState } : {}),
+        ...(millionActiveState ? { [MILLION_ACTIVE_KEY]: millionActiveState } : {}),
+        ...(millionHistoryState ? { [MILLION_HISTORY_KEY]: millionHistoryState } : {}),
+      });
     });
     logAuditEvent({ action: 'USER_STATE_SYNC', actor: (req as any).user.username || userId, resource: 'user_state_snapshots', status: 'SUCCESS', ip: getClientIp(req), details: { userId, keys: Object.keys(sanitized).length } });
     return res.json({ success: true, savedAt });
@@ -7153,7 +7373,7 @@ app.patch("/api/user/state", requireUserAuth, (req: Request, res: Response) => {
     const sanitized: Record<string, string> = {};
     for (const [key, value] of Object.entries(state)) {
       if (!/^(cfo_[a-zA-Z0-9_.-]+|.*anki_[a-zA-Z0-9_.-]+)$/.test(key)) continue;
-      if (key === TIMER_STATE_STORAGE_KEY) continue;
+      if (key === TIMER_STATE_STORAGE_KEY || key === MILLION_ACTIVE_KEY || key === MILLION_HISTORY_KEY) continue;
       if (typeof value !== 'string' || value.length > 2_000_000) return res.status(413).json({ error: 'STATE_VALUE_TOO_LARGE' });
       sanitized[key] = value;
     }
@@ -7479,7 +7699,7 @@ app.get("/api/admin/backup/list", requireAdminAuth, (_req: Request, res: Respons
 });
 
 // 5. Criação Manual Imediata de Backup Completo
-app.post("/api/admin/backup/create", requireAdminWriteAuth, async (req: Request, res: Response) => {
+app.post("/api/admin/backup/create", requireAdminWriteAuth, requireStepUpAuth, async (req: Request, res: Response) => {
   try {
     const actor = (req as any).user?.username || "admin";
     const clientIp = getClientIp(req);

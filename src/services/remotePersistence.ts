@@ -1,6 +1,7 @@
 const EXCLUDED_KEYS = new Set([
   'cfo_terminal_session', 'cfo_terminal_expires_at', 'cfo_terminal_user',
   'cfo_terminal_role', 'cfo_can_access_notion', 'cfo_theme', 'cfo_sidebar_open', 'cfo_sidebar_collapsed',
+  'million_game_active_v1', 'million_game_history_v1',
 ]);
 
 let syncTimer: ReturnType<typeof setTimeout> | null = null;

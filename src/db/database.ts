@@ -10,7 +10,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { PostgresSyncDatabase } from './postgresSync';
 
-const POSTGRES_BOOLEAN_COLUMNS = [
+export const POSTGRES_BOOLEAN_COLUMNS = [
   'products.is_active',
   'activation_tokens.is_used',
   'password_resets.is_used',
@@ -1737,6 +1737,31 @@ export const MIGRATIONS: Migration[] = [
       );
       CREATE INDEX IF NOT EXISTS idx_user_simulations_user_date ON user_simulations(user_id, date_str DESC, created_at DESC);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_user_simulations_legacy_dedup ON user_simulations(user_id, client_legacy_id);
+    `,
+  },
+  {
+    id: 40,
+    name: '040_remove_duplicate_unique_indexes',
+    sql: `
+      DROP INDEX IF EXISTS idx_activation_tokens_hash;
+      DROP INDEX IF EXISTS idx_recovery_codes_hash;
+      DROP INDEX IF EXISTS idx_orders_public_id;
+      DROP INDEX IF EXISTS idx_privacy_requests_code;
+      DROP INDEX IF EXISTS idx_sessions_token_hash;
+    `,
+  },
+  {
+    id: 41,
+    name: '041_anki_learning_steps',
+    sql: `
+      ALTER TABLE anki_cards ADD COLUMN learning_steps INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    id: 42,
+    name: '042_anki_cards_queue_due_index',
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_anki_cards_user_queue_due ON anki_cards(user_id, queue, due);
     `,
   },
 ];

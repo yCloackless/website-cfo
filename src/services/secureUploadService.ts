@@ -283,6 +283,23 @@ export class SecureUploadService {
       }
     }
 
+    // A heuristic signature list is not a substitute for antivirus in production.
+    // If ClamAV is absent or unreachable, leave uploads unverified and quarantined.
+    const isProductionRuntime =
+      process.env.NODE_ENV === 'production' ||
+      Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID) ||
+      (typeof __filename !== 'undefined' && __filename.includes('dist'));
+    if (isProductionRuntime) {
+      return {
+        isClean: false,
+        scanner: 'ClamAVUnavailable',
+        threatName: 'SCANNER_UNAVAILABLE',
+        details: {
+          reason: clamHost ? 'CLAMAV_UNAVAILABLE' : 'CLAMAV_NOT_CONFIGURED',
+        },
+      };
+    }
+
     // 2. Engine Heurística de Assinaturas e Padrões de Alta Precisão
     for (const item of MALICIOUS_PATTERNS) {
       if (Buffer.isBuffer(item.pattern)) {
@@ -383,20 +400,22 @@ export class SecureUploadService {
 
     const scanResult = await this.scanForMalware(buffer);
     if (!scanResult.isClean) {
+      const scannerUnavailable = scanResult.threatName === 'SCANNER_UNAVAILABLE';
       // Rejeita e mantém em quarentena isolada
       this.fileRepo.updateStatus(fileId, 'REJECTED', {
         threatName: scanResult.threatName,
         scanner: scanResult.scanner,
+        ...(scannerUnavailable ? { reason: scanResult.details?.reason } : {}),
         rejectedAt: new Date().toISOString(),
       });
 
       if (this.auditRepo) {
         this.auditRepo.log({
-          action: 'MALWARE_DETECTED',
+          action: scannerUnavailable ? 'UPLOAD_SCAN_UNAVAILABLE' : 'MALWARE_DETECTED',
           actor: userId,
           actorUserId: userId,
           resource: `/uploads/${fileId}`,
-          status: 'FAILED',
+          status: scannerUnavailable ? 'WARNING' : 'FAILED',
           ip,
           userAgent,
           details: {
@@ -410,7 +429,9 @@ export class SecureUploadService {
       return {
         success: false,
         status: 'REJECTED',
-        error: 'Arquivo bloqueado: ameaça de segurança ou conteúdo malicioso detectado pelo scanner.',
+        error: scannerUnavailable
+          ? 'A verifica\u00e7\u00e3o antimalware est\u00e1 indispon\u00edvel; o arquivo permaneceu em quarentena.'
+          : 'Arquivo bloqueado: amea\u00e7a de seguran\u00e7a ou conte\u00fado malicioso detectado pelo scanner.',
         details: { threatName: scanResult.threatName },
       };
     }

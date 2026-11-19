@@ -243,11 +243,34 @@ test('7. Endpoints administrativos de telemetria e controle de honeypot', async 
   const unauthRes = await fetch(`${baseUrl}/api/admin/honeypot/events`);
   assert.equal(unauthRes.status, 403);
 
-  // 4. POST /api/admin/honeypot/unblock
+  // 4. POST /api/admin/honeypot/unblock exige Step-Up Auth
+  const unblockNoStepUp = await fetch(`${baseUrl}/api/admin/honeypot/unblock`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ ip: '203.0.113.5' }),
+  });
+  assert.equal(unblockNoStepUp.status, 403);
+
+  const stepUpRes = await fetch(`${baseUrl}/api/admin/step-up`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ password: 'fixture-admin-password-2026' }),
+  });
+  assert.equal(stepUpRes.status, 200);
+  const { stepUpToken } = await stepUpRes.json();
+  assert.ok(stepUpToken);
+
   const unblockRes = await fetch(`${baseUrl}/api/admin/honeypot/unblock`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${adminToken}`,
+      'x-admin-step-up-token': stepUpToken,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ ip: '203.0.113.5' }),

@@ -41,6 +41,7 @@ import {
   fetchNotionRevisoes,
   getNotionConnectionStatus,
   renameNotionStudy,
+  subscribeNotionEvents,
 } from '../services/notionService';
 import { summarizeOverdueNotionRevisions } from '../utils/notionRevisions';
 import { getCurrentYearMonthAndToday } from '../utils/studyBalance';
@@ -152,6 +153,28 @@ export const AIBalanceTab: React.FC<AIBalanceTabProps> = ({
       setNotionError(undefined);
     }
   }, [canAccessNotion, loadNotionRevisions]);
+
+  useEffect(() => {
+    if (!canAccessNotion) return;
+    let debounceTimer: number | null = null;
+    const unsubscribe = subscribeNotionEvents(() => {
+      if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(async () => {
+        try {
+          const res = await fetchNotionRevisoes();
+          setNotionItems(res.items);
+          setNotionSource(res.source);
+          setNotionError(res.error);
+        } catch {
+          // Silent refresh failure
+        }
+      }, 350);
+    });
+    return () => {
+      if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+      unsubscribe();
+    };
+  }, [canAccessNotion]);
 
   const { todayStr } = useMemo(() => getCurrentYearMonthAndToday(), []);
 

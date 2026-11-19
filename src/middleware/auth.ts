@@ -41,7 +41,12 @@ export function createAuthMiddlewares(verifySession: VerifySession) {
     }
     const cookieSession = verifySession(cookieToken(req));
     if (cookieSession.valid && acceptsScope(cookieSession)) return cookieSession;
-    if (req.method === 'GET' && typeof req.query?.token === 'string') {
+    const requestPath = String(req.originalUrl || req.url).split('?')[0];
+    if (
+      req.method === 'GET'
+      && typeof req.query?.token === 'string'
+      && (requestPath === '/api/admin/realtime/stream' || requestPath.endsWith('/stream') || requestPath.endsWith('/events'))
+    ) {
       const queryToken = req.query.token.trim();
       if (queryToken && queryToken !== 'cookie') {
         const querySession = verifySession(queryToken);

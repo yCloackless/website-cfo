@@ -39,6 +39,26 @@ function createTempAuth(): { dbService: DatabaseService; authService: AuthServic
   return { dbService, authService, cleanup };
 }
 
+test('Password reset inserts a PostgreSQL-compatible boolean literal', () => {
+  const statements: string[] = [];
+  const db = {
+    prepare(sql: string) {
+      return {
+        run: () => {
+          statements.push(sql);
+          return { changes: 1 };
+        },
+      };
+    },
+  } as any;
+
+  new PasswordResetRepository(db).createResetCode('test-user');
+
+  const insert = statements.find((sql) => sql.includes('INSERT INTO password_resets'));
+  assert.ok(insert, 'expected password reset insert query');
+  assert.match(insert, /VALUES\s*\(\s*\?\s*,\s*\?\s*,\s*\?\s*,\s*\?\s*,\s*FALSE\s*,\s*0\s*,\s*\?\s*\)/i);
+});
+
 test('1. Criação e Login com e-mail ou username', async () => {
   const { authService, cleanup } = createTempAuth();
   await authService.ensureDefaultAccounts();

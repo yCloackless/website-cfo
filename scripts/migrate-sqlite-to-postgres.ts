@@ -38,12 +38,9 @@ function tableOrder(): typeof tables {
   return ordered;
 }
 
-const booleanColumns = new Set([
-  'products.is_active', 'activation_tokens.is_used', 'password_resets.is_used',
-  'admin_recovery_codes.is_used', 'security_notifications.is_read',
-  'student_question_attempts.is_correct', 'question_audit_logs.is_manual_review',
-  'users.can_access_notion'
-]);
+import { POSTGRES_BOOLEAN_COLUMNS } from '../src/db/database';
+
+const booleanColumns = new Set(POSTGRES_BOOLEAN_COLUMNS);
 
 function postgresTableSql(sql: string): string {
   let out = sql.replace(/CREATE TABLE(?: IF NOT EXISTS)?/i, 'CREATE TABLE IF NOT EXISTS');
@@ -53,8 +50,11 @@ function postgresTableSql(sql: string): string {
   for (const key of booleanColumns) {
     const [table, column] = key.split('.');
     if (new RegExp(`CREATE TABLE(?: IF NOT EXISTS)?\\s+["` + '`' + `]?${table}["` + '`' + `]?`, 'i').test(out)) {
+      out = out.replace(
+        new RegExp(`(\\b${column}\\s+)INTEGER\\b([^,\\)]*?)DEFAULT\\s+([01])`, 'i'),
+        (_m, prefix, mid, defaultValue) => `${prefix}BOOLEAN${mid}DEFAULT ${defaultValue === '1' ? 'TRUE' : 'FALSE'}`
+      );
       out = out.replace(new RegExp(`\\b${column}\\s+INTEGER\\b`, 'i'), `${column} BOOLEAN`);
-      out = out.replace(new RegExp(`DEFAULT\\s+([01])`, 'i'), (_m, defaultValue) => `DEFAULT ${defaultValue === '1' ? 'TRUE' : 'FALSE'}`);
       out = out.replace(new RegExp(`\\s+CHECK\\s*\\(\\s*${column}\\s+IN\\s*\\(\\s*0\\s*,\\s*1\\s*\\)\\s*\\)`, 'i'), '');
     }
   }
@@ -67,7 +67,7 @@ async function main() {
     await client.query('BEGIN');
     await client.query('CREATE TABLE IF NOT EXISTS _migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)');
     for (const table of tableOrder()) await client.query(postgresTableSql(table.sql));
-    for (const index of indexes) await client.query(index.sql.replace(/\bCREATE\s+(UNIQUE\s+)?INDEX(?:\s+IF\s+NOT\s+EXISTS)?\b/i, (_m, unique) => `CREATE ${unique || ''}INDEX IF NOT EXISTS`));
+    for (const index of indexes) await client.query(index.sql.replace(/\s+COLLATE\s+NOCASE/gi, '').replace(/\bCREATE\s+(UNIQUE\s+)?INDEX(?:\s+IF\s+NOT\s+EXISTS)?\b/i, (_m, unique) => `CREATE ${unique || ''}INDEX IF NOT EXISTS`));
     await client.query('CREATE OR REPLACE FUNCTION prevent_immutable_row_update() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION \'IMMUTABLE_ROW\'; END; $$');
     await client.query("DROP TRIGGER IF EXISTS prevent_audit_events_update ON audit_events; CREATE TRIGGER prevent_audit_events_update BEFORE UPDATE ON audit_events FOR EACH ROW EXECUTE FUNCTION prevent_immutable_row_update()");
     await client.query("DROP TRIGGER IF EXISTS prevent_audit_events_delete ON audit_events; CREATE TRIGGER prevent_audit_events_delete BEFORE DELETE ON audit_events FOR EACH ROW EXECUTE FUNCTION prevent_immutable_row_update()");
@@ -80,7 +80,7 @@ async function main() {
       for (let offset = 0; offset < rows.length; offset += batchSize) {
         const batch = rows.slice(offset, offset + batchSize);
         const values: unknown[] = [];
-        const tuples = batch.map((row) => `(${columns.map((column) => { const value = booleanColumns.has(`${table.name}.${column}`) ? Boolean(row[column]) : row[column]; values.push(value); return `$${values.length}`; }).join(',')})`);
+        const tuples = batch.map((row) => `(${columns.map((column) => { const value = booleanColumns.has(`${table.name}.${column}`) ? (row[column] == null ? null : Boolean(row[column])) : row[column]; values.push(value); return `$${values.length}`; }).join(',')})`);
         if (tuples.length) await client.query(`INSERT INTO ${quote(table.name)} (${columns.map(quote).join(',')}) VALUES ${tuples.join(',')}`, values);
       }
       const count = (await client.query(`SELECT COUNT(*)::int AS count FROM ${quote(table.name)}`)).rows[0].count;

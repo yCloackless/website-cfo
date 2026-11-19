@@ -17,15 +17,25 @@ interface MathResultCardProps {
   requestedBy?: string;
 }
 
+function escapeHtml(raw: string): string {
+  return String(raw || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function renderKatexHtml(latex: string, displayMode = true): string {
   try {
     return katex.renderToString(latex || '', {
       displayMode,
       throwOnError: false,
       strict: false,
+      trust: false,
     });
   } catch {
-    return latex;
+    return escapeHtml(latex);
   }
 }
 

@@ -18,7 +18,7 @@ import { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { AnkiRepository } from '../db/ankiRepository';
 import { AnkiRenderer } from '../services/anki/ankiRenderer';
-import { AnkiScheduler } from '../services/anki/ankiScheduler';
+import { AnkiScheduler, DEFAULT_FSRS_WEIGHTS } from '../services/anki/ankiScheduler';
 import { AnkiApkgService } from '../services/anki/ankiApkgService';
 import { CardFlag, FlashcardImportance, Rating } from '../services/anki/ankiTypes';
 import { isValidImportance, normalizeImportance } from '../services/anki/ankiImportance';
@@ -239,7 +239,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       }
 
       const config = repo.getDeckConfig(user.userId, targetConfigId);
-      return res.json({ success: true, config });
+      return res.json({ success: true, config, defaultFsrsWeights: DEFAULT_FSRS_WEIGHTS });
     } catch (err: any) {
       return res.status(500).json({ error: 'GET_CONFIG_FAILED', message: 'Falha interna.' });
     }
@@ -268,6 +268,9 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
 
       return res.json({ success: true, config: updated });
     } catch (err: any) {
+      if (err.code === 'INVALID_FSRS_WEIGHTS') {
+        return res.status(400).json({ error: err.code, message: err.message });
+      }
       return res.status(500).json({ error: 'UPDATE_CONFIG_FAILED', message: 'Falha interna.' });
     }
   });
@@ -278,6 +281,10 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       const repo = getRepo();
       const configId = req.params.id;
       const { config, name, deckId } = req.body || {};
+
+      if (config !== undefined && (typeof config !== 'object' || config === null || Array.isArray(config))) {
+        return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'Opções de configuração inválidas.' });
+      }
 
       const updated = repo.updateDeckConfig(user.userId, configId, config || {}, name);
 
@@ -290,7 +297,26 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
 
       return res.json({ success: true, config: updated });
     } catch (err: any) {
+      if (err.code === 'INVALID_FSRS_WEIGHTS') {
+        return res.status(400).json({ error: err.code, message: err.message });
+      }
       return res.status(500).json({ error: 'UPDATE_CONFIG_FAILED', message: 'Falha interna.' });
+    }
+  });
+
+  router.post('/deck-configs/:id/reschedule', requireAuthMiddleware, deckMutationLimiter, (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const repo = getRepo();
+      const configId = req.params.id;
+      const deckId = typeof req.body?.deckId === 'string' ? req.body.deckId : undefined;
+      const result = repo.rescheduleCardsForConfig(user.userId, configId, deckId);
+      return res.json({ success: true, updatedCount: result.updatedCount });
+    } catch (err: any) {
+      if (err.message === 'DECK_NOT_FOUND') {
+        return res.status(404).json({ error: 'DECK_NOT_FOUND', message: 'Baralho não encontrado.' });
+      }
+      return res.status(500).json({ error: 'RESCHEDULE_FAILED', message: 'Falha ao reagendar cartões.' });
     }
   });
 
@@ -485,9 +511,11 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
         card.deck?.name || ''
       );
 
-      // Compute dynamic preview intervals
-      const scheduler = new AnkiScheduler();
+      // Compute dynamic preview intervals using the deck's actual configuration
+      const deckConfig = repo.getDeckConfigForDeck(user.userId, card.deckId);
+      const scheduler = new AnkiScheduler(deckConfig.config);
       const intervals = scheduler.getPreviewIntervals(card);
+      const memoryState = deckConfig.config.enableFSRS !== false ? scheduler.getMemoryState(card) : null;
 
       return res.json({
         success: true,
@@ -498,6 +526,7 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
           answerHtml: AnkiRenderer.sanitizeCardHtml(rendered.answerHtml),
         },
         intervals,
+        memoryState,
       });
     } catch (err: any) {
       return res.status(500).json({ error: 'RENDER_CARD_FAILED', message: 'Falha interna.' });

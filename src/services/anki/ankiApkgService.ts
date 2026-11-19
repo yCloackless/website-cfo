@@ -407,11 +407,20 @@ export class AnkiApkgService {
       throw new Error('INVALID_APKG: collection.anki2 not found inside package');
     }
 
+    const MAX_COL_DB_BYTES = 50 * 1024 * 1024;
+    const declaredColSize = Number((colFile as any)._data?.uncompressedSize || 0);
+    if (declaredColSize > MAX_COL_DB_BYTES) {
+      throw new Error('INVALID_APKG: collection.anki2 exceeds maximum allowed uncompressed size');
+    }
+
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'anki-import-'));
     const tempDbPath = path.join(tempDir, 'import.sqlite');
 
     try {
       const colBuffer = await colFile.async('nodebuffer');
+      if (colBuffer.length > MAX_COL_DB_BYTES) {
+        throw new Error('INVALID_APKG: collection.anki2 exceeds maximum allowed uncompressed size');
+      }
       fs.writeFileSync(tempDbPath, colBuffer);
 
       const DatabaseSyncClass = getSqliteDatabaseSync();
@@ -498,7 +507,7 @@ export class AnkiApkgService {
       const MAX_MEDIA_FILES = 150;
       const MAX_MEDIA_FILE_BYTES = 10 * 1024 * 1024; // 10MB
       const ALLOWED_MEDIA_EXTS = new Set([
-        '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg',
+        '.jpg', '.jpeg', '.png', '.gif', '.webp',
         '.mp3', '.ogg', '.wav', '.m4a'
       ]);
 
@@ -518,6 +527,8 @@ export class AnkiApkgService {
 
             const assetFile = zip.file(idxStr);
             if (assetFile) {
+              const declaredSize = Number((assetFile as any)._data?.uncompressedSize || 0);
+              if (declaredSize > MAX_MEDIA_FILE_BYTES) continue;
               const buffer = await assetFile.async('nodebuffer');
               if (buffer.length <= MAX_MEDIA_FILE_BYTES) {
                 mediaFiles.push({ filename: originalFilename, buffer });

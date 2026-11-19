@@ -21,6 +21,8 @@ import {
 import {
   AnkiCard,
   CardFlag,
+  CardQueue,
+  FSRSCardMemoryState,
   Rating,
   RenderedCardContent,
   ScheduleIntervalPreview,
@@ -54,6 +56,7 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
   const [renderedContent, setRenderedContent] = useState<RenderedCardContent | null>(null);
   const [displayContent, setDisplayContent] = useState<RenderedCardContent | null>(null);
   const [intervals, setIntervals] = useState<ScheduleIntervalPreview[]>([]);
+  const [memoryState, setMemoryState] = useState<FSRSCardMemoryState | null>(null);
   const [startTimeMs, setStartTimeMs] = useState<number>(Date.now());
 
   // Flags & Marked state for current card
@@ -106,6 +109,7 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
         if (activeCardIdRef.current === cardId) {
           setRenderedContent(data.rendered || null);
           setIntervals(data.intervals || []);
+          setMemoryState(data.memoryState || null);
         }
       }
     } catch {}
@@ -118,6 +122,7 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
       setRenderedContent(null);
       setDisplayContent(null);
       setIntervals([]);
+      setMemoryState(null);
       return;
     }
 
@@ -126,6 +131,7 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
     setRenderedContent(null);
     setDisplayContent(null);
     setIntervals([]);
+    setMemoryState(null);
     setStartTimeMs(Date.now());
     setIsAnswerRevealed(false);
     void fetchCardRender(currentCard.id);
@@ -157,8 +163,19 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
       });
 
       if (res.ok) {
-        // Move to next card in queue
-        if (currentCardIndex + 1 < queue.length) {
+        const data = await res.json().catch(() => ({}));
+        const updatedCard: AnkiCard | undefined = data.card;
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        const shouldRequeueSameSession =
+          updatedCard &&
+          (updatedCard.queue === CardQueue.Learn || updatedCard.queue === CardQueue.Relearn) &&
+          updatedCard.due <= nowSeconds + 1800;
+
+        if (shouldRequeueSameSession) {
+          const requeuedCard: AnkiCard = { ...currentCard, ...updatedCard };
+          setQueue((prev) => [...prev, requeuedCard]);
+          setCurrentCardIndex((prev) => prev + 1);
+        } else if (currentCardIndex + 1 < queue.length) {
           setCurrentCardIndex((prev) => prev + 1);
         } else {
           // Finished queue!
@@ -604,8 +621,18 @@ export const AnkiReviewPlayer: React.FC<AnkiReviewPlayerProps> = ({
             <div className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl p-5 sm:p-7 min-h-[220px] flex flex-col justify-between relative overflow-hidden transition-all">
               {/* Question Front */}
               <div className="w-full">
-                <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-3 flex items-center justify-between">
-                  <span>Pergunta</span>
+                <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-3 flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span>Pergunta</span>
+                    {memoryState && (
+                      <span
+                        className="px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/20 text-sky-300 font-mono text-[10px] normal-case"
+                        title="Estado de memória FSRS: Retenção estimada (R), Estabilidade em dias (S) e Dificuldade (D)"
+                      >
+                        R {Math.round(memoryState.retrievability * 100)}% · S {memoryState.stability}d · D {memoryState.difficulty}
+                      </span>
+                    )}
+                  </div>
                   {currentCard.note?.tags && currentCard.note.tags.length > 0 && (
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {currentCard.note.tags.map((t) => (
