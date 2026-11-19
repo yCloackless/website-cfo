@@ -857,7 +857,10 @@ app.use('/api', (req: Request, res: Response, next: NextFunction) => {
   if (sourceOrigin) {
     try {
       const originHost = new URL(sourceOrigin).host.toLowerCase();
-      const requestHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').toLowerCase();
+      const rawHostHeader = isTrustedEdge(req)
+        ? (req.headers['x-forwarded-host'] || req.headers.host || '')
+        : (req.headers.host || '');
+      const requestHost = String(rawHostHeader).toLowerCase();
       if (requestHost && (originHost === requestHost || originHost === requestHost.split(':')[0])) return next();
     } catch {}
   }
@@ -3622,7 +3625,7 @@ app.get("/api/admin/honeypot/metrics", requireAdminAuth, (_req: Request, res: Re
   }
 });
 
-app.post("/api/admin/honeypot/unblock", requireAdminWriteAuth, (req: Request, res: Response) => {
+app.post("/api/admin/honeypot/unblock", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const { ip } = req.body || {};
     if (!ip || typeof ip !== "string") {
@@ -4793,7 +4796,7 @@ app.get("/api/admin/maintenance", requireAdminAuth, (_req: Request, res: Respons
 });
 
 // 3. Atualização do Modo de Manutenção (Apenas Admin com permissão de escrita)
-app.post("/api/admin/maintenance", requireAdminWriteAuth, (req: Request, res: Response) => {
+app.post("/api/admin/maintenance", requireAdminWriteAuth, requireStepUpAuth, (req: Request, res: Response) => {
   try {
     const adminUser = (req as any).user;
     const { global, pages, message } = req.body || {};
@@ -7696,7 +7699,7 @@ app.get("/api/admin/backup/list", requireAdminAuth, (_req: Request, res: Respons
 });
 
 // 5. Criação Manual Imediata de Backup Completo
-app.post("/api/admin/backup/create", requireAdminWriteAuth, async (req: Request, res: Response) => {
+app.post("/api/admin/backup/create", requireAdminWriteAuth, requireStepUpAuth, async (req: Request, res: Response) => {
   try {
     const actor = (req as any).user?.username || "admin";
     const clientIp = getClientIp(req);

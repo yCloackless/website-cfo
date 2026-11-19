@@ -30,7 +30,7 @@
     "https://localhost/*",
     "http://127.0.0.1/*",
     "https://127.0.0.1/*",
-    "https://*/*"
+    "https://cfo-oficial-agorasim.onrender.com/*"
   ],
   "content_scripts": [
     {
@@ -39,9 +39,7 @@
         "https://localhost/*",
         "http://127.0.0.1/*",
         "https://127.0.0.1/*",
-        "https://cfo-oficial-agorasim.onrender.com/*",
-        "https://*.onrender.com/*",
-        "<all_urls>"
+        "https://cfo-oficial-agorasim.onrender.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_start"
