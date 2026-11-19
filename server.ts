@@ -2268,8 +2268,8 @@ function getDesktopSubjects(userId: string) {
 }
 
 function desktopAuthorizedUser(req: Request): string | null {
-  const expectedKey = process.env.DESKTOP_TIMER_API_KEY || '';
-  const suppliedKey = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  const expectedKey = (process.env.DESKTOP_TIMER_API_KEY || '').trim();
+  const suppliedKey = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
   if (!expectedKey) {
     console.warn('[Desktop study sync] DESKTOP_AUTH_REJECTED: API_KEY_NOT_CONFIGURED');
     return null;
@@ -2280,7 +2280,7 @@ function desktopAuthorizedUser(req: Request): string | null {
     console.warn('[Desktop study sync] DESKTOP_AUTH_REJECTED: API_KEY_INVALID');
     return null;
   }
-  const userId = process.env.DESKTOP_TIMER_USER_ID;
+  const userId = (process.env.DESKTOP_TIMER_USER_ID || '').trim();
   if (!userId) {
     console.error('[Desktop study sync] DESKTOP_AUTH_REJECTED: USER_ID_NOT_CONFIGURED');
     return null;
@@ -7091,6 +7091,16 @@ app.post("/api/notion/desktop/sync", async (req: Request, res: Response) => {
       return res.json({ success: true, action: "delete", pageId: validation.payload.pageId });
     }
     const refreshed = await fetchRevisoesFromNotion();
+    if (refreshed.error) {
+      const status = refreshed.error === "NOTION_NOT_CONFIGURED" ? 503 : 502;
+      return res.status(status).json({
+        success: false,
+        action: "refresh",
+        count: refreshed.items.length,
+        source: refreshed.source,
+        error: refreshed.error,
+      });
+    }
     emitNotionChange("refresh");
     return res.json({ success: true, action: "refresh", count: refreshed.items.length, source: refreshed.source });
   } catch (e: any) {

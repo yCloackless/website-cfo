@@ -27,7 +27,10 @@ export function desktopNotionAuthorizedUser(
   req: Pick<Request, "get">,
   userRepo: { findById: (id: string) => DesktopUserRecord | null | undefined }
 ): DesktopAuthResult {
-  const expectedKey = process.env.DESKTOP_NOTION_API_KEY || process.env.DESKTOP_TIMER_API_KEY || "";
+  const expectedKey =
+    process.env.DESKTOP_NOTION_API_KEY?.trim() ||
+    process.env.DESKTOP_TIMER_API_KEY?.trim() ||
+    "";
   const suppliedHeader = String(req.get("authorization") || "");
   if (!expectedKey || !/^Bearer\s+/i.test(suppliedHeader)) {
     return { ok: false, status: 401, error: "UNAUTHORIZED" };
@@ -43,7 +46,7 @@ export function desktopNotionAuthorizedUser(
     return { ok: false, status: 401, error: "UNAUTHORIZED" };
   }
 
-  const userId = process.env.DESKTOP_TIMER_USER_ID || "";
+  const userId = (process.env.DESKTOP_TIMER_USER_ID || "").trim();
   const targetUser = userId ? userRepo.findById(userId) : null;
   if (!targetUser) {
     return { ok: false, status: 401, error: "UNAUTHORIZED" };
@@ -57,23 +60,34 @@ export function desktopNotionAuthorizedUser(
   return { ok: true, userId: targetUser.id };
 }
 
+function normalizeIsoDatePrefix(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return "";
+  if (typeof raw !== "string") return "";
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const match = /^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/.exec(trimmed);
+  return match ? match[1] : null;
+}
+
 function sanitizeNotionItem(raw: unknown): BackendNotionRevisionItem | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
   const id = typeof obj.id === "string" ? obj.id.trim() : "";
   const assunto = typeof obj.assunto === "string" ? obj.assunto.trim().slice(0, 300) : "";
   const materia = typeof obj.materia === "string" ? obj.materia.trim().slice(0, 120) : "";
-  const data = typeof obj.data === "string" ? obj.data.trim().slice(0, 10) : "";
+  const data = normalizeIsoDatePrefix(obj.data);
 
-  if (!isValidNotionPageId(id) || !assunto) return null;
-  if (data && !/^\d{4}-\d{2}-\d{2}$/.test(data)) return null;
+  if (!isValidNotionPageId(id) || !assunto || data === null) return null;
 
-  const proximaRaw = typeof obj.proximaRevisao === "string" ? obj.proximaRevisao.trim().slice(0, 10) : "";
-  if (proximaRaw && !/^\d{4}-\d{2}-\d{2}$/.test(proximaRaw)) return null;
+  const proximaRaw = normalizeIsoDatePrefix(obj.proximaRevisao);
+  if (proximaRaw === null) return null;
 
   const tipoRevisao = Array.isArray(obj.tipoRevisao)
     ? obj.tipoRevisao.filter((t): t is string => typeof t === "string").map((t) => t.trim().slice(0, 80)).filter(Boolean).slice(0, 20)
     : [];
+
+  const rawUrl = typeof obj.url === "string" ? obj.url.trim() : "";
+  const safeUrl = /^https:\/\/(?:www\.)?notion\.so\//.test(rawUrl) ? rawUrl.slice(0, 500) : undefined;
 
   return {
     id,
@@ -93,7 +107,7 @@ function sanitizeNotionItem(raw: unknown): BackendNotionRevisionItem | null {
     mes8: Boolean(obj.mes8),
     mes9: Boolean(obj.mes9),
     mes10: Boolean(obj.mes10),
-    ...(typeof obj.url === "string" && /^https:\/\/www\.notion\.so\//.test(obj.url) ? { url: obj.url.slice(0, 500) } : {}),
+    ...(safeUrl ? { url: safeUrl } : {}),
     updatedAt: typeof obj.updatedAt === "string" ? obj.updatedAt.slice(0, 64) : new Date().toISOString(),
   };
 }
