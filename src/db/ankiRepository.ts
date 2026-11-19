@@ -40,6 +40,7 @@ import { deleteAnkiMedia, getAnkiMedia, MediaStorageNotConfiguredError, persiste
 
 export class AnkiRepository {
   private db: DatabaseSync | any;
+  private tableExistsCache = new Map<string, boolean>();
 
   constructor(db: DatabaseSync | any) {
     this.db = db;
@@ -272,7 +273,11 @@ export class AnkiRepository {
   }
 
   private hasTable(tableName: string): boolean {
-    return AnkiRepository.checkTableExists(this.db, tableName);
+    const cached = this.tableExistsCache.get(tableName);
+    if (cached !== undefined) return cached;
+    const exists = AnkiRepository.checkTableExists(this.db, tableName);
+    this.tableExistsCache.set(tableName, exists);
+    return exists;
   }
 
   private insertField(userId: string, notetypeId: string, name: string, ordinal: number): void {
@@ -1313,11 +1318,23 @@ export class AnkiRepository {
 
     this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
     try {
-      const revlogStmt = this.db.prepare(`
-        SELECT rating, reviewed_at FROM anki_revlog
-        WHERE user_id = ? AND card_id = ?
-        ORDER BY reviewed_at ASC
-      `);
+      const cardIds = cards.map((c) => c.id);
+      const revlogsByCard = new Map<string, Array<{ rating: Rating; reviewedAt: string }>>();
+      for (let i = 0; i < cardIds.length; i += 400) {
+        const chunk = cardIds.slice(i, i + 400);
+        const placeholders = chunk.map(() => '?').join(', ');
+        const rows = this.db.prepare(`
+          SELECT card_id, rating, reviewed_at FROM anki_revlog
+          WHERE user_id = ? AND card_id IN (${placeholders})
+          ORDER BY reviewed_at ASC
+        `).all(userId, ...chunk) as any[];
+        for (const r of rows) {
+          const list = revlogsByCard.get(r.card_id) || [];
+          list.push({ rating: Number(r.rating) as Rating, reviewedAt: String(r.reviewed_at) });
+          revlogsByCard.set(r.card_id, list);
+        }
+      }
+
       const updateStmt = this.db.prepare(`
         UPDATE anki_cards
         SET queue = ?, card_type = ?, due = ?, interval_days = ?,
@@ -1327,10 +1344,7 @@ export class AnkiRepository {
       `);
 
       for (const card of cards) {
-        const revlogs = (revlogStmt.all(userId, card.id) as any[]).map((r) => ({
-          rating: Number(r.rating) as Rating,
-          reviewedAt: String(r.reviewed_at),
-        }));
+        const revlogs = revlogsByCard.get(card.id) || [];
         const rescheduled = scheduler.rescheduleFromHistory(card, revlogs, now);
         if (!rescheduled) continue;
 
@@ -1361,48 +1375,59 @@ export class AnkiRepository {
   }
 
   public undoLastReview(userId: string, cardId?: string): { revertedCard: AnkiCard } | null {
-    let revlogRow: any;
-    if (cardId) {
-      revlogRow = this.db.prepare(`
-        SELECT * FROM anki_revlog WHERE user_id = ? AND card_id = ? ORDER BY reviewed_at DESC LIMIT 1
-      `).get(userId, cardId);
-    } else {
-      revlogRow = this.db.prepare(`
-        SELECT * FROM anki_revlog WHERE user_id = ? ORDER BY reviewed_at DESC LIMIT 1
-      `).get(userId);
+    this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+    let targetCardId: string;
+    try {
+      let revlogRow: any;
+      if (cardId) {
+        revlogRow = this.db.prepare(`
+          SELECT * FROM anki_revlog WHERE user_id = ? AND card_id = ? ORDER BY reviewed_at DESC LIMIT 1
+        `).get(userId, cardId);
+      } else {
+        revlogRow = this.db.prepare(`
+          SELECT * FROM anki_revlog WHERE user_id = ? ORDER BY reviewed_at DESC LIMIT 1
+        `).get(userId);
+      }
+
+      if (!revlogRow) {
+        this.db.exec('COMMIT;');
+        return null;
+      }
+
+      const previousState: AnkiCardStateSnapshot = JSON.parse(revlogRow.previous_state);
+      targetCardId = revlogRow.card_id;
+      const now = new Date().toISOString();
+
+      // Revert card to exact snapshot
+      this.db.prepare(`
+        UPDATE anki_cards
+        SET queue = ?, card_type = ?, due = ?, interval_days = ?, ease_factor = ?,
+            reps = ?, lapses = ?, learning_steps = ?, difficulty = ?, stability = ?, last_review_at = ?, updated_at = ?
+        WHERE user_id = ? AND id = ?
+      `).run(
+        previousState.queue,
+        previousState.cardType,
+        previousState.due,
+        previousState.intervalDays,
+        previousState.easeFactor,
+        previousState.reps,
+        previousState.lapses,
+        previousState.learningSteps ?? 0,
+        previousState.difficulty,
+        previousState.stability,
+        previousState.lastReviewAt,
+        now,
+        userId,
+        targetCardId
+      );
+
+      // Remove the revlog record
+      this.db.prepare(`DELETE FROM anki_revlog WHERE user_id = ? AND id = ?`).run(userId, revlogRow.id);
+      this.db.exec('COMMIT;');
+    } catch (err) {
+      try { this.db.exec('ROLLBACK;'); } catch {}
+      throw err;
     }
-
-    if (!revlogRow) return null;
-
-    const previousState: AnkiCardStateSnapshot = JSON.parse(revlogRow.previous_state);
-    const targetCardId = revlogRow.card_id;
-    const now = new Date().toISOString();
-
-    // Revert card to exact snapshot
-    this.db.prepare(`
-      UPDATE anki_cards
-      SET queue = ?, card_type = ?, due = ?, interval_days = ?, ease_factor = ?,
-          reps = ?, lapses = ?, learning_steps = ?, difficulty = ?, stability = ?, last_review_at = ?, updated_at = ?
-      WHERE user_id = ? AND id = ?
-    `).run(
-      previousState.queue,
-      previousState.cardType,
-      previousState.due,
-      previousState.intervalDays,
-      previousState.easeFactor,
-      previousState.reps,
-      previousState.lapses,
-      previousState.learningSteps ?? 0,
-      previousState.difficulty,
-      previousState.stability,
-      previousState.lastReviewAt,
-      now,
-      userId,
-      targetCardId
-    );
-
-    // Remove the revlog record
-    this.db.prepare(`DELETE FROM anki_revlog WHERE user_id = ? AND id = ?`).run(userId, revlogRow.id);
 
     return {
       revertedCard: this.getCard(userId, targetCardId)!,
@@ -1531,13 +1556,25 @@ export class AnkiRepository {
   public bulkMoveCards(userId: string, cardIds: string[], targetDeckId: string): number {
     const deck = this.getDeck(userId, targetDeckId);
     if (!deck) throw new Error('TARGET_DECK_NOT_FOUND');
+    const cleanIds = Array.from(new Set((cardIds || []).filter((id) => typeof id === 'string' && id.trim().length > 0)));
+    if (cleanIds.length === 0) return 0;
 
+    const now = new Date().toISOString();
     let moved = 0;
-    for (const cid of cardIds) {
-      const res = this.db.prepare(`
-        UPDATE anki_cards SET deck_id = ?, updated_at = ? WHERE user_id = ? AND id = ?
-      `).run(targetDeckId, new Date().toISOString(), userId, cid) as any;
-      if (res.changes) moved += 1;
+    this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+    try {
+      for (let i = 0; i < cleanIds.length; i += 400) {
+        const chunk = cleanIds.slice(i, i + 400);
+        const placeholders = chunk.map(() => '?').join(', ');
+        const res = this.db.prepare(`
+          UPDATE anki_cards SET deck_id = ?, updated_at = ? WHERE user_id = ? AND id IN (${placeholders})
+        `).run(targetDeckId, now, userId, ...chunk) as any;
+        moved += Number(res.changes || 0);
+      }
+      this.db.exec('COMMIT;');
+    } catch (err) {
+      try { this.db.exec('ROLLBACK;'); } catch {}
+      throw err;
     }
     return moved;
   }
@@ -1558,16 +1595,51 @@ export class AnkiRepository {
   }
 
   public bulkSuspendCards(userId: string, cardIds: string[], suspend: boolean): number {
+    const cleanIds = Array.from(new Set((cardIds || []).filter((id) => typeof id === 'string' && id.trim().length > 0)));
+    if (cleanIds.length === 0) return 0;
+
+    const now = new Date().toISOString();
     let affected = 0;
-    for (const cid of cardIds) {
-      const card = this.getCard(userId, cid);
-      if (card) {
-        const newQueue = suspend ? CardQueue.Suspended : (card.reps > 0 ? CardQueue.Review : CardQueue.New);
-        const res = this.db.prepare(`
-          UPDATE anki_cards SET queue = ?, updated_at = ? WHERE user_id = ? AND id = ?
-        `).run(newQueue, new Date().toISOString(), userId, cid) as any;
-        if (res.changes) affected += 1;
+    this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+    try {
+      if (suspend) {
+        for (let i = 0; i < cleanIds.length; i += 400) {
+          const chunk = cleanIds.slice(i, i + 400);
+          const placeholders = chunk.map(() => '?').join(', ');
+          const res = this.db.prepare(`
+            UPDATE anki_cards SET queue = ?, updated_at = ? WHERE user_id = ? AND id IN (${placeholders})
+          `).run(CardQueue.Suspended, now, userId, ...chunk) as any;
+          affected += Number(res.changes || 0);
+        }
+      } else {
+        for (let i = 0; i < cleanIds.length; i += 400) {
+          const chunk = cleanIds.slice(i, i + 400);
+          const placeholders = chunk.map(() => '?').join(', ');
+          const rows = this.db.prepare(`
+            SELECT id, reps FROM anki_cards WHERE user_id = ? AND id IN (${placeholders})
+          `).all(userId, ...chunk) as Array<{ id: string; reps: number }>;
+          const reviewIds = rows.filter((r) => Number(r.reps) > 0).map((r) => r.id);
+          const newIds = rows.filter((r) => Number(r.reps) <= 0).map((r) => r.id);
+          if (reviewIds.length > 0) {
+            const p = reviewIds.map(() => '?').join(', ');
+            const res = this.db.prepare(`
+              UPDATE anki_cards SET queue = ?, updated_at = ? WHERE user_id = ? AND id IN (${p})
+            `).run(CardQueue.Review, now, userId, ...reviewIds) as any;
+            affected += Number(res.changes || 0);
+          }
+          if (newIds.length > 0) {
+            const p = newIds.map(() => '?').join(', ');
+            const res = this.db.prepare(`
+              UPDATE anki_cards SET queue = ?, updated_at = ? WHERE user_id = ? AND id IN (${p})
+            `).run(CardQueue.New, now, userId, ...newIds) as any;
+            affected += Number(res.changes || 0);
+          }
+        }
       }
+      this.db.exec('COMMIT;');
+    } catch (err) {
+      try { this.db.exec('ROLLBACK;'); } catch {}
+      throw err;
     }
     return affected;
   }

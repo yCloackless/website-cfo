@@ -877,20 +877,28 @@ export class RefundRepository {
     reason: string;
     amount: number;
   }): DbRefundRequest {
-    const check = this.validateRefundEligibility(data.orderId, data.amount);
-    if (!check.eligible) {
-      throw new Error(`REFUND_INVARIANT_VIOLATION: ${check.reason}`);
-    }
-
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
-    this.db
-      .prepare(
-        `INSERT INTO refund_requests (id, order_id, user_id, reason, amount, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'requested', ?, ?)`
-      )
-      .run(id, data.orderId, data.userId ?? null, data.reason, data.amount, now, now);
+    this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+    try {
+      const check = this.validateRefundEligibility(data.orderId, data.amount);
+      if (!check.eligible) {
+        throw new Error(`REFUND_INVARIANT_VIOLATION: ${check.reason}`);
+      }
+
+      this.db
+        .prepare(
+          `INSERT INTO refund_requests (id, order_id, user_id, reason, amount, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'requested', ?, ?)`
+        )
+        .run(id, data.orderId, data.userId ?? null, data.reason, data.amount, now, now);
+
+      this.db.exec('COMMIT;');
+    } catch (err) {
+      try { this.db.exec('ROLLBACK;'); } catch {}
+      throw err;
+    }
 
     return this.findById(id)!;
   }

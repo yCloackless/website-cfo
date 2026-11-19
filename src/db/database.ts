@@ -10,7 +10,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { PostgresSyncDatabase } from './postgresSync';
 
-const POSTGRES_BOOLEAN_COLUMNS = [
+export const POSTGRES_BOOLEAN_COLUMNS = [
   'products.is_active',
   'activation_tokens.is_used',
   'password_resets.is_used',
@@ -1755,6 +1755,13 @@ export const MIGRATIONS: Migration[] = [
     name: '041_anki_learning_steps',
     sql: `
       ALTER TABLE anki_cards ADD COLUMN learning_steps INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    id: 42,
+    name: '042_anki_cards_queue_due_index',
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_anki_cards_user_queue_due ON anki_cards(user_id, queue, due);
     `,
   },
 ];

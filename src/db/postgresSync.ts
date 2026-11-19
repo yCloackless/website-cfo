@@ -66,7 +66,13 @@ const normalize = (sql) => sql
   }
 });
 
+let txClient = null;
+let txQueue = Promise.resolve();
+
 async function executeWithRetry(sql, values, retries = 2) {
+  if (txClient) {
+    return await txClient.query({ text: sql, values });
+  }
   for (let i = 0; i <= retries; i++) {
     try {
       return await pool.query({ text: sql, values });
@@ -81,16 +87,52 @@ async function executeWithRetry(sql, values, retries = 2) {
   }
 }
 
-async function handle(message) {
+async function handleInternal(message) {
   try {
     const sql = normalize(message.sql);
-    if (!sql.trim()) return done(message, { rows: [], rowCount: 0 });
+    const trimmed = sql.trim();
+    if (!trimmed) return done(message, { rows: [], rowCount: 0 });
+
+    const upper = trimmed.replace(/;+$/, '').trim().toUpperCase();
+    const isBegin = upper === 'BEGIN' || upper === 'BEGIN TRANSACTION';
+    const isCommit = upper === 'COMMIT' || upper === 'COMMIT TRANSACTION';
+    const isRollback = upper === 'ROLLBACK' || upper === 'ROLLBACK TRANSACTION';
+
+    if (isBegin) {
+      if (!txClient) {
+        txClient = await pool.connect();
+      }
+      const result = await txClient.query({ text: sql, values: message.params || [] });
+      const last = Array.isArray(result) ? result[result.length - 1] : result;
+      return done(message, { rows: last.rows || [], rowCount: last.rowCount || 0, command: last.command });
+    }
+
+    if (isCommit || isRollback) {
+      try {
+        const result = txClient
+          ? await txClient.query({ text: sql, values: message.params || [] })
+          : await pool.query({ text: sql, values: message.params || [] });
+        const last = Array.isArray(result) ? result[result.length - 1] : result;
+        return done(message, { rows: last.rows || [], rowCount: last.rowCount || 0, command: last.command });
+      } finally {
+        if (txClient) {
+          txClient.release();
+          txClient = null;
+        }
+      }
+    }
+
     const result = await executeWithRetry(sql, message.params || []);
     const last = Array.isArray(result) ? result[result.length - 1] : result;
     done(message, { rows: last.rows || [], rowCount: last.rowCount || 0, command: last.command });
   } catch (err) {
     done(message, { error: String(err.message || err).replace(/postgresql[^ ]*/gi, '[redacted]') });
   }
+}
+
+function handle(message) {
+  txQueue = txQueue.then(() => handleInternal(message), () => handleInternal(message));
+  return txQueue;
 }
 
 function done(message, result) {
