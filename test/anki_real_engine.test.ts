@@ -12,11 +12,14 @@ import JSZip from 'jszip';
 import { DatabaseService } from '../src/db/database';
 import { UserRepository } from '../src/db/repositories';
 import { AnkiRepository } from '../src/db/ankiRepository';
-import { AnkiScheduler } from '../src/services/anki/ankiScheduler';
+import { createAnkiRouter } from '../src/routes/ankiRouter';
+import { AnkiScheduler, DEFAULT_FSRS_WEIGHTS, parseFsrsWeights } from '../src/services/anki/ankiScheduler';
 import { AnkiRenderer } from '../src/services/anki/ankiRenderer';
 import { AnkiSearch } from '../src/services/anki/ankiSearch';
 import { AnkiApkgService } from '../src/services/anki/ankiApkgService';
-import { CardQueue, CardType, Rating, CardFlag } from '../src/services/anki/ankiTypes';
+import { CardQueue, CardType, DEFAULT_DECK_CONFIG, Rating, CardFlag } from '../src/services/anki/ankiTypes';
+import express from 'express';
+import http from 'node:http';
 
 function createTempDb() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfo-anki-test-'));
@@ -420,6 +423,195 @@ test('Real Anki: Study Queue carrega cartões de baralhos pais e sub-baralhos ::
     const queueVirtual = ankiRepo.getStudyQueue(user.id, 'virtual_Física');
     assert.equal(queueVirtual.length, 1, 'Nó virtual deve encontrar cartões com prefixo do baralho');
   } finally {
+    cleanup();
+  }
+});
+
+test('Real Anki FSRS Upgrade: Persistência de learning_steps multi-passo e Undo exato', () => {
+  const { userRepo, ankiRepo, cleanup } = createTempDb();
+
+  try {
+    const user = userRepo.create({ username: 'aluno_steps', email: 'steps@cfo.test', passwordHash: 'hash' });
+    const notetypes = ankiRepo.ensureDefaultNoteTypes(user.id);
+    const deck = ankiRepo.createDeck(user.id, { name: 'Química::Termoquímica' });
+    const { cards } = ankiRepo.createNote(user.id, {
+      deckId: deck.id,
+      notetypeId: notetypes[0].id,
+      fields: ['O que é entalpia?', 'Conteúdo global de energia à pressão constante.'],
+    });
+
+    const cardId = cards[0].id;
+
+    // 1. First Good -> enters Learn step 1 (10m)
+    const step1 = ankiRepo.rateCard(user.id, cardId, Rating.Good, 2000);
+    assert.equal(step1.updatedCard.queue, CardQueue.Learn);
+    assert.equal(step1.updatedCard.cardType, CardType.Learn);
+    assert.equal(step1.updatedCard.learningSteps, 1);
+
+    const reloaded1 = ankiRepo.getCard(user.id, cardId)!;
+    assert.equal(reloaded1.learningSteps, 1, 'learning_steps deve persistir no banco entre revisões');
+
+    // 2. Second Good -> graduates from Learn step 1 to Review!
+    const step2 = ankiRepo.rateCard(user.id, cardId, Rating.Good, 2500);
+    assert.equal(step2.updatedCard.queue, CardQueue.Review);
+    assert.equal(step2.updatedCard.cardType, CardType.Review);
+    assert.equal(step2.updatedCard.learningSteps, 0);
+    assert.ok(step2.updatedCard.intervalDays >= 1);
+
+    // 3. Undo reverts back to Learn step 1!
+    const undo = ankiRepo.undoLastReview(user.id, cardId)!;
+    assert.equal(undo.revertedCard.queue, CardQueue.Learn);
+    assert.equal(undo.revertedCard.learningSteps, 1);
+  } finally {
+    cleanup();
+  }
+});
+
+test('Real Anki FSRS Upgrade: Pesos customizados, modo SM-2 fallback e memória FSRS', () => {
+  const parsedOk = parseFsrsWeights([...DEFAULT_FSRS_WEIGHTS]);
+  assert.equal(parsedOk.valid, true);
+  assert.ok(Array.isArray(parsedOk.weights));
+
+  const parsedBad = parseFsrsWeights([1, 2, 3]);
+  assert.equal(parsedBad.valid, false);
+
+  // SM-2 fallback when enableFSRS is false
+  const sm2Scheduler = new AnkiScheduler({
+    ...DEFAULT_DECK_CONFIG,
+    enableFSRS: false,
+    graduatingInterval: 2,
+    easyInterval: 5,
+    startingEase: 2.5,
+  });
+
+  const now = new Date('2026-11-19T12:00:00Z');
+  const mockNewCard: any = {
+    id: 'c1',
+    userId: 'u1',
+    noteId: 'n1',
+    deckId: 'd1',
+    templateOrd: 0,
+    queue: CardQueue.New,
+    cardType: CardType.New,
+    due: 0,
+    intervalDays: 0,
+    easeFactor: 2.5,
+    reps: 0,
+    lapses: 0,
+    learningSteps: 0,
+    difficulty: 0,
+    stability: 0,
+    flags: 0,
+    isMarked: false,
+    importance: 'normal',
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+
+  const previews = sm2Scheduler.getPreviewIntervals(mockNewCard, now);
+  assert.equal(previews[3].intervalDays, 5, 'Easy no modo SM-2 deve usar easyInterval=5');
+
+  const ratedEasy = sm2Scheduler.rateCard(mockNewCard, Rating.Easy, now);
+  assert.equal(ratedEasy.updatedCard.intervalDays, 5);
+  assert.equal(ratedEasy.updatedCard.queue, CardQueue.Review);
+
+  // FSRS memory state on reviewed card
+  const fsrsScheduler = new AnkiScheduler(DEFAULT_DECK_CONFIG);
+  const r1 = fsrsScheduler.rateCard(mockNewCard, Rating.Easy, now);
+  const mem = fsrsScheduler.getMemoryState(r1.updatedCard, new Date(now.getTime() + 86400000));
+  assert.ok(mem);
+  assert.ok(mem.retrievability > 0 && mem.retrievability <= 1);
+  assert.ok(mem.stability > 0);
+  assert.ok(mem.difficulty >= 1 && mem.difficulty <= 10);
+});
+
+test('Real Anki FSRS Upgrade: Preview/Rate sincronizados, Reagendamento e Stats filtrados por baralho', async () => {
+  const { userRepo, ankiRepo, cleanup } = createTempDb();
+  let server: http.Server | null = null;
+
+  try {
+    const user = userRepo.create({ username: 'aluno_fsrs_api', email: 'fsrs_api@cfo.test', passwordHash: 'hash' });
+    const otherUser = userRepo.create({ username: 'aluno_other', email: 'other@cfo.test', passwordHash: 'hash' });
+    const defaultCfg = ankiRepo.ensureDefaultDeckConfig(user.id);
+    const notetypes = ankiRepo.ensureDefaultNoteTypes(user.id);
+    const deckA = ankiRepo.createDeck(user.id, { name: 'Matemática' });
+    const deckB = ankiRepo.createDeck(user.id, { name: 'História' });
+
+    const noteA = ankiRepo.createNote(user.id, {
+      deckId: deckA.id,
+      notetypeId: notetypes[0].id,
+      fields: ['Derivada de x²?', '2x'],
+    });
+    const noteB = ankiRepo.createNote(user.id, {
+      deckId: deckB.id,
+      notetypeId: notetypes[0].id,
+      fields: ['Ano da Proclamação da República?', '1889'],
+    });
+
+    // Update user's Padrão config (deckA has configId = null so it inherits Padrão!)
+    ankiRepo.updateDeckConfig(user.id, defaultCfg.id, {
+      desiredRetention: 0.96,
+      learningSteps: [3, 15],
+    });
+
+    const app = express();
+    app.use(express.json());
+    let currentUserId = user.id;
+    app.use('/api/anki', createAnkiRouter((req: any, _res: any, next: any) => {
+      req.user = { userId: currentUserId, role: 'cadet' };
+      next();
+    }, () => ankiRepo));
+
+    server = http.createServer(app);
+    await new Promise<void>((resolve) => server!.listen(0, resolve));
+    const port = (server.address() as any).port;
+
+    // 1. /cards/:id/render uses deck's Padrão config (learningSteps: [3, 15])
+    const renderRes = await fetch(`http://127.0.0.1:${port}/api/anki/cards/${noteA.cards[0].id}/render`);
+    assert.equal(renderRes.status, 200);
+    const renderJson = await renderRes.json() as any;
+    assert.equal(renderJson.intervals[0].intervalFormatted, '3m', 'Again deve refletir learningSteps[0]=3m');
+    assert.equal(renderJson.intervals[2].intervalFormatted, '15m', 'Good deve refletir learningSteps[1]=15m');
+
+    // 2. Reject invalid fsrsWeights
+    const badCfgRes = await fetch(`http://127.0.0.1:${port}/api/anki/deck-configs/${defaultCfg.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: { fsrsWeights: [1, 2, 3] } }),
+    });
+    assert.equal(badCfgRes.status, 400);
+
+    // 3. Rate card A twice to graduate to Review, then reschedule with lower retention (0.75 -> longer interval)
+    ankiRepo.rateCard(user.id, noteA.cards[0].id, Rating.Easy, 1500);
+    ankiRepo.rateCard(user.id, noteB.cards[0].id, Rating.Good, 1500);
+
+    const statsDeckA = ankiRepo.getStatsSummary(user.id, deckA.id);
+    assert.equal(statsDeckA.totalCards, 1);
+    assert.equal(statsDeckA.againPercent + statsDeckA.hardPercent + statsDeckA.goodPercent + statsDeckA.easyPercent, 100);
+    assert.equal(statsDeckA.easyPercent, 100, 'Stats filtrados por deckA devem contar apenas revlogs de deckA');
+    assert.ok(statsDeckA.fsrsSummary && statsDeckA.fsrsSummary.reviewedCards === 1);
+
+    // Lower retention -> reschedule via API
+    ankiRepo.updateDeckConfig(user.id, defaultCfg.id, { desiredRetention: 0.75 });
+    const reschedRes = await fetch(`http://127.0.0.1:${port}/api/anki/deck-configs/${defaultCfg.id}/reschedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deckId: deckA.id }),
+    });
+    assert.equal(reschedRes.status, 200);
+    const reschedJson = await reschedRes.json() as any;
+    assert.equal(reschedJson.updatedCount, 1);
+
+    // IDOR check: otherUser trying to reschedule deckA gets 404
+    currentUserId = otherUser.id;
+    const idorRes = await fetch(`http://127.0.0.1:${port}/api/anki/deck-configs/${defaultCfg.id}/reschedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deckId: deckA.id }),
+    });
+    assert.equal(idorRes.status, 404);
+  } finally {
+    if (server) await new Promise<void>((resolve) => server!.close(() => resolve()));
     cleanup();
   }
 });

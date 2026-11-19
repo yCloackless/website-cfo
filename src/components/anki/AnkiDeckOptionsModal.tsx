@@ -50,9 +50,13 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
   const [activeTab, setActiveTab] = useState<'fsrs' | 'manage'>('fsrs');
   const [config, setConfig] = useState<DeckConfigOptions>(DEFAULT_DECK_CONFIG);
   const [configId, setConfigId] = useState<string>('');
+  const [defaultFsrsWeights, setDefaultFsrsWeights] = useState<number[]>([]);
+  const [fsrsWeightsStr, setFsrsWeightsStr] = useState<string>('');
+  const [showAdvancedFSRS, setShowAdvancedFSRS] = useState<boolean>(false);
   const [learningStepsStr, setLearningStepsStr] = useState<string>('1 10');
   const [relearningStepsStr, setRelearningStepsStr] = useState<string>('10');
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isRescheduling, setIsRescheduling] = useState<boolean>(false);
 
   // Rename inside modal
   const [deckNameInput, setDeckNameInput] = useState<string>(deck.name);
@@ -105,11 +109,20 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
         if (res.ok && isMounted) {
           const data = await res.json();
           const cfg: AnkiDeckConfig = data.config;
+          if (Array.isArray(data.defaultFsrsWeights)) {
+            setDefaultFsrsWeights(data.defaultFsrsWeights);
+          }
           if (cfg) {
-            setConfig(cfg.config || DEFAULT_DECK_CONFIG);
+            const merged = { ...DEFAULT_DECK_CONFIG, ...cfg.config };
+            setConfig(merged);
             setConfigId(cfg.id);
-            setLearningStepsStr((cfg.config.learningSteps || [1, 10]).join(' '));
-            setRelearningStepsStr((cfg.config.relearningSteps || [10]).join(' '));
+            setLearningStepsStr((merged.learningSteps || [1, 10]).join(' '));
+            setRelearningStepsStr((merged.relearningSteps || [10]).join(' '));
+            setFsrsWeightsStr(
+              Array.isArray(merged.fsrsWeights) && merged.fsrsWeights.length > 0
+                ? merged.fsrsWeights.join(', ')
+                : ''
+            );
           }
         }
       } catch {
@@ -125,32 +138,57 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Save FSRS & Review Options
-  const handleSaveConfig = async () => {
-    try {
-      setIsSaving(true);
-      const parsedLearningSteps = learningStepsStr
-        .split(/\s+/)
-        .map(Number)
-        .filter((n) => !isNaN(n) && n > 0);
+  const buildUpdatedConfigPayload = (): { ok: true; payload: DeckConfigOptions } | { ok: false; error: string } => {
+    const parsedLearningSteps = learningStepsStr
+      .split(/\s+/)
+      .map(Number)
+      .filter((n) => !isNaN(n) && n > 0);
 
-      const parsedRelearningSteps = relearningStepsStr
-        .split(/\s+/)
-        .map(Number)
-        .filter((n) => !isNaN(n) && n > 0);
+    const parsedRelearningSteps = relearningStepsStr
+      .split(/\s+/)
+      .map(Number)
+      .filter((n) => !isNaN(n) && n > 0);
 
-      const updatedConfig: DeckConfigOptions = {
+    let parsedWeights: number[] | undefined = undefined;
+    const trimmedWeights = fsrsWeightsStr.trim();
+    if (trimmedWeights.length > 0) {
+      const nums = trimmedWeights.split(/[\s,;]+/).filter(Boolean).map(Number);
+      if (nums.some((n) => !Number.isFinite(n))) {
+        return { ok: false, error: 'Os pesos FSRS devem conter apenas números válidos separados por vírgula.' };
+      }
+      if (![17, 19, 21].includes(nums.length)) {
+        return { ok: false, error: `FSRS espera 17, 19 ou 21 pesos (informado: ${nums.length}).` };
+      }
+      parsedWeights = nums;
+    }
+
+    return {
+      ok: true,
+      payload: {
         ...config,
         learningSteps: parsedLearningSteps.length > 0 ? parsedLearningSteps : [1, 10],
         relearningSteps: parsedRelearningSteps.length > 0 ? parsedRelearningSteps : [10],
-      };
+        fsrsWeights: parsedWeights ?? [],
+      },
+    };
+  };
 
+  // Save FSRS & Review Options
+  const handleSaveConfig = async () => {
+    const built = buildUpdatedConfigPayload();
+    if ('error' in built) {
+      showToast?.(built.error, 'error');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
       const targetId = configId || 'default';
       const res = await apiFetch(`/api/anki/deck-configs/${targetId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          config: updatedConfig,
+          config: built.payload,
           deckId: deck.id && !deck.id.startsWith('virtual_') ? deck.id : undefined,
         }),
       });
@@ -167,6 +205,54 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
       showToast?.('Erro de conexão ao salvar opções.', 'error');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveAndReschedule = async () => {
+    const built = buildUpdatedConfigPayload();
+    if ('error' in built) {
+      showToast?.(built.error, 'error');
+      return;
+    }
+
+    try {
+      setIsRescheduling(true);
+      const targetId = configId || 'default';
+      const saveRes = await apiFetch(`/api/anki/deck-configs/${targetId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          config: built.payload,
+          deckId: deck.id && !deck.id.startsWith('virtual_') ? deck.id : undefined,
+        }),
+      });
+      if (!saveRes.ok) {
+        const errData = await saveRes.json().catch(() => ({}));
+        showToast?.(errData.message || 'Falha ao salvar configurações antes de reagendar.', 'error');
+        return;
+      }
+
+      const res = await apiFetch(`/api/anki/deck-configs/${targetId}/reschedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deckId: deck.id && !deck.id.startsWith('virtual_') ? deck.id : undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showToast?.(
+          `Reagendamento FSRS concluído: ${data.updatedCount ?? 0} cartão(ões) atualizado(s).`,
+          'success'
+        );
+        onDeckUpdated?.();
+      } else {
+        showToast?.(data.message || 'Falha ao reagendar cartões.', 'error');
+      }
+    } catch {
+      showToast?.('Erro de conexão ao reagendar cartões.', 'error');
+    } finally {
+      setIsRescheduling(false);
     }
   };
 
@@ -283,7 +369,7 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
                 Configurações: {deck.name}
               </h2>
               <p className="text-[11px] text-zinc-400">
-                Opções de agendamento FSRS v5 e gerenciamento do baralho
+                Opções de agendamento FSRS (v5/v6) e gerenciamento do baralho
               </p>
             </div>
           </div>
@@ -334,10 +420,12 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
                 <div>
                   <div className="flex items-center gap-1.5 font-semibold text-zinc-100 text-sm">
                     <Sparkles className="w-4 h-4 text-sky-400" />
-                    <span>Algoritmo FSRS v5 (Oficial Anki)</span>
+                    <span>Algoritmo FSRS-6 (Oficial Anki)</span>
                   </div>
                   <p className="text-zinc-400 mt-0.5 text-[11px]">
-                    Utiliza a mais moderna inteligência de repetição espaçada do Anki 23.10+
+                    {config.enableFSRS
+                      ? 'Reposição espaçada moderna com estabilidade, dificuldade e curva de esquecimento'
+                      : 'Desativado: usando algoritmo clássico SM-2 com fator de facilidade'}
                   </p>
                 </div>
                 <input
@@ -348,33 +436,101 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
                 />
               </div>
 
-              {/* Desired Retention */}
-              <div>
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="font-semibold text-zinc-300">
-                    Retenção Desejada (FSRS Target)
-                  </label>
-                  <span className="font-mono text-sky-400 font-bold text-sm">
-                    {Math.round(config.desiredRetention * 100)}%
-                  </span>
+              {config.enableFSRS ? (
+                /* Desired Retention */
+                <div>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className="font-semibold text-zinc-300">
+                      Retenção Desejada (FSRS Target)
+                    </label>
+                    <span className="font-mono text-sky-400 font-bold text-sm">
+                      {Math.round(config.desiredRetention * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.70"
+                    max="0.97"
+                    step="0.01"
+                    value={config.desiredRetention}
+                    onChange={(e) =>
+                      setConfig({ ...config, desiredRetention: parseFloat(e.target.value) })
+                    }
+                    className="w-full accent-sky-400 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
+                    <span>70% (menos revisões)</span>
+                    <span>90% (recomendado)</span>
+                    <span>97% (máxima retenção)</span>
+                  </div>
                 </div>
-                <input
-                  type="range"
-                  min="0.70"
-                  max="0.97"
-                  step="0.01"
-                  value={config.desiredRetention}
-                  onChange={(e) =>
-                    setConfig({ ...config, desiredRetention: parseFloat(e.target.value) })
-                  }
-                  className="w-full accent-sky-400 cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
-                  <span>70% (menos revisões)</span>
-                  <span>90% (recomendado)</span>
-                  <span>97% (máxima retenção)</span>
+              ) : (
+                /* Classic SM-2 Controls */
+                <div className="grid grid-cols-2 gap-3 p-3.5 bg-zinc-950 border border-zinc-800 rounded-xl">
+                  <div>
+                    <label className="block font-semibold text-zinc-300 mb-1">
+                      Intervalo de graduação (dias)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      value={config.graduatingInterval}
+                      onChange={(e) =>
+                        setConfig({ ...config, graduatingInterval: parseInt(e.target.value, 10) || 1 })
+                      }
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-zinc-200 font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-zinc-300 mb-1">
+                      Intervalo Fácil (dias)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      value={config.easyInterval}
+                      onChange={(e) =>
+                        setConfig({ ...config, easyInterval: parseInt(e.target.value, 10) || 4 })
+                      }
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-zinc-200 font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-zinc-300 mb-1">
+                      Facilidade inicial (Ease)
+                    </label>
+                    <input
+                      type="number"
+                      min="1.3"
+                      max="5.0"
+                      step="0.1"
+                      value={config.startingEase}
+                      onChange={(e) =>
+                        setConfig({ ...config, startingEase: parseFloat(e.target.value) || 2.5 })
+                      }
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-zinc-200 font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-zinc-300 mb-1">
+                      Bônus Fácil (Easy Bonus)
+                    </label>
+                    <input
+                      type="number"
+                      min="1.0"
+                      max="3.0"
+                      step="0.1"
+                      value={config.easyBonus}
+                      onChange={(e) =>
+                        setConfig({ ...config, easyBonus: parseFloat(e.target.value) || 1.3 })
+                      }
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-zinc-200 font-mono text-xs"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Daily Limits */}
               <div className="grid grid-cols-2 gap-4">
@@ -467,6 +623,61 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
                   </span>
                 </label>
               </div>
+
+              {config.enableFSRS && (
+                <div className="pt-2 border-t border-zinc-800 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvancedFSRS((prev) => !prev)}
+                      className="text-xs font-semibold text-sky-400 hover:text-sky-300 transition-colors"
+                    >
+                      {showAdvancedFSRS ? 'Ocultar parâmetros avançados FSRS' : 'Parâmetros avançados FSRS (pesos w)'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveAndReschedule()}
+                      disabled={isRescheduling || isSaving}
+                      className="px-3 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 font-semibold text-[11px] flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                      title="Recalcula estabilidade, dificuldade e próximas revisões dos cartões já estudados"
+                    >
+                      <RotateCcw className={`w-3.5 h-3.5 ${isRescheduling ? 'animate-spin' : ''}`} />
+                      <span>{isRescheduling ? 'Reagendando...' : 'Reagendar cartões'}</span>
+                    </button>
+                  </div>
+
+                  {showAdvancedFSRS && (
+                    <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="font-semibold text-zinc-300 text-[11px]">
+                          Pesos FSRS (17, 19 ou 21 parâmetros separados por vírgula)
+                        </label>
+                        {defaultFsrsWeights.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setFsrsWeightsStr('')}
+                            className="text-[10px] text-amber-400 hover:text-amber-300"
+                          >
+                            Usar padrão FSRS-6
+                          </button>
+                        )}
+                      </div>
+                      <textarea
+                        rows={2}
+                        value={fsrsWeightsStr}
+                        onChange={(e) => setFsrsWeightsStr(e.target.value)}
+                        placeholder={
+                          defaultFsrsWeights.length > 0
+                            ? `Padrão ativo (${defaultFsrsWeights.length} pesos): ${defaultFsrsWeights.slice(0, 6).join(', ')}...`
+                            : 'Deixe vazio para usar os pesos oficiais padrão do FSRS-6'
+                        }
+                        className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-[11px] font-mono text-zinc-200 focus:outline-none focus:border-sky-500"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           ) : (
             <>

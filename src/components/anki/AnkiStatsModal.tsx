@@ -151,6 +151,41 @@ export const AnkiStatsModal: React.FC<AnkiStatsModalProps> = ({
                 </div>
               </div>
 
+              {/* FSRS Memory Health */}
+              {stats.fsrsSummary && stats.fsrsSummary.reviewedCards > 0 && (
+                <div className="bg-zinc-950 border border-sky-500/20 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <TrendingUp className="w-4 h-4" />
+                      <span>Saúde da Memória FSRS</span>
+                    </h3>
+                    <span className="text-[11px] font-mono text-zinc-500">
+                      {stats.fsrsSummary.reviewedCards} cartão(ões) com histórico
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 text-center text-xs">
+                    <div className="p-3 rounded-lg bg-zinc-900 border border-zinc-800">
+                      <span className="text-lg font-bold font-mono text-emerald-400 block">
+                        {stats.fsrsSummary.avgRetrievabilityPercent}%
+                      </span>
+                      <span className="text-zinc-400">Retenção Média Estimada</span>
+                    </div>
+                    <div className="p-3 rounded-lg bg-zinc-900 border border-zinc-800">
+                      <span className="text-lg font-bold font-mono text-sky-400 block">
+                        {stats.fsrsSummary.avgStabilityDays}d
+                      </span>
+                      <span className="text-zinc-400">Estabilidade Média (S)</span>
+                    </div>
+                    <div className="p-3 rounded-lg bg-zinc-900 border border-zinc-800">
+                      <span className="text-lg font-bold font-mono text-amber-400 block">
+                        {stats.fsrsSummary.avgDifficulty}/10
+                      </span>
+                      <span className="text-zinc-400">Dificuldade Média (D)</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Cards Breakdown by State */}
               <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
                 <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3">

@@ -32,7 +32,7 @@ import {
   FlashcardImportance,
   Rating,
 } from '../services/anki/ankiTypes';
-import { AnkiScheduler } from '../services/anki/ankiScheduler';
+import { AnkiScheduler, parseFsrsWeights } from '../services/anki/ankiScheduler';
 import { AnkiRenderer } from '../services/anki/ankiRenderer';
 import { AnkiSearch } from '../services/anki/ankiSearch';
 import { calculateCardPriority, normalizeImportance } from '../services/anki/ankiImportance';
@@ -55,11 +55,13 @@ export class AnkiRepository {
     `).get(userId) as any;
 
     if (existing) {
+      let parsed: Partial<DeckConfigOptions> = {};
+      try { parsed = JSON.parse(existing.config_json); } catch {}
       return {
         id: existing.id,
         userId: existing.user_id,
         name: existing.name,
-        config: JSON.parse(existing.config_json),
+        config: { ...DEFAULT_DECK_CONFIG, ...parsed },
         createdAt: existing.created_at,
         updatedAt: existing.updated_at,
       };
@@ -90,14 +92,26 @@ export class AnkiRepository {
         SELECT * FROM anki_deck_configs WHERE user_id = ? AND id = ?
       `).get(userId, configId) as any;
       if (existing) {
+        let parsed: Partial<DeckConfigOptions> = {};
+        try { parsed = JSON.parse(existing.config_json); } catch {}
         return {
           id: existing.id,
           userId: existing.user_id,
           name: existing.name,
-          config: JSON.parse(existing.config_json),
+          config: { ...DEFAULT_DECK_CONFIG, ...parsed },
           createdAt: existing.created_at,
           updatedAt: existing.updated_at,
         };
+      }
+    }
+    return this.ensureDefaultDeckConfig(userId);
+  }
+
+  public getDeckConfigForDeck(userId: string, deckId?: string): AnkiDeckConfig {
+    if (deckId && !deckId.startsWith('virtual_')) {
+      const deck = this.getDeck(userId, deckId);
+      if (deck?.configId) {
+        return this.getDeckConfig(userId, deck.configId);
       }
     }
     return this.ensureDefaultDeckConfig(userId);
@@ -145,6 +159,37 @@ export class AnkiRepository {
     }
     if (updatedOptions.enableFSRS !== undefined) {
       updatedOptions.enableFSRS = Boolean(updatedOptions.enableFSRS);
+    }
+    if (typeof updatedOptions.graduatingInterval === 'number') {
+      updatedOptions.graduatingInterval = Math.max(1, Math.min(365, Math.round(Number(updatedOptions.graduatingInterval) || 1)));
+    }
+    if (typeof updatedOptions.easyInterval === 'number') {
+      updatedOptions.easyInterval = Math.max(1, Math.min(365, Math.round(Number(updatedOptions.easyInterval) || 4)));
+    }
+    if (typeof updatedOptions.startingEase === 'number') {
+      updatedOptions.startingEase = Math.max(1.3, Math.min(5.0, Number(updatedOptions.startingEase) || 2.5));
+    }
+    if (typeof updatedOptions.easyBonus === 'number') {
+      updatedOptions.easyBonus = Math.max(1.0, Math.min(3.0, Number(updatedOptions.easyBonus) || 1.3));
+    }
+    if (typeof updatedOptions.intervalModifier === 'number') {
+      updatedOptions.intervalModifier = Math.max(0.5, Math.min(2.0, Number(updatedOptions.intervalModifier) || 1.0));
+    }
+    if (typeof updatedOptions.maximumInterval === 'number') {
+      updatedOptions.maximumInterval = Math.max(1, Math.min(36500, Math.round(Number(updatedOptions.maximumInterval) || 36500)));
+    }
+    if ('fsrsWeights' in options) {
+      const parsedWeights = parseFsrsWeights(options.fsrsWeights);
+      if ('error' in parsedWeights) {
+        const err = new Error(parsedWeights.error) as Error & { code?: string };
+        err.code = 'INVALID_FSRS_WEIGHTS';
+        throw err;
+      }
+      if (parsedWeights.weights) {
+        updatedOptions.fsrsWeights = parsedWeights.weights;
+      } else {
+        delete updatedOptions.fsrsWeights;
+      }
     }
 
     const now = new Date().toISOString();
@@ -1055,6 +1100,7 @@ export class AnkiRepository {
       easeFactor: row.ease_factor,
       reps: row.reps,
       lapses: row.lapses,
+      learningSteps: Number(row.learning_steps ?? 0),
       difficulty: row.difficulty,
       stability: row.stability,
       lastReviewAt: row.last_review_at,
@@ -1161,66 +1207,156 @@ export class AnkiRepository {
     const card = this.getCard(userId, cardId);
     if (!card) throw new Error('CARD_NOT_FOUND');
 
-    // Get deck config
-    const deck = this.getDeck(userId, card.deckId);
-    let config = DEFAULT_DECK_CONFIG;
-
-    if (deck?.configId) {
-      const cfgRow = this.db.prepare(`SELECT config_json FROM anki_deck_configs WHERE user_id = ? AND id = ?`).get(userId, deck.configId) as any;
-      if (cfgRow) {
-        try { config = JSON.parse(cfgRow.config_json); } catch {}
-      }
-    }
-
-    const scheduler = new AnkiScheduler(config);
+    const deckConfig = this.getDeckConfigForDeck(userId, card.deckId);
+    const scheduler = new AnkiScheduler(deckConfig.config);
     const now = new Date();
     const { updatedCard, revlog } = scheduler.rateCard(card, rating, now, elapsedTimeMs);
     const revlogId = crypto.randomUUID();
 
-    // Persist card and revlog
-    this.db.prepare(`
-      UPDATE anki_cards
-      SET queue = ?, card_type = ?, due = ?, interval_days = ?, ease_factor = ?,
-          reps = ?, lapses = ?, difficulty = ?, stability = ?, last_review_at = ?, updated_at = ?
-      WHERE user_id = ? AND id = ?
-    `).run(
-      updatedCard.queue,
-      updatedCard.cardType,
-      updatedCard.due,
-      updatedCard.intervalDays,
-      updatedCard.easeFactor,
-      updatedCard.reps,
-      updatedCard.lapses,
-      updatedCard.difficulty,
-      updatedCard.stability,
-      updatedCard.lastReviewAt,
-      updatedCard.updatedAt,
-      userId,
-      cardId
-    );
+    // Persist card and revlog atomically
+    this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+    try {
+      this.db.prepare(`
+        UPDATE anki_cards
+        SET queue = ?, card_type = ?, due = ?, interval_days = ?, ease_factor = ?,
+            reps = ?, lapses = ?, learning_steps = ?, difficulty = ?, stability = ?, last_review_at = ?, updated_at = ?
+        WHERE user_id = ? AND id = ?
+      `).run(
+        updatedCard.queue,
+        updatedCard.cardType,
+        updatedCard.due,
+        updatedCard.intervalDays,
+        updatedCard.easeFactor,
+        updatedCard.reps,
+        updatedCard.lapses,
+        updatedCard.learningSteps ?? 0,
+        updatedCard.difficulty,
+        updatedCard.stability,
+        updatedCard.lastReviewAt,
+        updatedCard.updatedAt,
+        userId,
+        cardId
+      );
 
-    this.db.prepare(`
-      INSERT INTO anki_revlog (
-        id, user_id, card_id, rating, reviewed_at, elapsed_time_ms,
-        previous_interval, new_interval, previous_state, review_type
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      revlogId,
-      userId,
-      cardId,
-      revlog.rating,
-      revlog.reviewedAt,
-      revlog.elapsedTimeMs,
-      revlog.previousInterval,
-      revlog.newInterval,
-      JSON.stringify(revlog.previousState),
-      revlog.reviewType
-    );
+      this.db.prepare(`
+        INSERT INTO anki_revlog (
+          id, user_id, card_id, rating, reviewed_at, elapsed_time_ms,
+          previous_interval, new_interval, previous_state, review_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        revlogId,
+        userId,
+        cardId,
+        revlog.rating,
+        revlog.reviewedAt,
+        revlog.elapsedTimeMs,
+        revlog.previousInterval,
+        revlog.newInterval,
+        JSON.stringify(revlog.previousState),
+        revlog.reviewType
+      );
+      this.db.exec('COMMIT;');
+    } catch (err) {
+      try { this.db.exec('ROLLBACK;'); } catch {}
+      throw err;
+    }
 
     return {
       updatedCard,
       revlog: { ...revlog, id: revlogId },
     };
+  }
+
+  public rescheduleCardsForConfig(
+    userId: string,
+    configId: string,
+    deckId?: string
+  ): { updatedCount: number } {
+    const deckConfig = this.getDeckConfig(userId, configId);
+    const scheduler = new AnkiScheduler(deckConfig.config);
+    if (deckConfig.config.enableFSRS === false) {
+      return { updatedCount: 0 };
+    }
+
+    let targetDeckIds: string[] = [];
+    if (deckId && !deckId.startsWith('virtual_')) {
+      const deck = this.getDeck(userId, deckId);
+      if (!deck) throw new Error('DECK_NOT_FOUND');
+      targetDeckIds = this.getDescendantDeckIds(userId, deckId);
+    } else if (deckId && deckId.startsWith('virtual_')) {
+      const prefix = deckId.replace(/^virtual_/, '');
+      const matching = this.listDecks(userId).filter(
+        (d) => d.name === prefix || d.name.startsWith(`${prefix}::`)
+      );
+      targetDeckIds = matching.map((d) => d.id);
+    } else {
+      const defaultCfg = this.ensureDefaultDeckConfig(userId);
+      const isDefault = deckConfig.id === defaultCfg.id;
+      const matching = this.listDecks(userId).filter((d) =>
+        isDefault ? !d.configId || d.configId === deckConfig.id : d.configId === deckConfig.id
+      );
+      targetDeckIds = matching.map((d) => d.id);
+    }
+
+    if (targetDeckIds.length === 0) {
+      return { updatedCount: 0 };
+    }
+
+    const cards = this.getCardsByDeckIds(userId, targetDeckIds).filter((c) => c.reps > 0);
+    if (cards.length === 0) {
+      return { updatedCount: 0 };
+    }
+
+    const now = new Date();
+    let updatedCount = 0;
+
+    this.db.exec('BEGIN IMMEDIATE TRANSACTION;');
+    try {
+      const revlogStmt = this.db.prepare(`
+        SELECT rating, reviewed_at FROM anki_revlog
+        WHERE user_id = ? AND card_id = ?
+        ORDER BY reviewed_at ASC
+      `);
+      const updateStmt = this.db.prepare(`
+        UPDATE anki_cards
+        SET queue = ?, card_type = ?, due = ?, interval_days = ?,
+            difficulty = ?, stability = ?, learning_steps = ?, reps = ?, lapses = ?,
+            last_review_at = ?, updated_at = ?
+        WHERE user_id = ? AND id = ?
+      `);
+
+      for (const card of cards) {
+        const revlogs = (revlogStmt.all(userId, card.id) as any[]).map((r) => ({
+          rating: Number(r.rating) as Rating,
+          reviewedAt: String(r.reviewed_at),
+        }));
+        const rescheduled = scheduler.rescheduleFromHistory(card, revlogs, now);
+        if (!rescheduled) continue;
+
+        updateStmt.run(
+          rescheduled.queue,
+          rescheduled.cardType,
+          rescheduled.due,
+          rescheduled.intervalDays,
+          rescheduled.difficulty,
+          rescheduled.stability,
+          rescheduled.learningSteps ?? 0,
+          rescheduled.reps,
+          rescheduled.lapses,
+          rescheduled.lastReviewAt ?? null,
+          rescheduled.updatedAt,
+          userId,
+          card.id
+        );
+        updatedCount++;
+      }
+      this.db.exec('COMMIT;');
+    } catch (err) {
+      try { this.db.exec('ROLLBACK;'); } catch {}
+      throw err;
+    }
+
+    return { updatedCount };
   }
 
   public undoLastReview(userId: string, cardId?: string): { revertedCard: AnkiCard } | null {
@@ -1245,7 +1381,7 @@ export class AnkiRepository {
     this.db.prepare(`
       UPDATE anki_cards
       SET queue = ?, card_type = ?, due = ?, interval_days = ?, ease_factor = ?,
-          reps = ?, lapses = ?, difficulty = ?, stability = ?, last_review_at = ?, updated_at = ?
+          reps = ?, lapses = ?, learning_steps = ?, difficulty = ?, stability = ?, last_review_at = ?, updated_at = ?
       WHERE user_id = ? AND id = ?
     `).run(
       previousState.queue,
@@ -1255,6 +1391,7 @@ export class AnkiRepository {
       previousState.easeFactor,
       previousState.reps,
       previousState.lapses,
+      previousState.learningSteps ?? 0,
       previousState.difficulty,
       previousState.stability,
       previousState.lastReviewAt,
@@ -1539,20 +1676,37 @@ export class AnkiRepository {
   // =========================================================================
 
   public getStatsSummary(userId: string, deckId?: string): AnkiStatsSummary {
-    const todayEpochDays = Math.floor(Date.now() / 86400000);
-    const todayIso = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const todayEpochDays = Math.floor(now.getTime() / 86400000);
+    const todayIso = now.toISOString().split('T')[0];
 
     let cardWhere = `WHERE c.user_id = ?`;
     const cardParams: any[] = [userId];
+    let targetDeckIds: string[] | null = null;
     if (deckId) {
-      cardWhere += ` AND c.deck_id = ?`;
-      cardParams.push(deckId);
+      if (deckId.startsWith('virtual_')) {
+        const prefix = deckId.replace(/^virtual_/, '');
+        targetDeckIds = this.listDecks(userId)
+          .filter((d) => d.name === prefix || d.name.startsWith(`${prefix}::`))
+          .map((d) => d.id);
+      } else {
+        targetDeckIds = this.getDescendantDeckIds(userId, deckId);
+      }
+
+      if (targetDeckIds.length === 0) {
+        cardWhere += ` AND 1 = 0`;
+      } else {
+        const placeholders = targetDeckIds.map(() => '?').join(', ');
+        cardWhere += ` AND c.deck_id IN (${placeholders})`;
+        cardParams.push(...targetDeckIds);
+      }
     }
 
     const cards = this.db.prepare(`
-      SELECT c.*, n.importance
+      SELECT c.*, n.fields_json, n.tags, n.notetype_id, n.importance, d.name as deck_name
       FROM anki_cards c
       JOIN anki_notes n ON n.id = c.note_id AND n.user_id = c.user_id
+      JOIN anki_decks d ON d.id = c.deck_id AND d.user_id = c.user_id
       ${cardWhere}
     `).all(...cardParams) as any[];
 
@@ -1574,6 +1728,12 @@ export class AnkiRepository {
     };
 
     const futureMap = new Map<number, number>();
+    const statsConfig = this.getDeckConfigForDeck(userId, deckId);
+    const fsrsScheduler = new AnkiScheduler(statsConfig.config);
+    let fsrsReviewedCards = 0;
+    let stabilitySum = 0;
+    let difficultySum = 0;
+    let retrievabilitySum = 0;
 
     for (const c of cards) {
       const imp = normalizeImportance(c.importance);
@@ -1595,12 +1755,35 @@ export class AnkiRepository {
           futureMap.set(offset, (futureMap.get(offset) || 0) + 1);
         }
       }
+
+      if (Number(c.stability || 0) > 0 && c.last_review_at) {
+        const mem = fsrsScheduler.getMemoryState(this.mapCard(c), now);
+        if (mem) {
+          fsrsReviewedCards++;
+          stabilitySum += mem.stability;
+          difficultySum += mem.difficulty;
+          retrievabilitySum += mem.retrievability;
+        }
+      }
     }
 
     // Revlog statistics (today and ratings breakdown)
-    const revlogs = this.db.prepare(`
-      SELECT * FROM anki_revlog WHERE user_id = ?
-    `).all(userId) as any[];
+    let revlogs: any[] = [];
+    if (targetDeckIds) {
+      if (targetDeckIds.length > 0) {
+        const placeholders = targetDeckIds.map(() => '?').join(', ');
+        revlogs = this.db.prepare(`
+          SELECT r.*
+          FROM anki_revlog r
+          JOIN anki_cards c ON c.id = r.card_id AND c.user_id = r.user_id
+          WHERE r.user_id = ? AND c.deck_id IN (${placeholders})
+        `).all(userId, ...targetDeckIds) as any[];
+      }
+    } else {
+      revlogs = this.db.prepare(`
+        SELECT * FROM anki_revlog WHERE user_id = ?
+      `).all(userId) as any[];
+    }
 
     let reviewsToday = 0;
     let timeSpentTodayMs = 0;
@@ -1675,6 +1858,12 @@ export class AnkiRepository {
         { intervalRange: '60d+', count: cards.filter(c => c.interval_days > 60).length },
       ],
       studyHeatmap,
+      fsrsSummary: {
+        reviewedCards: fsrsReviewedCards,
+        avgStabilityDays: fsrsReviewedCards > 0 ? Number((stabilitySum / fsrsReviewedCards).toFixed(1)) : 0,
+        avgDifficulty: fsrsReviewedCards > 0 ? Number((difficultySum / fsrsReviewedCards).toFixed(2)) : 0,
+        avgRetrievabilityPercent: fsrsReviewedCards > 0 ? Math.round((retrievabilitySum / fsrsReviewedCards) * 100) : 0,
+      },
     };
   }
 

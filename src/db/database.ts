@@ -1750,6 +1750,13 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_sessions_token_hash;
     `,
   },
+  {
+    id: 41,
+    name: '041_anki_learning_steps',
+    sql: `
+      ALTER TABLE anki_cards ADD COLUMN learning_steps INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 
