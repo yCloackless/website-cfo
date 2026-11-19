@@ -1265,7 +1265,7 @@ export class PasswordResetRepository {
     this.db
       .prepare(
         `INSERT INTO password_resets (id, user_id, code_hash, expires_at, is_used, failed_attempts, created_at)
-         VALUES (?, ?, ?, ?, 0, 0, ?)`
+         VALUES (?, ?, ?, ?, FALSE, 0, ?)`
       )
       .run(id, userId, codeHash, expiresAt, createdAt);
 

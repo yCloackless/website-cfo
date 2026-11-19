@@ -1739,6 +1739,17 @@ export const MIGRATIONS: Migration[] = [
       CREATE UNIQUE INDEX IF NOT EXISTS idx_user_simulations_legacy_dedup ON user_simulations(user_id, client_legacy_id);
     `,
   },
+  {
+    id: 40,
+    name: '040_remove_duplicate_unique_indexes',
+    sql: `
+      DROP INDEX IF EXISTS idx_activation_tokens_hash;
+      DROP INDEX IF EXISTS idx_recovery_codes_hash;
+      DROP INDEX IF EXISTS idx_orders_public_id;
+      DROP INDEX IF EXISTS idx_privacy_requests_code;
+      DROP INDEX IF EXISTS idx_sessions_token_hash;
+    `,
+  },
 ];
 
 

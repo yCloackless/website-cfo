@@ -28,6 +28,7 @@ Nenhum sistema publico pode prometer risco zero. Este projeto usa defesa em prof
 - Erros enviados ao navegador nao incluem mensagem interna, stack trace, caminho de arquivo ou erro SQL.
 - Subprocessos Python recebem somente variaveis operacionais; secrets do processo Node nao sao repassados.
 - Uploads validam tipo, MIME, extensao, assinatura, dimensoes, EOF/estrutura e limite de 200 paginas em PDF, alem de propriedade. O container executa como usuario `node`, nao como root.
+- Em producao, um arquivo so e liberado depois de resposta limpa do ClamAV. Se o scanner nao estiver configurado ou ficar indisponivel, o arquivo e rejeitado e permanece em quarentena; a verificacao heuristica nao libera uploads de producao.
 - Tokens da extensao possuem escopo restrito as rotas de cronometro e sincronizacao de nivelamento, sem herdar privilegios administrativos.
 - Health/readiness/version recebem headers de seguranca e rate limit antes das rotas; excesso de requisicoes simultaneas falha cedo com 503.
 - PostgreSQL nao e publicado pela aplicacao; no Docker local ele escuta somente em `127.0.0.1`.
