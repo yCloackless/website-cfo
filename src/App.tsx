@@ -108,8 +108,9 @@ export default function App() {
 
   // Active Tab derivado diretamente da URL
   const activeTab = useMemo<TabType>(() => {
-    if (location.pathname.startsWith('/banco-de-provas')) return 'examBank';
-    return ROUTE_TAB_MAP[location.pathname] || 'table';
+    const cleanPath = location.pathname.replace(/\/+$/, '') || '/';
+    if (cleanPath.startsWith('/banco-de-provas')) return 'examBank';
+    return ROUTE_TAB_MAP[cleanPath] || 'table';
   }, [location.pathname]);
 
   const handleSelectTab = useCallback((tab: TabType) => {
@@ -177,13 +178,12 @@ export default function App() {
     [notifications]
   );
 
+  const isAdminOrSupportRole = userProfile?.role === 'admin' || userProfile?.role === 'support';
+
   const fetchNotifications = useCallback(async () => {
-    const token = localStorage.getItem('cfo_terminal_session');
-    if (!token) return;
+    if (!isAdminOrSupportRole) return [] as NotificationItem[];
     try {
-      const res = await fetch('/api/admin/notifications', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await apiFetch('/api/admin/notifications');
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.items)) {
@@ -198,82 +198,76 @@ export default function App() {
       }
     } catch (_) {}
     return [] as NotificationItem[];
-  }, []);
+  }, [isAdminOrSupportRole]);
 
   const handleMarkNotificationAsRead = useCallback(async (id: string) => {
-    const token = localStorage.getItem('cfo_terminal_session');
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
     setActiveAlertPopup((current) => (current?.id === id ? null : current));
-    if (!token) return;
+    if (!isAdminOrSupportRole) return;
     try {
-      await fetch(`/api/admin/notifications/${id}/read`, {
+      await apiFetch(`/api/admin/notifications/${id}/read`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
       });
     } catch (_) {}
-  }, []);
+  }, [isAdminOrSupportRole]);
 
   const handleMarkAllNotificationsAsRead = useCallback(async () => {
-    const token = localStorage.getItem('cfo_terminal_session');
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     setActiveAlertPopup(null);
-    if (!token) return;
+    if (!isAdminOrSupportRole) return;
     try {
-      await fetch('/api/admin/notifications/read-all', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      await apiFetch('/api/admin/notifications/read-all', { method: 'POST' });
     } catch (_) {
       fetchNotifications();
     }
-  }, [fetchNotifications]);
+  }, [fetchNotifications, isAdminOrSupportRole]);
 
   useEffect(() => {
-    if (isTerminalUnlocked) {
+    if (isTerminalUnlocked && isAdminOrSupportRole) {
       fetchNotifications();
 
-      const token = localStorage.getItem('cfo_terminal_session');
-      if (token) {
-        const abortController = new AbortController();
-        let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-        const connect = async () => {
-          try {
-            const response = await fetch('/api/admin/realtime/stream', {
-              headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
-              signal: abortController.signal,
-            });
-            if (!response.ok || !response.body) return;
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            while (!abortController.signal.aborted) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              buffer += decoder.decode(value, { stream: true });
-              const events = buffer.split('\n\n');
-              buffer = events.pop() || '';
-              for (const event of events) {
-                const dataLine = event.split('\n').find((line) => line.startsWith('data:'));
-                if (!dataLine) continue;
-                const payload = JSON.parse(dataLine.slice(5).trim());
-                if (payload.type !== 'SECURITY_ALERT' || !payload.data?.notificationId) continue;
-                const latest = await fetchNotifications();
-                const alert = latest.find((item) => item.id === payload.data.notificationId) || null;
-                if (alert) setActiveAlertPopup(alert);
-              }
+      const abortController = new AbortController();
+      let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+      const connect = async () => {
+        try {
+          const response = await apiFetch('/api/admin/realtime/stream', {
+            headers: { Accept: 'text/event-stream' },
+            signal: abortController.signal,
+          });
+          if (!response.ok || !response.body) return;
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          while (!abortController.signal.aborted) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const events = buffer.split('\n\n');
+            buffer = events.pop() || '';
+            for (const event of events) {
+              const dataLine = event.split('\n').find((line) => line.startsWith('data:'));
+              if (!dataLine) continue;
+              const payload = JSON.parse(dataLine.slice(5).trim());
+              if (payload.type !== 'SECURITY_ALERT' || !payload.data?.notificationId) continue;
+              const latest = await fetchNotifications();
+              const alert = latest.find((item) => item.id === payload.data.notificationId) || null;
+              if (alert) setActiveAlertPopup(alert);
             }
-          } catch (_) {
-            // The server revalidates the session on every broadcast; retry only while mounted.
           }
-          if (!abortController.signal.aborted) {
-            reconnectTimer = setTimeout(connect, 2000);
-          }
-        };
-        connect();
-        return () => {
-          abortController.abort();
-          if (reconnectTimer) clearTimeout(reconnectTimer);
-        };
-      }
+        } catch (_) {
+          // The server revalidates the session on every broadcast; retry only while mounted.
+        }
+        if (!abortController.signal.aborted) {
+          reconnectTimer = setTimeout(connect, 2000);
+        }
+      };
+      connect();
+      return () => {
+        abortController.abort();
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+      };
     }
-  }, [isTerminalUnlocked, fetchNotifications]);
+  }, [isTerminalUnlocked, isAdminOrSupportRole, fetchNotifications]);
 
   // 🧭 Estado do Menu Lateral de Abas Táticas (expandido, recolhido ou oculto)
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
@@ -400,12 +394,8 @@ export default function App() {
   // Carrega perfil autenticado do aluno
   useEffect(() => {
     if (!isTerminalUnlocked || !isPersistentStateReady) return;
-    const token = localStorage.getItem('cfo_terminal_session');
-    if (!token) return;
     let isMounted = true;
-    fetch('/api/user/profile', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    apiFetch('/api/user/profile')
       .then((res) => res.json())
       .then((data) => {
         if (isMounted && data.success && data.user) {
@@ -425,16 +415,18 @@ export default function App() {
   const [isReconnecting, setIsReconnecting] = useState(false);
 
   useEffect(() => {
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     const handleOnline = () => {
       setIsOnline(true);
       setIsReconnecting(true);
-      const timer = setTimeout(() => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(() => {
         setIsReconnecting(false);
       }, 4000);
-      return () => clearTimeout(timer);
     };
 
     const handleOffline = () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       setIsOnline(false);
       setIsReconnecting(false);
     };
@@ -443,6 +435,7 @@ export default function App() {
     window.addEventListener('offline', handleOffline);
 
     return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
