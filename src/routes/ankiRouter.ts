@@ -282,6 +282,10 @@ export function createAnkiRouter(requireAuthMiddleware: any, repoFactory?: () =>
       const configId = req.params.id;
       const { config, name, deckId } = req.body || {};
 
+      if (config !== undefined && (typeof config !== 'object' || config === null || Array.isArray(config))) {
+        return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'Opções de configuração inválidas.' });
+      }
+
       const updated = repo.updateDeckConfig(user.userId, configId, config || {}, name);
 
       if (deckId && typeof deckId === 'string' && !deckId.startsWith('virtual_')) {

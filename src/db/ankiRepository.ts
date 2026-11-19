@@ -180,8 +180,9 @@ export class AnkiRepository {
     }
     if ('fsrsWeights' in options) {
       const parsedWeights = parseFsrsWeights(options.fsrsWeights);
-      if ('error' in parsedWeights) {
-        const err = new Error(parsedWeights.error) as Error & { code?: string };
+      if (!parsedWeights.valid) {
+        const msg = (parsedWeights as { valid: false; error: string }).error;
+        const err = new Error(msg) as Error & { code?: string };
         err.code = 'INVALID_FSRS_WEIGHTS';
         throw err;
       }
@@ -1703,10 +1704,9 @@ export class AnkiRepository {
     }
 
     const cards = this.db.prepare(`
-      SELECT c.*, n.fields_json, n.tags, n.notetype_id, n.importance, d.name as deck_name
+      SELECT c.*, n.importance
       FROM anki_cards c
       JOIN anki_notes n ON n.id = c.note_id AND n.user_id = c.user_id
-      JOIN anki_decks d ON d.id = c.deck_id AND d.user_id = c.user_id
       ${cardWhere}
     `).all(...cardParams) as any[];
 

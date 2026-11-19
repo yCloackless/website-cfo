@@ -98,6 +98,13 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
+    // Reset stale config state when opening or switching decks
+    setConfigId('default');
+    setConfig(DEFAULT_DECK_CONFIG);
+    setLearningStepsStr((DEFAULT_DECK_CONFIG.learningSteps || [1, 10]).join(' '));
+    setRelearningStepsStr((DEFAULT_DECK_CONFIG.relearningSteps || [10]).join(' '));
+    setFsrsWeightsStr('');
+
     let isMounted = true;
     const fetchConfig = async () => {
       try {
@@ -138,7 +145,7 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
 
   if (!isOpen) return null;
 
-  const buildUpdatedConfigPayload = (): { ok: true; payload: DeckConfigOptions } | { ok: false; error: string } => {
+  const buildUpdatedConfigPayload = (): { ok: boolean; payload?: DeckConfigOptions; error?: string } => {
     const parsedLearningSteps = learningStepsStr
       .split(/\s+/)
       .map(Number)
@@ -176,8 +183,8 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
   // Save FSRS & Review Options
   const handleSaveConfig = async () => {
     const built = buildUpdatedConfigPayload();
-    if ('error' in built) {
-      showToast?.(built.error, 'error');
+    if (!built.ok || !built.payload) {
+      showToast?.(built.error || 'Configuração inválida.', 'error');
       return;
     }
 
@@ -198,7 +205,7 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
         onDeckUpdated?.();
         onClose();
       } else {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         showToast?.(data.message || 'Falha ao salvar configurações.', 'error');
       }
     } catch {
@@ -208,10 +215,21 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
     }
   };
 
+  const isVirtualDeck = Boolean(deck.id && deck.id.startsWith('virtual_'));
+
   const handleSaveAndReschedule = async () => {
+    if (isVirtualDeck) {
+      showToast?.('Selecione um baralho real para reagendar cartões.', 'error');
+      return;
+    }
+
     const built = buildUpdatedConfigPayload();
-    if ('error' in built) {
-      showToast?.(built.error, 'error');
+    if (!built.ok || !built.payload) {
+      showToast?.(built.error || 'Configuração inválida.', 'error');
+      return;
+    }
+
+    if (!window.confirm('Deseja salvar as configurações FSRS e recalcular estabilidade, dificuldade e próximas revisões de todos os cartões já estudados deste baralho?')) {
       return;
     }
 
@@ -357,6 +375,9 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="anki-deck-options-title"
         className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
@@ -365,7 +386,7 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
           <div className="flex items-center gap-2 min-w-0">
             <Sliders className="w-5 h-5 text-amber-400 shrink-0" />
             <div className="min-w-0">
-              <h2 className="text-sm sm:text-base font-semibold text-zinc-100 truncate">
+              <h2 id="anki-deck-options-title" className="text-sm sm:text-base font-semibold text-zinc-100 truncate">
                 Configurações: {deck.name}
               </h2>
               <p className="text-[11px] text-zinc-400">
@@ -417,7 +438,7 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
             <>
               {/* FSRS Toggle */}
               <div className="flex items-center justify-between p-3.5 bg-zinc-950 border border-zinc-800 rounded-xl">
-                <div>
+                <label htmlFor="anki-enable-fsrs" className="cursor-pointer flex-1 pr-3">
                   <div className="flex items-center gap-1.5 font-semibold text-zinc-100 text-sm">
                     <Sparkles className="w-4 h-4 text-sky-400" />
                     <span>Algoritmo FSRS-6 (Oficial Anki)</span>
@@ -427,8 +448,9 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
                       ? 'Reposição espaçada moderna com estabilidade, dificuldade e curva de esquecimento'
                       : 'Desativado: usando algoritmo clássico SM-2 com fator de facilidade'}
                   </p>
-                </div>
+                </label>
                 <input
+                  id="anki-enable-fsrs"
                   type="checkbox"
                   checked={config.enableFSRS}
                   onChange={(e) => setConfig({ ...config, enableFSRS: e.target.checked })}
@@ -440,7 +462,7 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
                 /* Desired Retention */
                 <div>
                   <div className="flex justify-between items-center mb-1.5">
-                    <label className="font-semibold text-zinc-300">
+                    <label htmlFor="anki-desired-retention" className="font-semibold text-zinc-300">
                       Retenção Desejada (FSRS Target)
                     </label>
                     <span className="font-mono text-sky-400 font-bold text-sm">
@@ -448,6 +470,7 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
                     </span>
                   </div>
                   <input
+                    id="anki-desired-retention"
                     type="range"
                     min="0.70"
                     max="0.97"
@@ -638,9 +661,9 @@ export const AnkiDeckOptionsModal: React.FC<AnkiDeckOptionsModalProps> = ({
                     <button
                       type="button"
                       onClick={() => void handleSaveAndReschedule()}
-                      disabled={isRescheduling || isSaving}
+                      disabled={isRescheduling || isSaving || isVirtualDeck}
                       className="px-3 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 font-semibold text-[11px] flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                      title="Recalcula estabilidade, dificuldade e próximas revisões dos cartões já estudados"
+                      title={isVirtualDeck ? 'Selecione um baralho real para reagendar cartões' : 'Recalcula estabilidade, dificuldade e próximas revisões dos cartões já estudados'}
                     >
                       <RotateCcw className={`w-3.5 h-3.5 ${isRescheduling ? 'animate-spin' : ''}`} />
                       <span>{isRescheduling ? 'Reagendando...' : 'Reagendar cartões'}</span>
