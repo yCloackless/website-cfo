@@ -1,5 +1,7 @@
 process.env.NODE_ENV = 'test';
 delete process.env.DATABASE_URL;
+delete process.env.GEMINI_API_KEY;
+delete process.env.OPENAI_API_KEY;
 process.env.SESSION_SECRET ??= 'test-session-secret-million-game-64-characters-long-padding-1234';
 process.env.DATA_ENCRYPTION_KEY ??= 'test-data-encryption-key-million-game-64-characters-padding';
 process.env.CADET_PASSWORD ??= 'fixture-cadet-password-2026';
@@ -78,10 +80,13 @@ test('startMillionMatch rejects when aiClient is null and validates incomplete b
     userId: 'u1',
     topic: 'História do Brasil',
     aiClient: null,
+    openAiApiKey: null,
   });
   assert.equal(noAi.ok, false);
   assert.equal(noAi.status, 503);
   assert.equal(noAi.error, 'AI_UNAVAILABLE');
+  assert.match(noAi.message, /GEMINI_API_KEY/);
+  assert.match(noAi.message, /OPENAI_API_KEY/);
 
   const incomplete = await startMillionMatch({
     repo,
@@ -588,4 +593,168 @@ test('Review fixes: GET /api/user/state hides million_game keys, IDOR on /answer
     }),
   });
   assert.equal(noteRes.status, 201);
+});
+
+test('OpenAI (ChatGPT) fallback generates sanitized questions when GEMINI_API_KEY is absent, preserves Gemini priority, and handles HTTP route', async (t) => {
+  const { startMillionMatch } = await import('../src/services/millionGameService');
+  const originalFetch = globalThis.fetch;
+  const prevOpenAiKey = process.env.OPENAI_API_KEY;
+  const prevGeminiKey = process.env.GEMINI_API_KEY;
+
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    if (prevOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = prevOpenAiKey;
+    if (prevGeminiKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevGeminiKey;
+  });
+
+  // 1. When Gemini client is present and succeeds, OpenAI fetch must NOT be called
+  let openAiCalls = 0;
+  globalThis.fetch = (async (input: any, init?: any) => {
+    const url = typeof input === 'string' ? input : input?.url || '';
+    if (url.includes('api.openai.com')) {
+      openAiCalls += 1;
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify(buildValidGeneratedPayload()) } }],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+
+  const repo = createMemoryRepo();
+  const geminiResult = await startMillionMatch({
+    repo,
+    userId: 'u-gemini-first',
+    topic: 'História do Brasil',
+    aiClient: createFakeAiClient(),
+    openAiApiKey: 'sk-test-openai-key',
+  });
+  assert.equal(geminiResult.ok, true);
+  assert.equal(openAiCalls, 0);
+
+  // 2. When aiClient is null and openAiApiKey is provided, OpenAI fallback succeeds with full sanitization
+  let capturedAuth = '';
+  let capturedBody: any = null;
+  globalThis.fetch = (async (input: any, init?: any) => {
+    const url = typeof input === 'string' ? input : input?.url || '';
+    if (url.includes('api.openai.com')) {
+      openAiCalls += 1;
+      capturedAuth = String((init?.headers as any)?.Authorization || '');
+      capturedBody = JSON.parse(String(init?.body || '{}'));
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify(buildValidGeneratedPayload()) } }],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+
+  const openAiResult = await startMillionMatch({
+    repo,
+    userId: 'u-openai-fallback',
+    topic: 'Física',
+    focusHint: 'Termodinâmica',
+    aiClient: null,
+    openAiApiKey: 'sk-test-openai-key',
+  });
+  assert.equal(openAiResult.ok, true);
+  assert.equal(openAiCalls, 1);
+  assert.equal(capturedAuth, 'Bearer sk-test-openai-key');
+  assert.equal(capturedBody?.response_format?.type, 'json_schema');
+  assert.equal(capturedBody?.response_format?.json_schema?.strict, true);
+  const serialized = JSON.stringify(openAiResult.data);
+  assert.equal(serialized.includes('correctIndex'), false);
+  assert.equal(serialized.includes('Explicação tática'), false);
+  assert.equal(serialized.includes('q_2'), false);
+  assert.equal(serialized.includes('res_b1'), false);
+
+  // 3. When OpenAI returns an error status or incomplete batch, return 502 AI_GENERATION_FAILED
+  globalThis.fetch = (async (input: any, init?: any) => {
+    const url = typeof input === 'string' ? input : input?.url || '';
+    if (url.includes('api.openai.com')) {
+      return new Response(JSON.stringify({ error: { message: 'rate limit' } }), { status: 429 });
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+
+  const openAiErr = await startMillionMatch({
+    repo,
+    userId: 'u-openai-err',
+    topic: 'Química',
+    aiClient: null,
+    openAiApiKey: 'sk-test-openai-key',
+  });
+  assert.equal(openAiErr.ok, false);
+  assert.equal(openAiErr.status, 502);
+  assert.equal(openAiErr.error, 'AI_GENERATION_FAILED');
+
+  // 4. HTTP route /api/ai/million-game/start uses OPENAI_API_KEY when GEMINI_API_KEY is absent, and returns 503 when both are absent
+  const prevCwd = process.cwd();
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfo-million-openai-http-'));
+  process.chdir(tempDir);
+
+  const { app } = await import('../server');
+  const { getDb } = await import('../src/db/database');
+  const { AuthService } = await import('../src/db/authService');
+  const { UserStateRepository } = await import('../src/db/repositories');
+  const { MILLION_ACTIVE_KEY } = await import('../src/services/millionGameService');
+  const db = getDb();
+  const authService = new AuthService(db);
+  const { cadet: cadetLogin } = await getTestAuth(authService);
+  const userStateRepo = new UserStateRepository(db.getRawDb());
+  userStateRepo.upsertValue(cadetLogin.user.id, MILLION_ACTIVE_KEY, '');
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const baseUrl = `http://127.0.0.1:${(server.address() as any).port}`;
+
+  t.after(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    process.chdir(prevCwd);
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+  });
+
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  const bothMissingRes = await originalFetch(`${baseUrl}/api/ai/million-game/start`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cadetLogin.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ topic: 'História do Brasil' }),
+  });
+  assert.equal(bothMissingRes.status, 503);
+  const bothMissingBody = (await bothMissingRes.json()) as any;
+  assert.equal(bothMissingBody.error, 'AI_UNAVAILABLE');
+  assert.match(String(bothMissingBody.message || ''), /GEMINI_API_KEY/);
+  assert.match(String(bothMissingBody.message || ''), /OPENAI_API_KEY/);
+
+  process.env.OPENAI_API_KEY = 'sk-test-http-openai';
+  globalThis.fetch = (async (input: any, init?: any) => {
+    const url = typeof input === 'string' ? input : input?.url || '';
+    if (url.includes('api.openai.com')) {
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify(buildValidGeneratedPayload()) } }],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+
+  const httpOpenAiRes = await originalFetch(`${baseUrl}/api/ai/million-game/start`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cadetLogin.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ topic: 'História do Brasil' }),
+  });
+  assert.equal(httpOpenAiRes.status, 200);
+  const httpOpenAiBody = (await httpOpenAiRes.json()) as any;
+  assert.equal(httpOpenAiBody.success, true);
+  assert.equal(httpOpenAiBody.match?.currentLevel, 1);
+  assert.equal(JSON.stringify(httpOpenAiBody).includes('correctIndex'), false);
 });

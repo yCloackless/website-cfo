@@ -6949,12 +6949,14 @@ app.post("/api/ai/million-game/start", async (req: Request, res: Response) => {
       { name: "focusHint", value: focusHint, maxBytes: 500 },
     ])) return;
 
+    const externalAiEnabled = process.env.ENABLE_EXTERNAL_AI === 'true' || process.env.NODE_ENV !== 'production';
     const result = await startMillionMatch({
       repo: userStateRepoInstance,
       userId,
       topic,
       focusHint,
       aiClient: getGeminiClient(),
+      openAiApiKey: externalAiEnabled ? (process.env.OPENAI_API_KEY || null) : null,
     });
     return sendMillionResult(res, result, "match");
   } catch (error) {

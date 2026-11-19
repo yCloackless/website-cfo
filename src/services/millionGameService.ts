@@ -254,14 +254,19 @@ function normalizeQuestion(
   };
 }
 
+function stripJsonFences(rawText: string): string {
+  return rawText.trim().replace(/^```(?:json)?\s*\n?|\n?```$/gi, '').trim();
+}
+
 function parseGeneratedBatch(rawText: string): {
   questions: StoredMillionQuestion[];
   reservesByBlock: Record<'1' | '2' | '3', StoredMillionQuestion>;
 } | null {
-  if (!rawText || !rawText.trim()) return null;
+  const cleaned = stripJsonFences(rawText || '');
+  if (!cleaned) return null;
   let parsed: any;
   try {
-    parsed = JSON.parse(rawText);
+    parsed = JSON.parse(cleaned);
   } catch {
     return null;
   }
@@ -333,15 +338,47 @@ const MILLION_QUESTION_SCHEMA = {
   required: ['level', 'block', 'discipline', 'statement', 'options', 'correctIndex', 'explanation'],
 };
 
-export async function generateMillionQuestionsWithGemini(
-  aiClient: GeminiLike,
-  topic: string,
-  focusHint: string = ''
-): Promise<{
-  questions: StoredMillionQuestion[];
-  reservesByBlock: Record<'1' | '2' | '3', StoredMillionQuestion>;
-} | null> {
-  const prompt = `Você é a banca elaboradora oficial do concurso CFO CBMERJ (UERJ / Vestibulares Militares) criando uma partida completa do "Show do Milhão CFO CBMERJ".
+const MILLION_SYSTEM_INSTRUCTION =
+  'Você é um elaborador sênior de questões do vestibular UERJ e concurso CFO CBMERJ. Retorne apenas JSON estritamente válido seguindo o schema.';
+
+const MILLION_QUESTION_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    id: { type: 'string' },
+    level: { type: 'integer' },
+    block: { type: 'integer' },
+    discipline: { type: 'string' },
+    statement: { type: 'string' },
+    options: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+    correctIndex: { type: 'integer' },
+    explanation: { type: 'string' },
+    referenceTip: { type: 'string' },
+  },
+  required: ['id', 'level', 'block', 'discipline', 'statement', 'options', 'correctIndex', 'explanation', 'referenceTip'],
+};
+
+const MILLION_BATCH_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    questions: {
+      type: 'array',
+      items: MILLION_QUESTION_JSON_SCHEMA,
+    },
+    reserves: {
+      type: 'array',
+      items: MILLION_QUESTION_JSON_SCHEMA,
+    },
+  },
+  required: ['questions', 'reserves'],
+};
+
+function buildMillionQuestionsPrompt(topic: string, focusHint: string = ''): string {
+  return `Você é a banca elaboradora oficial do concurso CFO CBMERJ (UERJ / Vestibulares Militares) criando uma partida completa do "Show do Milhão CFO CBMERJ".
 
 Tema solicitado pelo candidato: "${topic}"
 ${focusHint ? `Foco adicional solicitado: "${focusHint}"` : ''}
@@ -360,6 +397,24 @@ Regras obrigatórias:
 3. Em matemática, física ou química, use notação LaTeX com $...$ inline quando houver fórmulas.
 4. "explanation" deve explicar claramente em 2-4 frases por que a alternativa correta está certa e o erro das principais distratoras.
 5. "referenceTip" deve trazer 1 dica curta ou bizu de memorização para o CFO CBMERJ.`;
+}
+
+function resolveOpenAiApiKey(explicitKey?: string | null): string {
+  const raw = explicitKey !== undefined ? explicitKey : process.env.OPENAI_API_KEY;
+  const trimmed = String(raw || '').trim();
+  if (!trimmed || trimmed.includes('COLE_A_CHAVE')) return '';
+  return trimmed;
+}
+
+export async function generateMillionQuestionsWithGemini(
+  aiClient: GeminiLike,
+  topic: string,
+  focusHint: string = ''
+): Promise<{
+  questions: StoredMillionQuestion[];
+  reservesByBlock: Record<'1' | '2' | '3', StoredMillionQuestion>;
+} | null> {
+  const prompt = buildMillionQuestionsPrompt(topic, focusHint);
 
   const candidateModels = [
     'gemini-2.5-flash',
@@ -374,8 +429,7 @@ Regras obrigatórias:
         model: modelName,
         contents: prompt,
         config: {
-          systemInstruction:
-            'Você é um elaborador sênior de questões do vestibular UERJ e concurso CFO CBMERJ. Retorne apenas JSON estritamente válido seguindo o schema.',
+          systemInstruction: MILLION_SYSTEM_INSTRUCTION,
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -404,12 +458,69 @@ Regras obrigatórias:
   return null;
 }
 
+export async function generateMillionQuestionsWithOpenAI(
+  apiKey: string,
+  topic: string,
+  focusHint: string = '',
+  modelOverride?: string
+): Promise<{
+  questions: StoredMillionQuestion[];
+  reservesByBlock: Record<'1' | '2' | '3', StoredMillionQuestion>;
+} | null> {
+  const cleanKey = resolveOpenAiApiKey(apiKey);
+  if (!cleanKey) return null;
+
+  const model = (modelOverride || process.env.OPENAI_MILLION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini').trim();
+  const prompt = buildMillionQuestionsPrompt(topic, focusHint);
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cleanKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 8192,
+        messages: [
+          { role: 'system', content: MILLION_SYSTEM_INSTRUCTION },
+          { role: 'user', content: prompt },
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'million_game_batch',
+            strict: true,
+            schema: MILLION_BATCH_JSON_SCHEMA,
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+
+    if (!response.ok) {
+      console.warn(`[MillionGame] OpenAI (${model}) retornou status ${response.status}`);
+      return null;
+    }
+
+    const data = (await response.json()) as any;
+    const rawText = typeof data?.choices?.[0]?.message?.content === 'string' ? data.choices[0].message.content : '';
+    return parseGeneratedBatch(rawText);
+  } catch (err) {
+    console.warn(`[MillionGame] OpenAI (${model}) falhou ao gerar questões:`, err);
+    return null;
+  }
+}
+
 export async function startMillionMatch(deps: {
   repo: UserStateStore;
   userId: string;
   topic: string;
   focusHint?: string;
   aiClient: GeminiLike | null;
+  openAiApiKey?: string | null;
+  openAiModel?: string;
 }): Promise<ServiceResult<SanitizedActiveMatch>> {
   const cleanTopic = String(deps.topic || '').trim();
   const cleanFocus = String(deps.focusHint || '').trim();
@@ -432,16 +543,24 @@ export async function startMillionMatch(deps: {
     };
   }
 
-  if (!deps.aiClient) {
+  const openAiKey = resolveOpenAiApiKey(deps.openAiApiKey);
+  if (!deps.aiClient && !openAiKey) {
     return {
       ok: false,
       status: 503,
       error: 'AI_UNAVAILABLE',
-      message: 'Serviço de IA indisponível no momento (GEMINI_API_KEY não configurada).',
+      message: 'Serviço de IA indisponível no momento (GEMINI_API_KEY e OPENAI_API_KEY não configuradas).',
     };
   }
 
-  const generated = await generateMillionQuestionsWithGemini(deps.aiClient, cleanTopic, cleanFocus);
+  let generated = deps.aiClient
+    ? await generateMillionQuestionsWithGemini(deps.aiClient, cleanTopic, cleanFocus)
+    : null;
+
+  if (!generated && openAiKey) {
+    generated = await generateMillionQuestionsWithOpenAI(openAiKey, cleanTopic, cleanFocus, deps.openAiModel);
+  }
+
   if (!generated) {
     return {
       ok: false,
