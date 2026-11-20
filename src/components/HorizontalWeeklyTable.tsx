@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Check, CheckCircle2, Calendar, Sparkles, Plus, Edit2, Trash2, RotateCcw, Flame } from 'lucide-react';
+import { Check, CheckCircle2, Calendar, Sparkles, Plus, Edit2, Trash2, RotateCcw } from 'lucide-react';
 import { Subject, StudyEntry, AppTheme, SubjectMonthlyBalance, GamificationStatus } from '../types';
 import { WEEK_DAYS } from '../data/cfoSubjects';
 import { formatBRDateShort } from '../utils/dateUtils';
 import { ConfirmModal } from './ConfirmModal';
+import { StreakFlameIcon } from './StreakFlameIcon';
 
 function formatMonthDuration(minutes: number): string {
   const rounded = Math.round(minutes);
@@ -136,7 +137,7 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                         }`}
                         title={`Ofensiva atual: ${gamification.currentStreakDays} dia(s) • Patente: ${gamification.rank.name}`}
                       >
-                        <Flame className={`w-3 h-3 ${gamification.currentStreakDays > 0 ? 'fill-orange-500/50 animate-flame-flicker' : ''}`} />
+                        <StreakFlameIcon active={gamification.currentStreakDays > 0} className="w-3 h-3 shrink-0" />
                         {gamification.currentStreakDays}d
                       </span>
                     )}

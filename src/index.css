@@ -787,9 +787,15 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
   }
 }
 
-@keyframes flameFlicker {
-  0%, 100% { transform: scale(1) rotate(-2deg); }
-  50% { transform: scale(1.12) rotate(3deg); }
+@keyframes flameCorePulse {
+  0%, 100% {
+    opacity: 0.9;
+    transform: scaleY(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleY(1.08);
+  }
 }
 
 .animate-ice-shield-enter {
@@ -799,6 +805,8 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
   transform-style: preserve-3d;
 }
 
-.animate-flame-flicker {
-  animation: flameFlicker 1.8s ease-in-out infinite;
+.animate-flame-core {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: flameCorePulse 2.2s ease-in-out infinite;
 }

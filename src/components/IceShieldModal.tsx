@@ -1,6 +1,7 @@
 import React from 'react';
-import { Flame, Shield, Snowflake, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Shield, Snowflake, Sparkles, CheckCircle2 } from 'lucide-react';
 import { AppTheme, ShieldSaveEvent } from '../types';
+import { StreakFlameIcon } from './StreakFlameIcon';
 
 interface IceShieldModalProps {
   event: ShieldSaveEvent;
@@ -82,8 +83,8 @@ export const IceShieldModal: React.FC<IceShieldModalProps> = ({
           Escudo de Gelo salvou sua ofensiva!
         </h2>
 
-        <div className="mt-4 inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 bg-gradient-to-r from-orange-500/15 via-amber-500/15 to-sky-500/15 border border-amber-400/30">
-          <Flame className="w-6 h-6 text-orange-400 fill-orange-500/40 animate-flame-flicker" />
+        <div className="mt-4 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 bg-gradient-to-r from-orange-500/15 via-amber-500/15 to-sky-500/15 border border-amber-400/30">
+          <StreakFlameIcon active className="w-6 h-6 shrink-0" />
           <span className="text-base font-extrabold text-amber-400 tabular-nums">
             {event.savedStreakDays} {event.savedStreakDays === 1 ? 'dia seguido preservado' : 'dias seguidos preservados'}
           </span>

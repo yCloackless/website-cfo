@@ -33,6 +33,7 @@ import {
   Crown,
 } from 'lucide-react';
 import { AppTheme, GamificationStatus } from '../types';
+import { StreakFlameIcon } from './StreakFlameIcon';
 
 export type TabType =
   | 'table'
@@ -630,7 +631,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                       </span>
                       {gamification && (
                         <span
-                          className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums shrink-0 ${
+                          className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums shrink-0 ${
                             gamification.currentStreakDays > 0
                               ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30'
                               : isDark
@@ -639,7 +640,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                           }`}
                           title={`${gamification.currentStreakDays} dias seguidos • ${gamification.iceShields} escudo(s) de gelo`}
                         >
-                          <Flame className={`w-3 h-3 ${gamification.currentStreakDays > 0 ? 'fill-orange-500/50 animate-flame-flicker' : ''}`} />
+                          <StreakFlameIcon active={gamification.currentStreakDays > 0} className="w-3 h-3 shrink-0" />
                           {gamification.currentStreakDays}
                         </span>
                       )}
@@ -861,7 +862,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                     </span>
                     {gamification && (
                       <span
-                        className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums shrink-0 ${
+                        className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums shrink-0 ${
                           gamification.currentStreakDays > 0
                             ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30'
                             : isDark
@@ -870,7 +871,7 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                         }`}
                         title={`${gamification.currentStreakDays} dias seguidos • ${gamification.iceShields} escudo(s)`}
                       >
-                        <Flame className={`w-3 h-3 ${gamification.currentStreakDays > 0 ? 'fill-orange-500/50 animate-flame-flicker' : ''}`} />
+                        <StreakFlameIcon active={gamification.currentStreakDays > 0} className="w-3 h-3 shrink-0" />
                         {gamification.currentStreakDays}
                       </span>
                     )}
