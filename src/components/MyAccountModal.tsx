@@ -501,6 +501,33 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
     }
   };
 
+  const todayThemeLabel = isDark ? 'text-slate-300' : 'text-slate-700';
+  const labelClass = `block text-xs font-semibold mb-1 ${todayThemeLabel}`;
+  const mutedTextClass = isDark ? 'text-slate-400' : 'text-slate-600';
+  const headingTextClass = isDark ? 'text-slate-100' : 'text-slate-900';
+  const inputSurfaceClass = isDark
+    ? 'bg-[#070D18] border-slate-700 text-slate-200 placeholder:text-slate-500 focus:border-blue-500'
+    : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-blue-600';
+  const disabledInputClass = isDark
+    ? 'border-slate-800 bg-slate-900/50 text-slate-400 cursor-not-allowed'
+    : 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed';
+  const eyeBtnClass = `absolute right-3 top-2.5 cursor-pointer transition-colors ${
+    isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800'
+  }`;
+
+  const subTabs: Array<{
+    id: 'profile' | 'settings' | 'email' | 'password' | 'privacy' | 'extension';
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }> = [
+    { id: 'profile', label: 'Perfil & Avatar', icon: UserIcon },
+    { id: 'settings', label: 'Configurações', icon: SettingsIcon },
+    { id: 'email', label: 'E-mail', icon: Mail },
+    { id: 'password', label: 'Alterar Senha', icon: KeyRound },
+    { id: 'privacy', label: 'Privacidade & LGPD', icon: Shield },
+    { id: 'extension', label: 'Extensão (PC)', icon: Puzzle },
+  ];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 min-[380px]:p-4 bg-black/80 backdrop-blur-xs animate-in fade-in overflow-y-auto">
       <div
@@ -539,90 +566,31 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
 
         {/* Sub-Navigation Tabs */}
         <div className={`px-3 sm:px-6 pt-3 flex gap-1 sm:gap-2 border-b text-xs font-semibold overflow-x-auto scrollbar-none ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
-          <button
-            onClick={() => {
-              setActiveSubTab('profile');
-              setStatusMessage(null);
-            }}
-            className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
-              activeSubTab === 'profile'
-                ? 'border-blue-500 text-blue-500 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <UserIcon className="w-4 h-4" />
-            Perfil & Avatar
-          </button>
-          <button
-            onClick={() => {
-              setActiveSubTab('settings');
-              setStatusMessage(null);
-            }}
-            className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
-              activeSubTab === 'settings'
-                ? 'border-blue-500 text-blue-500 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <SettingsIcon className="w-4 h-4" />
-            Configurações
-          </button>
-          <button
-            onClick={() => {
-              setActiveSubTab('email');
-              setStatusMessage(null);
-            }}
-            className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
-              activeSubTab === 'email'
-                ? 'border-blue-500 text-blue-500 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Mail className="w-4 h-4" />
-            E-mail
-          </button>
-          <button
-            onClick={() => {
-              setActiveSubTab('password');
-              setStatusMessage(null);
-            }}
-            className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
-              activeSubTab === 'password'
-                ? 'border-blue-500 text-blue-500 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <KeyRound className="w-4 h-4" />
-            Alterar Senha
-          </button>
-          <button
-            onClick={() => {
-              setActiveSubTab('privacy');
-              setStatusMessage(null);
-            }}
-            className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
-              activeSubTab === 'privacy'
-                ? 'border-blue-500 text-blue-500 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Shield className="w-4 h-4" />
-            Privacidade & LGPD
-          </button>
-          <button
-            onClick={() => {
-              setActiveSubTab('extension');
-              setStatusMessage(null);
-            }}
-            className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
-              activeSubTab === 'extension'
-                ? 'border-blue-500 text-blue-500 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Puzzle className="w-4 h-4" />
-            Extensão (PC)
-          </button>
+          {subTabs.map(({ id, label, icon: Icon }) => {
+            const isActive = activeSubTab === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => {
+                  setActiveSubTab(id);
+                  setStatusMessage(null);
+                }}
+                className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                  isActive
+                    ? isDark
+                      ? 'border-blue-500 text-blue-400 font-bold'
+                      : 'border-blue-600 text-blue-600 font-bold'
+                    : isDark
+                      ? 'border-transparent text-slate-400 hover:text-slate-200'
+                      : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                {label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Modal Body with Scroll */}
@@ -632,21 +600,25 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
             <div
               className={`p-3.5 rounded-xl border flex items-center gap-3 text-xs font-medium animate-in fade-in duration-150 ${
                 statusMessage.type === 'success'
-                  ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300'
-                  : 'bg-red-950/40 border-red-800 text-red-300'
+                  ? isDark
+                    ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : isDark
+                    ? 'bg-red-950/40 border-red-800 text-red-300'
+                    : 'bg-red-50 border-red-200 text-red-800'
               }`}
             >
               {statusMessage.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                <CheckCircle2 className={`w-4 h-4 shrink-0 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
               ) : (
-                <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                <AlertCircle className={`w-4 h-4 shrink-0 ${isDark ? 'text-red-400' : 'text-red-600'}`} />
               )}
               <span>{statusMessage.text}</span>
             </div>
           )}
 
           {fetchingProfile ? (
-            <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-400 text-xs">
+            <div className={`py-12 flex flex-col items-center justify-center gap-3 text-xs ${mutedTextClass}`}>
               <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
               <span>Carregando dados do aluno...</span>
             </div>
@@ -656,9 +628,17 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
               {activeSubTab === 'profile' && (
                 <form onSubmit={handleSaveProfile} className="space-y-5">
                   {/* Seção Avatar */}
-                  <div className="flex flex-col min-[390px]:flex-row items-start min-[390px]:items-center gap-4 sm:gap-5 p-4 rounded-xl border border-slate-800/60 bg-slate-900/30 min-w-0">
+                  <div
+                    className={`flex flex-col min-[390px]:flex-row items-start min-[390px]:items-center gap-4 sm:gap-5 p-4 rounded-xl border min-w-0 ${
+                      isDark ? 'border-slate-800/60 bg-slate-900/30' : 'border-slate-200 bg-slate-50'
+                    }`}
+                  >
                     <div className="relative group">
-                      <div className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-blue-500/50 bg-slate-800 flex items-center justify-center shadow-lg">
+                      <div
+                        className={`w-20 h-20 rounded-2xl overflow-hidden border-2 flex items-center justify-center shadow-sm ${
+                          isDark ? 'border-blue-500/50 bg-slate-800' : 'border-blue-200 bg-blue-50'
+                        }`}
+                      >
                         {avatarPreview ? (
                           <img
                             src={avatarPreview}
@@ -666,7 +646,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <span className="text-2xl font-black text-blue-400 tracking-wider">
+                          <span className={`text-2xl font-black tracking-wider ${isDark ? 'text-blue-400' : 'text-blue-700'}`}>
                             {(fullName || username || 'CFO').slice(0, 2).toUpperCase()}
                           </span>
                         )}
@@ -684,8 +664,8 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                     </div>
 
                     <div className="flex-1 min-w-0 w-full">
-                      <h4 className="text-sm font-bold text-slate-200">Foto de Perfil</h4>
-                      <p className="text-xs text-slate-400 mt-0.5">
+                      <h4 className={`text-sm font-bold ${headingTextClass}`}>Foto de Perfil</h4>
+                      <p className={`text-xs mt-0.5 ${mutedTextClass}`}>
                         JPG, PNG ou WEBP reais. Máximo 3MB. A validação é realizada server-side por assinatura binária.
                       </p>
                       <input
@@ -702,7 +682,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                         className={`mt-2.5 px-3 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
                           isDark
                             ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-                            : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+                            : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 shadow-2xs'
                         }`}
                       >
                         Escolher Nova Imagem
@@ -713,7 +693,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                   {/* Campos do Perfil */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-semibold mb-1 text-slate-300">
+                      <label className={labelClass}>
                         Nome Completo
                       </label>
                       <input
@@ -722,42 +702,34 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                         onChange={(e) => setFullName(e.target.value)}
                         required
                         placeholder="Ex: Cadete Victor Silva"
-                        className={`w-full px-3 py-2 rounded-xl text-xs border outline-none transition-all ${
-                          isDark
-                            ? 'bg-[#070D18] border-slate-700 text-slate-200 focus:border-blue-500'
-                            : 'bg-white border-slate-300 text-slate-900 focus:border-blue-500'
-                        }`}
+                        className={`w-full px-3 py-2 rounded-xl text-xs border outline-none transition-all ${inputSurfaceClass}`}
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold mb-1 text-slate-300 flex items-center gap-1">
-                        <AtSign className="w-3.5 h-3.5 text-blue-400" />
+                      <label className={`${labelClass} flex items-center gap-1`}>
+                        <AtSign className={`w-3.5 h-3.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
                         Nome de Usuário (@username único)
                       </label>
                       <div className="relative">
-                        <span className="absolute left-3 top-2.5 text-xs text-slate-500 font-mono">@</span>
+                        <span className={`absolute left-3 top-2.5 text-xs font-mono ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>@</span>
                         <input
                           type="text"
                           value={username.replace(/^@/, '')}
                           onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_.-]/g, ''))}
                           required
                           placeholder="cadete_2026"
-                          className={`w-full pl-7 pr-3 py-2 rounded-xl text-xs font-mono border outline-none transition-all ${
-                            isDark
-                              ? 'bg-[#070D18] border-slate-700 text-slate-200 focus:border-blue-500'
-                              : 'bg-white border-slate-300 text-slate-900 focus:border-blue-500'
-                          }`}
+                          className={`w-full pl-7 pr-3 py-2 rounded-xl text-xs font-mono border outline-none transition-all ${inputSurfaceClass}`}
                         />
                       </div>
-                      <span className="text-[10px] text-slate-500 mt-1 block">
+                      <span className={`text-[10px] mt-1 block ${mutedTextClass}`}>
                         Apenas letras minúsculas, números, ponto, hífen ou sublinhado.
                       </span>
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold mb-1 text-slate-300 flex items-center gap-1">
-                        <Phone className="w-3.5 h-3.5 text-slate-400" />
+                      <label className={`${labelClass} flex items-center gap-1`}>
+                        <Phone className={`w-3.5 h-3.5 ${mutedTextClass}`} />
                         Telefone de Contato
                       </label>
                       <input
@@ -765,30 +737,26 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         placeholder="(21) 99999-9999"
-                        className={`w-full px-3 py-2 rounded-xl text-xs border outline-none transition-all ${
-                          isDark
-                            ? 'bg-[#070D18] border-slate-700 text-slate-200 focus:border-blue-500'
-                            : 'bg-white border-slate-300 text-slate-900 focus:border-blue-500'
-                        }`}
+                        className={`w-full px-3 py-2 rounded-xl text-xs border outline-none transition-all ${inputSurfaceClass}`}
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold mb-1 text-slate-300 flex items-center gap-1">
-                        <BookOpen className="w-3.5 h-3.5 text-slate-400" />
+                      <label className={`${labelClass} flex items-center gap-1`}>
+                        <BookOpen className={`w-3.5 h-3.5 ${mutedTextClass}`} />
                         Concurso Alvo
                       </label>
                       <input
                         type="text"
                         value={profile?.targetExam || 'CFO CBMERJ 2026'}
                         disabled
-                        className="w-full px-3 py-2 rounded-xl text-xs border border-slate-800 bg-slate-900/50 text-slate-400 cursor-not-allowed"
+                        className={`w-full px-3 py-2 rounded-xl text-xs border ${disabledInputClass}`}
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold mb-1 text-slate-300">
+                    <label className={labelClass}>
                       Mensagem Tática / Bio
                     </label>
                     <textarea
@@ -796,11 +764,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                       value={bio}
                       onChange={(e) => setBio(e.target.value)}
                       placeholder="Ex: Foco no CFO CBMERJ. Disciplina diária e consistência nos simulados."
-                      className={`w-full px-3 py-2 rounded-xl text-xs border outline-none transition-all ${
-                        isDark
-                          ? 'bg-[#070D18] border-slate-700 text-slate-200 focus:border-blue-500'
-                          : 'bg-white border-slate-300 text-slate-900 focus:border-blue-500'
-                      }`}
+                      className={`w-full px-3 py-2 rounded-xl text-xs border outline-none transition-all ${inputSurfaceClass}`}
                     />
                   </div>
 
@@ -820,19 +784,23 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
               {/* ABA CONFIGURAÇÕES (PREFERÊNCIAS TÁTICAS & GOOGLE AGENDA) */}
               {activeSubTab === 'settings' && (
                 <div className="space-y-5 animate-in fade-in duration-200">
-                  <div className="p-4 rounded-xl border border-blue-900/40 bg-[#070D18] space-y-4">
+                  <div
+                    className={`p-4 rounded-xl border space-y-4 ${
+                      isDark ? 'border-blue-900/40 bg-[#070D18]' : 'border-slate-200 bg-slate-50/70'
+                    }`}
+                  >
                     <div className="flex items-start justify-between gap-4">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4 text-blue-400" />
-                          <h3 className="text-xs font-bold text-slate-100">
+                          <Calendar className={`w-4 h-4 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
+                          <h3 className={`text-xs font-bold ${headingTextClass}`}>
                             Revisão Espaçada Automática no Google Agenda
                           </h3>
                         </div>
-                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                        <p className={`text-[11px] leading-relaxed ${mutedTextClass}`}>
                           Quando ativado, o sistema agendará automaticamente os ciclos de revisão espaçada (+24h, +7d, +30d, +60d, +90d) ao concluir um estudo.
                         </p>
-                        <p className="text-[10px] text-slate-500">
+                        <p className={`text-[10px] ${mutedTextClass}`}>
                           {isAutoSpacedRevisions
                             ? '🟢 Ativado: Eventos extras de revisão serão criados na Google Agenda.'
                             : '⚪ Desativado (Padrão): Agenda apenas a sessão do dia (Azul para Estudado, Verde para Revisando).'}
@@ -859,43 +827,67 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                           }}
                           className="sr-only peer"
                         />
-                        <div className="w-10 h-5.5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-[#0056D2]"></div>
+                        <div
+                          className={`w-10 h-5.5 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-[#0056D2] ${
+                            isDark ? 'bg-slate-800' : 'bg-slate-300'
+                          }`}
+                        ></div>
                       </label>
                     </div>
 
                     {/* Resumo visual do padrão de cores */}
-                    <div className="pt-3 border-t border-blue-900/30 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                      <div className="p-2.5 rounded-lg bg-[#0F1D38]/60 border border-blue-900/40 flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-blue-400 shrink-0"></span>
+                    <div className={`pt-3 border-t grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] ${isDark ? 'border-blue-900/30' : 'border-slate-200'}`}>
+                      <div
+                        className={`p-2.5 rounded-lg border flex items-center gap-2 ${
+                          isDark ? 'bg-[#0F1D38]/60 border-blue-900/40' : 'bg-blue-50 border-blue-200'
+                        }`}
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span>
                         <div>
-                          <span className="font-bold text-blue-300 block">Estudado no dia</span>
-                          <span className="text-[10px] text-slate-400">Marcado em Azul no Google Agenda</span>
+                          <span className={`font-bold block ${isDark ? 'text-blue-300' : 'text-blue-800'}`}>Estudado no dia</span>
+                          <span className={`text-[10px] ${mutedTextClass}`}>Marcado em Azul no Google Agenda</span>
                         </div>
                       </div>
-                      <div className="p-2.5 rounded-lg bg-[#062018]/60 border border-emerald-900/40 flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0"></span>
+                      <div
+                        className={`p-2.5 rounded-lg border flex items-center gap-2 ${
+                          isDark ? 'bg-[#062018]/60 border-emerald-900/40' : 'bg-emerald-50 border-emerald-200'
+                        }`}
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
                         <div>
-                          <span className="font-bold text-emerald-300 block">Revisando</span>
-                          <span className="text-[10px] text-slate-400">Marcado em Verde no Google Agenda</span>
+                          <span className={`font-bold block ${isDark ? 'text-emerald-300' : 'text-emerald-800'}`}>Revisando</span>
+                          <span className={`text-[10px] ${mutedTextClass}`}>Marcado em Verde no Google Agenda</span>
                         </div>
                       </div>
                     </div>
 
                     {/* Atalho Proeminente para a Extensão de Navegador */}
-                    <div className="pt-3 border-t border-blue-900/30">
-                      <div className="p-3.5 rounded-xl border border-blue-500/30 bg-blue-950/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className={`pt-3 border-t ${isDark ? 'border-blue-900/30' : 'border-slate-200'}`}>
+                      <div
+                        className={`p-3.5 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+                          isDark ? 'border-blue-500/30 bg-blue-950/30' : 'border-blue-200 bg-blue-50/70'
+                        }`}
+                      >
                         <div className="flex items-center gap-3">
-                          <div className="p-2 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30 shrink-0">
+                          <div
+                            className={`p-2 rounded-xl border shrink-0 ${
+                              isDark ? 'bg-blue-600/20 text-blue-400 border-blue-500/30' : 'bg-blue-100 text-blue-600 border-blue-200'
+                            }`}
+                          >
                             <Puzzle size={20} />
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
-                              <h4 className="text-xs font-bold text-slate-100">Extensão CFO CBMERJ para Navegador</h4>
-                              <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold text-[9px] uppercase border border-blue-500/30">
+                              <h4 className={`text-xs font-bold ${headingTextClass}`}>Extensão CFO CBMERJ para Navegador</h4>
+                              <span
+                                className={`px-1.5 py-0.5 rounded font-bold text-[9px] uppercase border ${
+                                  isDark ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' : 'bg-blue-100 text-blue-700 border-blue-200'
+                                }`}
+                              >
                                 PC
                               </span>
                             </div>
-                            <p className="text-[11px] text-slate-400 mt-0.5">
+                            <p className={`text-[11px] mt-0.5 ${mutedTextClass}`}>
                               Sincronize cronômetro e marcador de questões (certa/errada) em tempo real com seu site.
                             </p>
                           </div>
@@ -906,7 +898,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                             setActiveSubTab('extension');
                             setStatusMessage(null);
                           }}
-                          className="px-3.5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shrink-0 shadow-md shadow-blue-600/20 transition-all"
+                          className="px-3.5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shrink-0 shadow-md shadow-blue-600/20 transition-all cursor-pointer"
                         >
                           Ver Chave & Download
                         </button>
@@ -919,7 +911,11 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
               {/* ABA EXCLUSIVA: EXTENSÃO DE NAVEGADOR PARA COMPUTADOR */}
               {activeSubTab === 'extension' && (
                 <div className="space-y-5 animate-in fade-in duration-200">
-                  <div className="p-4 rounded-xl border border-blue-500/30 bg-blue-950/20 space-y-4">
+                  <div
+                    className={`p-4 rounded-xl border space-y-4 ${
+                      isDark ? 'border-blue-500/30 bg-blue-950/20' : 'border-blue-200 bg-blue-50/50'
+                    }`}
+                  >
                     <div className="flex items-center gap-3.5">
                       <div className="w-12 h-12 rounded-xl overflow-hidden border border-amber-500/50 shadow-md shadow-orange-500/25 shrink-0 bg-black/40">
                         <img
@@ -929,11 +925,15 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                         />
                       </div>
                       <div>
-                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/15 text-blue-400 border border-blue-500/30 mb-0.5">
+                        <div
+                          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border mb-0.5 ${
+                            isDark ? 'bg-blue-500/15 text-blue-400 border-blue-500/30' : 'bg-blue-100 text-blue-700 border-blue-200'
+                          }`}
+                        >
                           <Monitor size={11} /> Vinculação Oficial para Computador
                         </div>
-                        <h3 className="text-sm font-black text-white">Extensão CFO CBMERJ — Rumo ao CFO</h3>
-                        <p className="text-[11px] text-slate-400">
+                        <h3 className={`text-sm font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>Extensão CFO CBMERJ — Rumo ao CFO</h3>
+                        <p className={`text-[11px] ${mutedTextClass}`}>
                           Utilize no QConcursos, TEC ou qualquer site de questões com cronômetro e registro rápido em tempo real.
                         </p>
                       </div>
@@ -942,10 +942,10 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                     {/* Bloco 1: Download Direto do ZIP */}
                     <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-black/40 border-white/10' : 'bg-white border-slate-200'}`}>
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        <span className={`text-[11px] font-bold uppercase tracking-wider ${mutedTextClass}`}>
                           Pacote da Extensão (.ZIP)
                         </span>
-                        <span className="text-[11px] font-mono font-bold text-emerald-400">
+                        <span className={`text-[11px] font-mono font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}>
                           19 KB • Pronto para uso
                         </span>
                       </div>
@@ -956,7 +956,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                       >
                         <Download size={16} /> Baixar Pacote (.ZIP)
                       </a>
-                      <p className="text-[10px] text-center text-slate-400 mt-1.5">
+                      <p className={`text-[10px] text-center mt-1.5 ${mutedTextClass}`}>
                         Download direto do servidor oficial. Já vem pré-configurada para este site.
                       </p>
                     </div>
@@ -964,11 +964,11 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                     {/* Bloco 2: URL Oficial da Plataforma */}
                     <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-black/40 border-white/10' : 'bg-white border-slate-200'}`}>
                       <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        <label className={`text-[11px] font-bold uppercase tracking-wider ${mutedTextClass}`}>
                           URL da Plataforma (Já Pré-Configurada no ZIP)
                         </label>
                         {copiedExtUrl && (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400">
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}>
                             <Check size={12} /> URL Copiada!
                           </span>
                         )}
@@ -986,7 +986,11 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                         <button
                           type="button"
                           onClick={handleCopyExtUrl}
-                          className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/15 text-slate-200 border border-white/10 shrink-0 transition-all"
+                          className={`flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border shrink-0 transition-all cursor-pointer ${
+                            isDark
+                              ? 'bg-white/10 hover:bg-white/15 text-slate-200 border-white/10'
+                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                          }`}
                         >
                           {copiedExtUrl ? <Check size={14} /> : <Copy size={14} />}
                           {copiedExtUrl ? 'Copiada!' : 'Copiar'}
@@ -997,24 +1001,28 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                     {/* Bloco 3: Chave Pessoal de Vinculação */}
                     <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-black/40 border-white/10' : 'bg-white border-slate-200'}`}>
                       <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        <label className={`text-[11px] font-bold uppercase tracking-wider ${mutedTextClass}`}>
                           Sua Chave de Acesso Pessoal (API Key)
                         </label>
                         {copiedExtToken && (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400">
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}>
                             <Check size={12} /> Chave Copiada!
                           </span>
                         )}
                       </div>
 
                       {isLoadingExtToken ? (
-                        <div className="flex items-center justify-center gap-2 py-3 text-xs text-slate-400">
-                          <Loader2 size={16} className="animate-spin text-blue-400" />
+                        <div className={`flex items-center justify-center gap-2 py-3 text-xs ${mutedTextClass}`}>
+                          <Loader2 size={16} className="animate-spin text-blue-500" />
                           <span>Gerando chave de acesso para sua conta...</span>
                         </div>
                       ) : extTokenError ? (
-                        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
-                          <AlertCircle size={15} className="shrink-0 text-amber-400" />
+                        <div
+                          className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs ${
+                            isDark ? 'bg-amber-500/10 border-amber-500/20 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-800'
+                          }`}
+                        >
+                          <AlertCircle size={15} className={`shrink-0 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
                           <span>{extTokenError}</span>
                         </div>
                       ) : (
@@ -1032,7 +1040,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                             type="button"
                             onClick={handleCopyExtToken}
                             disabled={!extToken}
-                            className={`flex items-center gap-1 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                            className={`flex items-center gap-1 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
                               copiedExtToken
                                 ? 'bg-emerald-500 text-white'
                                 : 'bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20'
@@ -1046,21 +1054,33 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                     </div>
 
                     {/* Bloco 4: Instruções de Instalação */}
-                    <div className="space-y-2 text-xs text-slate-300 pt-1">
+                    <div className={`space-y-2 text-xs pt-1 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                       <div className="flex items-start gap-2">
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-blue-400 font-bold text-[10px] border border-blue-500/30">
+                        <span
+                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-bold text-[10px] border ${
+                            isDark ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-blue-100 text-blue-700 border-blue-200'
+                          }`}
+                        >
                           1
                         </span>
                         <p>Baixe o arquivo <strong>.zip</strong> acima e extraia a pasta no seu computador.</p>
                       </div>
                       <div className="flex items-start gap-2">
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-blue-400 font-bold text-[10px] border border-blue-500/30">
+                        <span
+                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-bold text-[10px] border ${
+                            isDark ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-blue-100 text-blue-700 border-blue-200'
+                          }`}
+                        >
                           2
                         </span>
-                        <p>No navegador, acesse <code className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[11px]">chrome://extensions/</code> e ative o <strong>Modo do desenvolvedor</strong>.</p>
+                        <p>No navegador, acesse <code className={`px-1.5 py-0.5 rounded font-mono text-[11px] ${isDark ? 'bg-white/10 text-slate-200' : 'bg-slate-200/80 text-slate-800'}`}>chrome://extensions/</code> e ative o <strong>Modo do desenvolvedor</strong>.</p>
                       </div>
                       <div className="flex items-start gap-2">
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-blue-400 font-bold text-[10px] border border-blue-500/30">
+                        <span
+                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-bold text-[10px] border ${
+                            isDark ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-blue-100 text-blue-700 border-blue-200'
+                          }`}
+                        >
                           3
                         </span>
                         <p>Clique em <strong>Carregar sem compactação</strong>, selecione a pasta e cole sua chave na aba <strong>Conexão (⚙️)</strong>.</p>
@@ -1073,8 +1093,12 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
               {/* ABA 2: ALTERAÇÃO DE E-MAIL */}
               {activeSubTab === 'email' && (
                 <form onSubmit={handleUpdateEmail} className="space-y-4">
-                  <div className="p-3.5 rounded-xl border border-blue-900/50 bg-blue-950/20 text-xs text-blue-300 flex items-start gap-2.5">
-                    <Shield className="w-4 h-4 shrink-0 text-blue-400 mt-0.5" />
+                  <div
+                    className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 ${
+                      isDark ? 'border-blue-900/50 bg-blue-950/20 text-blue-300' : 'border-blue-200 bg-blue-50 text-blue-800'
+                    }`}
+                  >
+                    <Shield className={`w-4 h-4 shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
                     <div>
                       <strong className="block font-semibold">Verificação de Segurança Server-Side:</strong>
                       A alteração de e-mail requer confirmação de senha do operador para validação de titularidade da conta.
@@ -1082,19 +1106,19 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold mb-1 text-slate-300">
+                    <label className={labelClass}>
                       E-mail Atual Cadastrado
                     </label>
                     <input
                       type="email"
                       value={profile?.email || ''}
                       disabled
-                      className="w-full px-3 py-2 rounded-xl text-xs border border-slate-800 bg-slate-900/50 text-slate-400 font-mono cursor-not-allowed"
+                      className={`w-full px-3 py-2 rounded-xl text-xs border font-mono ${disabledInputClass}`}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold mb-1 text-slate-300">
+                    <label className={labelClass}>
                       Novo Endereço de E-mail
                     </label>
                     <input
@@ -1103,16 +1127,12 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                       onChange={(e) => setNewEmail(e.target.value)}
                       required
                       placeholder="novo.email@cbmerj.com"
-                      className={`w-full px-3 py-2 rounded-xl text-xs font-mono border outline-none transition-all ${
-                        isDark
-                          ? 'bg-[#070D18] border-slate-700 text-slate-200 focus:border-blue-500'
-                          : 'bg-white border-slate-300 text-slate-900 focus:border-blue-500'
-                      }`}
+                      className={`w-full px-3 py-2 rounded-xl text-xs font-mono border outline-none transition-all ${inputSurfaceClass}`}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold mb-1 text-slate-300">
+                    <label className={labelClass}>
                       Senha Atual (Verificação de Segurança)
                     </label>
                     <div className="relative">
@@ -1122,16 +1142,12 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                         onChange={(e) => setEmailCurrentPassword(e.target.value)}
                         required
                         placeholder="Digite sua senha atual para autorizar"
-                        className={`w-full px-3 py-2 pr-10 rounded-xl text-xs border outline-none transition-all ${
-                          isDark
-                            ? 'bg-[#070D18] border-slate-700 text-slate-200 focus:border-blue-500'
-                            : 'bg-white border-slate-300 text-slate-900 focus:border-blue-500'
-                        }`}
+                        className={`w-full px-3 py-2 pr-10 rounded-xl text-xs border outline-none transition-all ${inputSurfaceClass}`}
                       />
                       <button
                         type="button"
                         onClick={() => setShowEmailPassword(!showEmailPassword)}
-                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200"
+                        className={eyeBtnClass}
                         title={showEmailPassword ? 'Ocultar senha' : 'Exibir senha'}
                       >
                         {showEmailPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -1156,7 +1172,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
               {activeSubTab === 'password' && (
                 <form onSubmit={handleChangePassword} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold mb-1 text-slate-300">
+                    <label className={labelClass}>
                       Senha Atual
                     </label>
                     <div className="relative">
@@ -1166,16 +1182,12 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                         onChange={(e) => setCurrentPassword(e.target.value)}
                         required
                         placeholder="Sua senha atual"
-                        className={`w-full px-3 py-2 pr-10 rounded-xl text-xs border outline-none transition-all ${
-                          isDark
-                            ? 'bg-[#070D18] border-slate-700 text-slate-200 focus:border-blue-500'
-                            : 'bg-white border-slate-300 text-slate-900 focus:border-blue-500'
-                        }`}
+                        className={`w-full px-3 py-2 pr-10 rounded-xl text-xs border outline-none transition-all ${inputSurfaceClass}`}
                       />
                       <button
                         type="button"
                         onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200"
+                        className={eyeBtnClass}
                       >
                         {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
@@ -1183,7 +1195,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold mb-1 text-slate-300">
+                    <label className={labelClass}>
                       Nova Senha (Mínimo de 8 caracteres)
                     </label>
                     <div className="relative">
@@ -1194,16 +1206,12 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                         required
                         minLength={8}
                         placeholder="Nova senha forte"
-                        className={`w-full px-3 py-2 pr-10 rounded-xl text-xs border outline-none transition-all ${
-                          isDark
-                            ? 'bg-[#070D18] border-slate-700 text-slate-200 focus:border-blue-500'
-                            : 'bg-white border-slate-300 text-slate-900 focus:border-blue-500'
-                        }`}
+                        className={`w-full px-3 py-2 pr-10 rounded-xl text-xs border outline-none transition-all ${inputSurfaceClass}`}
                       />
                       <button
                         type="button"
                         onClick={() => setShowNewPassword(!showNewPassword)}
-                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200"
+                        className={eyeBtnClass}
                       >
                         {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
@@ -1211,7 +1219,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold mb-1 text-slate-300">
+                    <label className={labelClass}>
                       Confirmação da Nova Senha
                     </label>
                     <input
@@ -1221,11 +1229,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                       required
                       minLength={8}
                       placeholder="Repita a nova senha"
-                      className={`w-full px-3 py-2 rounded-xl text-xs border outline-none transition-all ${
-                        isDark
-                          ? 'bg-[#070D18] border-slate-700 text-slate-200 focus:border-blue-500'
-                          : 'bg-white border-slate-300 text-slate-900 focus:border-blue-500'
-                      }`}
+                      className={`w-full px-3 py-2 rounded-xl text-xs border outline-none transition-all ${inputSurfaceClass}`}
                     />
                   </div>
 
@@ -1244,17 +1248,17 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
 
               {/* TAB 5: PRIVACIDADE & LGPD */}
               {activeSubTab === 'privacy' && (
-                <div className="space-y-6 text-xs text-slate-300">
+                <div className={`space-y-6 text-xs ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                   {/* Resumo de Direitos e Portabilidade */}
                   <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} space-y-3`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Shield className="w-4 h-4 text-blue-400" />
-                        <span className="font-bold text-sm text-white">Central de Direitos do Titular (LGPD)</span>
+                        <Shield className={`w-4 h-4 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
+                        <span className={`font-bold text-sm ${headingTextClass}`}>Central de Direitos do Titular (LGPD)</span>
                       </div>
-                      <span className="text-[11px] text-slate-400 font-mono">Lei nº 13.709/2018</span>
+                      <span className={`text-[11px] font-mono ${mutedTextClass}`}>Lei nº 13.709/2018</span>
                     </div>
-                    <p className="leading-relaxed text-slate-400">
+                    <p className={`leading-relaxed ${mutedTextClass}`}>
                       Você possui total controle sobre seus dados na plataforma. Todos os tratamentos são pautados pela execução de contrato pedagógico e cumprimento legal, sem comercialização ou rastreamento publicitário.
                     </p>
                     <div className="pt-2 flex flex-wrap gap-2.5">
@@ -1270,17 +1274,25 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                       <button
                         type="button"
                         onClick={() => setIsPrivacyModalOpen(true)}
-                        className="px-3.5 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-200 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                        className={`px-3.5 py-2 rounded-lg border font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                          isDark
+                            ? 'border-slate-700 hover:bg-slate-800 text-slate-200'
+                            : 'border-slate-300 bg-white hover:bg-slate-100 text-slate-700'
+                        }`}
                       >
-                        <FileText className="w-3.5 h-3.5 text-blue-400" />
+                        <FileText className={`w-3.5 h-3.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
                         Política de Privacidade
                       </button>
                       <button
                         type="button"
                         onClick={() => setIsCookieModalOpen(true)}
-                        className="px-3.5 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-200 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                        className={`px-3.5 py-2 rounded-lg border font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                          isDark
+                            ? 'border-slate-700 hover:bg-slate-800 text-slate-200'
+                            : 'border-slate-300 bg-white hover:bg-slate-100 text-slate-700'
+                        }`}
                       >
-                        <Cookie className="w-3.5 h-3.5 text-purple-400" />
+                        <Cookie className={`w-3.5 h-3.5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
                         Preferências de Cookies
                       </button>
                     </div>
@@ -1288,22 +1300,20 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
 
                   {/* Formulário de Abertura de Solicitação LGPD */}
                   <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} space-y-3`}>
-                    <span className="font-bold text-sm text-white block">Abrir Requisição Formal à Equipe de Privacidade</span>
-                    <p className="text-slate-400">
+                    <span className={`font-bold text-sm block ${headingTextClass}`}>Abrir Requisição Formal à Equipe de Privacidade</span>
+                    <p className={mutedTextClass}>
                       Submeta solicitações formais relativas aos seus direitos (confirmação, retificação, esclarecimentos ou exclusão/anonimização).
                     </p>
 
                     <form onSubmit={handleSubmitPrivacyRequest} className="space-y-3 pt-1">
                       <div>
-                        <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                        <label className={`block text-[11px] font-semibold mb-1 ${mutedTextClass}`}>
                           Tipo de Solicitação
                         </label>
                         <select
                           value={requestType}
                           onChange={(e) => setRequestType(e.target.value)}
-                          className={`w-full px-3 py-2 rounded-xl text-xs border outline-none ${
-                            isDark ? 'bg-[#070D18] border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-900'
-                          }`}
+                          className={`w-full px-3 py-2 rounded-xl text-xs border outline-none ${inputSurfaceClass}`}
                         >
                           <option value="access">Acesso e Confirmação de Tratamento (Art. 18, I e II)</option>
                           <option value="rectification">Retificação ou Atualização Cadastral (Art. 18, III)</option>
@@ -1314,7 +1324,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                        <label className={`block text-[11px] font-semibold mb-1 ${mutedTextClass}`}>
                           Detalhes ou Observações Adicionais (Opcional)
                         </label>
                         <textarea
@@ -1322,9 +1332,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                           value={requestDetails}
                           onChange={(e) => setRequestDetails(e.target.value)}
                           placeholder="Especifique o escopo ou motivo da sua solicitação..."
-                          className={`w-full px-3 py-2 rounded-xl text-xs border outline-none ${
-                            isDark ? 'bg-[#070D18] border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-900'
-                          }`}
+                          className={`w-full px-3 py-2 rounded-xl text-xs border outline-none ${inputSurfaceClass}`}
                         />
                       </div>
 
@@ -1341,13 +1349,13 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
 
                   {/* Histórico de Solicitações */}
                   <div className="space-y-2">
-                    <span className="font-bold text-sm text-white block">Meus Protocolos Registrados</span>
+                    <span className={`font-bold text-sm block ${headingTextClass}`}>Meus Protocolos Registrados</span>
                     {loadingRequests ? (
-                      <div className="py-4 text-center text-slate-500">
+                      <div className={`py-4 text-center ${mutedTextClass}`}>
                         <Loader2 className="w-4 h-4 animate-spin inline mr-2" /> Carregando protocolos...
                       </div>
                     ) : privacyRequests.length === 0 ? (
-                      <p className="text-slate-500 italic">Nenhuma solicitação de privacidade registrada no momento.</p>
+                      <p className={`italic ${mutedTextClass}`}>Nenhuma solicitação de privacidade registrada no momento.</p>
                     ) : (
                       <div className="space-y-2">
                         {privacyRequests.map((req) => (
@@ -1359,25 +1367,41 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                           >
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className="font-mono font-bold text-blue-400">{req.requestCode}</span>
-                                <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                                <span className={`font-mono font-bold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>{req.requestCode}</span>
+                                <span
+                                  className={`text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded ${
+                                    isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-700'
+                                  }`}
+                                >
                                   {req.requestType}
                                 </span>
                               </div>
-                              <p className="text-[11px] text-slate-400 mt-0.5">
+                              <p className={`text-[11px] mt-0.5 ${mutedTextClass}`}>
                                 Registrado em: {new Date(req.createdAt).toLocaleDateString('pt-BR')}
-                                {req.adminNotes && <span className="block text-slate-300 italic mt-0.5">Parecer: {req.adminNotes}</span>}
+                                {req.adminNotes && (
+                                  <span className={`block italic mt-0.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                                    Parecer: {req.adminNotes}
+                                  </span>
+                                )}
                               </p>
                             </div>
                             <span
-                              className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                              className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
                                 req.status === 'completed'
-                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                  ? isDark
+                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                   : req.status === 'under_review'
-                                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                  ? isDark
+                                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                    : 'bg-amber-50 text-amber-700 border-amber-200'
                                   : req.status === 'rejected'
-                                  ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-                                  : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                                  ? isDark
+                                    ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                                    : 'bg-red-50 text-red-700 border-red-200'
+                                  : isDark
+                                    ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                    : 'bg-blue-50 text-blue-700 border-blue-200'
                               }`}
                             >
                               {req.status === 'completed' ? 'Concluída' : req.status === 'under_review' ? 'Em Análise' : req.status === 'rejected' ? 'Indeferida' : 'Pendente'}
@@ -1396,11 +1420,11 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
         {/* Footer info */}
         <div
           className={`px-4 sm:px-6 py-2.5 border-t flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-[11px] ${
-            isDark ? 'border-slate-800/80 bg-[#070D18] text-slate-500' : 'border-slate-200 bg-slate-50 text-slate-500'
+            isDark ? 'border-slate-800/80 bg-[#070D18] text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600'
           }`}
         >
-          <span>Operador ID: <strong className="font-mono text-slate-400">{profile?.id.slice(0, 8) || '...'}</strong></span>
-          <span className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+          <span>Operador ID: <strong className={`font-mono ${isDark ? 'text-slate-300' : 'text-slate-800'}`}>{profile?.id.slice(0, 8) || '...'}</strong></span>
+          <span className={`flex items-center gap-1.5 font-semibold ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}>
             <Shield className="w-3 h-3" /> Proteção Anti-IDOR & LGPD Ativa
           </span>
         </div>
