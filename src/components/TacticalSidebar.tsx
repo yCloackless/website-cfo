@@ -211,18 +211,18 @@ const SidebarProfileRow: React.FC<SidebarProfileRowProps> = ({
             </span>
             {gamification && (
               <span
-                className={`inline-flex items-center gap-1 rounded-[4px] border px-1.5 py-0.5 text-[10px] font-bold tabular-nums leading-none shrink-0 ${
+                className={`inline-flex items-center gap-0.5 text-[11px] font-bold tabular-nums shrink-0 ${
                   streakDays > 0
                     ? isDark
-                      ? 'bg-orange-500/12 text-orange-300 border-orange-500/25'
-                      : 'bg-orange-50 text-orange-600 border-orange-200'
+                      ? 'text-orange-300'
+                      : 'text-orange-600'
                     : isDark
-                      ? 'bg-slate-800/90 text-slate-400 border-slate-700/80'
-                      : 'bg-slate-100 text-slate-600 border-slate-200'
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
                 }`}
                 title={`${streakDays} dias seguidos • ${iceShields} escudo(s) de gelo`}
               >
-                <StreakFlameIcon active={streakDays > 0} className="w-2.5 h-2.5 shrink-0" />
+                <StreakFlameIcon active={streakDays > 0} className="w-3 h-3 shrink-0" />
                 {streakDays}
               </span>
             )}

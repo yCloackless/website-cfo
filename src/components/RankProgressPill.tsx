@@ -118,10 +118,8 @@ export const RankProgressPill: React.FC<RankProgressPillProps> = ({ gamification
           <Award className="w-3.5 h-3.5 shrink-0" style={{ color: rank.badgeColor }} />
           <span className="truncate max-w-[130px] font-semibold tracking-tight">{rank.name}</span>
           <span
-            className={`hidden sm:inline-flex items-center rounded-[4px] border px-1.5 py-0.5 text-[10px] font-mono font-semibold tabular-nums leading-none ${
-              isDark
-                ? 'bg-slate-800/80 border-slate-700/70 text-slate-300'
-                : 'bg-slate-100 border-slate-200 text-slate-600'
+            className={`hidden sm:inline text-[11px] font-mono font-medium tabular-nums ${
+              isDark ? 'text-slate-400' : 'text-slate-500'
             }`}
           >
             {avgDailyHours14d.toFixed(1)}h/d
