@@ -17,7 +17,6 @@ import {
   Bell,
   Settings,
   ShieldCheck,
-  Shield,
   Award,
   UserCog,
   X,
@@ -34,6 +33,7 @@ import {
 } from 'lucide-react';
 import { AppTheme, GamificationStatus } from '../types';
 import { StreakFlameIcon } from './StreakFlameIcon';
+import { IceShieldIcon } from './IceShieldIcon';
 
 export type TabType =
   | 'table'
@@ -149,7 +149,7 @@ interface SidebarProfileRowProps {
   onReturnToAdmin?: () => void;
 }
 
-/** Crisp rectangular profile card shared between mobile drawer and desktop rail. */
+/** Clean borderless profile row with circular avatar shared between mobile drawer and desktop rail. */
 const SidebarProfileRow: React.FC<SidebarProfileRowProps> = ({
   userProfile,
   gamification,
@@ -167,39 +167,35 @@ const SidebarProfileRow: React.FC<SidebarProfileRowProps> = ({
   const iceShields = gamification?.iceShields ?? 0;
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1">
       <button
         type="button"
         onClick={onOpenSettings}
-        className={`min-w-0 flex-1 flex items-center rounded-md text-left transition-colors cursor-pointer ${
-          isMobile ? 'gap-2.5 p-2' : 'h-12'
+        className={`min-w-0 flex-1 flex items-center rounded-lg text-left transition-colors cursor-pointer ${
+          isMobile ? 'gap-2.5 p-1.5' : 'h-12'
         } ${
-          expanded
-            ? isDark
-              ? 'bg-slate-900/75 hover:bg-slate-800/80 border border-slate-800/90 hover:border-slate-700 pr-2.5'
-              : 'bg-slate-50/90 hover:bg-slate-100 border border-slate-200/90 hover:border-slate-300 pr-2.5'
-            : isDark
-              ? 'border border-transparent hover:bg-white/5'
-              : 'border border-transparent hover:bg-slate-100'
+          expanded ? 'pr-2' : ''
+        } ${
+          isDark ? 'hover:bg-slate-800/45' : 'hover:bg-slate-100/80'
         }`}
         title="Abrir perfil e configurações"
         aria-label="Abrir perfil e configurações"
       >
         <span className={isMobile ? 'shrink-0' : 'w-[56px] flex justify-center shrink-0'}>
           <span
-            className={`relative flex items-center justify-center rounded-md border overflow-hidden ${
+            className={`relative flex items-center justify-center rounded-full border overflow-hidden shrink-0 ${
               isMobile ? 'w-9 h-9' : 'w-8 h-8'
             } ${
               isDark
-                ? 'bg-slate-800/90 text-sky-400'
-                : 'bg-white text-blue-600 shadow-2xs'
+                ? 'bg-gradient-to-br from-slate-800 to-slate-900 text-sky-300'
+                : 'bg-gradient-to-br from-sky-50 to-slate-100 text-sky-600 shadow-2xs'
             }`}
-            style={{ borderColor: `${rankColor}66` }}
+            style={{ borderColor: `${rankColor}59` }}
           >
             {userProfile?.avatarUrl ? (
-              <img src={userProfile.avatarUrl} alt="" className="w-full h-full object-cover" />
+              <img src={userProfile.avatarUrl} alt="" className="w-full h-full rounded-full object-cover" />
             ) : (
-              <User size={isMobile ? 17 : 16} strokeWidth={2} />
+              <User size={isMobile ? 16 : 15} strokeWidth={2} />
             )}
           </span>
         </span>
@@ -236,7 +232,7 @@ const SidebarProfileRow: React.FC<SidebarProfileRowProps> = ({
             <span className="truncate">{gamification?.rank?.name || 'CFO CBMERJ'}</span>
             {gamification && iceShields > 0 && (
               <span className={`inline-flex items-center gap-0.5 ml-auto shrink-0 font-bold tabular-nums ${isDark ? 'text-sky-400' : 'text-sky-600'}`}>
-                <Shield className="w-3 h-3" strokeWidth={2.1} />
+                <IceShieldIcon active className="w-3.5 h-3.5 shrink-0" />
                 {iceShields}
               </span>
             )}
@@ -250,10 +246,10 @@ const SidebarProfileRow: React.FC<SidebarProfileRowProps> = ({
           onClick={onOpenAccountSwitcher}
           title="Trocar de conta"
           aria-label="Trocar de conta"
-          className={`h-9 w-8 inline-flex items-center justify-center rounded-md border transition-colors cursor-pointer shrink-0 ${
+          className={`h-8 w-8 inline-flex items-center justify-center rounded-lg border border-transparent transition-colors cursor-pointer shrink-0 ${
             isDark
-              ? 'border-slate-800 bg-slate-900/60 text-slate-400 hover:text-slate-100 hover:bg-slate-800 hover:border-slate-700'
-              : 'border-slate-200 bg-white text-slate-500 hover:text-slate-800 hover:bg-slate-100 hover:border-slate-300'
+              ? 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
+              : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
           <ArrowLeftRight size={15} strokeWidth={1.9} />
@@ -265,10 +261,10 @@ const SidebarProfileRow: React.FC<SidebarProfileRowProps> = ({
           type="button"
           onClick={onReturnToAdmin}
           aria-label="Voltar ao ADM"
-          className={`h-9 px-2 inline-flex items-center justify-center rounded-md border text-[10px] font-bold transition-colors cursor-pointer shrink-0 ${
+          className={`h-7 px-2 inline-flex items-center justify-center rounded-full border border-transparent text-[10px] font-bold tracking-wide transition-colors cursor-pointer shrink-0 ${
             isDark
-              ? 'border-amber-500/30 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
-              : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'
+              ? 'bg-amber-500/12 text-amber-300 hover:bg-amber-500/22'
+              : 'bg-amber-100/80 text-amber-700 hover:bg-amber-200/80'
           }`}
         >
           ADM

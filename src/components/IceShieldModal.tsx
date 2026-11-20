@@ -1,7 +1,8 @@
 import React from 'react';
-import { Shield, Snowflake, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Snowflake, Sparkles, CheckCircle2 } from 'lucide-react';
 import { AppTheme, ShieldSaveEvent } from '../types';
 import { StreakFlameIcon } from './StreakFlameIcon';
+import { IceShieldIcon } from './IceShieldIcon';
 
 interface IceShieldModalProps {
   event: ShieldSaveEvent;
@@ -75,7 +76,7 @@ export const IceShieldModal: React.FC<IceShieldModalProps> = ({
         </div>
 
         <div className="inline-flex items-center gap-1.5 rounded-full bg-sky-500/15 border border-sky-400/30 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-sky-400 mb-3">
-          <Shield className="w-3.5 h-3.5" />
+          <IceShieldIcon active className="w-3.5 h-3.5 shrink-0" />
           Proteção Automática Ativada
         </div>
 
@@ -98,9 +99,16 @@ export const IceShieldModal: React.FC<IceShieldModalProps> = ({
           <span>Escudos restantes:</span>
           <span className="inline-flex items-center gap-1 tabular-nums">
             {Array.from({ length: maxShields }).map((_, idx) => (
-              <Shield
+              <IceShieldIcon
                 key={idx}
-                className={`w-4 h-4 ${idx < event.remainingShields ? 'text-sky-400 fill-sky-400/30' : 'text-slate-600 opacity-40'}`}
+                active={idx < event.remainingShields}
+                className={`w-4 h-4 shrink-0 ${
+                  idx < event.remainingShields
+                    ? ''
+                    : isDark
+                    ? 'text-slate-500'
+                    : 'text-slate-400'
+                }`}
               />
             ))}
             <strong className="ml-1">{event.remainingShields}/{maxShields}</strong>

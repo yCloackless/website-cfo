@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Award, Shield, Clock, ChevronDown, Sparkles } from 'lucide-react';
+import { Award, Clock, ChevronDown, Sparkles } from 'lucide-react';
 import { AppTheme, GamificationStatus } from '../types';
 import { StreakFlameIcon } from './StreakFlameIcon';
+import { IceShieldIcon } from './IceShieldIcon';
 
 interface RankProgressPillProps {
   gamification: GamificationStatus | null;
@@ -108,10 +109,7 @@ export const RankProgressPill: React.FC<RankProgressPillProps> = ({ gamification
           }`}
           title={`${iceShields} escudo(s) de gelo disponível(is) — ganha +1 a cada 14 dias seguidos`}
         >
-          <Shield
-            className={`w-3.5 h-3.5 shrink-0 ${isDark ? 'text-sky-400' : 'text-sky-600'}`}
-            strokeWidth={2.1}
-          />
+          <IceShieldIcon active={iceShields > 0} className="w-3.5 h-3.5 shrink-0" />
           <span>{iceShields}</span>
         </span>
 
@@ -185,7 +183,7 @@ export const RankProgressPill: React.FC<RankProgressPillProps> = ({ gamification
 
             <div className={`rounded-md border p-2.5 ${isDark ? 'bg-slate-900/70 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <div className={`flex items-center gap-1.5 font-bold ${isDark ? 'text-sky-400' : 'text-sky-600'}`}>
-                <Shield className={`w-3.5 h-3.5 shrink-0 ${isDark ? 'text-sky-400' : 'text-sky-600'}`} strokeWidth={2.1} />
+                <IceShieldIcon active className="w-3.5 h-3.5 shrink-0" />
                 <span>Escudos de Gelo</span>
               </div>
               <p className="mt-1 text-base font-extrabold tabular-nums">
