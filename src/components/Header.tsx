@@ -7,6 +7,8 @@ import { TabType } from './TacticalSidebar';
 
 const ExtensionModal = React.lazy(() => import('./ExtensionModal').then(({ ExtensionModal }) => ({ default: ExtensionModal })));
 
+type AppAppearance = 'default' | 'notion';
+
 interface HeaderProps {
   user: User | null;
   userProfile?: { fullName?: string; username?: string; avatarUrl?: string | null; role?: string } | null;
@@ -32,6 +34,7 @@ interface HeaderProps {
   onForceReset: () => void;
   pendingRevisionsCount: number;
   theme: AppTheme;
+  appearance?: AppAppearance;
   onToggleTheme: () => void;
   activeTab?: TabType;
   onSelectTab?: (tab: TabType) => void;
@@ -52,6 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
   onDisconnectCalendar,
   isSigningIn,
   theme,
+  appearance,
   onToggleTheme,
   activeTab,
   isSidebarOpen = true,
@@ -59,7 +63,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenExtension,
 }) => {
   const isDark = theme === 'dark';
-  const isNotionShell = activeTab === 'calendar';
+  const isNotionShell = activeTab === 'calendar' || appearance === 'notion';
   const surface = isNotionShell
     ? isDark
       ? 'border-white/[0.08] bg-[#262626] text-[#e6e6e4] hover:border-white/20 hover:bg-[#2f2f2f]'

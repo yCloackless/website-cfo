@@ -24,9 +24,10 @@ import {
   Copy,
   Check,
   Monitor,
+  Palette,
 } from 'lucide-react';
 import { apiFetch } from '../services/apiFetch';
-import { AppTheme } from '../types';
+import { AppTheme, AppAppearance } from '../types';
 import {
   loadAutoSpacedRevisionsEnabled,
   saveAutoSpacedRevisionsEnabled,
@@ -52,6 +53,8 @@ interface MyAccountModalProps {
   isOpen: boolean;
   onClose: () => void;
   theme: AppTheme;
+  appearance?: AppAppearance;
+  onChangeAppearance?: (appearance: AppAppearance) => void;
   sessionToken: string | null;
   onProfileUpdated?: (updatedProfile: UserProfileData) => void;
   autoSpacedRevisions?: boolean;
@@ -59,10 +62,23 @@ interface MyAccountModalProps {
   initialTab?: 'profile' | 'settings' | 'email' | 'password' | 'privacy' | 'extension';
 }
 
+const readStoredAppearance = (): AppAppearance => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage.getItem('cfo_appearance') === 'notion' ? 'notion' : 'default';
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+  return 'default';
+};
+
 export const MyAccountModal: React.FC<MyAccountModalProps> = ({
   isOpen,
   onClose,
   theme,
+  appearance,
+  onChangeAppearance,
   sessionToken,
   onProfileUpdated,
   autoSpacedRevisions,
@@ -71,6 +87,21 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
 }) => {
   const isDark = theme === 'dark';
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [internalAppearance, setInternalAppearance] = useState<AppAppearance>(() => {
+    return appearance ?? readStoredAppearance();
+  });
+
+  useEffect(() => {
+    if (appearance !== undefined) {
+      setInternalAppearance(appearance);
+    } else if (isOpen) {
+      setInternalAppearance(readStoredAppearance());
+    }
+  }, [appearance, isOpen]);
+
+  const currentAppearance: AppAppearance = appearance ?? internalAppearance;
+  const isNotion = currentAppearance === 'notion';
 
   const [activeSubTab, setActiveSubTab] = useState<'profile' | 'settings' | 'email' | 'password' | 'privacy' | 'extension'>(initialTab);
   const [loading, setLoading] = useState(false);
@@ -501,19 +532,99 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
     }
   };
 
-  const todayThemeLabel = isDark ? 'text-slate-300' : 'text-slate-700';
+  const handleSelectAppearance = (next: AppAppearance) => {
+    if (onChangeAppearance) {
+      onChangeAppearance(next);
+    } else {
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem('cfo_appearance', next);
+        }
+      } catch {
+        // Ignore storage access errors
+      }
+    }
+    setInternalAppearance(next);
+    setStatusMessage({
+      type: 'success',
+      text:
+        next === 'notion'
+          ? 'Aparência alterada para Cinza (Estilo Notion).'
+          : 'Aparência alterada para Normal (Azul Tático).',
+    });
+  };
+
+  const todayThemeLabel = isNotion
+    ? isDark
+      ? 'text-[#e6e6e4]'
+      : 'text-[#37352f]'
+    : isDark
+      ? 'text-slate-300'
+      : 'text-slate-700';
   const labelClass = `block text-xs font-semibold mb-1 ${todayThemeLabel}`;
-  const mutedTextClass = isDark ? 'text-slate-400' : 'text-slate-600';
-  const headingTextClass = isDark ? 'text-slate-100' : 'text-slate-900';
-  const inputSurfaceClass = isDark
-    ? 'bg-[#070D18] border-slate-700 text-slate-200 placeholder:text-slate-500 focus:border-blue-500'
-    : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-blue-600';
-  const disabledInputClass = isDark
-    ? 'border-slate-800 bg-slate-900/50 text-slate-400 cursor-not-allowed'
-    : 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed';
+  const mutedTextClass = isNotion
+    ? isDark
+      ? 'text-[#e6e6e4]/70'
+      : 'text-[#37352f]/70'
+    : isDark
+      ? 'text-slate-400'
+      : 'text-slate-600';
+  const headingTextClass = isNotion
+    ? isDark
+      ? 'text-[#e6e6e4]'
+      : 'text-[#37352f]'
+    : isDark
+      ? 'text-slate-100'
+      : 'text-slate-900';
+  const inputSurfaceClass = isNotion
+    ? isDark
+      ? 'bg-[#191919] border-white/[0.08] text-[#e6e6e4] placeholder:text-[#e6e6e4]/40 focus:border-white/25'
+      : 'bg-[#ffffff] border-[#e6e6e3] text-[#37352f] placeholder:text-[#37352f]/40 focus:border-[#37352f]/40'
+    : isDark
+      ? 'bg-[#070D18] border-slate-700 text-slate-200 placeholder:text-slate-500 focus:border-blue-500'
+      : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-blue-600';
+  const disabledInputClass = isNotion
+    ? isDark
+      ? 'border-white/[0.08] bg-[#262626] text-[#e6e6e4]/60 cursor-not-allowed'
+      : 'border-[#e6e6e3] bg-[#fbfbfa] text-[#37352f]/60 cursor-not-allowed'
+    : isDark
+      ? 'border-slate-800 bg-slate-900/50 text-slate-400 cursor-not-allowed'
+      : 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed';
   const eyeBtnClass = `absolute right-3 top-2.5 cursor-pointer transition-colors ${
-    isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800'
+    isNotion
+      ? isDark
+        ? 'text-[#e6e6e4]/60 hover:text-[#e6e6e4]'
+        : 'text-[#37352f]/60 hover:text-[#37352f]'
+      : isDark
+        ? 'text-slate-400 hover:text-slate-200'
+        : 'text-slate-500 hover:text-slate-800'
   }`;
+  const cardSurfaceClass = isNotion
+    ? isDark
+      ? 'border-white/[0.08] bg-[#191919]'
+      : 'border-[#e6e6e3] bg-[#fbfbfa]'
+    : isDark
+      ? 'border-slate-800/60 bg-slate-900/30'
+      : 'border-slate-200 bg-slate-50';
+  const settingsCardClass = isNotion
+    ? isDark
+      ? 'border-white/[0.08] bg-[#191919]'
+      : 'border-[#e6e6e3] bg-[#fbfbfa]'
+    : isDark
+      ? 'border-blue-900/40 bg-[#070D18]'
+      : 'border-slate-200 bg-slate-50/70';
+  const secondaryButtonClass = isNotion
+    ? isDark
+      ? 'bg-[#262626] hover:bg-[#303030] text-[#e6e6e4] border-white/[0.08]'
+      : 'bg-[#ffffff] hover:bg-[#fbfbfa] text-[#37352f] border-[#e6e6e3] shadow-2xs'
+    : isDark
+      ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+      : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 shadow-2xs';
+  const primaryButtonClass = isNotion
+    ? isDark
+      ? 'bg-[#262626] hover:bg-[#323232] text-[#e6e6e4] border border-white/[0.08]'
+      : 'bg-[#37352f] hover:bg-[#2a2824] text-[#ffffff]'
+    : 'bg-gradient-to-r from-[#0056D2] to-blue-700 hover:from-blue-600 hover:to-blue-800 text-white';
 
   const subTabs: Array<{
     id: 'profile' | 'settings' | 'email' | 'password' | 'privacy' | 'extension';
@@ -532,23 +643,43 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 min-[380px]:p-4 bg-black/80 backdrop-blur-xs animate-in fade-in overflow-y-auto">
       <div
         className={`rounded-2xl max-w-2xl w-full shadow-2xl border overflow-hidden flex flex-col transition-colors my-auto max-h-[90vh] max-h-[90dvh] min-w-0 ${
-          isDark ? 'bg-[#0B1528] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
+          isNotion
+            ? isDark
+              ? 'bg-[#202020] border-white/[0.08] text-[#e6e6e4]'
+              : 'bg-[#ffffff] border-[#e6e6e3] text-[#37352f]'
+            : isDark
+              ? 'bg-[#0B1528] border-slate-800 text-slate-100'
+              : 'bg-white border-slate-200 text-slate-900'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div
           className={`px-4 sm:px-6 py-4 border-b flex items-center justify-between ${
-            isDark ? 'border-slate-800/80 bg-[#070D18]' : 'border-slate-200 bg-slate-50'
+            isNotion
+              ? isDark
+                ? 'border-white/[0.08] bg-[#191919]'
+                : 'border-[#e6e6e3] bg-[#fbfbfa]'
+              : isDark
+                ? 'border-slate-800/80 bg-[#070D18]'
+                : 'border-slate-200 bg-slate-50'
           }`}
         >
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-gradient-to-tr from-[#0056D2] to-[#FF6B00] text-white shadow-md">
+            <div
+              className={`p-2 rounded-xl shadow-md ${
+                isNotion
+                  ? isDark
+                    ? 'bg-[#262626] border border-white/[0.08] text-[#e6e6e4]'
+                    : 'bg-[#ffffff] border border-[#e6e6e3] text-[#37352f]'
+                  : 'bg-gradient-to-tr from-[#0056D2] to-[#FF6B00] text-white'
+              }`}
+            >
               <UserIcon className="w-5 h-5" />
             </div>
             <div>
               <h2 className="text-lg font-bold tracking-tight">Minha Conta</h2>
-              <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              <p className={`text-xs ${mutedTextClass}`}>
                 Gerencie seus dados de acesso, avatar e credenciais táticas
               </p>
             </div>
@@ -556,7 +687,13 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
           <button
             onClick={onClose}
             className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-              isDark ? 'hover:bg-slate-800 text-slate-400 hover:text-white' : 'hover:bg-slate-200 text-slate-500 hover:text-black'
+              isNotion
+                ? isDark
+                  ? 'hover:bg-[#262626] text-[#e6e6e4]/70 hover:text-[#e6e6e4]'
+                  : 'hover:bg-[#e6e6e3]/60 text-[#37352f]/70 hover:text-[#37352f]'
+                : isDark
+                  ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
+                  : 'hover:bg-slate-200 text-slate-500 hover:text-black'
             }`}
             title="Fechar janela"
           >
@@ -565,7 +702,17 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
         </div>
 
         {/* Sub-Navigation Tabs */}
-        <div className={`px-3 sm:px-6 pt-3 flex gap-1 sm:gap-2 border-b text-xs font-semibold overflow-x-auto scrollbar-none ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
+        <div
+          className={`px-3 sm:px-6 pt-3 flex gap-1 sm:gap-2 border-b text-xs font-semibold overflow-x-auto scrollbar-none ${
+            isNotion
+              ? isDark
+                ? 'border-white/[0.08] bg-[#202020]'
+                : 'border-[#e6e6e3] bg-[#ffffff]'
+              : isDark
+                ? 'border-slate-800/80'
+                : 'border-slate-200'
+          }`}
+        >
           {subTabs.map(({ id, label, icon: Icon }) => {
             const isActive = activeSubTab === id;
             return (
@@ -578,12 +725,20 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                 }}
                 className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
                   isActive
-                    ? isDark
-                      ? 'border-blue-500 text-blue-400 font-bold'
-                      : 'border-blue-600 text-blue-600 font-bold'
-                    : isDark
-                      ? 'border-transparent text-slate-400 hover:text-slate-200'
-                      : 'border-transparent text-slate-600 hover:text-slate-900'
+                    ? isNotion
+                      ? isDark
+                        ? 'border-[#e6e6e4] text-[#e6e6e4] font-bold'
+                        : 'border-[#37352f] text-[#37352f] font-bold'
+                      : isDark
+                        ? 'border-blue-500 text-blue-400 font-bold'
+                        : 'border-blue-600 text-blue-600 font-bold'
+                    : isNotion
+                      ? isDark
+                        ? 'border-transparent text-[#e6e6e4]/60 hover:text-[#e6e6e4]'
+                        : 'border-transparent text-[#37352f]/60 hover:text-[#37352f]'
+                      : isDark
+                        ? 'border-transparent text-slate-400 hover:text-slate-200'
+                        : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
@@ -629,14 +784,18 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                 <form onSubmit={handleSaveProfile} className="space-y-5">
                   {/* Seção Avatar */}
                   <div
-                    className={`flex flex-col min-[390px]:flex-row items-start min-[390px]:items-center gap-4 sm:gap-5 p-4 rounded-xl border min-w-0 ${
-                      isDark ? 'border-slate-800/60 bg-slate-900/30' : 'border-slate-200 bg-slate-50'
-                    }`}
+                    className={`flex flex-col min-[390px]:flex-row items-start min-[390px]:items-center gap-4 sm:gap-5 p-4 rounded-xl border min-w-0 ${cardSurfaceClass}`}
                   >
                     <div className="relative group">
                       <div
                         className={`w-20 h-20 rounded-2xl overflow-hidden border-2 flex items-center justify-center shadow-sm ${
-                          isDark ? 'border-blue-500/50 bg-slate-800' : 'border-blue-200 bg-blue-50'
+                          isNotion
+                            ? isDark
+                              ? 'border-white/[0.08] bg-[#262626]'
+                              : 'border-[#e6e6e3] bg-[#ffffff]'
+                            : isDark
+                              ? 'border-blue-500/50 bg-slate-800'
+                              : 'border-blue-200 bg-blue-50'
                         }`}
                       >
                         {avatarPreview ? (
@@ -646,7 +805,17 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <span className={`text-2xl font-black tracking-wider ${isDark ? 'text-blue-400' : 'text-blue-700'}`}>
+                          <span
+                            className={`text-2xl font-black tracking-wider ${
+                              isNotion
+                                ? isDark
+                                  ? 'text-[#e6e6e4]'
+                                  : 'text-[#37352f]'
+                                : isDark
+                                  ? 'text-blue-400'
+                                  : 'text-blue-700'
+                            }`}
+                          >
                             {(fullName || username || 'CFO').slice(0, 2).toUpperCase()}
                           </span>
                         )}
@@ -679,11 +848,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
                         disabled={loading}
-                        className={`mt-2.5 px-3 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                          isDark
-                            ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-                            : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 shadow-2xs'
-                        }`}
+                        className={`mt-2.5 px-3 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${secondaryButtonClass}`}
                       >
                         Escolher Nova Imagem
                       </button>
@@ -772,7 +937,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                     <button
                       type="submit"
                       disabled={loading}
-                      className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#0056D2] to-blue-700 hover:from-blue-600 hover:to-blue-800 text-white font-semibold text-xs shadow-md transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                      className={`px-5 py-2 rounded-xl font-semibold text-xs shadow-md transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2 cursor-pointer ${primaryButtonClass}`}
                     >
                       {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                       Salvar Alterações
@@ -784,15 +949,141 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
               {/* ABA CONFIGURAÇÕES (PREFERÊNCIAS TÁTICAS & GOOGLE AGENDA) */}
               {activeSubTab === 'settings' && (
                 <div className="space-y-5 animate-in fade-in duration-200">
-                  <div
-                    className={`p-4 rounded-xl border space-y-4 ${
-                      isDark ? 'border-blue-900/40 bg-[#070D18]' : 'border-slate-200 bg-slate-50/70'
-                    }`}
-                  >
+                  {/* Card: Aparência do Sistema */}
+                  <div className={`p-4 rounded-xl border space-y-3.5 ${settingsCardClass}`}>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Palette
+                          className={`w-4 h-4 ${
+                            isNotion
+                              ? isDark
+                                ? 'text-[#e6e6e4]'
+                                : 'text-[#37352f]'
+                              : isDark
+                                ? 'text-blue-400'
+                                : 'text-blue-600'
+                          }`}
+                        />
+                        <h3 className={`text-xs font-bold ${headingTextClass}`}>
+                          Aparência do Sistema
+                        </h3>
+                      </div>
+                      <p className={`text-[11px] leading-relaxed ${mutedTextClass}`}>
+                        Escolha a paleta visual do ambiente de estudos. Funciona em conjunto com o modo claro e escuro.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <button
+                        id="btn-appearance-default"
+                        type="button"
+                        aria-pressed={currentAppearance === 'default'}
+                        onClick={() => handleSelectAppearance('default')}
+                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-2 ${
+                          currentAppearance === 'default'
+                            ? isNotion
+                              ? isDark
+                                ? 'bg-[#262626] border-[#e6e6e4]/50 ring-1 ring-[#e6e6e4]/30'
+                                : 'bg-[#ffffff] border-[#37352f] ring-1 ring-[#37352f]/30'
+                              : isDark
+                                ? 'bg-[#0F1D38]/80 border-blue-500 ring-1 ring-blue-500/40'
+                                : 'bg-blue-50/80 border-blue-600 ring-1 ring-blue-600/30'
+                            : isNotion
+                              ? isDark
+                                ? 'bg-[#202020] border-white/[0.08] hover:bg-[#262626]'
+                                : 'bg-[#ffffff] border-[#e6e6e3] hover:bg-[#fbfbfa]'
+                              : isDark
+                                ? 'bg-slate-900/40 border-slate-800 hover:border-slate-700'
+                                : 'bg-white border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 w-full">
+                          <div className="flex items-center gap-2">
+                            <span className="w-4 h-4 rounded-full bg-gradient-to-tr from-[#070D18] to-[#0056D2] border border-blue-400/50 shrink-0" />
+                            <span className={`text-xs font-bold ${headingTextClass}`}>
+                              Normal (Azul Tático)
+                            </span>
+                          </div>
+                          {currentAppearance === 'default' && (
+                            <span
+                              className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                                isDark ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-100 text-blue-700'
+                              }`}
+                            >
+                              <Check className="w-3 h-3" /> Ativo
+                            </span>
+                          )}
+                        </div>
+                        <p className={`text-[11px] leading-relaxed ${mutedTextClass}`}>
+                          Visual padrão em azul escuro profundo ou claro clássico.
+                        </p>
+                      </button>
+
+                      <button
+                        id="btn-appearance-notion"
+                        type="button"
+                        aria-pressed={currentAppearance === 'notion'}
+                        onClick={() => handleSelectAppearance('notion')}
+                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-2 ${
+                          currentAppearance === 'notion'
+                            ? isNotion
+                              ? isDark
+                                ? 'bg-[#262626] border-[#e6e6e4]/60 ring-1 ring-[#e6e6e4]/30'
+                                : 'bg-[#ffffff] border-[#37352f] ring-1 ring-[#37352f]/30'
+                              : isDark
+                                ? 'bg-[#262626] border-white/40 ring-1 ring-white/25'
+                                : 'bg-[#fbfbfa] border-[#37352f] ring-1 ring-[#37352f]/25'
+                            : isNotion
+                              ? isDark
+                                ? 'bg-[#202020] border-white/[0.08] hover:bg-[#262626]'
+                                : 'bg-[#ffffff] border-[#e6e6e3] hover:bg-[#fbfbfa]'
+                              : isDark
+                                ? 'bg-slate-900/40 border-slate-800 hover:border-slate-700'
+                                : 'bg-white border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 w-full">
+                          <div className="flex items-center gap-2">
+                            <span className="w-4 h-4 rounded-full bg-gradient-to-tr from-[#191919] via-[#262626] to-[#e6e6e3] border border-white/20 shrink-0" />
+                            <span className={`text-xs font-bold ${headingTextClass}`}>
+                              Cinza (Estilo Notion)
+                            </span>
+                          </div>
+                          {currentAppearance === 'notion' && (
+                            <span
+                              className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                                isDark
+                                  ? 'bg-[#191919] text-[#e6e6e4] border border-white/[0.08]'
+                                  : 'bg-[#e6e6e3] text-[#37352f]'
+                              }`}
+                            >
+                              <Check className="w-3 h-3" /> Ativo
+                            </span>
+                          )}
+                        </div>
+                        <p className={`text-[11px] leading-relaxed ${mutedTextClass}`}>
+                          Visual cinza neutro em todo o site, igual à área do Notion (funciona no modo escuro e claro).
+                        </p>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Card: Google Agenda */}
+                  <div className={`p-4 rounded-xl border space-y-4 ${settingsCardClass}`}>
                     <div className="flex items-start justify-between gap-4">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <Calendar className={`w-4 h-4 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
+                          <Calendar
+                            className={`w-4 h-4 ${
+                              isNotion
+                                ? isDark
+                                  ? 'text-[#e6e6e4]'
+                                  : 'text-[#37352f]'
+                                : isDark
+                                  ? 'text-blue-400'
+                                  : 'text-blue-600'
+                            }`}
+                          />
                           <h3 className={`text-xs font-bold ${headingTextClass}`}>
                             Revisão Espaçada Automática no Google Agenda
                           </h3>
@@ -828,50 +1119,120 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                           className="sr-only peer"
                         />
                         <div
-                          className={`w-10 h-5.5 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-[#0056D2] ${
-                            isDark ? 'bg-slate-800' : 'bg-slate-300'
+                          className={`w-10 h-5.5 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all ${
+                            isNotion
+                              ? isDark
+                                ? 'bg-[#262626] peer-checked:bg-[#e6e6e4]/40'
+                                : 'bg-[#e6e6e3] peer-checked:bg-[#37352f]'
+                              : isDark
+                                ? 'bg-slate-800 peer-checked:bg-[#0056D2]'
+                                : 'bg-slate-300 peer-checked:bg-[#0056D2]'
                           }`}
                         ></div>
                       </label>
                     </div>
 
                     {/* Resumo visual do padrão de cores */}
-                    <div className={`pt-3 border-t grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] ${isDark ? 'border-blue-900/30' : 'border-slate-200'}`}>
+                    <div
+                      className={`pt-3 border-t grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] ${
+                        isNotion
+                          ? isDark
+                            ? 'border-white/[0.08]'
+                            : 'border-[#e6e6e3]'
+                          : isDark
+                            ? 'border-blue-900/30'
+                            : 'border-slate-200'
+                      }`}
+                    >
                       <div
                         className={`p-2.5 rounded-lg border flex items-center gap-2 ${
-                          isDark ? 'bg-[#0F1D38]/60 border-blue-900/40' : 'bg-blue-50 border-blue-200'
+                          isNotion
+                            ? isDark
+                              ? 'bg-[#262626] border-white/[0.08]'
+                              : 'bg-[#ffffff] border-[#e6e6e3]'
+                            : isDark
+                              ? 'bg-[#0F1D38]/60 border-blue-900/40'
+                              : 'bg-blue-50 border-blue-200'
                         }`}
                       >
                         <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span>
                         <div>
-                          <span className={`font-bold block ${isDark ? 'text-blue-300' : 'text-blue-800'}`}>Estudado no dia</span>
+                          <span
+                            className={`font-bold block ${
+                              isNotion
+                                ? headingTextClass
+                                : isDark
+                                  ? 'text-blue-300'
+                                  : 'text-blue-800'
+                            }`}
+                          >
+                            Estudado no dia
+                          </span>
                           <span className={`text-[10px] ${mutedTextClass}`}>Marcado em Azul no Google Agenda</span>
                         </div>
                       </div>
                       <div
                         className={`p-2.5 rounded-lg border flex items-center gap-2 ${
-                          isDark ? 'bg-[#062018]/60 border-emerald-900/40' : 'bg-emerald-50 border-emerald-200'
+                          isNotion
+                            ? isDark
+                              ? 'bg-[#262626] border-white/[0.08]'
+                              : 'bg-[#ffffff] border-[#e6e6e3]'
+                            : isDark
+                              ? 'bg-[#062018]/60 border-emerald-900/40'
+                              : 'bg-emerald-50 border-emerald-200'
                         }`}
                       >
                         <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
                         <div>
-                          <span className={`font-bold block ${isDark ? 'text-emerald-300' : 'text-emerald-800'}`}>Revisando</span>
+                          <span
+                            className={`font-bold block ${
+                              isNotion
+                                ? headingTextClass
+                                : isDark
+                                  ? 'text-emerald-300'
+                                  : 'text-emerald-800'
+                            }`}
+                          >
+                            Revisando
+                          </span>
                           <span className={`text-[10px] ${mutedTextClass}`}>Marcado em Verde no Google Agenda</span>
                         </div>
                       </div>
                     </div>
 
                     {/* Atalho Proeminente para a Extensão de Navegador */}
-                    <div className={`pt-3 border-t ${isDark ? 'border-blue-900/30' : 'border-slate-200'}`}>
+                    <div
+                      className={`pt-3 border-t ${
+                        isNotion
+                          ? isDark
+                            ? 'border-white/[0.08]'
+                            : 'border-[#e6e6e3]'
+                          : isDark
+                            ? 'border-blue-900/30'
+                            : 'border-slate-200'
+                      }`}
+                    >
                       <div
                         className={`p-3.5 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
-                          isDark ? 'border-blue-500/30 bg-blue-950/30' : 'border-blue-200 bg-blue-50/70'
+                          isNotion
+                            ? isDark
+                              ? 'border-white/[0.08] bg-[#202020]'
+                              : 'border-[#e6e6e3] bg-[#ffffff]'
+                            : isDark
+                              ? 'border-blue-500/30 bg-blue-950/30'
+                              : 'border-blue-200 bg-blue-50/70'
                         }`}
                       >
                         <div className="flex items-center gap-3">
                           <div
                             className={`p-2 rounded-xl border shrink-0 ${
-                              isDark ? 'bg-blue-600/20 text-blue-400 border-blue-500/30' : 'bg-blue-100 text-blue-600 border-blue-200'
+                              isNotion
+                                ? isDark
+                                  ? 'bg-[#262626] text-[#e6e6e4] border-white/[0.08]'
+                                  : 'bg-[#fbfbfa] text-[#37352f] border-[#e6e6e3]'
+                                : isDark
+                                  ? 'bg-blue-600/20 text-blue-400 border-blue-500/30'
+                                  : 'bg-blue-100 text-blue-600 border-blue-200'
                             }`}
                           >
                             <Puzzle size={20} />
@@ -881,7 +1242,13 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                               <h4 className={`text-xs font-bold ${headingTextClass}`}>Extensão CFO CBMERJ para Navegador</h4>
                               <span
                                 className={`px-1.5 py-0.5 rounded font-bold text-[9px] uppercase border ${
-                                  isDark ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' : 'bg-blue-100 text-blue-700 border-blue-200'
+                                  isNotion
+                                    ? isDark
+                                      ? 'bg-[#262626] text-[#e6e6e4] border-white/[0.08]'
+                                      : 'bg-[#fbfbfa] text-[#37352f] border-[#e6e6e3]'
+                                    : isDark
+                                      ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                      : 'bg-blue-100 text-blue-700 border-blue-200'
                                 }`}
                               >
                                 PC
@@ -898,7 +1265,13 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                             setActiveSubTab('extension');
                             setStatusMessage(null);
                           }}
-                          className="px-3.5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shrink-0 shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+                          className={`px-3.5 py-2 rounded-xl text-xs font-bold shrink-0 shadow-md transition-all cursor-pointer ${
+                            isNotion
+                              ? isDark
+                                ? 'bg-[#262626] hover:bg-[#323232] text-[#e6e6e4] border border-white/[0.08]'
+                                : 'bg-[#37352f] hover:bg-[#2a2824] text-[#ffffff]'
+                              : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20'
+                          }`}
                         >
                           Ver Chave & Download
                         </button>
@@ -913,7 +1286,11 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                 <div className="space-y-5 animate-in fade-in duration-200">
                   <div
                     className={`p-4 rounded-xl border space-y-4 ${
-                      isDark ? 'border-blue-500/30 bg-blue-950/20' : 'border-blue-200 bg-blue-50/50'
+                      isNotion
+                        ? settingsCardClass
+                        : isDark
+                          ? 'border-blue-500/30 bg-blue-950/20'
+                          : 'border-blue-200 bg-blue-50/50'
                     }`}
                   >
                     <div className="flex items-center gap-3.5">
@@ -927,12 +1304,18 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                       <div>
                         <div
                           className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border mb-0.5 ${
-                            isDark ? 'bg-blue-500/15 text-blue-400 border-blue-500/30' : 'bg-blue-100 text-blue-700 border-blue-200'
+                            isNotion
+                              ? isDark
+                                ? 'bg-[#262626] text-[#e6e6e4] border-white/[0.08]'
+                                : 'bg-[#ffffff] text-[#37352f] border-[#e6e6e3]'
+                              : isDark
+                                ? 'bg-blue-500/15 text-blue-400 border-blue-500/30'
+                                : 'bg-blue-100 text-blue-700 border-blue-200'
                           }`}
                         >
                           <Monitor size={11} /> Vinculação Oficial para Computador
                         </div>
-                        <h3 className={`text-sm font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>Extensão CFO CBMERJ — Rumo ao CFO</h3>
+                        <h3 className={`text-sm font-black ${headingTextClass}`}>Extensão CFO CBMERJ — Rumo ao CFO</h3>
                         <p className={`text-[11px] ${mutedTextClass}`}>
                           Utilize no QConcursos, TEC ou qualquer site de questões com cronômetro e registro rápido em tempo real.
                         </p>
@@ -940,7 +1323,17 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                     </div>
 
                     {/* Bloco 1: Download Direto do ZIP */}
-                    <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-black/40 border-white/10' : 'bg-white border-slate-200'}`}>
+                    <div
+                      className={`p-3.5 rounded-xl border ${
+                        isNotion
+                          ? isDark
+                            ? 'bg-[#202020] border-white/[0.08]'
+                            : 'bg-[#ffffff] border-[#e6e6e3]'
+                          : isDark
+                            ? 'bg-black/40 border-white/10'
+                            : 'bg-white border-slate-200'
+                      }`}
+                    >
                       <div className="flex items-center justify-between mb-2">
                         <span className={`text-[11px] font-bold uppercase tracking-wider ${mutedTextClass}`}>
                           Pacote da Extensão (.ZIP)
@@ -952,7 +1345,11 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                       <a
                         href="/api/download/extension"
                         download="cfo-cbmerj-extensao.zip"
-                        className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl font-black text-xs text-white bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 shadow-md shadow-blue-600/30 hover:scale-[1.01] active:scale-[0.99] transition-all"
+                        className={`flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl font-black text-xs shadow-md hover:scale-[1.01] active:scale-[0.99] transition-all ${
+                          isNotion
+                            ? primaryButtonClass
+                            : 'text-white bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 shadow-blue-600/30'
+                        }`}
                       >
                         <Download size={16} /> Baixar Pacote (.ZIP)
                       </a>
@@ -962,7 +1359,17 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                     </div>
 
                     {/* Bloco 2: URL Oficial da Plataforma */}
-                    <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-black/40 border-white/10' : 'bg-white border-slate-200'}`}>
+                    <div
+                      className={`p-3.5 rounded-xl border ${
+                        isNotion
+                          ? isDark
+                            ? 'bg-[#202020] border-white/[0.08]'
+                            : 'bg-[#ffffff] border-[#e6e6e3]'
+                          : isDark
+                            ? 'bg-black/40 border-white/10'
+                            : 'bg-white border-slate-200'
+                      }`}
+                    >
                       <div className="flex items-center justify-between mb-1.5">
                         <label className={`text-[11px] font-bold uppercase tracking-wider ${mutedTextClass}`}>
                           URL da Plataforma (Já Pré-Configurada no ZIP)
@@ -980,17 +1387,17 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                           value={PLATFORM_URL}
                           onClick={(e) => (e.target as HTMLInputElement).select()}
                           className={`flex-1 px-3 py-2 rounded-xl text-xs font-mono border outline-none select-all ${
-                            isDark ? 'bg-black/60 border-white/10 text-cyan-300' : 'bg-slate-50 border-slate-300 text-cyan-800'
+                            isNotion
+                              ? inputSurfaceClass
+                              : isDark
+                                ? 'bg-black/60 border-white/10 text-cyan-300'
+                                : 'bg-slate-50 border-slate-300 text-cyan-800'
                           }`}
                         />
                         <button
                           type="button"
                           onClick={handleCopyExtUrl}
-                          className={`flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border shrink-0 transition-all cursor-pointer ${
-                            isDark
-                              ? 'bg-white/10 hover:bg-white/15 text-slate-200 border-white/10'
-                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                          }`}
+                          className={`flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border shrink-0 transition-all cursor-pointer ${secondaryButtonClass}`}
                         >
                           {copiedExtUrl ? <Check size={14} /> : <Copy size={14} />}
                           {copiedExtUrl ? 'Copiada!' : 'Copiar'}
@@ -999,7 +1406,17 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                     </div>
 
                     {/* Bloco 3: Chave Pessoal de Vinculação */}
-                    <div className={`p-3.5 rounded-xl border ${isDark ? 'bg-black/40 border-white/10' : 'bg-white border-slate-200'}`}>
+                    <div
+                      className={`p-3.5 rounded-xl border ${
+                        isNotion
+                          ? isDark
+                            ? 'bg-[#202020] border-white/[0.08]'
+                            : 'bg-[#ffffff] border-[#e6e6e3]'
+                          : isDark
+                            ? 'bg-black/40 border-white/10'
+                            : 'bg-white border-slate-200'
+                      }`}
+                    >
                       <div className="flex items-center justify-between mb-1.5">
                         <label className={`text-[11px] font-bold uppercase tracking-wider ${mutedTextClass}`}>
                           Sua Chave de Acesso Pessoal (API Key)
@@ -1033,7 +1450,11 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                             value={extToken}
                             onClick={(e) => (e.target as HTMLInputElement).select()}
                             className={`flex-1 px-3 py-2 rounded-xl text-xs font-mono border outline-none select-all ${
-                              isDark ? 'bg-black/60 border-white/10 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                              isNotion
+                                ? inputSurfaceClass
+                                : isDark
+                                  ? 'bg-black/60 border-white/10 text-slate-200'
+                                  : 'bg-slate-50 border-slate-300 text-slate-900'
                             }`}
                           />
                           <button
@@ -1043,7 +1464,9 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                             className={`flex items-center gap-1 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
                               copiedExtToken
                                 ? 'bg-emerald-500 text-white'
-                                : 'bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20'
+                                : isNotion
+                                  ? primaryButtonClass
+                                  : 'bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20'
                             }`}
                           >
                             {copiedExtToken ? <Check size={14} /> : <Copy size={14} />}
@@ -1054,11 +1477,17 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                     </div>
 
                     {/* Bloco 4: Instruções de Instalação */}
-                    <div className={`space-y-2 text-xs pt-1 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                    <div className={`space-y-2 text-xs pt-1 ${todayThemeLabel}`}>
                       <div className="flex items-start gap-2">
                         <span
                           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-bold text-[10px] border ${
-                            isDark ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-blue-100 text-blue-700 border-blue-200'
+                            isNotion
+                              ? isDark
+                                ? 'bg-[#262626] text-[#e6e6e4] border-white/[0.08]'
+                                : 'bg-[#ffffff] text-[#37352f] border-[#e6e6e3]'
+                              : isDark
+                                ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                                : 'bg-blue-100 text-blue-700 border-blue-200'
                           }`}
                         >
                           1
@@ -1068,17 +1497,29 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                       <div className="flex items-start gap-2">
                         <span
                           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-bold text-[10px] border ${
-                            isDark ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-blue-100 text-blue-700 border-blue-200'
+                            isNotion
+                              ? isDark
+                                ? 'bg-[#262626] text-[#e6e6e4] border-white/[0.08]'
+                                : 'bg-[#ffffff] text-[#37352f] border-[#e6e6e3]'
+                              : isDark
+                                ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                                : 'bg-blue-100 text-blue-700 border-blue-200'
                           }`}
                         >
                           2
                         </span>
-                        <p>No navegador, acesse <code className={`px-1.5 py-0.5 rounded font-mono text-[11px] ${isDark ? 'bg-white/10 text-slate-200' : 'bg-slate-200/80 text-slate-800'}`}>chrome://extensions/</code> e ative o <strong>Modo do desenvolvedor</strong>.</p>
+                        <p>No navegador, acesse <code className={`px-1.5 py-0.5 rounded font-mono text-[11px] ${isNotion ? (isDark ? 'bg-[#262626] text-[#e6e6e4]' : 'bg-[#e6e6e3] text-[#37352f]') : isDark ? 'bg-white/10 text-slate-200' : 'bg-slate-200/80 text-slate-800'}`}>chrome://extensions/</code> e ative o <strong>Modo do desenvolvedor</strong>.</p>
                       </div>
                       <div className="flex items-start gap-2">
                         <span
                           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-bold text-[10px] border ${
-                            isDark ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-blue-100 text-blue-700 border-blue-200'
+                            isNotion
+                              ? isDark
+                                ? 'bg-[#262626] text-[#e6e6e4] border-white/[0.08]'
+                                : 'bg-[#ffffff] text-[#37352f] border-[#e6e6e3]'
+                              : isDark
+                                ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                                : 'bg-blue-100 text-blue-700 border-blue-200'
                           }`}
                         >
                           3
@@ -1095,10 +1536,18 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                 <form onSubmit={handleUpdateEmail} className="space-y-4">
                   <div
                     className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 ${
-                      isDark ? 'border-blue-900/50 bg-blue-950/20 text-blue-300' : 'border-blue-200 bg-blue-50 text-blue-800'
+                      isNotion
+                        ? `${cardSurfaceClass} ${todayThemeLabel}`
+                        : isDark
+                          ? 'border-blue-900/50 bg-blue-950/20 text-blue-300'
+                          : 'border-blue-200 bg-blue-50 text-blue-800'
                     }`}
                   >
-                    <Shield className={`w-4 h-4 shrink-0 mt-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
+                    <Shield
+                      className={`w-4 h-4 shrink-0 mt-0.5 ${
+                        isNotion ? headingTextClass : isDark ? 'text-blue-400' : 'text-blue-600'
+                      }`}
+                    />
                     <div>
                       <strong className="block font-semibold">Verificação de Segurança Server-Side:</strong>
                       A alteração de e-mail requer confirmação de senha do operador para validação de titularidade da conta.
@@ -1159,7 +1608,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                     <button
                       type="submit"
                       disabled={loading}
-                      className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#0056D2] to-blue-700 hover:from-blue-600 hover:to-blue-800 text-white font-semibold text-xs shadow-md transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                      className={`px-5 py-2 rounded-xl font-semibold text-xs shadow-md transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2 cursor-pointer ${primaryButtonClass}`}
                     >
                       {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                       Confirmar Alteração de E-mail
@@ -1237,7 +1686,11 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                     <button
                       type="submit"
                       disabled={loading}
-                      className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs shadow-md transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                      className={`px-5 py-2 rounded-xl font-semibold text-xs shadow-md transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2 cursor-pointer ${
+                        isNotion
+                          ? primaryButtonClass
+                          : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white'
+                      }`}
                     >
                       {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                       Atualizar Senha
@@ -1248,12 +1701,20 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
 
               {/* TAB 5: PRIVACIDADE & LGPD */}
               {activeSubTab === 'privacy' && (
-                <div className={`space-y-6 text-xs ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                <div className={`space-y-6 text-xs ${todayThemeLabel}`}>
                   {/* Resumo de Direitos e Portabilidade */}
-                  <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} space-y-3`}>
+                  <div
+                    className={`p-4 rounded-xl border space-y-3 ${
+                      isNotion
+                        ? cardSurfaceClass
+                        : isDark
+                          ? 'bg-slate-950/40 border-slate-800'
+                          : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Shield className={`w-4 h-4 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
+                        <Shield className={`w-4 h-4 ${isNotion ? headingTextClass : isDark ? 'text-blue-400' : 'text-blue-600'}`} />
                         <span className={`font-bold text-sm ${headingTextClass}`}>Central de Direitos do Titular (LGPD)</span>
                       </div>
                       <span className={`text-[11px] font-mono ${mutedTextClass}`}>Lei nº 13.709/2018</span>
@@ -1266,7 +1727,9 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                         type="button"
                         onClick={handleExportData}
                         disabled={exportingData}
-                        className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center gap-1.5 transition shadow-sm disabled:opacity-50 cursor-pointer"
+                        className={`px-3.5 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition shadow-sm disabled:opacity-50 cursor-pointer ${
+                          isNotion ? primaryButtonClass : 'bg-blue-600 hover:bg-blue-500 text-white'
+                        }`}
                       >
                         {exportingData ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                         Exportar Meus Dados (JSON)
@@ -1274,32 +1737,32 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                       <button
                         type="button"
                         onClick={() => setIsPrivacyModalOpen(true)}
-                        className={`px-3.5 py-2 rounded-lg border font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer ${
-                          isDark
-                            ? 'border-slate-700 hover:bg-slate-800 text-slate-200'
-                            : 'border-slate-300 bg-white hover:bg-slate-100 text-slate-700'
-                        }`}
+                        className={`px-3.5 py-2 rounded-lg border font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer ${secondaryButtonClass}`}
                       >
-                        <FileText className={`w-3.5 h-3.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
+                        <FileText className={`w-3.5 h-3.5 ${isNotion ? headingTextClass : isDark ? 'text-blue-400' : 'text-blue-600'}`} />
                         Política de Privacidade
                       </button>
                       <button
                         type="button"
                         onClick={() => setIsCookieModalOpen(true)}
-                        className={`px-3.5 py-2 rounded-lg border font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer ${
-                          isDark
-                            ? 'border-slate-700 hover:bg-slate-800 text-slate-200'
-                            : 'border-slate-300 bg-white hover:bg-slate-100 text-slate-700'
-                        }`}
+                        className={`px-3.5 py-2 rounded-lg border font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer ${secondaryButtonClass}`}
                       >
-                        <Cookie className={`w-3.5 h-3.5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
+                        <Cookie className={`w-3.5 h-3.5 ${isNotion ? headingTextClass : isDark ? 'text-purple-400' : 'text-purple-600'}`} />
                         Preferências de Cookies
                       </button>
                     </div>
                   </div>
 
                   {/* Formulário de Abertura de Solicitação LGPD */}
-                  <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'} space-y-3`}>
+                  <div
+                    className={`p-4 rounded-xl border space-y-3 ${
+                      isNotion
+                        ? cardSurfaceClass
+                        : isDark
+                          ? 'bg-slate-950/40 border-slate-800'
+                          : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
                     <span className={`font-bold text-sm block ${headingTextClass}`}>Abrir Requisição Formal à Equipe de Privacidade</span>
                     <p className={mutedTextClass}>
                       Submeta solicitações formais relativas aos seus direitos (confirmação, retificação, esclarecimentos ou exclusão/anonimização).
@@ -1339,7 +1802,9 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                       <button
                         type="submit"
                         disabled={submittingRequest}
-                        className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                        className={`px-4 py-2 rounded-xl font-semibold text-xs transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer ${
+                          isNotion ? primaryButtonClass : 'bg-slate-800 hover:bg-slate-700 text-white'
+                        }`}
                       >
                         {submittingRequest && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                         Registrar Protocolo LGPD
@@ -1362,15 +1827,25 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                           <div
                             key={req.id}
                             className={`p-3 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 ${
-                              isDark ? 'bg-slate-950/30 border-slate-800/80' : 'bg-slate-100/60 border-slate-200'
+                              isNotion
+                                ? cardSurfaceClass
+                                : isDark
+                                  ? 'bg-slate-950/30 border-slate-800/80'
+                                  : 'bg-slate-100/60 border-slate-200'
                             }`}
                           >
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className={`font-mono font-bold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>{req.requestCode}</span>
+                                <span className={`font-mono font-bold ${isNotion ? headingTextClass : isDark ? 'text-blue-400' : 'text-blue-600'}`}>{req.requestCode}</span>
                                 <span
                                   className={`text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded ${
-                                    isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-700'
+                                    isNotion
+                                      ? isDark
+                                        ? 'bg-[#262626] text-[#e6e6e4]'
+                                        : 'bg-[#e6e6e3] text-[#37352f]'
+                                      : isDark
+                                        ? 'bg-slate-800 text-slate-300'
+                                        : 'bg-slate-200 text-slate-700'
                                   }`}
                                 >
                                   {req.requestType}
@@ -1379,7 +1854,7 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                               <p className={`text-[11px] mt-0.5 ${mutedTextClass}`}>
                                 Registrado em: {new Date(req.createdAt).toLocaleDateString('pt-BR')}
                                 {req.adminNotes && (
-                                  <span className={`block italic mt-0.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                                  <span className={`block italic mt-0.5 ${todayThemeLabel}`}>
                                     Parecer: {req.adminNotes}
                                   </span>
                                 )}
@@ -1420,10 +1895,16 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
         {/* Footer info */}
         <div
           className={`px-4 sm:px-6 py-2.5 border-t flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-[11px] ${
-            isDark ? 'border-slate-800/80 bg-[#070D18] text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600'
+            isNotion
+              ? isDark
+                ? 'border-white/[0.08] bg-[#191919] text-[#e6e6e4]/70'
+                : 'border-[#e6e6e3] bg-[#fbfbfa] text-[#37352f]/70'
+              : isDark
+                ? 'border-slate-800/80 bg-[#070D18] text-slate-400'
+                : 'border-slate-200 bg-slate-50 text-slate-600'
           }`}
         >
-          <span>Operador ID: <strong className={`font-mono ${isDark ? 'text-slate-300' : 'text-slate-800'}`}>{profile?.id.slice(0, 8) || '...'}</strong></span>
+          <span>Operador ID: <strong className={`font-mono ${headingTextClass}`}>{profile?.id.slice(0, 8) || '...'}</strong></span>
           <span className={`flex items-center gap-1.5 font-semibold ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}>
             <Shield className="w-3 h-3" /> Proteção Anti-IDOR & LGPD Ativa
           </span>

@@ -810,3 +810,392 @@ body.theme-light ::-webkit-scrollbar-thumb:hover {
   transform-origin: center bottom;
   animation: flameCorePulse 2.2s ease-in-out infinite;
 }
+
+/* =========================================================================
+   Global Notion Gray Theme (body.appearance-notion)
+   Scoped strictly to the authenticated internal app; .landing, .login-screen,
+   and .rumo-app are explicitly excluded. Semantic accent colors are preserved.
+   ========================================================================= */
+
+body.appearance-notion.theme-dark {
+  color: #e6e6e4;
+  background-color: #191919;
+}
+
+body.appearance-notion.theme-light {
+  color: #37352f;
+  background-color: #ffffff;
+}
+
+body.appearance-notion.theme-dark ::selection {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+body.appearance-notion.theme-light ::selection {
+  background: rgba(55, 53, 47, 0.14);
+  color: #37352f;
+}
+
+/* Scrollbars */
+body.appearance-notion.theme-dark ::-webkit-scrollbar-track {
+  background: #191919;
+}
+body.appearance-notion.theme-dark ::-webkit-scrollbar-thumb {
+  background: #2f2f2f;
+  border-radius: 4px;
+  border: 1px solid #191919;
+}
+body.appearance-notion.theme-dark ::-webkit-scrollbar-thumb:hover {
+  background: #404040;
+}
+
+body.appearance-notion.theme-light ::-webkit-scrollbar-track {
+  background: #fbfbfa;
+}
+body.appearance-notion.theme-light ::-webkit-scrollbar-thumb {
+  background: #d6d6d2;
+  border-radius: 4px;
+  border: 1px solid #fbfbfa;
+}
+body.appearance-notion.theme-light ::-webkit-scrollbar-thumb:hover {
+  background: #b8b8b3;
+}
+
+/* Topbar icons in Notion mode */
+body.appearance-notion.theme-dark .topbar-icon {
+  color: #9b9a97;
+}
+body.appearance-notion.theme-dark button:hover .topbar-icon,
+body.appearance-notion.theme-dark button:focus-visible .topbar-icon {
+  color: #e6e6e4;
+}
+
+body.appearance-notion.theme-light .topbar-icon {
+  color: #787774;
+}
+body.appearance-notion.theme-light button:hover .topbar-icon,
+body.appearance-notion.theme-light button:focus-visible .topbar-icon {
+  color: #37352f;
+}
+
+/* Dark Mode: Canvas surfaces (#191919) */
+body.appearance-notion.theme-dark :is(
+  .bg-\[\#020617\],
+  .bg-\[\#06090e\],
+  .bg-\[\#060B14\],
+  .bg-\[\#060b1c\],
+  .bg-\[\#070b14\],
+  .bg-\[\#070D18\],
+  .bg-\[\#070d1f\],
+  .bg-\[\#070e24\],
+  .bg-\[\#080d14\],
+  .bg-\[\#080D18\],
+  .bg-\[\#090d18\],
+  .bg-\[\#0a0f18\],
+  .bg-\[\#0B0F17\],
+  .bg-\[\#0b0f17\],
+  .bg-\[\#0b0f19\],
+  .bg-\[\#0b1019\],
+  .bg-\[\#0b1020\],
+  .bg-slate-950,
+  .bg-gray-950
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  background-color: #191919;
+}
+
+body.appearance-notion.theme-dark :is(
+  .bg-\[\#070D18\]\/95,
+  .bg-\[\#070d1f\]\/90,
+  .bg-\[\#0B0F17\]\/95,
+  .bg-\[\#0b1019\]\/95,
+  .bg-slate-950\/95,
+  .bg-slate-950\/90,
+  .bg-gray-950\/95,
+  .bg-gray-950\/90
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  background-color: rgba(25, 25, 25, 0.94);
+}
+
+body.appearance-notion.theme-dark :is(
+  .bg-\[\#060B14\]\/40,
+  .bg-\[\#070D18\]\/70,
+  .bg-slate-950\/80,
+  .bg-slate-950\/75,
+  .bg-slate-950\/70,
+  .bg-slate-950\/60,
+  .bg-slate-950\/50,
+  .bg-slate-950\/40,
+  .bg-slate-950\/30,
+  .bg-gray-950\/80,
+  .bg-gray-950\/70,
+  .bg-gray-950\/50
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  background-color: rgba(25, 25, 25, 0.72);
+}
+
+/* Dark Mode: Cards & Panels (#202020) */
+body.appearance-notion.theme-dark :is(
+  .bg-\[\#081326\],
+  .bg-\[\#091229\],
+  .bg-\[\#0A101D\],
+  .bg-\[\#0B1220\],
+  .bg-\[\#0B1528\],
+  .bg-\[\#0D0E13\],
+  .bg-\[\#0e1420\],
+  .bg-\[\#0E1422\],
+  .bg-\[\#0E1A33\],
+  .bg-\[\#0E1B31\],
+  .bg-\[\#0f172a\],
+  .bg-\[\#0F172A\],
+  .bg-\[\#0F1D38\],
+  .bg-\[\#10182b\],
+  .bg-\[\#111218\],
+  .bg-\[\#111722\],
+  .bg-\[\#111726\],
+  .bg-\[\#121316\],
+  .bg-\[\#131B2A\],
+  .bg-\[\#132345\],
+  .bg-slate-900,
+  .bg-gray-900
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  background-color: #202020;
+}
+
+body.appearance-notion.theme-dark :is(
+  .bg-\[\#081326\]\/95,
+  .bg-\[\#0A101D\]\/90,
+  .bg-\[\#0B1220\]\/95,
+  .bg-\[\#0E1B31\]\/95,
+  .bg-slate-900\/95,
+  .bg-slate-900\/90,
+  .bg-gray-900\/95,
+  .bg-gray-900\/90
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  background-color: rgba(32, 32, 32, 0.94);
+}
+
+body.appearance-notion.theme-dark :is(
+  .bg-\[\#0B1528\]\/80,
+  .bg-\[\#0B1528\]\/60,
+  .bg-\[\#0D0E13\]\/60,
+  .bg-\[\#0F1D38\]\/80,
+  .bg-\[\#0F1D38\]\/60,
+  .bg-\[\#0F1D38\]\/50,
+  .bg-\[\#111722\]\/80,
+  .bg-\[\#111722\]\/50,
+  .bg-slate-900\/80,
+  .bg-slate-900\/75,
+  .bg-slate-900\/70,
+  .bg-slate-900\/60,
+  .bg-slate-900\/50,
+  .bg-slate-900\/40,
+  .bg-slate-900\/30,
+  .bg-slate-900\/20,
+  .bg-gray-900\/80,
+  .bg-gray-900\/70,
+  .bg-gray-900\/60,
+  .bg-gray-900\/50,
+  .bg-gray-900\/40
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  background-color: rgba(32, 32, 32, 0.8);
+}
+
+/* Dark Mode: Navy gradient cards */
+body.appearance-notion.theme-dark :is(
+  .from-\[\#0B1528\],
+  .via-\[\#0B1528\],
+  .from-slate-900
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  background-image: none;
+  background-color: #202020;
+}
+
+/* Dark Mode: Inputs & Subcards (#262626) */
+body.appearance-notion.theme-dark :is(
+  .bg-\[\#182235\],
+  .bg-\[\#1a1b1f\],
+  .bg-\[\#1b1c20\],
+  .bg-\[\#1e1f22\],
+  .bg-\[\#1e293b\],
+  .bg-slate-800,
+  .bg-gray-800
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  background-color: #262626;
+}
+
+body.appearance-notion.theme-dark :is(
+  .bg-slate-800\/90,
+  .bg-slate-800\/80,
+  .bg-slate-800\/60,
+  .bg-slate-800\/50,
+  .bg-slate-800\/45,
+  .bg-slate-800\/40,
+  .bg-slate-800\/30,
+  .bg-gray-800\/80,
+  .bg-gray-800\/60,
+  .bg-gray-800\/50,
+  .bg-gray-800\/40
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  background-color: rgba(38, 38, 38, 0.85);
+}
+
+/* Dark Mode: Elevated & Hover (#2f2f2f) */
+body.appearance-notion.theme-dark :is(
+  .bg-\[\#334155\],
+  .bg-slate-700,
+  .bg-slate-700\/80,
+  .bg-slate-700\/60,
+  .bg-gray-700
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  background-color: #2f2f2f;
+}
+
+body.appearance-notion.theme-dark :is(
+  .hover\:bg-slate-950,
+  .hover\:bg-slate-900,
+  .hover\:bg-slate-900\/40,
+  .hover\:bg-slate-900\/50,
+  .hover\:bg-slate-900\/60,
+  .hover\:bg-slate-900\/70,
+  .hover\:bg-slate-900\/80,
+  .hover\:bg-slate-800,
+  .hover\:bg-slate-800\/30,
+  .hover\:bg-slate-800\/40,
+  .hover\:bg-slate-800\/45,
+  .hover\:bg-slate-800\/60,
+  .hover\:bg-slate-800\/80,
+  .hover\:bg-slate-700,
+  .hover\:bg-slate-600,
+  .hover\:bg-gray-900,
+  .hover\:bg-gray-800,
+  .hover\:bg-\[\#0E1A33\],
+  .hover\:bg-\[\#0F1D38\],
+  .hover\:bg-\[\#182235\],
+  .hover\:bg-\[\#334155\]
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *):hover {
+  background-color: #2f2f2f;
+}
+
+/* Dark Mode: Neutral Borders & Dividers */
+body.appearance-notion.theme-dark :is(
+  .border-\[\#070D18\],
+  .border-\[\#1E293B\],
+  .border-slate-900,
+  .border-slate-900\/40,
+  .border-slate-800,
+  .border-slate-800\/40,
+  .border-slate-800\/50,
+  .border-slate-800\/60,
+  .border-slate-800\/70,
+  .border-slate-800\/80,
+  .border-slate-800\/90,
+  .border-gray-800,
+  .border-blue-900\/30,
+  .border-blue-900\/40,
+  .border-blue-900\/50,
+  .border-blue-900\/60,
+  .border-blue-950\/60
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+body.appearance-notion.theme-dark :is(
+  .divide-slate-800,
+  .divide-slate-800\/60
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) > :not(:last-child) {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+body.appearance-notion.theme-dark :is(
+  .border-slate-700,
+  .border-slate-700\/40,
+  .border-slate-700\/50,
+  .border-slate-700\/60,
+  .border-slate-700\/70,
+  .border-slate-700\/80,
+  .border-slate-700\/90,
+  .border-gray-700
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+body.appearance-notion.theme-dark :is(
+  .hover\:border-slate-700,
+  .hover\:border-slate-700\/80,
+  .hover\:border-slate-600
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *):hover {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* Light Mode: Warm Notion Light Tones */
+body.appearance-notion.theme-light :is(
+  .bg-slate-50,
+  .bg-slate-50\/40,
+  .bg-slate-50\/50,
+  .bg-slate-50\/70,
+  .bg-slate-50\/80,
+  .bg-slate-50\/90,
+  .bg-slate-50\/95
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  background-color: #fbfbfa;
+}
+
+body.appearance-notion.theme-light :is(
+  .bg-slate-100,
+  .bg-slate-100\/40,
+  .bg-slate-100\/60,
+  .bg-slate-100\/80
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  background-color: #f7f7f5;
+}
+
+body.appearance-notion.theme-light :is(
+  .bg-slate-200,
+  .bg-slate-200\/80
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  background-color: #ececeb;
+}
+
+body.appearance-notion.theme-light :is(
+  .hover\:bg-slate-50,
+  .hover\:bg-slate-50\/80,
+  .hover\:bg-slate-100,
+  .hover\:bg-slate-100\/60,
+  .hover\:bg-slate-100\/70,
+  .hover\:bg-slate-100\/80,
+  .hover\:bg-slate-200,
+  .hover\:bg-slate-200\/80
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *):hover {
+  background-color: #ececeb;
+}
+
+body.appearance-notion.theme-light :is(
+  .border-slate-100,
+  .border-slate-200,
+  .border-slate-200\/40,
+  .border-slate-200\/70,
+  .border-slate-200\/80,
+  .border-slate-200\/90
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  border-color: #e6e6e3;
+}
+
+body.appearance-notion.theme-light :is(
+  .divide-slate-100,
+  .divide-slate-200
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) > :not(:last-child) {
+  border-color: #e6e6e3;
+}
+
+body.appearance-notion.theme-light :is(
+  .border-slate-300
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  border-color: #d6d6d2;
+}
+
+body.appearance-notion.theme-light :is(
+  .text-slate-900
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  color: #37352f;
+}

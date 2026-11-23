@@ -106,12 +106,13 @@ export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  const normalizedPath = useMemo(() => location.pathname.replace(/\/+$/, '') || '/', [location.pathname]);
+
   // Active Tab derivado diretamente da URL
   const activeTab = useMemo<TabType>(() => {
-    const cleanPath = location.pathname.replace(/\/+$/, '') || '/';
-    if (cleanPath.startsWith('/banco-de-provas')) return 'examBank';
-    return ROUTE_TAB_MAP[cleanPath] || 'table';
-  }, [location.pathname]);
+    if (normalizedPath.startsWith('/banco-de-provas')) return 'examBank';
+    return ROUTE_TAB_MAP[normalizedPath] || 'table';
+  }, [normalizedPath]);
 
   const handleSelectTab = useCallback((tab: TabType) => {
     const targetRoute = TAB_ROUTE_MAP[tab] || '/cronograma';
@@ -470,16 +471,39 @@ export default function App() {
     navigate('/login');
   }, [navigate]);
 
-  // Theme state ('dark' | 'light')
+  // Theme state ('dark' | 'light') & appearance ('default' | 'notion')
   const [theme, setTheme] = useState<AppTheme>(() => {
     const saved = localStorage.getItem('cfo_theme');
     return saved === 'light' || saved === 'dark' ? saved : 'dark';
   });
+  const [appearance, setAppearance] = useState<'default' | 'notion'>(() =>
+    localStorage.getItem('cfo_appearance') === 'notion' ? 'notion' : 'default'
+  );
+
+  const isInternalAppActive =
+    isTerminalUnlocked &&
+    !isCheckingSession &&
+    normalizedPath !== '/' &&
+    normalizedPath !== '/login' &&
+    normalizedPath !== '/ifrj';
 
   useEffect(() => {
     localStorage.setItem('cfo_theme', theme);
-    document.body.className = theme === 'dark' ? 'theme-dark' : 'theme-light';
+    document.body.classList.remove('theme-dark', 'theme-light');
+    document.body.classList.add(theme === 'dark' ? 'theme-dark' : 'theme-light');
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('cfo_appearance', appearance);
+  }, [appearance]);
+
+  useEffect(() => {
+    const shouldApplyNotion = appearance === 'notion' && isInternalAppActive;
+    document.body.classList.toggle('appearance-notion', shouldApplyNotion);
+    return () => {
+      document.body.classList.remove('appearance-notion');
+    };
+  }, [appearance, isInternalAppActive]);
 
   const toggleTheme = useCallback(() => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
@@ -734,6 +758,7 @@ export default function App() {
       setAiAnalysis(null);
       clearPersistentStateCache();
       await hydratePersistentState();
+      setAppearance(localStorage.getItem('cfo_appearance') === 'notion' ? 'notion' : 'default');
       setIsPersistentStateReady(true);
       showToast(`Voce entrou na conta @${data.username}.`, 'success');
     } catch (error: any) {
@@ -790,6 +815,7 @@ export default function App() {
       setAiAnalysis(null);
       clearPersistentStateCache();
       await hydratePersistentState();
+      setAppearance(localStorage.getItem('cfo_appearance') === 'notion' ? 'notion' : 'default');
       setIsPersistentStateReady(true);
       showToast('Voce voltou para a conta ADM.', 'success');
     } catch {
@@ -839,6 +865,7 @@ export default function App() {
     let cancelled = false;
     void hydratePersistentState().finally(() => {
       if (!cancelled) {
+        setAppearance(localStorage.getItem('cfo_appearance') === 'notion' ? 'notion' : 'default');
         startPersistentStateSync();
         setIsPersistentStateReady(true);
       }
@@ -2046,7 +2073,6 @@ export default function App() {
   ];
 
   // 🧭 Verificação de Rotas Válidas e Fallback 404
-  const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
   const isValidRoute = VALID_APP_ROUTES.includes(normalizedPath)
     || normalizedPath.startsWith('/admin')
     || normalizedPath.startsWith('/banco-de-provas');
@@ -2162,11 +2188,12 @@ export default function App() {
   // Flag global consolidada de conexão do Google Calendar (persistente backend ou Firebase)
   const isCalendarLinked = Boolean(backendCalendar.connected || (user && accessToken));
   const isNotionShell = activeTab === 'calendar';
+  const useNotionShell = isNotionShell || appearance === 'notion';
 
   return (
     <div
       className={`min-h-screen min-h-[100dvh] w-full max-w-full flex flex-col antialiased selection:bg-[#0056D2] selection:text-white transition-colors duration-200 relative ${
-        isNotionShell
+        useNotionShell
           ? isDark
             ? 'bg-[#191919] text-[#e6e6e4]'
             : 'bg-white text-[#37352f]'
@@ -2248,6 +2275,7 @@ export default function App() {
         onForceReset={handleForceResetCycle}
         pendingRevisionsCount={pendingRevisionsCount}
         theme={theme}
+        appearance={appearance}
         onToggleTheme={toggleTheme}
         activeTab={activeTab}
         onSelectTab={handleSelectTab}
@@ -2263,6 +2291,7 @@ export default function App() {
           activeTab={activeTab}
           onSelectTab={handleSelectTab}
           theme={theme}
+          appearance={appearance}
           isOpen={isSidebarOpen}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={handleToggleCollapse}
@@ -2289,9 +2318,9 @@ export default function App() {
         {/* Main Content Area */}
         <main className={`flex-1 max-w-none w-full min-w-0 ${
           isNotionShell
-            ? `flex flex-col p-0 ${isDark ? 'bg-[#191919]' : 'bg-white'}`
-            : `mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-7 space-y-6 ${isDark ? 'bg-[#0B0F17]' : 'bg-white'}`
-        }`}>
+            ? 'flex flex-col p-0'
+            : 'mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-7 space-y-6'
+        } ${isDark ? (useNotionShell ? 'bg-[#191919]' : 'bg-[#0B0F17]') : 'bg-white'}`}>
 
         {/* Alerta Tático para Administradores se a página estiver em manutenção para alunos */}
         {isCurrentAdmin && (maintenanceStatus.global || maintenanceStatus.pages[activeTab]) && (
@@ -2331,8 +2360,12 @@ export default function App() {
             <div
                 className={`p-5 rounded-xl border transition-all shadow-[0_18px_45px_rgba(0,0,0,0.18)] ${
                   isDark
-                    ? 'bg-[#131B2A] border-[#1E293B] shadow-black/40'
-                  : 'bg-white border-slate-200 shadow-slate-200/50'
+                    ? useNotionShell
+                      ? 'bg-[#202020] border-white/[0.08] shadow-black/40'
+                      : 'bg-[#131B2A] border-[#1E293B] shadow-black/40'
+                    : useNotionShell
+                      ? 'bg-white border-[#e6e6e3] shadow-black/5'
+                      : 'bg-white border-slate-200 shadow-slate-200/50'
               }`}
             >
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -2403,8 +2436,12 @@ export default function App() {
                     onClick={() => setIsGoalModalOpen(true)}
                     className={`px-3.5 py-2 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer shadow-xs ${
                       isDark
-                        ? 'border-slate-700 bg-slate-800/90 hover:bg-slate-800 text-slate-200 hover:border-slate-600'
-                        : 'border-slate-300 bg-slate-100 hover:bg-slate-200/80 text-slate-800'
+                        ? useNotionShell
+                          ? 'border-white/[0.08] bg-[#262626] hover:bg-[#2f2f2f] text-[#e6e6e4] hover:border-white/20'
+                          : 'border-slate-700 bg-slate-800/90 hover:bg-slate-800 text-slate-200 hover:border-slate-600'
+                        : useNotionShell
+                          ? 'border-[#e6e6e3] bg-[#f7f7f5] hover:bg-[#ececeb] text-[#37352f]'
+                          : 'border-slate-300 bg-slate-100 hover:bg-slate-200/80 text-slate-800'
                     }`}
                   >
                     <Target className="w-3.5 h-3.5 text-[#0056D2]" />
@@ -2417,7 +2454,13 @@ export default function App() {
               <div className="mt-4">
                 <div
                   className={`w-full h-3 rounded-full overflow-hidden p-0.5 border ${
-                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-100 border-slate-200'
+                    isDark
+                      ? useNotionShell
+                        ? 'bg-[#262626] border-white/[0.08]'
+                        : 'bg-slate-900 border-slate-800'
+                      : useNotionShell
+                        ? 'bg-[#f1f1ef] border-[#e6e6e3]'
+                        : 'bg-slate-100 border-slate-200'
                   }`}
                 >
                   <div
@@ -2448,7 +2491,9 @@ export default function App() {
               {/* Metric 1 */}
               <div
                 className={`p-4 rounded-xl border transition-colors shadow-xl flex items-center justify-between ${
-                  isDark ? 'bg-[#131B2A] border-[#1E293B]' : 'bg-white border-slate-200 shadow-slate-100'
+                  isDark
+                    ? useNotionShell ? 'bg-[#202020] border-white/[0.08]' : 'bg-[#131B2A] border-[#1E293B]'
+                    : useNotionShell ? 'bg-white border-[#e6e6e3] shadow-black/5' : 'bg-white border-slate-200 shadow-slate-100'
                 }`}
               >
                 <div>
@@ -2488,7 +2533,9 @@ export default function App() {
               {/* Metric 2 */}
               <div
                 className={`p-4 rounded-xl border transition-colors shadow-xl flex items-center justify-between ${
-                  isDark ? 'bg-[#131B2A] border-[#1E293B]' : 'bg-white border-slate-200 shadow-slate-100'
+                  isDark
+                    ? useNotionShell ? 'bg-[#202020] border-white/[0.08]' : 'bg-[#131B2A] border-[#1E293B]'
+                    : useNotionShell ? 'bg-white border-[#e6e6e3] shadow-black/5' : 'bg-white border-slate-200 shadow-slate-100'
                 }`}
               >
                 <div>
@@ -2530,7 +2577,9 @@ export default function App() {
               {/* Metric 3 */}
               <div
                 className={`p-4 rounded-xl border transition-colors shadow-xl flex items-center justify-between ${
-                  isDark ? 'bg-[#131B2A] border-[#1E293B]' : 'bg-white border-slate-200 shadow-slate-100'
+                  isDark
+                    ? useNotionShell ? 'bg-[#202020] border-white/[0.08]' : 'bg-[#131B2A] border-[#1E293B]'
+                    : useNotionShell ? 'bg-white border-[#e6e6e3] shadow-black/5' : 'bg-white border-slate-200 shadow-slate-100'
                 }`}
               >
                 <div>
@@ -2573,7 +2622,9 @@ export default function App() {
               {/* Metric 4 */}
               <div
                 className={`p-4 rounded-xl border transition-colors shadow-xl flex items-center justify-between ${
-                  isDark ? 'bg-[#131B2A] border-[#1E293B]' : 'bg-white border-slate-200 shadow-slate-100'
+                  isDark
+                    ? useNotionShell ? 'bg-[#202020] border-white/[0.08]' : 'bg-[#131B2A] border-[#1E293B]'
+                    : useNotionShell ? 'bg-white border-[#e6e6e3] shadow-black/5' : 'bg-white border-slate-200 shadow-slate-100'
                 }`}
               >
                 <div>
@@ -2616,7 +2667,9 @@ export default function App() {
 
               <div
                 className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl ${
-                  isDark ? 'bg-[#131B2A] border-[#1E293B]' : 'bg-white border-slate-200 shadow-slate-100'
+                  isDark
+                    ? useNotionShell ? 'bg-[#202020] border-white/[0.08]' : 'bg-[#131B2A] border-[#1E293B]'
+                    : useNotionShell ? 'bg-white border-[#e6e6e3] shadow-black/5' : 'bg-white border-slate-200 shadow-slate-100'
                 }`}
               >
                 <div className="flex items-start gap-3">
@@ -2803,7 +2856,11 @@ export default function App() {
         {activeTab === 'simulations' && (
           <div className="space-y-6">
             <TacticalSimulations theme={theme} showToast={showToast} subjects={subjects} />
-            <details className={`rounded-2xl border p-4 ${isDark ? 'border-slate-800 bg-slate-900/40' : 'border-slate-200 bg-slate-50'}`}>
+            <details className={`rounded-2xl border p-4 ${
+              isDark
+                ? useNotionShell ? 'border-white/[0.08] bg-[#202020]' : 'border-slate-800 bg-slate-900/40'
+                : useNotionShell ? 'border-[#e6e6e3] bg-[#fbfbfa]' : 'border-slate-200 bg-slate-50'
+            }`}>
               <summary className="cursor-pointer text-xs font-bold uppercase tracking-wider text-slate-400">
                 Simulados Adaptativos do Banco de Questões (Modo Avançado)
               </summary>
@@ -2847,7 +2904,9 @@ export default function App() {
         {!isNotionShell && (
           <footer
             className={`mt-8 pt-6 border-t flex flex-col sm:flex-row justify-between items-center gap-2 text-[10px] uppercase tracking-[0.2em] pb-4 transition-colors ${
-              isDark ? 'border-slate-800/80 text-slate-500' : 'border-slate-200 text-slate-400'
+              isDark
+                ? useNotionShell ? 'border-white/[0.08] text-[#9b9a97]' : 'border-slate-800/80 text-slate-500'
+                : useNotionShell ? 'border-[#e6e6e3] text-[#787774]' : 'border-slate-200 text-slate-400'
             }`}
           >
             <span>Conselho: Disciplina é a ponte entre metas e conquistas.</span>
@@ -2864,12 +2923,16 @@ export default function App() {
           className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl shadow-2xl border text-xs font-semibold flex items-center gap-2.5 max-w-md animate-in slide-in-from-bottom-5 duration-200 ${
             toastMessage.type === 'success'
               ? isDark
-                ? 'bg-[#111218] text-slate-100 border-slate-700 shadow-emerald-950/20'
+                ? useNotionShell
+                  ? 'bg-[#202020] text-[#e6e6e4] border-white/[0.12] shadow-black/50'
+                  : 'bg-[#111218] text-slate-100 border-slate-700 shadow-emerald-950/20'
                 : 'bg-white text-slate-900 border-slate-200 shadow-slate-200'
               : toastMessage.type === 'error'
               ? 'bg-red-950 text-red-100 border-red-800'
               : isDark
-              ? 'bg-[#111218] text-slate-100 border-slate-700'
+              ? useNotionShell
+                ? 'bg-[#202020] text-[#e6e6e4] border-white/[0.12]'
+                : 'bg-[#111218] text-slate-100 border-slate-700'
               : 'bg-white text-slate-900 border-slate-200'
           }`}
         >
@@ -2953,24 +3016,26 @@ export default function App() {
       {/* Modal Minha Conta & Perfil do Aluno */}
       {accountSwitcherOpen && !isImpersonating && (
         <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4">
-          <div className="w-full sm:max-w-lg max-h-[85dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-slate-700 bg-[#0B1220] p-4 sm:p-6 shadow-2xl">
+          <div className={`w-full sm:max-w-lg max-h-[85dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border p-4 sm:p-6 shadow-2xl ${
+            useNotionShell ? 'border-white/[0.08] bg-[#202020]' : 'border-slate-700 bg-[#0B1220]'
+          }`}>
             <div className="flex items-start justify-between gap-3 mb-4">
               <div><h2 className="text-base font-bold text-white flex items-center gap-2"><ArrowLeftRight className="w-4 h-4 text-cyan-400" /> Trocar de conta</h2><p className="text-xs text-slate-400 mt-1">Apenas contas ativas aparecem. A operacao fica registrada na auditoria.</p></div>
-              <button type="button" onClick={() => setAccountSwitcherOpen(false)} className="min-h-10 min-w-10 inline-flex items-center justify-center rounded-lg bg-slate-800 text-slate-300 hover:text-white cursor-pointer" aria-label="Fechar"><X className="w-4 h-4" /></button>
+              <button type="button" onClick={() => setAccountSwitcherOpen(false)} className={`min-h-10 min-w-10 inline-flex items-center justify-center rounded-lg text-slate-300 hover:text-white cursor-pointer ${useNotionShell ? 'bg-[#262626] hover:bg-[#2f2f2f]' : 'bg-slate-800'}`} aria-label="Fechar"><X className="w-4 h-4" /></button>
             </div>
-            {isLoadingAccounts ? <div className="py-10 flex items-center justify-center text-slate-400 text-xs gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Carregando contas...</div> : switchableAccounts.length === 0 ? <p className="py-8 text-center text-xs text-slate-500">Nenhuma outra conta ativa disponivel.</p> : <div className="space-y-2">{switchableAccounts.map((account) => <button key={account.id} type="button" disabled={isSwitchingAccount} onClick={() => startAccountSwitch(account.id)} className="w-full min-h-14 flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/70 px-3 text-left hover:border-cyan-500/50 disabled:opacity-50 cursor-pointer"><div className="w-9 h-9 rounded-full bg-blue-600/20 border border-blue-500/30 text-blue-300 flex items-center justify-center text-xs font-bold">{(account.fullName || account.username).slice(0, 1).toUpperCase()}</div><span className="min-w-0 flex-1"><strong className="block text-xs text-white truncate">{account.fullName || account.username}</strong><small className="block text-[11px] text-blue-400 font-mono truncate">@{account.username}</small></span><span className="text-[10px] text-slate-500 uppercase">{account.role === 'support' ? 'Suporte' : 'Cadete'}</span></button>)}</div>}
+            {isLoadingAccounts ? <div className="py-10 flex items-center justify-center text-slate-400 text-xs gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Carregando contas...</div> : switchableAccounts.length === 0 ? <p className="py-8 text-center text-xs text-slate-500">Nenhuma outra conta ativa disponivel.</p> : <div className="space-y-2">{switchableAccounts.map((account) => <button key={account.id} type="button" disabled={isSwitchingAccount} onClick={() => startAccountSwitch(account.id)} className={`w-full min-h-14 flex items-center gap-3 rounded-xl border px-3 text-left hover:border-cyan-500/50 disabled:opacity-50 cursor-pointer ${useNotionShell ? 'border-white/[0.08] bg-[#262626] hover:bg-[#2f2f2f]' : 'border-slate-800 bg-slate-900/70'}`}><div className="w-9 h-9 rounded-full bg-blue-600/20 border border-blue-500/30 text-blue-300 flex items-center justify-center text-xs font-bold">{(account.fullName || account.username).slice(0, 1).toUpperCase()}</div><span className="min-w-0 flex-1"><strong className="block text-xs text-white truncate">{account.fullName || account.username}</strong><small className="block text-[11px] text-blue-400 font-mono truncate">@{account.username}</small></span><span className="text-[10px] text-slate-500 uppercase">{account.role === 'support' ? 'Suporte' : 'Cadete'}</span></button>)}</div>}
           </div>
         </div>
       )}
 
       {switchStepUpOpen && (
         <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center bg-black/75 p-0 sm:p-4">
-          <form onSubmit={confirmAccountSwitchStepUp} className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl border border-amber-500/30 bg-[#0B1220] p-5 shadow-2xl space-y-4">
+          <form onSubmit={confirmAccountSwitchStepUp} className={`w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl border border-amber-500/30 p-5 shadow-2xl space-y-4 ${useNotionShell ? 'bg-[#202020]' : 'bg-[#0B1220]'}`}>
             <div><h2 className="text-base font-bold text-white">Confirmar troca de conta</h2><p className="text-xs text-slate-400 mt-1">Por seguranca, confirme sua senha de administrador ou o codigo 2FA.</p></div>
-            <input type="password" value={switchStepUpPassword} onChange={(e) => setSwitchStepUpPassword(e.target.value)} placeholder="Senha do ADM" className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-xs text-white" />
-            <input inputMode="numeric" maxLength={6} value={switchStepUpTotp} onChange={(e) => setSwitchStepUpTotp(e.target.value.replace(/\D/g, ''))} placeholder="Codigo 2FA (opcional)" className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-xs text-white" />
+            <input type="password" value={switchStepUpPassword} onChange={(e) => setSwitchStepUpPassword(e.target.value)} placeholder="Senha do ADM" className={`w-full rounded-xl border px-3 py-3 text-xs text-white ${useNotionShell ? 'border-white/[0.12] bg-[#262626]' : 'border-slate-700 bg-slate-900'}`} />
+            <input inputMode="numeric" maxLength={6} value={switchStepUpTotp} onChange={(e) => setSwitchStepUpTotp(e.target.value.replace(/\D/g, ''))} placeholder="Codigo 2FA (opcional)" className={`w-full rounded-xl border px-3 py-3 text-xs text-white ${useNotionShell ? 'border-white/[0.12] bg-[#262626]' : 'border-slate-700 bg-slate-900'}`} />
             {switchStepUpError && <p className="text-xs text-red-300">{switchStepUpError}</p>}
-            <div className="flex gap-2 justify-end"><button type="button" onClick={() => setSwitchStepUpOpen(false)} className="min-h-11 px-4 rounded-xl border border-slate-700 text-xs text-slate-300 cursor-pointer">Cancelar</button><button type="submit" disabled={isSwitchingAccount || (!switchStepUpPassword && switchStepUpTotp.length !== 6)} className="min-h-11 px-4 rounded-xl bg-amber-600 text-white text-xs font-bold disabled:opacity-50 cursor-pointer">{isSwitchingAccount ? 'Confirmando...' : 'Confirmar'}</button></div>
+            <div className="flex gap-2 justify-end"><button type="button" onClick={() => setSwitchStepUpOpen(false)} className={`min-h-11 px-4 rounded-xl border text-xs text-slate-300 cursor-pointer ${useNotionShell ? 'border-white/[0.12] hover:bg-[#2f2f2f]' : 'border-slate-700'}`}>Cancelar</button><button type="submit" disabled={isSwitchingAccount || (!switchStepUpPassword && switchStepUpTotp.length !== 6)} className="min-h-11 px-4 rounded-xl bg-amber-600 text-white text-xs font-bold disabled:opacity-50 cursor-pointer">{isSwitchingAccount ? 'Confirmando...' : 'Confirmar'}</button></div>
           </form>
         </div>
       )}
@@ -2984,6 +3049,8 @@ export default function App() {
           }
         }}
         theme={theme}
+        appearance={appearance}
+        onChangeAppearance={setAppearance}
         sessionToken={localStorage.getItem('cfo_terminal_session')}
         onProfileUpdated={(updated) => setUserProfile(updated)}
         initialTab={normalizedPath === '/configuracoes' ? 'settings' : (normalizedPath === '/perfil' ? 'profile' : accountInitialTab)}

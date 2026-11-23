@@ -65,6 +65,7 @@ export interface CalendarSyncResult {
 }
 
 export type AppTheme = 'dark' | 'light';
+export type AppAppearance = 'default' | 'notion';
 
 export interface AIAnalysisResult {
   topStudiedSubject: {

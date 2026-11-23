@@ -40,6 +40,7 @@ import { buildMonthlyEntriesForCharts } from '../utils/studyBalance';
 
 export type ChartPeriodMode = 'daily' | 'weekly' | 'monthly' | 'total';
 export type ChartVisualMode = 'bar' | 'pie';
+type AppAppearance = 'default' | 'notion';
 
 interface StudyColumnChartsProps {
   subjects: Subject[];
@@ -47,6 +48,7 @@ interface StudyColumnChartsProps {
   cyclesHistory: WeeklyCycle[];
   monthlySessionDays?: Record<string, MonthlyStudySessionDay>;
   theme: AppTheme;
+  appearance?: AppAppearance;
 }
 
 export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
@@ -55,8 +57,14 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
   cyclesHistory,
   monthlySessionDays = {},
   theme,
+  appearance,
 }) => {
   const isDark = theme === 'dark';
+  const isNotionAppearance =
+    appearance === 'notion' ||
+    (appearance === undefined &&
+      typeof document !== 'undefined' &&
+      document.body.classList.contains('appearance-notion'));
 
   const [periodMode, setPeriodMode] = useState<ChartPeriodMode>('monthly');
   const [chartVisualMode, setChartVisualMode] = useState<ChartVisualMode>('bar');
@@ -597,7 +605,7 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
           <div className="h-72 sm:h-80 w-full pt-2">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={dayComparisonData} margin={{ top: 20, right: 15, left: -10, bottom: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#1e293b' : '#e2e8f0'} vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? (isNotionAppearance ? '#2f2f2f' : '#1e293b') : '#e2e8f0'} vertical={false} />
                 <XAxis dataKey="shortDay" stroke="#94a3b8" fontSize={11} fontWeight={600} tickLine={false} />
                 <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={(val) => `${val}h`} />
                 <Tooltip cursor={{ fill: 'rgba(59, 130, 246, 0.08)' }} />
@@ -645,7 +653,7 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
                     innerRadius="54%"
                     outerRadius="82%"
                     paddingAngle={3}
-                    stroke={isDark ? '#0B0F17' : '#ffffff'}
+                    stroke={isDark ? (isNotionAppearance ? '#191919' : '#0B0F17') : '#ffffff'}
                     strokeWidth={2}
                   >
                     {pieChartData.map((entry) => (
@@ -693,7 +701,7 @@ export const StudyColumnCharts: React.FC<StudyColumnChartsProps> = ({
           <div className="h-72 sm:h-84 w-full pt-2">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={subjectChartData} margin={{ top: 20, right: 15, left: -10, bottom: 40 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#1e293b' : '#e2e8f0'} vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? (isNotionAppearance ? '#2f2f2f' : '#1e293b') : '#e2e8f0'} vertical={false} />
                 <XAxis
                   dataKey="shortName"
                   stroke="#94a3b8"
