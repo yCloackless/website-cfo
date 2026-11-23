@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Check, CheckCircle2, Calendar, Sparkles, Plus, Edit2, Trash2, RotateCcw } from 'lucide-react';
-import { Subject, StudyEntry, AppTheme, SubjectMonthlyBalance, GamificationStatus } from '../types';
+import { Subject, StudyEntry, AppTheme, AppAppearance, SubjectMonthlyBalance, GamificationStatus } from '../types';
 import { WEEK_DAYS } from '../data/cfoSubjects';
 import { formatBRDateShort } from '../utils/dateUtils';
 import { ConfirmModal } from './ConfirmModal';
@@ -36,6 +36,7 @@ interface HorizontalWeeklyTableProps {
   hasGoogleCalendar: boolean;
   gamification?: GamificationStatus | null;
   theme?: AppTheme;
+  appearance?: AppAppearance;
 }
 
 export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
@@ -52,8 +53,10 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
   hasGoogleCalendar,
   gamification,
   theme = 'dark',
+  appearance = 'default',
 }) => {
   const isDark = theme === 'dark';
+  const isNotion = appearance === 'notion';
   const [subjectToDelete, setSubjectToDelete] = useState<{ id: string; name: string } | null>(null);
   const [draggedCell, setDraggedCell] = useState<{
     subjectId: string;
@@ -101,7 +104,13 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
   return (
     <div
       className={`w-full rounded-xl border transition-colors shadow-[0_18px_45px_rgba(0,0,0,0.2)] overflow-hidden ${
-        isDark ? 'bg-[#131B2A] border-[#1E293B]' : 'bg-white border-slate-200 shadow-slate-200/50'
+        isNotion
+          ? isDark
+            ? 'bg-[#202020] border-white/[0.08]'
+            : 'bg-white border-[#e6e6e3] shadow-black/5'
+          : isDark
+            ? 'bg-[#131B2A] border-[#1E293B]'
+            : 'bg-white border-slate-200 shadow-slate-200/50'
       }`}
     >
       {/* Responsive Container: Scrollable on mobile, Fixed 100% on Desktop */}
@@ -110,17 +119,25 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
           <thead>
             <tr
               className={`border-b text-xs font-bold uppercase tracking-wider transition-colors ${
-                isDark
-                  ? 'bg-[#0B0F17] border-[#1E293B] text-slate-400'
-                  : 'bg-slate-50 border-slate-200 text-slate-600'
+                isNotion
+                  ? isDark
+                    ? 'bg-[#191919] border-white/[0.08] text-[#b4b4b0]'
+                    : 'bg-[#fbfbfa] border-[#e6e6e3] text-[#5c5b57]'
+                  : isDark
+                    ? 'bg-[#0B0F17] border-[#1E293B] text-slate-400'
+                    : 'bg-slate-50 border-slate-200 text-slate-600'
               }`}
             >
               {/* Sticky Subject Column */}
               <th
                 className={`sticky left-0 z-20 backdrop-blur-xs py-3.5 px-2.5 sm:px-3 w-[140px] sm:w-[180px] lg:w-[22%] border-r transition-colors ${
-                  isDark
-                    ? 'bg-[#0B0F17]/95 border-[#1E293B] text-slate-300'
-                    : 'bg-slate-50/95 border-slate-200 text-slate-800'
+                  isNotion
+                    ? isDark
+                      ? 'bg-[#191919]/95 border-white/[0.08] text-[#e6e6e4]'
+                      : 'bg-[#fbfbfa]/95 border-[#e6e6e3] text-[#37352f]'
+                    : isDark
+                      ? 'bg-[#0B0F17]/95 border-[#1E293B] text-slate-300'
+                      : 'bg-slate-50/95 border-slate-200 text-slate-800'
                 }`}
               >
                 <div className="flex items-center justify-between gap-1">
@@ -176,12 +193,18 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                   <th
                     key={day.index}
                     className={`py-3.5 px-1 sm:px-2 w-[85px] sm:w-[95px] lg:w-[10%] text-center border-r transition-colors ${
-                      isDark ? 'border-slate-800/80' : 'border-slate-200'
+                      isNotion
+                        ? isDark ? 'border-white/[0.08]' : 'border-[#e6e6e3]'
+                        : isDark ? 'border-slate-800/80' : 'border-slate-200'
                     } ${
                       day.isToday
-                        ? isDark
-                          ? 'bg-blue-950/40 text-blue-400 font-extrabold'
-                          : 'bg-blue-50 text-blue-600 font-extrabold'
+                        ? isNotion
+                          ? isDark
+                            ? 'bg-[#2a2a2a] text-[#e6e6e4] font-extrabold'
+                            : 'bg-[#f1f1ef] text-[#37352f] font-extrabold'
+                          : isDark
+                            ? 'bg-blue-950/40 text-blue-400 font-extrabold'
+                            : 'bg-blue-50 text-blue-600 font-extrabold'
                         : ''
                     }`}
                   >
@@ -189,7 +212,13 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                       <div className="flex items-center gap-1">
                         <span>{dayMeta.short}</span>
                         {day.isToday && (
-                          <span className="px-1 py-0.2 rounded-full text-[8px] sm:text-[9px] font-bold bg-[#0056D2] text-white uppercase tracking-tighter">
+                          <span className={`px-1 py-0.2 rounded-full text-[8px] sm:text-[9px] font-bold uppercase tracking-tighter ${
+                            isNotion
+                              ? isDark
+                                ? 'bg-[#3f3f3c] text-white border border-white/15'
+                                : 'bg-[#37352f] text-white'
+                              : 'bg-[#0056D2] text-white'
+                          }`}>
                             Hoje
                           </span>
                         )}
@@ -197,10 +226,12 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                       <span
                         className={`text-[10px] sm:text-[11px] font-medium mt-0.5 ${
                           day.isToday
-                            ? 'text-blue-400 font-semibold'
-                            : isDark
-                            ? 'text-slate-500 font-normal'
-                            : 'text-slate-400 font-normal'
+                            ? isNotion
+                              ? isDark ? 'text-[#e6e6e4] font-semibold' : 'text-[#37352f] font-semibold'
+                              : 'text-blue-400 font-semibold'
+                            : isNotion
+                              ? isDark ? 'text-[#9f9e99] font-normal' : 'text-[#5c5b57] font-normal'
+                              : isDark ? 'text-slate-500 font-normal' : 'text-slate-400 font-normal'
                         }`}
                       >
                         {day.displayShort}
@@ -256,9 +287,13 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                   {/* Fixed Subject Column */}
                   <td
                     className={`sticky left-0 z-10 py-3 px-2.5 sm:px-4 border-r transition-colors ${
-                      isDark
-                        ? 'bg-[#131B2A] group-hover:bg-[#182235] border-[#1E293B]'
-                        : 'bg-white group-hover:bg-slate-50 border-slate-200'
+                      isNotion
+                        ? isDark
+                          ? 'bg-[#202020] group-hover:bg-[#262626] border-white/[0.08]'
+                          : 'bg-white group-hover:bg-[#fbfbfa] border-[#e6e6e3]'
+                        : isDark
+                          ? 'bg-[#131B2A] group-hover:bg-[#182235] border-[#1E293B]'
+                          : 'bg-white group-hover:bg-slate-50 border-slate-200'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -364,14 +399,22 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                           setDraggedCell(null);
                         }}
                         className={`p-1 sm:p-1.5 border-r text-center cursor-pointer select-none transition-all ${
-                          isDark ? 'border-slate-800/70' : 'border-slate-200'
+                          isNotion
+                            ? isDark ? 'border-white/[0.08]' : 'border-[#e6e6e3]'
+                            : isDark ? 'border-slate-800/70' : 'border-slate-200'
                         } ${
                           isDropTarget
                             ? 'ring-2 ring-blue-500 ring-inset'
                             : day.isToday
-                            ? (isDark ? 'bg-blue-950/20' : 'bg-blue-50/40')
-                            : ''
-                        } ${isDark ? 'hover:bg-slate-900/60' : 'hover:bg-slate-100/60'}`}
+                              ? isNotion
+                                ? isDark ? 'bg-white/[0.03]' : 'bg-[#fbfbfa]'
+                                : isDark ? 'bg-blue-950/20' : 'bg-blue-50/40'
+                              : ''
+                        } ${
+                          isNotion
+                            ? isDark ? 'hover:bg-[#262626]/70' : 'hover:bg-[#f7f7f5]'
+                            : isDark ? 'hover:bg-slate-900/60' : 'hover:bg-slate-100/60'
+                        }`}
                       >
                         {isCompleted ? (
                           <div
@@ -405,9 +448,13 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                                 ? isDark
                                   ? 'bg-[#062018]/80 border-emerald-800/80 border-l-2 border-l-emerald-500 hover:border-emerald-600'
                                   : 'bg-emerald-50/50 border-emerald-200 border-l-2 border-l-emerald-600 hover:border-emerald-300'
-                                : isDark
-                                ? 'bg-[#0F1D38]/80 border-slate-800 border-l-2 border-l-blue-600 hover:border-slate-700'
-                                : 'bg-white border-slate-200 border-l-2 border-l-blue-600 hover:border-slate-300'
+                                : isNotion
+                                  ? isDark
+                                    ? 'bg-[#262626] border-white/[0.1] border-l-2 border-l-blue-500 hover:border-white/20'
+                                    : 'bg-white border-[#e6e6e3] border-l-2 border-l-blue-600 hover:border-[#cfcfcb]'
+                                  : isDark
+                                    ? 'bg-[#0F1D38]/80 border-slate-800 border-l-2 border-l-blue-600 hover:border-slate-700'
+                                    : 'bg-white border-slate-200 border-l-2 border-l-blue-600 hover:border-slate-300'
                             }`}
                           >
                             {/* Top badge row */}
@@ -513,17 +560,25 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
                           /* Empty uncompleted cell */
                           <div
                             className={`w-full h-full min-h-[52px] sm:min-h-[56px] p-1.5 sm:p-2 rounded-lg border border-dashed flex flex-col items-center justify-center group/empty transition-all ${
-                              isDark
-                                ? 'border-slate-800 hover:border-slate-700 bg-slate-900/20 hover:bg-slate-900/50 text-slate-500'
-                                : 'border-slate-300 hover:border-slate-400 bg-slate-50/40 hover:bg-slate-100/60 text-slate-400'
+                              isNotion
+                                ? isDark
+                                  ? 'border-white/[0.1] hover:border-white/25 bg-[#191919]/50 hover:bg-[#262626] text-[#a6a5a0]'
+                                  : 'border-[#d6d6d2] hover:border-[#9b9a97] bg-[#fbfbfa] hover:bg-[#f1f1ef] text-[#5c5b57]'
+                                : isDark
+                                  ? 'border-slate-800 hover:border-slate-700 bg-slate-900/20 hover:bg-slate-900/50 text-slate-500'
+                                  : 'border-slate-300 hover:border-slate-400 bg-slate-50/40 hover:bg-slate-100/60 text-slate-400'
                             }`}
                           >
                             <button
                               onClick={(e) => onQuickToggle(subject, day.index, day.dateStr, e)}
                               className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full border flex items-center justify-center transition-colors cursor-pointer ${
-                                isDark
-                                  ? 'border-slate-800 group-hover/empty:border-blue-500/50 group-hover/empty:bg-blue-950/30 text-slate-600 group-hover/empty:text-blue-400'
-                                  : 'border-slate-300 group-hover/empty:border-blue-500/50 group-hover/empty:bg-blue-50 text-slate-400 group-hover/empty:text-blue-600'
+                                isNotion
+                                  ? isDark
+                                    ? 'border-white/[0.14] group-hover/empty:border-white/30 group-hover/empty:bg-[#2f2f2f] text-[#b4b4b0] group-hover/empty:text-white'
+                                    : 'border-[#d6d6d2] group-hover/empty:border-[#37352f]/40 group-hover/empty:bg-[#ececeb] text-[#5c5b57] group-hover/empty:text-[#37352f]'
+                                  : isDark
+                                    ? 'border-slate-800 group-hover/empty:border-blue-500/50 group-hover/empty:bg-blue-950/30 text-slate-600 group-hover/empty:text-blue-400'
+                                    : 'border-slate-300 group-hover/empty:border-blue-500/50 group-hover/empty:bg-blue-50 text-slate-400 group-hover/empty:text-blue-600'
                               }`}
                               title="Marcar como estudado com 1 clique"
                             >
@@ -582,9 +637,13 @@ export const HorizontalWeeklyTable: React.FC<HorizontalWeeklyTableProps> = ({
       {/* Footer / Tip Bar */}
       <div
         className={`px-5 py-3 border-t flex flex-wrap items-center justify-between gap-3 text-xs transition-colors ${
-          isDark
-            ? 'bg-[#0E1422] border-[#1E293B] text-slate-500'
-            : 'bg-slate-50 border-slate-200 text-slate-600'
+          isNotion
+            ? isDark
+              ? 'bg-[#191919] border-white/[0.08] text-[#b4b4b0]'
+              : 'bg-[#fbfbfa] border-[#e6e6e3] text-[#5c5b57]'
+            : isDark
+              ? 'bg-[#0E1422] border-[#1E293B] text-slate-500'
+              : 'bg-slate-50 border-slate-200 text-slate-600'
         }`}
       >
         <div className="flex items-center gap-4 flex-wrap">

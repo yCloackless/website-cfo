@@ -1195,7 +1195,60 @@ body.appearance-notion.theme-light :is(
 }
 
 body.appearance-notion.theme-light :is(
-  .text-slate-900
+  .text-slate-900,
+  .text-slate-800,
+  .text-slate-700
 ):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
   color: #37352f;
+}
+
+body.appearance-notion.theme-light :is(
+  .text-slate-600,
+  .text-gray-600
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  color: #474642;
+}
+
+body.appearance-notion.theme-light :is(
+  .text-slate-500,
+  .text-gray-500
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  color: #595854;
+}
+
+body.appearance-notion.theme-light :is(
+  .text-slate-400,
+  .text-gray-400
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  color: #6e6d68;
+}
+
+/* Dark Mode: Readable neutral secondary/muted text & modal navy-tint cleanup */
+body.appearance-notion.theme-dark :is(
+  .text-slate-400,
+  .text-gray-400
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  color: #b4b4b0;
+}
+
+body.appearance-notion.theme-dark :is(
+  .text-slate-500,
+  .text-gray-500
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  color: #9f9e99;
+}
+
+body.appearance-notion.theme-dark :is(
+  .text-slate-600,
+  .text-gray-600
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  color: #8f8e89;
+}
+
+body.appearance-notion.theme-dark :is(
+  .bg-\[\#0F1D38\]\/50,
+  .bg-\[\#0B1528\]\/80,
+  .focus\:bg-\[\#132345\]:focus
+):not(.landing, .landing *, .login-screen, .login-screen *, .rumo-app, .rumo-app *) {
+  background-color: #262626;
 }

@@ -564,8 +564,8 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
   const labelClass = `block text-xs font-semibold mb-1 ${todayThemeLabel}`;
   const mutedTextClass = isNotion
     ? isDark
-      ? 'text-[#e6e6e4]/70'
-      : 'text-[#37352f]/70'
+      ? 'text-[#b4b4b0]'
+      : 'text-[#5c5b57]'
     : isDark
       ? 'text-slate-400'
       : 'text-slate-600';
@@ -1911,9 +1911,9 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
         </div>
 
         {/* Modais Legais */}
-        <PrivacyPolicyModal isOpen={isPrivacyModalOpen} onClose={() => setIsPrivacyModalOpen(false)} />
+        <PrivacyPolicyModal isOpen={isPrivacyModalOpen} onClose={() => setIsPrivacyModalOpen(false)} theme={theme} appearance={currentAppearance} />
         <TermsOfUseModal isOpen={isTermsModalOpen} onClose={() => setIsTermsModalOpen(false)} />
-        <CookiePolicyModal isOpen={isCookieModalOpen} onClose={() => setIsCookieModalOpen(false)} />
+        <CookiePolicyModal isOpen={isCookieModalOpen} onClose={() => setIsCookieModalOpen(false)} theme={theme} appearance={currentAppearance} />
       </div>
     </div>
   );

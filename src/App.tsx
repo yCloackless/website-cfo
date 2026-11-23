@@ -2761,6 +2761,7 @@ export default function App() {
                   hasGoogleCalendar={isCalendarLinked}
                   gamification={gamification}
                   theme={theme}
+                  appearance={appearance}
                 />
               </Suspense>
             </section>
@@ -3083,7 +3084,7 @@ export default function App() {
 
 
       {/* Banner LGPD de Cookies de Sessão */}
-      <CookieConsent />
+      <CookieConsent theme={theme} appearance={appearance} />
 
       {/* Central de Notificações & Alertas de Segurança */}
       <NotificationCenterDrawer
