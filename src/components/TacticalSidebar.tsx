@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   House,
@@ -30,10 +30,32 @@ import {
   Heart,
   Calculator,
   Crown,
+  Pencil,
+  Check,
+  RotateCcw,
+  GripVertical,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import { AppTheme, GamificationStatus } from '../types';
 import { StreakFlameIcon } from './StreakFlameIcon';
 import { IceShieldIcon } from './IceShieldIcon';
+import {
+  SIDEBAR_GROUP_ORDER,
+  SIDEBAR_GROUP_TITLES,
+  SIDEBAR_LAYOUT_EVENT,
+  createDefaultSidebarLayout,
+  isDefaultSidebarLayout,
+  loadSidebarLayout,
+  moveSidebarItem,
+  normalizeSidebarLayout,
+  resetSidebarLayout,
+  saveSidebarLayout,
+  stepSidebarItem,
+  type SidebarGroupId,
+  type SidebarLayoutConfig,
+} from '../utils/sidebarLayout';
+import { useSidebarDrag } from '../hooks/useSidebarDrag';
 
 export type TabType =
   | 'table'
@@ -120,6 +142,13 @@ interface TacticalSidebarProps {
   onOpenAdminSecurity?: () => void;
   onOpenExtension?: () => void;
   onSignOut?: () => void;
+
+  // Sidebar Layout & Edit Mode
+  sidebarLayout?: SidebarLayoutConfig;
+  onChangeSidebarLayout?: (layout: SidebarLayoutConfig) => void;
+  onResetSidebarLayout?: () => void;
+  isEditMode?: boolean;
+  onToggleEditMode?: (next?: boolean) => void;
 }
 
 interface SidebarItem {
@@ -135,9 +164,211 @@ interface SidebarItem {
 }
 
 interface SidebarGroup {
+  id: SidebarGroupId;
   title: string;
   items: SidebarItem[];
 }
+
+interface SidebarEditToolbarProps {
+  isDark: boolean;
+  isNotionShell: boolean;
+  isDefaultLayout: boolean;
+  onReset: () => void;
+  onDone: () => void;
+}
+
+/** Compact edit mode action bar displayed at the top of the sidebar navigation list. */
+const SidebarEditToolbar: React.FC<SidebarEditToolbarProps> = ({
+  isDark,
+  isNotionShell,
+  isDefaultLayout,
+  onReset,
+  onDone,
+}) => {
+  const containerClass = isNotionShell
+    ? isDark
+      ? 'bg-[#262626] border-white/[0.1] text-[#e6e6e4]'
+      : 'bg-[#f1f1ef] border-[#e6e6e3] text-[#37352f]'
+    : isDark
+      ? 'bg-slate-900/90 border-blue-500/30 text-slate-100'
+      : 'bg-blue-50/80 border-blue-200 text-slate-900';
+
+  const badgeClass = isNotionShell
+    ? isDark
+      ? 'bg-white/[0.12] text-white'
+      : 'bg-[#37352f] text-white'
+    : isDark
+      ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+      : 'bg-blue-600 text-white';
+
+  const hintClass = isNotionShell
+    ? isDark
+      ? 'text-[#9b9a97]'
+      : 'text-[#787774]'
+    : isDark
+      ? 'text-slate-400'
+      : 'text-slate-600';
+
+  const resetBtnClass = isNotionShell
+    ? isDark
+      ? 'border-white/[0.1] bg-white/[0.04] text-[#e6e6e4] hover:bg-white/[0.1] disabled:opacity-40'
+      : 'border-[#d9d9d6] bg-white text-[#37352f] hover:bg-[#ececeb] disabled:opacity-40'
+    : isDark
+      ? 'border-slate-700 bg-slate-800/80 text-slate-200 hover:bg-slate-800 disabled:opacity-40'
+      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40';
+
+  const doneBtnClass = isNotionShell
+    ? isDark
+      ? 'bg-white text-[#202020] hover:bg-white/90'
+      : 'bg-[#37352f] text-white hover:bg-[#2b2924]'
+    : 'bg-blue-600 text-white hover:bg-blue-500';
+
+  return (
+    <div className={`rounded-xl border p-2.5 space-y-2 ${containerClass}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase tracking-wider ${badgeClass}`}>
+          Modo de edição
+        </span>
+        <span className={`text-[10.5px] truncate ${hintClass}`}>Arraste para reordenar</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={onReset}
+          disabled={isDefaultLayout}
+          className={`flex-1 h-7 px-2 inline-flex items-center justify-center gap-1 rounded-lg border text-[11px] font-semibold transition-colors cursor-pointer disabled:cursor-not-allowed ${resetBtnClass}`}
+          title="Restaurar ordem padrão"
+        >
+          <RotateCcw size={12} strokeWidth={2} />
+          <span>Restaurar</span>
+        </button>
+        <button
+          type="button"
+          onClick={onDone}
+          className={`flex-1 h-7 px-2 inline-flex items-center justify-center gap-1 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${doneBtnClass}`}
+        >
+          <Check size={12} strokeWidth={2.2} />
+          <span>Concluir</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/** Visual drop indicator line shown before or after a hovered target row during drag. */
+const SidebarDropIndicator: React.FC<{
+  position: 'before' | 'after';
+  isNotionShell: boolean;
+  isDark: boolean;
+}> = ({ position, isNotionShell, isDark }) => (
+  <div
+    aria-hidden="true"
+    className={`pointer-events-none absolute left-1.5 right-1.5 z-20 h-0.5 rounded-full ${
+      position === 'before' ? '-top-0.5' : '-bottom-0.5'
+    } ${
+      isNotionShell
+        ? isDark
+          ? 'bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.65)]'
+          : 'bg-[#37352f] shadow-[0_0_6px_rgba(55,53,47,0.35)]'
+        : 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.75)]'
+    }`}
+  />
+);
+
+/** Dashed dropzone rendered inside an empty group while edit mode is active. */
+const SidebarEmptyDropzone: React.FC<{
+  isActiveTarget: boolean;
+  isNotionShell: boolean;
+  isDark: boolean;
+}> = ({ isActiveTarget, isNotionShell, isDark }) => (
+  <div
+    className={`mx-1 px-3 py-3 rounded-xl border border-dashed text-[11px] font-medium text-center transition-colors ${
+      isActiveTarget
+        ? isNotionShell
+          ? isDark
+            ? 'border-sky-400/70 bg-sky-400/10 text-sky-200'
+            : 'border-[#37352f] bg-[#ececeb] text-[#37352f]'
+          : isDark
+            ? 'border-blue-400 bg-blue-500/15 text-blue-200'
+            : 'border-blue-500 bg-blue-50 text-blue-700'
+        : isNotionShell
+          ? isDark
+            ? 'border-white/[0.14] text-[#9b9a97]'
+            : 'border-[#d6d5d1] text-[#787774]'
+          : isDark
+            ? 'border-slate-700/80 text-slate-500'
+            : 'border-slate-300 text-slate-500'
+    }`}
+  >
+    Solte um item aqui
+  </div>
+);
+
+interface SidebarEditStepButtonsProps {
+  itemLabel: string;
+  disableUp: boolean;
+  disableDown: boolean;
+  isDark: boolean;
+  isNotionShell: boolean;
+  onStepUp: () => void;
+  onStepDown: () => void;
+}
+
+/** Accessible 1-click/keyboard up & down reordering controls for a sidebar row. */
+const SidebarEditStepButtons: React.FC<SidebarEditStepButtonsProps> = ({
+  itemLabel,
+  disableUp,
+  disableDown,
+  isDark,
+  isNotionShell,
+  onStepUp,
+  onStepDown,
+}) => {
+  const btnClass = isNotionShell
+    ? isDark
+      ? 'text-[#9b9a97] hover:text-white hover:bg-white/[0.1] disabled:opacity-25'
+      : 'text-[#787774] hover:text-[#37352f] hover:bg-[#e3e3e0] disabled:opacity-25'
+    : isDark
+      ? 'text-slate-400 hover:text-white hover:bg-slate-700/70 disabled:opacity-25'
+      : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/80 disabled:opacity-25';
+
+  return (
+    <div
+      className="flex items-center gap-0.5 shrink-0"
+      data-dnd-no-drag="true"
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        data-dnd-no-drag="true"
+        disabled={disableUp}
+        onClick={(e) => {
+          e.stopPropagation();
+          onStepUp();
+        }}
+        aria-label={`Mover ${itemLabel} para cima`}
+        title={`Mover ${itemLabel} para cima`}
+        className={`h-6 w-6 inline-flex items-center justify-center rounded-md transition-colors cursor-pointer disabled:cursor-not-allowed ${btnClass}`}
+      >
+        <ChevronUp size={13} strokeWidth={2.2} />
+      </button>
+      <button
+        type="button"
+        data-dnd-no-drag="true"
+        disabled={disableDown}
+        onClick={(e) => {
+          e.stopPropagation();
+          onStepDown();
+        }}
+        aria-label={`Mover ${itemLabel} para baixo`}
+        title={`Mover ${itemLabel} para baixo`}
+        className={`h-6 w-6 inline-flex items-center justify-center rounded-md transition-colors cursor-pointer disabled:cursor-not-allowed ${btnClass}`}
+      >
+        <ChevronDown size={13} strokeWidth={2.2} />
+      </button>
+    </div>
+  );
+};
 
 interface SidebarProfileRowProps {
   userProfile?: { fullName?: string; username?: string; avatarUrl?: string | null; role?: string } | null;
@@ -317,6 +548,11 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
   onOpenAdminSecurity,
   onOpenExtension,
   onSignOut,
+  sidebarLayout,
+  onChangeSidebarLayout,
+  onResetSidebarLayout,
+  isEditMode,
+  onToggleEditMode,
 }) => {
   const isDark = theme === 'dark';
   const isNotionShell = activeTab === 'calendar' || appearance === 'notion';
@@ -332,6 +568,74 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
 
   const [isHovered, setIsHovered] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+
+  const [internalLayout, setInternalLayout] = useState<SidebarLayoutConfig>(() => loadSidebarLayout());
+  const [internalEditMode, setInternalEditMode] = useState(false);
+
+  useEffect(() => {
+    if (sidebarLayout !== undefined || typeof window === 'undefined') return;
+
+    const handleLayoutEvent = (event: Event) => {
+      const customEvent = event as CustomEvent<SidebarLayoutConfig>;
+      if (customEvent.detail) {
+        setInternalLayout(normalizeSidebarLayout(customEvent.detail));
+      } else {
+        setInternalLayout(loadSidebarLayout());
+      }
+    };
+
+    window.addEventListener(SIDEBAR_LAYOUT_EVENT, handleLayoutEvent);
+    return () => {
+      window.removeEventListener(SIDEBAR_LAYOUT_EVENT, handleLayoutEvent);
+    };
+  }, [sidebarLayout]);
+
+  const effectiveLayout = useMemo(
+    () => normalizeSidebarLayout(sidebarLayout ?? internalLayout),
+    [sidebarLayout, internalLayout]
+  );
+  const effectiveEditMode = isEditMode !== undefined ? isEditMode : internalEditMode;
+  const isDefaultLayout = useMemo(
+    () => isDefaultSidebarLayout(effectiveLayout),
+    [effectiveLayout]
+  );
+
+  const applyLayoutChange = useCallback(
+    (nextLayout: SidebarLayoutConfig) => {
+      const normalized = normalizeSidebarLayout(nextLayout);
+      if (onChangeSidebarLayout) {
+        onChangeSidebarLayout(normalized);
+      } else {
+        const saved = saveSidebarLayout(normalized);
+        setInternalLayout(saved);
+      }
+    },
+    [onChangeSidebarLayout]
+  );
+
+  const handleResetLayout = useCallback(() => {
+    if (onResetSidebarLayout) {
+      onResetSidebarLayout();
+    } else if (onChangeSidebarLayout) {
+      onChangeSidebarLayout(createDefaultSidebarLayout());
+    } else {
+      const reset = resetSidebarLayout();
+      setInternalLayout(reset);
+    }
+  }, [onResetSidebarLayout, onChangeSidebarLayout]);
+
+  const handleToggleEditMode = useCallback(
+    (next?: boolean) => {
+      const target = typeof next === 'boolean' ? next : !effectiveEditMode;
+      if (onToggleEditMode) {
+        onToggleEditMode(target);
+      }
+      if (isEditMode === undefined) {
+        setInternalEditMode(target);
+      }
+    },
+    [effectiveEditMode, isEditMode, onToggleEditMode]
+  );
 
   // Mobile body scroll lock
   useEffect(() => {
@@ -397,285 +701,329 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
     }
   };
 
-  const isExpandedDesktop = isPinned || isHovered || isFocused;
+  const isExpandedDesktop = isPinned || isHovered || isFocused || effectiveEditMode;
 
-  // Categorized Navigation Groups with Refined Iconography
-  const NAV_GROUPS: SidebarGroup[] = [
-    {
-      title: 'PRINCIPAL',
-      items: [
-        {
-          id: 'ifrij',
-          label: 'Rumo ao VEST',
-          icon: Heart,
-          tabId: 'ifrij',
-          route: '/ifrj',
-          badge: 'NOVO',
-          badgeClass: { dark: 'bg-pink-500/20 text-pink-300 border-pink-500/30', light: 'bg-pink-100 text-pink-700 border-pink-300' },
-        },
-        {
-          id: 'table',
-          label: 'Cronograma',
-          icon: House,
-          tabId: 'table',
-          route: '/cronograma',
-        },
-        {
-          id: 'examBank',
-          label: 'Banco de Provas',
-          icon: FileStack,
-          tabId: 'examBank',
-          route: '/banco-de-provas',
-          badge: 'IA',
-          badgeClass: {
-            dark: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-            light: 'bg-emerald-100 text-emerald-900 border-emerald-300',
-          },
-        },
-        {
-          id: 'bizuario',
-          label: 'Bizuário',
-          icon: BookOpenCheck,
-          tabId: 'bizuario',
-          route: '/bizuario',
-        },
-        {
-          id: 'highyield',
-          label: 'Mais Caem',
-          icon: Target,
-          tabId: 'highyield',
-          route: '/mais-caem',
-          badge: 'Raio-X',
-          badgeClass: {
-            dark: 'bg-blue-600 text-white border-blue-500',
-            light: 'bg-blue-600 text-white border-blue-500',
-          },
-        },
-      ],
+  // Canonical Item Lookup Map (filtered by active permissions and callbacks)
+  const itemCatalog: Record<string, SidebarItem> = {
+    ifrij: {
+      id: 'ifrij',
+      label: 'Rumo ao VEST',
+      icon: Heart,
+      tabId: 'ifrij',
+      route: '/ifrj',
+      badge: 'NOVO',
+      badgeClass: { dark: 'bg-pink-500/20 text-pink-300 border-pink-500/30', light: 'bg-pink-100 text-pink-700 border-pink-300' },
     },
-    {
-      title: 'ESTUDOS & DESEMPENHO',
-      items: [
-        {
-          id: 'monthlyHours',
-          label: 'Agenda de Horas',
-          icon: CalendarDays,
-          tabId: 'monthlyHours',
-          route: '/agenda-horas',
-          badge: 'Horas',
-          badgeClass: {
-            dark: 'bg-blue-600/30 text-sky-300 border-blue-500/40',
-            light: 'bg-blue-100 text-blue-800 border-blue-300',
-          },
-        },
-        {
-          id: 'timer',
-          label: 'Cronômetro',
-          icon: Timer,
-          tabId: 'timer',
-          route: '/cronometro',
-        },
-        {
-          id: 'learning',
-          label: 'Radar',
-          icon: ChartSpline,
-          tabId: 'learning',
-          route: '/desempenho',
-          badge: 'Aluno',
-          badgeClass: {
-            dark: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
-            light: 'bg-cyan-100 text-cyan-900 border-cyan-300',
-          },
-        },
-        {
-          id: 'ai',
-          label: 'IA Equilíbrio',
-          icon: Sparkles,
-          tabId: 'ai',
-          route: '/equilibrio-ia',
-        },
-        {
-          id: 'simulations',
-          label: 'Simulados',
-          icon: ClipboardCheck,
-          tabId: 'simulations',
-          route: '/simulados',
-        },
-        {
-          id: 'leveling',
-          label: 'Nivelamento',
-          icon: Trophy,
-          tabId: 'leveling',
-          route: '/nivelamento',
-          badge: '80%',
-          badgeClass: {
-            dark: 'bg-amber-400/15 text-amber-300 border-amber-400/30',
-            light: 'bg-amber-100 text-amber-800 border-amber-200',
-          },
-        },
-        {
-          id: 'millionGame',
-          label: 'Show do Milhão',
-          icon: Crown,
-          tabId: 'millionGame',
-          route: '/show-do-milhao',
-          badge: '1M',
-          badgeClass: {
-            dark: 'bg-amber-500/20 text-amber-300 border-amber-400/40',
-            light: 'bg-amber-100 text-amber-900 border-amber-300',
-          },
-        },
-        {
-          id: 'flashcards',
-          label: 'Flashcards',
-          icon: Layers3,
-          tabId: 'flashcards',
-          route: '/flashcards',
-          badge: 'Anki',
-          badgeClass: {
-            dark: 'bg-indigo-950/80 text-indigo-300 border-indigo-800/60',
-            light: 'bg-indigo-100 text-indigo-900 border-indigo-300',
-          },
-        },
-        {
-          id: 'calculator',
-          label: 'Calculadora IA',
-          icon: Calculator,
-          tabId: 'calculator',
-          route: '/calculadora',
-          badge: 'LaTeX',
-          badgeClass: {
-            dark: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
-            light: 'bg-orange-100 text-orange-900 border-orange-200',
-          },
-        },
-        ...(canAccessNotion
-          ? [
-              {
-                id: 'calendar',
-                label: 'Agenda Notion',
-                icon: CalendarDays,
-                tabId: 'calendar' as TabType,
-                route: '/agenda-notion',
-                badge: 'Notion',
-                badgeClass: {
-                  dark: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-                  light: 'bg-blue-100 text-blue-900 border-blue-300',
-                },
-              },
-            ]
-          : []),
-      ],
+    table: {
+      id: 'table',
+      label: 'Cronograma',
+      icon: House,
+      tabId: 'table',
+      route: '/cronograma',
     },
-    {
-      title: 'AÇÕES TÁTICAS',
-      items: [
-        ...(onOpenRevisions
-          ? [
-              {
-                id: 'revisions',
-                label: 'Revisões Espaçadas',
-                icon: Brain,
-                action: onOpenRevisions,
-                badge: pendingRevisionsCount > 0 ? String(pendingRevisionsCount) : undefined,
-                isNumericBadge: true,
-                badgeClass: {
-                  dark: 'bg-blue-600 text-white border-blue-500 font-bold',
-                  light: 'bg-blue-600 text-white border-blue-500 font-bold',
-                },
-              },
-            ]
-          : []),
-        ...(onOpenAddSubject
-          ? [
-              {
-                id: 'addSubject',
-                label: 'Adicionar Matéria',
-                icon: BookPlus,
-                action: onOpenAddSubject,
-              },
-            ]
-          : []),
-        ...(onOpenHistory
-          ? [
-              {
-                id: 'history',
-                label: 'Histórico de Ciclos',
-                icon: History,
-                action: onOpenHistory,
-              },
-            ]
-          : []),
-      ],
+    examBank: {
+      id: 'examBank',
+      label: 'Banco de Provas',
+      icon: FileStack,
+      tabId: 'examBank',
+      route: '/banco-de-provas',
+      badge: 'IA',
+      badgeClass: {
+        dark: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+        light: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+      },
     },
-    {
-      title: 'SISTEMA & ADMINISTRAÇÃO',
-      items: [
-        ...(onOpenNotifications
-          ? [
-              {
-                id: 'notifications',
-                label: 'Notificações',
-                icon: Bell,
-                action: onOpenNotifications,
-                badge: unreadNotificationsCount > 0 ? String(unreadNotificationsCount) : undefined,
-                isNumericBadge: true,
-                badgeClass: {
-                  dark: 'bg-amber-500 text-black border-amber-400 font-bold',
-                  light: 'bg-amber-500 text-black border-amber-400 font-bold',
-                },
-              },
-            ]
-          : []),
-        ...(onOpenExtension
-          ? [
-              {
-                id: 'browserExtension',
-                label: 'Extensão Web (PC)',
-                icon: Puzzle,
-                action: onOpenExtension,
-                badge: 'NOVO',
-                badgeClass: {
-                  dark: 'bg-blue-600/30 text-sky-300 border-blue-500/40',
-                  light: 'bg-blue-100 text-blue-800 border-blue-300',
-                },
-              },
-            ]
-          : []),
-        ...(onOpenSettings
-          ? [
-              {
-                id: 'settings',
-                label: 'Configurações',
-                icon: Settings,
-                route: '/configuracoes',
-                action: onOpenSettings,
-              },
-            ]
-          : []),
-        ...((isAdmin || canReturnToAdmin)
-          ? [
-              {
-                id: 'adminSecurity',
-                label: canReturnToAdmin ? 'Voltar ao ADM' : 'Painel de Segurança ADM',
-                icon: canReturnToAdmin ? UserCog : ShieldCheck,
-                route: canReturnToAdmin ? undefined : '/admin',
-                action: canReturnToAdmin ? onReturnToAdmin : onOpenAdminSecurity,
-                badge: 'ADM',
-                badgeClass: {
-                  dark: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-                  light: 'bg-amber-100 text-amber-900 border-amber-300',
-                },
-              },
-            ]
-          : []),
-      ],
+    bizuario: {
+      id: 'bizuario',
+      label: 'Bizuário',
+      icon: BookOpenCheck,
+      tabId: 'bizuario',
+      route: '/bizuario',
     },
-  ];
+    highyield: {
+      id: 'highyield',
+      label: 'Mais Caem',
+      icon: Target,
+      tabId: 'highyield',
+      route: '/mais-caem',
+      badge: 'Raio-X',
+      badgeClass: {
+        dark: 'bg-blue-600 text-white border-blue-500',
+        light: 'bg-blue-600 text-white border-blue-500',
+      },
+    },
+    monthlyHours: {
+      id: 'monthlyHours',
+      label: 'Agenda de Horas',
+      icon: CalendarDays,
+      tabId: 'monthlyHours',
+      route: '/agenda-horas',
+      badge: 'Horas',
+      badgeClass: {
+        dark: 'bg-blue-600/30 text-sky-300 border-blue-500/40',
+        light: 'bg-blue-100 text-blue-800 border-blue-300',
+      },
+    },
+    timer: {
+      id: 'timer',
+      label: 'Cronômetro',
+      icon: Timer,
+      tabId: 'timer',
+      route: '/cronometro',
+    },
+    learning: {
+      id: 'learning',
+      label: 'Radar',
+      icon: ChartSpline,
+      tabId: 'learning',
+      route: '/desempenho',
+      badge: 'Aluno',
+      badgeClass: {
+        dark: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+        light: 'bg-cyan-100 text-cyan-900 border-cyan-300',
+      },
+    },
+    ai: {
+      id: 'ai',
+      label: 'IA Equilíbrio',
+      icon: Sparkles,
+      tabId: 'ai',
+      route: '/equilibrio-ia',
+    },
+    simulations: {
+      id: 'simulations',
+      label: 'Simulados',
+      icon: ClipboardCheck,
+      tabId: 'simulations',
+      route: '/simulados',
+    },
+    leveling: {
+      id: 'leveling',
+      label: 'Nivelamento',
+      icon: Trophy,
+      tabId: 'leveling',
+      route: '/nivelamento',
+      badge: '80%',
+      badgeClass: {
+        dark: 'bg-amber-400/15 text-amber-300 border-amber-400/30',
+        light: 'bg-amber-100 text-amber-800 border-amber-200',
+      },
+    },
+    millionGame: {
+      id: 'millionGame',
+      label: 'Show do Milhão',
+      icon: Crown,
+      tabId: 'millionGame',
+      route: '/show-do-milhao',
+      badge: '1M',
+      badgeClass: {
+        dark: 'bg-amber-500/20 text-amber-300 border-amber-400/40',
+        light: 'bg-amber-100 text-amber-900 border-amber-300',
+      },
+    },
+    flashcards: {
+      id: 'flashcards',
+      label: 'Flashcards',
+      icon: Layers3,
+      tabId: 'flashcards',
+      route: '/flashcards',
+      badge: 'Anki',
+      badgeClass: {
+        dark: 'bg-indigo-950/80 text-indigo-300 border-indigo-800/60',
+        light: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+      },
+    },
+    calculator: {
+      id: 'calculator',
+      label: 'Calculadora IA',
+      icon: Calculator,
+      tabId: 'calculator',
+      route: '/calculadora',
+      badge: 'LaTeX',
+      badgeClass: {
+        dark: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
+        light: 'bg-orange-100 text-orange-900 border-orange-200',
+      },
+    },
+    ...(canAccessNotion
+      ? {
+          calendar: {
+            id: 'calendar',
+            label: 'Agenda Notion',
+            icon: CalendarDays,
+            tabId: 'calendar' as TabType,
+            route: '/agenda-notion',
+            badge: 'Notion',
+            badgeClass: {
+              dark: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+              light: 'bg-blue-100 text-blue-900 border-blue-300',
+            },
+          },
+        }
+      : {}),
+    ...(onOpenRevisions
+      ? {
+          revisions: {
+            id: 'revisions',
+            label: 'Revisões Espaçadas',
+            icon: Brain,
+            action: onOpenRevisions,
+            badge: pendingRevisionsCount > 0 ? String(pendingRevisionsCount) : undefined,
+            isNumericBadge: true,
+            badgeClass: {
+              dark: 'bg-blue-600 text-white border-blue-500 font-bold',
+              light: 'bg-blue-600 text-white border-blue-500 font-bold',
+            },
+          },
+        }
+      : {}),
+    ...(onOpenAddSubject
+      ? {
+          addSubject: {
+            id: 'addSubject',
+            label: 'Adicionar Matéria',
+            icon: BookPlus,
+            action: onOpenAddSubject,
+          },
+        }
+      : {}),
+    ...(onOpenHistory
+      ? {
+          history: {
+            id: 'history',
+            label: 'Histórico de Ciclos',
+            icon: History,
+            action: onOpenHistory,
+          },
+        }
+      : {}),
+    ...(onOpenNotifications
+      ? {
+          notifications: {
+            id: 'notifications',
+            label: 'Notificações',
+            icon: Bell,
+            action: onOpenNotifications,
+            badge: unreadNotificationsCount > 0 ? String(unreadNotificationsCount) : undefined,
+            isNumericBadge: true,
+            badgeClass: {
+              dark: 'bg-amber-500 text-black border-amber-400 font-bold',
+              light: 'bg-amber-500 text-black border-amber-400 font-bold',
+            },
+          },
+        }
+      : {}),
+    ...(onOpenExtension
+      ? {
+          browserExtension: {
+            id: 'browserExtension',
+            label: 'Extensão Web (PC)',
+            icon: Puzzle,
+            action: onOpenExtension,
+            badge: 'NOVO',
+            badgeClass: {
+              dark: 'bg-blue-600/30 text-sky-300 border-blue-500/40',
+              light: 'bg-blue-100 text-blue-800 border-blue-300',
+            },
+          },
+        }
+      : {}),
+    ...(onOpenSettings
+      ? {
+          settings: {
+            id: 'settings',
+            label: 'Configurações',
+            icon: Settings,
+            route: '/configuracoes',
+            action: onOpenSettings,
+          },
+        }
+      : {}),
+    ...((isAdmin || canReturnToAdmin)
+      ? {
+          adminSecurity: {
+            id: 'adminSecurity',
+            label: canReturnToAdmin ? 'Voltar ao ADM' : 'Painel de Segurança ADM',
+            icon: canReturnToAdmin ? UserCog : ShieldCheck,
+            route: canReturnToAdmin ? undefined : '/admin',
+            action: canReturnToAdmin ? onReturnToAdmin : onOpenAdminSecurity,
+            badge: 'ADM',
+            badgeClass: {
+              dark: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+              light: 'bg-amber-100 text-amber-900 border-amber-300',
+            },
+          },
+        }
+      : {}),
+  };
+
+  const availableVisibleIds = new Set(Object.keys(itemCatalog));
+
+  const visibleGroupsMap: Record<SidebarGroupId, string[]> = {
+    principal: effectiveLayout.groups.principal.filter((id) => Boolean(itemCatalog[id])),
+    studies: effectiveLayout.groups.studies.filter((id) => Boolean(itemCatalog[id])),
+    actions: effectiveLayout.groups.actions.filter((id) => Boolean(itemCatalog[id])),
+    system: effectiveLayout.groups.system.filter((id) => Boolean(itemCatalog[id])),
+  };
+
+  const NAV_GROUPS: SidebarGroup[] = SIDEBAR_GROUP_ORDER
+    .map((groupId) => ({
+      id: groupId,
+      title: SIDEBAR_GROUP_TITLES[groupId],
+      items: visibleGroupsMap[groupId]
+        .map((id) => itemCatalog[id])
+        .filter((item): item is SidebarItem => Boolean(item)),
+    }))
+    .filter((group) => effectiveEditMode || group.items.length > 0);
+
+  const handleDragMove = useCallback(
+    (itemId: string, targetGroupId: SidebarGroupId, targetVisibleIndex: number) => {
+      const visibleIdsInGroup = visibleGroupsMap[targetGroupId] ?? [];
+      const rawGroupIds = effectiveLayout.groups[targetGroupId] ?? [];
+
+      let targetRawIndex: number;
+      if (targetVisibleIndex >= visibleIdsInGroup.length) {
+        targetRawIndex = rawGroupIds.length;
+      } else {
+        const anchorId = visibleIdsInGroup[Math.max(0, targetVisibleIndex)];
+        const anchorIdx = anchorId ? rawGroupIds.indexOf(anchorId) : -1;
+        targetRawIndex = anchorIdx >= 0 ? anchorIdx : rawGroupIds.length;
+      }
+
+      applyLayoutChange(moveSidebarItem(effectiveLayout, itemId, targetGroupId, targetRawIndex));
+    },
+    [applyLayoutChange, effectiveLayout, visibleGroupsMap]
+  );
+
+  const { draggingId, dropTarget, pointerPos, onStartDrag, getDragHandleProps } = useSidebarDrag({
+    groups: visibleGroupsMap,
+    onMove: handleDragMove,
+    enabled: effectiveEditMode,
+  });
+
+  const handleStepItem = (itemId: string, direction: 'up' | 'down') => {
+    applyLayoutChange(stepSidebarItem(effectiveLayout, itemId, direction, availableVisibleIds));
+  };
+
+  const handleEditRowPointerDown = (
+    itemId: string,
+    groupId: SidebarGroupId,
+    e: React.PointerEvent<HTMLElement>
+  ) => {
+    if (!effectiveEditMode) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('[data-dnd-no-drag="true"]') || target?.closest('[data-dnd-handle]')) {
+      return;
+    }
+    onStartDrag(itemId, groupId, e);
+  };
+
+  const draggingItem = draggingId ? itemCatalog[draggingId] : undefined;
 
   const handleItemClick = (item: SidebarItem) => {
     setIsHovered(false);
     setIsFocused(false);
+    if (effectiveEditMode) return;
     if (item.route) {
       navigate(item.route);
     } else if (item.tabId) {
@@ -740,23 +1088,52 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={onClose}
-                className={`p-2 rounded-xl border transition-all cursor-pointer ${
-                  isNotionShell
-                    ? isDark
-                      ? 'border-white/[0.08] bg-[#262626] text-[#9b9a97] hover:text-white hover:border-white/20'
-                      : 'border-[#e6e6e3] bg-[#f1f1ef] text-[#37352f] hover:bg-[#ececeb]'
-                    : isDark
-                      ? 'border-slate-800 bg-slate-900/80 text-slate-400 hover:text-white hover:border-slate-700'
-                      : 'border-slate-300 bg-slate-100 text-slate-700 hover:text-black hover:border-slate-400'
-                }`}
-                title="Fechar menu"
-                aria-label="Fechar menu lateral"
-              >
-                <X size={18} strokeWidth={1.8} />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleToggleEditMode()}
+                  className={`p-2 rounded-xl border transition-all cursor-pointer ${
+                    effectiveEditMode
+                      ? isNotionShell
+                        ? isDark
+                          ? 'border-white/30 bg-white/[0.14] text-white'
+                          : 'border-[#37352f] bg-[#37352f] text-white'
+                        : isDark
+                          ? 'border-blue-500/50 bg-blue-600/20 text-blue-300 hover:bg-blue-600/30'
+                          : 'border-blue-600 bg-blue-600 text-white hover:bg-blue-500'
+                      : isNotionShell
+                        ? isDark
+                          ? 'border-white/[0.08] bg-[#262626] text-[#9b9a97] hover:text-white hover:border-white/20'
+                          : 'border-[#e6e6e3] bg-[#f1f1ef] text-[#37352f] hover:bg-[#ececeb]'
+                        : isDark
+                          ? 'border-slate-800 bg-slate-900/80 text-slate-400 hover:text-white hover:border-slate-700'
+                          : 'border-slate-300 bg-slate-100 text-slate-700 hover:text-black hover:border-slate-400'
+                  }`}
+                  title={effectiveEditMode ? 'Concluir edição' : 'Editar ordem da barra lateral'}
+                  aria-label={effectiveEditMode ? 'Concluir edição da barra lateral' : 'Editar ordem da barra lateral'}
+                  aria-pressed={effectiveEditMode}
+                >
+                  {effectiveEditMode ? <Check size={17} strokeWidth={2.2} /> : <Pencil size={16} strokeWidth={1.8} />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className={`p-2 rounded-xl border transition-all cursor-pointer ${
+                    isNotionShell
+                      ? isDark
+                        ? 'border-white/[0.08] bg-[#262626] text-[#9b9a97] hover:text-white hover:border-white/20'
+                        : 'border-[#e6e6e3] bg-[#f1f1ef] text-[#37352f] hover:bg-[#ececeb]'
+                      : isDark
+                        ? 'border-slate-800 bg-slate-900/80 text-slate-400 hover:text-white hover:border-slate-700'
+                        : 'border-slate-300 bg-slate-100 text-slate-700 hover:text-black hover:border-slate-400'
+                  }`}
+                  title="Fechar menu"
+                  aria-label="Fechar menu lateral"
+                >
+                  <X size={18} strokeWidth={1.8} />
+                </button>
+              </div>
             </div>
 
             {(userProfile || canReturnToAdmin) && (
@@ -783,27 +1160,64 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
 
             {/* Nav list Mobile */}
             <nav className="flex-1 py-3 px-2.5 space-y-4 overflow-y-auto">
-              {NAV_GROUPS.map((group) => (
-                <div key={group.title} className="space-y-1">
-                  <div className={`px-3 text-[9.5px] font-black uppercase tracking-widest mb-1 ${
-                    isNotionShell
-                      ? isDark ? 'text-[#9b9a97]/80' : 'text-[#787774]'
-                      : 'text-slate-400/80'
-                  }`}>
-                    {group.title}
-                  </div>
-                  {group.items.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = isItemActive(item);
-                    const isSimulations = item.tabId === 'simulations';
+              {effectiveEditMode && (
+                <SidebarEditToolbar
+                  isDark={isDark}
+                  isNotionShell={isNotionShell}
+                  isDefaultLayout={isDefaultLayout}
+                  onReset={handleResetLayout}
+                  onDone={() => handleToggleEditMode(false)}
+                />
+              )}
 
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => handleItemClick(item)}
-                        className={`w-full h-11 flex items-center justify-between px-3 rounded-xl transition-all cursor-pointer ${
-                          isActive
+              {NAV_GROUPS.map((group) => {
+                const isFirstGroup = group.id === SIDEBAR_GROUP_ORDER[0];
+                const isLastGroup = group.id === SIDEBAR_GROUP_ORDER[SIDEBAR_GROUP_ORDER.length - 1];
+
+                return (
+                  <div key={group.id} data-dnd-group-id={group.id} className="space-y-1">
+                    <div className={`px-3 text-[9.5px] font-black uppercase tracking-widest mb-1 ${
+                      isNotionShell
+                        ? isDark ? 'text-[#9b9a97]/80' : 'text-[#787774]'
+                        : 'text-slate-400/80'
+                    }`}>
+                      {group.title}
+                    </div>
+
+                    {effectiveEditMode && group.items.length === 0 && (
+                      <SidebarEmptyDropzone
+                        isActiveTarget={dropTarget?.groupId === group.id}
+                        isNotionShell={isNotionShell}
+                        isDark={isDark}
+                      />
+                    )}
+
+                    {group.items.map((item, itemIdx) => {
+                      const Icon = item.icon;
+                      const isActive = isItemActive(item);
+                      const isSimulations = item.tabId === 'simulations';
+                      const isDragging = draggingId === item.id;
+                      const isDropBefore =
+                        dropTarget?.groupId === group.id &&
+                        dropTarget.itemId === item.id &&
+                        dropTarget.position === 'before';
+                      const isDropAfter =
+                        dropTarget?.groupId === group.id &&
+                        dropTarget.itemId === item.id &&
+                        dropTarget.position === 'after';
+
+                      const mobileRowClass = `w-full h-11 flex items-center justify-between ${
+                        effectiveEditMode ? 'px-2 gap-1.5 cursor-grab active:cursor-grabbing' : 'px-3 cursor-pointer'
+                      } rounded-xl transition-all ${
+                        isDragging
+                          ? isNotionShell
+                            ? isDark
+                              ? 'opacity-45 bg-white/[0.08] ring-1 ring-sky-400/40'
+                              : 'opacity-45 bg-[#ececeb] ring-1 ring-[#37352f]/30'
+                            : isDark
+                              ? 'opacity-45 bg-slate-800/80 ring-1 ring-blue-500/50'
+                              : 'opacity-45 bg-blue-50 ring-1 ring-blue-400'
+                          : isActive && !effectiveEditMode
                             ? isSimulations
                               ? 'bg-gradient-to-r from-red-700 to-red-900 text-white shadow-md shadow-red-950/50 font-bold'
                               : isNotionShell
@@ -813,56 +1227,127 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                               : 'bg-[#0056D2] text-white shadow-md shadow-blue-950/40 font-bold'
                             : isDark
                             ? isNotionShell
-                              ? 'text-white/65 hover:text-white hover:bg-white/[0.06] font-medium'
-                              : 'text-slate-400 hover:text-white hover:bg-slate-900/60 font-medium'
+                              ? 'text-white/80 hover:text-white hover:bg-white/[0.06] font-medium'
+                              : 'text-slate-300 hover:text-white hover:bg-slate-900/60 font-medium'
                             : isNotionShell
                             ? 'text-[#5a5853] hover:text-[#37352f] hover:bg-[#ececeb]/70 font-semibold'
                             : 'text-slate-700 hover:text-black hover:bg-slate-100 font-bold'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <Icon
-                            size={20}
-                            strokeWidth={1.8}
-                            className={`shrink-0 ${
-                              isActive
-                                ? isNotionShell && !isSimulations && !isDark
-                                  ? 'text-[#37352f]'
-                                  : 'text-white'
-                                : isSimulations
-                                ? 'text-red-500'
-                                : isNotionShell
-                                ? isDark
-                                  ? 'text-white/60'
-                                  : 'text-[#787774]'
-                                : isDark
-                                ? 'text-slate-400'
-                                : 'text-slate-600'
-                            }`}
-                          />
-                          <span className="text-xs truncate tracking-wide font-medium">
-                            {item.label}
-                          </span>
-                        </div>
+                      } ${
+                        effectiveEditMode && !isDragging
+                          ? isNotionShell
+                            ? isDark
+                              ? 'border border-white/[0.06] bg-white/[0.02]'
+                              : 'border border-[#e6e6e3] bg-white/70'
+                            : isDark
+                              ? 'border border-slate-800/80 bg-slate-900/40'
+                              : 'border border-slate-200/80 bg-slate-50/70'
+                          : ''
+                      }`;
 
-                        {item.badge && item.isNumericBadge && (
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase border shrink-0 ${
-                              item.badgeClass
-                                ? isDark
-                                  ? item.badgeClass.dark
-                                  : item.badgeClass.light
-                                : 'bg-blue-600 text-white'
-                            }`}
-                          >
-                            {item.badge}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+                      const mobileRowContent = (
+                        <>
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            {effectiveEditMode && (
+                              <span
+                                {...getDragHandleProps(item.id, group.id)}
+                                className={`h-7 w-6 inline-flex items-center justify-center rounded-md shrink-0 cursor-grab active:cursor-grabbing ${
+                                  isNotionShell
+                                    ? isDark
+                                      ? 'text-[#9b9a97] hover:text-white hover:bg-white/[0.08]'
+                                      : 'text-[#787774] hover:text-[#37352f] hover:bg-[#e3e3e0]'
+                                    : isDark
+                                      ? 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'
+                                      : 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/70'
+                                }`}
+                                title={`Arrastar ${item.label}`}
+                              >
+                                <GripVertical size={15} strokeWidth={2} />
+                              </span>
+                            )}
+                            <Icon
+                              size={effectiveEditMode ? 18 : 20}
+                              strokeWidth={1.8}
+                              className={`shrink-0 ${
+                                isActive && !effectiveEditMode
+                                  ? isNotionShell && !isSimulations && !isDark
+                                    ? 'text-[#37352f]'
+                                    : 'text-white'
+                                  : isSimulations
+                                  ? 'text-red-500'
+                                  : isNotionShell
+                                  ? isDark
+                                    ? 'text-white/60'
+                                    : 'text-[#787774]'
+                                  : isDark
+                                  ? 'text-slate-400'
+                                  : 'text-slate-600'
+                              }`}
+                            />
+                            <span className="text-xs truncate tracking-wide font-medium">
+                              {item.label}
+                            </span>
+                          </div>
+
+                          {effectiveEditMode ? (
+                            <SidebarEditStepButtons
+                              itemLabel={item.label}
+                              disableUp={isFirstGroup && itemIdx === 0}
+                              disableDown={isLastGroup && itemIdx === group.items.length - 1}
+                              isDark={isDark}
+                              isNotionShell={isNotionShell}
+                              onStepUp={() => handleStepItem(item.id, 'up')}
+                              onStepDown={() => handleStepItem(item.id, 'down')}
+                            />
+                          ) : (
+                            item.badge && item.isNumericBadge && (
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase border shrink-0 ${
+                                  item.badgeClass
+                                    ? isDark
+                                      ? item.badgeClass.dark
+                                      : item.badgeClass.light
+                                    : 'bg-blue-600 text-white'
+                                }`}
+                              >
+                                {item.badge}
+                              </span>
+                            )
+                          )}
+                        </>
+                      );
+
+                      return (
+                        <div key={item.id} data-dnd-item-id={item.id} className="relative">
+                          {effectiveEditMode && isDropBefore && (
+                            <SidebarDropIndicator position="before" isNotionShell={isNotionShell} isDark={isDark} />
+                          )}
+                          {effectiveEditMode ? (
+                            <div
+                              role="group"
+                              aria-label={item.label}
+                              onPointerDown={(e) => handleEditRowPointerDown(item.id, group.id, e)}
+                              className={mobileRowClass}
+                            >
+                              {mobileRowContent}
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleItemClick(item)}
+                              className={mobileRowClass}
+                            >
+                              {mobileRowContent}
+                            </button>
+                          )}
+                          {effectiveEditMode && isDropAfter && (
+                            <SidebarDropIndicator position="after" isNotionShell={isNotionShell} isDark={isDark} />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
             </nav>
 
             {onSignOut && (
@@ -951,26 +1436,55 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
               </span>
             </div>
 
-            {/* Pin Toggle Button */}
-            <button
-              type="button"
-              onClick={togglePin}
-              className={`p-1.5 rounded-lg border transition-all cursor-pointer shrink-0 ml-2 ${
-                isPinned
-                  ? 'border-blue-500/50 bg-blue-600/20 text-blue-300 hover:bg-blue-600/30'
-                  : isNotionShell
-                  ? isDark
-                    ? 'border-white/[0.08] bg-[#262626] text-[#9b9a97] hover:text-white hover:border-white/20'
-                    : 'border-[#e6e6e3] bg-[#f1f1ef] text-[#37352f] hover:bg-[#ececeb]'
-                  : isDark
-                  ? 'border-slate-800 bg-slate-900/60 text-slate-400 hover:text-white hover:border-slate-700'
-                  : 'border-slate-200 bg-slate-100 text-slate-600 hover:text-black hover:border-slate-300'
-              }`}
-              title={isPinned ? 'Desfixar menu lateral (Modo Automático)' : 'Fixar menu lateral aberto'}
-              aria-label={isPinned ? 'Desfixar menu lateral' : 'Fixar menu lateral'}
-            >
-              <Pin size={16} strokeWidth={1.8} className={`transition-transform ${isPinned ? 'rotate-45 text-blue-400 fill-blue-400/20' : ''}`} />
-            </button>
+            {/* Edit Mode & Pin Toggle Buttons */}
+            <div className="flex items-center gap-1.5 shrink-0 ml-2">
+              <button
+                type="button"
+                onClick={() => handleToggleEditMode()}
+                className={`p-1.5 rounded-lg border transition-all cursor-pointer shrink-0 ${
+                  effectiveEditMode
+                    ? isNotionShell
+                      ? isDark
+                        ? 'border-white/30 bg-white/[0.14] text-white'
+                        : 'border-[#37352f] bg-[#37352f] text-white'
+                      : isDark
+                        ? 'border-blue-500/50 bg-blue-600/20 text-blue-300 hover:bg-blue-600/30'
+                        : 'border-blue-600 bg-blue-600 text-white hover:bg-blue-500'
+                    : isNotionShell
+                      ? isDark
+                        ? 'border-white/[0.08] bg-[#262626] text-[#9b9a97] hover:text-white hover:border-white/20'
+                        : 'border-[#e6e6e3] bg-[#f1f1ef] text-[#37352f] hover:bg-[#ececeb]'
+                      : isDark
+                        ? 'border-slate-800 bg-slate-900/60 text-slate-400 hover:text-white hover:border-slate-700'
+                        : 'border-slate-200 bg-slate-100 text-slate-600 hover:text-black hover:border-slate-300'
+                }`}
+                title={effectiveEditMode ? 'Concluir edição' : 'Editar ordem da barra lateral'}
+                aria-label={effectiveEditMode ? 'Concluir edição da barra lateral' : 'Editar ordem da barra lateral'}
+                aria-pressed={effectiveEditMode}
+              >
+                {effectiveEditMode ? <Check size={16} strokeWidth={2.2} /> : <Pencil size={15} strokeWidth={1.8} />}
+              </button>
+
+              <button
+                type="button"
+                onClick={togglePin}
+                className={`p-1.5 rounded-lg border transition-all cursor-pointer shrink-0 ${
+                  isPinned
+                    ? 'border-blue-500/50 bg-blue-600/20 text-blue-300 hover:bg-blue-600/30'
+                    : isNotionShell
+                    ? isDark
+                      ? 'border-white/[0.08] bg-[#262626] text-[#9b9a97] hover:text-white hover:border-white/20'
+                      : 'border-[#e6e6e3] bg-[#f1f1ef] text-[#37352f] hover:bg-[#ececeb]'
+                    : isDark
+                    ? 'border-slate-800 bg-slate-900/60 text-slate-400 hover:text-white hover:border-slate-700'
+                    : 'border-slate-200 bg-slate-100 text-slate-600 hover:text-black hover:border-slate-300'
+                }`}
+                title={isPinned ? 'Desfixar menu lateral (Modo Automático)' : 'Fixar menu lateral aberto'}
+                aria-label={isPinned ? 'Desfixar menu lateral' : 'Fixar menu lateral'}
+              >
+                <Pin size={16} strokeWidth={1.8} className={`transition-transform ${isPinned ? 'rotate-45 text-blue-400 fill-blue-400/20' : ''}`} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -997,37 +1511,72 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
 
         {/* Navigation Items List Grouped Semantically */}
         <nav className="flex-1 py-3 px-2 space-y-4 overflow-y-auto overflow-x-hidden">
-          {NAV_GROUPS.map((group) => (
-            <div key={group.title} className="space-y-1">
-              {/* Group Category Header (Fades in when expanded) */}
-              <div
-                className={`px-3 text-[9px] font-black uppercase tracking-widest transition-all duration-200 ${
-                  isNotionShell
-                    ? isDark ? 'text-[#9b9a97]/75' : 'text-[#787774]'
-                    : isDark ? 'text-slate-500' : 'text-slate-400'
-                } ${
-                  isExpandedDesktop
-                    ? 'opacity-100 translate-x-0 pointer-events-auto'
-                    : 'opacity-0 -translate-x-2 pointer-events-none h-0 overflow-hidden my-0'
-                }`}
-              >
-                {group.title}
-              </div>
+          {effectiveEditMode && (
+            <SidebarEditToolbar
+              isDark={isDark}
+              isNotionShell={isNotionShell}
+              isDefaultLayout={isDefaultLayout}
+              onReset={handleResetLayout}
+              onDone={() => handleToggleEditMode(false)}
+            />
+          )}
 
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                const isActive = isItemActive(item);
-                const isSimulations = item.tabId === 'simulations';
-                const isSettings = item.id === 'settings';
+          {NAV_GROUPS.map((group) => {
+            const isFirstGroup = group.id === SIDEBAR_GROUP_ORDER[0];
+            const isLastGroup = group.id === SIDEBAR_GROUP_ORDER[SIDEBAR_GROUP_ORDER.length - 1];
 
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    id={`sidebar-tab-${item.id}`}
-                    onClick={() => handleItemClick(item)}
-                    className={`w-full h-11 group relative flex items-center rounded-xl transition-colors duration-200 cursor-pointer overflow-hidden ${
-                      isActive
+            return (
+              <div key={group.id} data-dnd-group-id={group.id} className="space-y-1">
+                {/* Group Category Header (Fades in when expanded) */}
+                <div
+                  className={`px-3 text-[9px] font-black uppercase tracking-widest transition-all duration-200 ${
+                    isNotionShell
+                      ? isDark ? 'text-[#9b9a97]/75' : 'text-[#787774]'
+                      : isDark ? 'text-slate-500' : 'text-slate-400'
+                  } ${
+                    isExpandedDesktop
+                      ? 'opacity-100 translate-x-0 pointer-events-auto'
+                      : 'opacity-0 -translate-x-2 pointer-events-none h-0 overflow-hidden my-0'
+                  }`}
+                >
+                  {group.title}
+                </div>
+
+                {effectiveEditMode && group.items.length === 0 && (
+                  <SidebarEmptyDropzone
+                    isActiveTarget={dropTarget?.groupId === group.id}
+                    isNotionShell={isNotionShell}
+                    isDark={isDark}
+                  />
+                )}
+
+                {group.items.map((item, itemIdx) => {
+                  const Icon = item.icon;
+                  const isActive = isItemActive(item);
+                  const isSimulations = item.tabId === 'simulations';
+                  const isSettings = item.id === 'settings';
+                  const isDragging = draggingId === item.id;
+                  const isDropBefore =
+                    dropTarget?.groupId === group.id &&
+                    dropTarget.itemId === item.id &&
+                    dropTarget.position === 'before';
+                  const isDropAfter =
+                    dropTarget?.groupId === group.id &&
+                    dropTarget.itemId === item.id &&
+                    dropTarget.position === 'after';
+
+                  const desktopRowClass = `w-full h-11 group relative flex items-center rounded-xl transition-colors duration-200 overflow-hidden ${
+                    effectiveEditMode ? 'px-1.5 gap-1 cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+                  } ${
+                    isDragging
+                      ? isNotionShell
+                        ? isDark
+                          ? 'opacity-45 bg-white/[0.08] ring-1 ring-sky-400/40'
+                          : 'opacity-45 bg-[#ececeb] ring-1 ring-[#37352f]/30'
+                        : isDark
+                          ? 'opacity-45 bg-slate-800/80 ring-1 ring-blue-500/50'
+                          : 'opacity-45 bg-blue-50 ring-1 ring-blue-400'
+                      : isActive && !effectiveEditMode
                         ? isSimulations
                           ? 'bg-gradient-to-r from-red-700 to-red-900 text-white shadow-md shadow-red-950/50 font-bold'
                           : isNotionShell
@@ -1037,83 +1586,164 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
                           : 'bg-[#0056D2] text-white shadow-md shadow-blue-950/40 font-bold'
                         : isDark
                         ? isNotionShell
-                          ? 'text-white/65 hover:text-white hover:bg-white/[0.06] font-medium'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800/60 font-medium'
+                          ? 'text-white/75 hover:text-white hover:bg-white/[0.06] font-medium'
+                          : 'text-slate-300 hover:text-white hover:bg-slate-800/60 font-medium'
                         : isNotionShell
                         ? 'text-[#5a5853] hover:text-[#37352f] hover:bg-[#ececeb]/70 font-semibold'
                         : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100 font-bold'
-                    }`}
-                    title={!isExpandedDesktop ? item.label : undefined}
-                    aria-label={item.label}
-                    aria-current={isActive ? 'page' : undefined}
-                  >
-                    {/* Icon Container: Fixed width 56px, perfectly centered horizontally */}
-                    <div className="w-[56px] h-11 flex items-center justify-center shrink-0 relative">
-                      <Icon
-                        size={20}
-                        strokeWidth={1.8}
-                        className={`shrink-0 transition-transform duration-200 group-hover:scale-110 ${
-                          isSettings ? 'group-hover:rotate-45' : ''
-                        } ${
-                          isActive
-                            ? isNotionShell && !isSimulations && !isDark
-                              ? 'text-[#37352f]'
-                              : 'text-white'
-                            : isSimulations
-                            ? 'text-red-500'
-                            : isNotionShell
-                            ? isDark
-                              ? 'text-white/60 group-hover:text-white'
-                              : 'text-[#787774] group-hover:text-[#37352f]'
-                            : isDark
-                            ? 'text-slate-400 group-hover:text-blue-400'
-                            : 'text-slate-600 group-hover:text-blue-600'
-                        }`}
-                      />
+                  } ${
+                    effectiveEditMode && !isDragging
+                      ? isNotionShell
+                        ? isDark
+                          ? 'border border-white/[0.06] bg-white/[0.02]'
+                          : 'border border-[#e6e6e3] bg-white/70'
+                        : isDark
+                          ? 'border border-slate-800/80 bg-slate-900/40'
+                          : 'border border-slate-200/80 bg-slate-50/70'
+                      : ''
+                  }`;
 
-                      {/* Small badge dot/number overlay on icon in COLLAPSED state */}
-                      {!isExpandedDesktop && item.badge && item.isNumericBadge && (
-                        <span className={`absolute top-1.5 right-2 min-w-4 h-4 rounded-full bg-blue-600 text-white text-[9px] font-black flex items-center justify-center shadow-md border ${
-                          isNotionShell
-                            ? isDark ? 'border-[#202020]' : 'border-[#fbfbfa]'
-                            : isDark ? 'border-[#070D18]' : 'border-white'
-                        }`}>
-                          {item.badge}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Text and Badge Container: Fades in/out with delay */}
-                    <div
-                      className={`flex items-center justify-between flex-1 min-w-0 pr-3 transition-all duration-200 ease-in-out ${
-                        isExpandedDesktop
-                          ? 'opacity-100 translate-x-0 delay-75 pointer-events-auto'
-                          : 'opacity-0 -translate-x-2 pointer-events-none'
-                      }`}
-                    >
-                      <span className="text-xs truncate tracking-wide whitespace-nowrap">
-                        {item.label}
-                      </span>
-
-                      {item.badge && item.isNumericBadge && (
+                  const desktopRowContent = (
+                    <>
+                      {effectiveEditMode && (
                         <span
-                          className={`ml-1.5 px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase border shrink-0 ${
-                            item.badgeClass
+                          {...getDragHandleProps(item.id, group.id)}
+                          className={`h-7 w-6 inline-flex items-center justify-center rounded-md shrink-0 cursor-grab active:cursor-grabbing ${
+                            isNotionShell
                               ? isDark
-                                ? item.badgeClass.dark
-                                : item.badgeClass.light
-                              : 'bg-blue-600 text-white'
+                                ? 'text-[#9b9a97] hover:text-white hover:bg-white/[0.08]'
+                                : 'text-[#787774] hover:text-[#37352f] hover:bg-[#e3e3e0]'
+                              : isDark
+                                ? 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'
+                                : 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/70'
                           }`}
+                          title={`Arrastar ${item.label}`}
                         >
-                          {item.badge}
+                          <GripVertical size={14} strokeWidth={2} />
                         </span>
                       )}
+
+                      {/* Icon Container: Fixed width 56px in normal mode, compact 28px in edit mode */}
+                      <div
+                        className={`${
+                          effectiveEditMode ? 'w-7 h-9' : 'w-[56px] h-11'
+                        } flex items-center justify-center shrink-0 relative`}
+                      >
+                        <Icon
+                          size={effectiveEditMode ? 17 : 20}
+                          strokeWidth={1.8}
+                          className={`shrink-0 transition-transform duration-200 ${
+                            effectiveEditMode ? '' : 'group-hover:scale-110'
+                          } ${
+                            isSettings && !effectiveEditMode ? 'group-hover:rotate-45' : ''
+                          } ${
+                            isActive && !effectiveEditMode
+                              ? isNotionShell && !isSimulations && !isDark
+                                ? 'text-[#37352f]'
+                                : 'text-white'
+                              : isSimulations
+                              ? 'text-red-500'
+                              : isNotionShell
+                              ? isDark
+                                ? 'text-white/60 group-hover:text-white'
+                                : 'text-[#787774] group-hover:text-[#37352f]'
+                              : isDark
+                              ? 'text-slate-400 group-hover:text-blue-400'
+                              : 'text-slate-600 group-hover:text-blue-600'
+                          }`}
+                        />
+
+                        {/* Small badge dot/number overlay on icon in COLLAPSED state */}
+                        {!isExpandedDesktop && item.badge && item.isNumericBadge && (
+                          <span className={`absolute top-1.5 right-2 min-w-4 h-4 rounded-full bg-blue-600 text-white text-[9px] font-black flex items-center justify-center shadow-md border ${
+                            isNotionShell
+                              ? isDark ? 'border-[#202020]' : 'border-[#fbfbfa]'
+                              : isDark ? 'border-[#070D18]' : 'border-white'
+                          }`}>
+                            {item.badge}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Text and Badge Container: Fades in/out with delay */}
+                      <div
+                        className={`flex items-center justify-between flex-1 min-w-0 ${
+                          effectiveEditMode ? 'pr-0.5' : 'pr-3'
+                        } transition-all duration-200 ease-in-out ${
+                          isExpandedDesktop
+                            ? 'opacity-100 translate-x-0 delay-75 pointer-events-auto'
+                            : 'opacity-0 -translate-x-2 pointer-events-none'
+                        }`}
+                      >
+                        <span className="text-xs truncate tracking-wide whitespace-nowrap">
+                          {item.label}
+                        </span>
+
+                        {!effectiveEditMode && item.badge && item.isNumericBadge && (
+                          <span
+                            className={`ml-1.5 px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase border shrink-0 ${
+                              item.badgeClass
+                                ? isDark
+                                  ? item.badgeClass.dark
+                                  : item.badgeClass.light
+                                : 'bg-blue-600 text-white'
+                            }`}
+                          >
+                            {item.badge}
+                          </span>
+                        )}
+                      </div>
+
+                      {effectiveEditMode && (
+                        <SidebarEditStepButtons
+                          itemLabel={item.label}
+                          disableUp={isFirstGroup && itemIdx === 0}
+                          disableDown={isLastGroup && itemIdx === group.items.length - 1}
+                          isDark={isDark}
+                          isNotionShell={isNotionShell}
+                          onStepUp={() => handleStepItem(item.id, 'up')}
+                          onStepDown={() => handleStepItem(item.id, 'down')}
+                        />
+                      )}
+                    </>
+                  );
+
+                  return (
+                    <div key={item.id} data-dnd-item-id={item.id} className="relative">
+                      {effectiveEditMode && isDropBefore && (
+                        <SidebarDropIndicator position="before" isNotionShell={isNotionShell} isDark={isDark} />
+                      )}
+                      {effectiveEditMode ? (
+                        <div
+                          role="group"
+                          aria-label={item.label}
+                          onPointerDown={(e) => handleEditRowPointerDown(item.id, group.id, e)}
+                          className={desktopRowClass}
+                        >
+                          {desktopRowContent}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          id={`sidebar-tab-${item.id}`}
+                          onClick={() => handleItemClick(item)}
+                          className={desktopRowClass}
+                          title={!isExpandedDesktop ? item.label : undefined}
+                          aria-label={item.label}
+                          aria-current={isActive ? 'page' : undefined}
+                        >
+                          {desktopRowContent}
+                        </button>
+                      )}
+                      {effectiveEditMode && isDropAfter && (
+                        <SidebarDropIndicator position="after" isNotionShell={isNotionShell} isDark={isDark} />
+                      )}
                     </div>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+                  );
+                })}
+              </div>
+            );
+          })}
         </nav>
 
         {onSignOut && (
@@ -1147,6 +1777,29 @@ export const TacticalSidebar: React.FC<TacticalSidebarProps> = ({
           </div>
         </div>
       </aside>
+
+      {effectiveEditMode && draggingItem && pointerPos && (
+        <div
+          aria-hidden="true"
+          className={`fixed z-[80] pointer-events-none flex items-center gap-2.5 px-3 py-2 rounded-xl border shadow-2xl text-xs font-semibold backdrop-blur-md ${
+            isNotionShell
+              ? isDark
+                ? 'bg-[#262626]/95 border-white/20 text-[#e6e6e4]'
+                : 'bg-white/95 border-[#d6d5d1] text-[#37352f]'
+              : isDark
+                ? 'bg-slate-900/95 border-blue-500/50 text-white shadow-blue-950/60'
+                : 'bg-white/95 border-blue-300 text-slate-900 shadow-slate-900/15'
+          }`}
+          style={{
+            left: `${pointerPos.x + 12}px`,
+            top: `${pointerPos.y - 18}px`,
+          }}
+        >
+          <GripVertical size={14} className="opacity-60 shrink-0" />
+          <draggingItem.icon size={16} strokeWidth={1.9} className="shrink-0" />
+          <span className="truncate max-w-[160px]">{draggingItem.label}</span>
+        </div>
+      )}
     </>
   );
 };

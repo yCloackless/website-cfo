@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   User as UserIcon,
   Camera,
@@ -25,6 +25,11 @@ import {
   Check,
   Monitor,
   Palette,
+  GripVertical,
+  ChevronUp,
+  ChevronDown,
+  RotateCcw,
+  PanelLeft,
 } from 'lucide-react';
 import { apiFetch } from '../services/apiFetch';
 import { AppTheme, AppAppearance } from '../types';
@@ -32,6 +37,21 @@ import {
   loadAutoSpacedRevisionsEnabled,
   saveAutoSpacedRevisionsEnabled,
 } from '../services/storageService';
+import {
+  SIDEBAR_GROUP_ORDER,
+  SIDEBAR_GROUP_TITLES,
+  SIDEBAR_ITEM_CATALOG,
+  SIDEBAR_LAYOUT_EVENT,
+  loadSidebarLayout,
+  saveSidebarLayout,
+  resetSidebarLayout,
+  isDefaultSidebarLayout,
+  moveSidebarItem,
+  stepSidebarItem,
+  type SidebarGroupId,
+  type SidebarLayoutConfig,
+} from '../utils/sidebarLayout';
+import { useSidebarDrag } from '../hooks/useSidebarDrag';
 import { PrivacyPolicyModal } from './PrivacyPolicyModal';
 import { TermsOfUseModal } from './TermsOfUseModal';
 import { CookiePolicyModal } from './CookiePolicyModal';
@@ -55,6 +75,12 @@ interface MyAccountModalProps {
   theme: AppTheme;
   appearance?: AppAppearance;
   onChangeAppearance?: (appearance: AppAppearance) => void;
+  sidebarLayout?: SidebarLayoutConfig;
+  onChangeSidebarLayout?: (layout: SidebarLayoutConfig) => void;
+  onResetSidebarLayout?: () => void;
+  onOpenSidebarEditMode?: () => void;
+  canAccessNotion?: boolean;
+  isAdmin?: boolean;
   sessionToken: string | null;
   onProfileUpdated?: (updatedProfile: UserProfileData) => void;
   autoSpacedRevisions?: boolean;
@@ -73,12 +99,40 @@ const readStoredAppearance = (): AppAppearance => {
   return 'default';
 };
 
+const readStoredCanAccessNotion = (): boolean => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage.getItem('cfo_can_access_notion') !== 'false';
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+  return true;
+};
+
+const readStoredIsAdmin = (): boolean => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage.getItem('cfo_terminal_role') === 'admin';
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+  return false;
+};
+
 export const MyAccountModal: React.FC<MyAccountModalProps> = ({
   isOpen,
   onClose,
   theme,
   appearance,
   onChangeAppearance,
+  sidebarLayout,
+  onChangeSidebarLayout,
+  onResetSidebarLayout,
+  onOpenSidebarEditMode,
+  canAccessNotion,
+  isAdmin,
   sessionToken,
   onProfileUpdated,
   autoSpacedRevisions,
@@ -103,7 +157,121 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
   const currentAppearance: AppAppearance = appearance ?? internalAppearance;
   const isNotion = currentAppearance === 'notion';
 
+  const [internalSidebarLayout, setInternalSidebarLayout] = useState<SidebarLayoutConfig>(() => {
+    return sidebarLayout ?? loadSidebarLayout();
+  });
+
+  useEffect(() => {
+    if (sidebarLayout !== undefined) {
+      setInternalSidebarLayout(sidebarLayout);
+    } else if (isOpen) {
+      setInternalSidebarLayout(loadSidebarLayout());
+    }
+  }, [sidebarLayout, isOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleSidebarLayoutUpdated = (event: Event) => {
+      if (sidebarLayout !== undefined) return;
+      const customEvent = event as CustomEvent<SidebarLayoutConfig>;
+      if (customEvent.detail && customEvent.detail.groups) {
+        setInternalSidebarLayout(customEvent.detail);
+      } else {
+        setInternalSidebarLayout(loadSidebarLayout());
+      }
+    };
+    window.addEventListener(SIDEBAR_LAYOUT_EVENT, handleSidebarLayoutUpdated);
+    return () => {
+      window.removeEventListener(SIDEBAR_LAYOUT_EVENT, handleSidebarLayoutUpdated);
+    };
+  }, [sidebarLayout]);
+
+  const effectiveLayout: SidebarLayoutConfig = sidebarLayout ?? internalSidebarLayout;
+  const effectiveCanAccessNotion =
+    canAccessNotion !== undefined ? canAccessNotion : readStoredCanAccessNotion();
+  const effectiveIsAdmin = isAdmin !== undefined ? isAdmin : readStoredIsAdmin();
+
+  const isSidebarItemVisible = useCallback(
+    (itemId: string) => {
+      if (!SIDEBAR_ITEM_CATALOG[itemId]) return false;
+      if (itemId === 'calendar' && !effectiveCanAccessNotion) return false;
+      if (itemId === 'adminSecurity' && !effectiveIsAdmin) return false;
+      return true;
+    },
+    [effectiveCanAccessNotion, effectiveIsAdmin]
+  );
+
+  const visibleSidebarGroups = useMemo<Record<SidebarGroupId, string[]>>(
+    () => ({
+      principal: effectiveLayout.groups.principal.filter(isSidebarItemVisible),
+      studies: effectiveLayout.groups.studies.filter(isSidebarItemVisible),
+      actions: effectiveLayout.groups.actions.filter(isSidebarItemVisible),
+      system: effectiveLayout.groups.system.filter(isSidebarItemVisible),
+    }),
+    [effectiveLayout, isSidebarItemVisible]
+  );
+
+  const availableSidebarIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const groupId of SIDEBAR_GROUP_ORDER) {
+      for (const itemId of visibleSidebarGroups[groupId]) {
+        ids.add(itemId);
+      }
+    }
+    return ids;
+  }, [visibleSidebarGroups]);
+
+  const applySidebarLayout = useCallback(
+    (nextLayout: SidebarLayoutConfig) => {
+      if (onChangeSidebarLayout) {
+        onChangeSidebarLayout(nextLayout);
+        setInternalSidebarLayout(nextLayout);
+      } else {
+        const saved = saveSidebarLayout(nextLayout);
+        setInternalSidebarLayout(saved);
+      }
+    },
+    [onChangeSidebarLayout]
+  );
+
+  const handleMoveSidebarItem = useCallback(
+    (itemId: string, targetGroupId: SidebarGroupId, targetVisibleIndex: number) => {
+      const fullList = effectiveLayout.groups[targetGroupId];
+      const visibleList = visibleSidebarGroups[targetGroupId];
+
+      let fullTargetIndex: number;
+      if (visibleList.length === 0) {
+        fullTargetIndex = fullList.length;
+      } else if (targetVisibleIndex <= 0) {
+        const firstIdx = fullList.indexOf(visibleList[0]);
+        fullTargetIndex = firstIdx >= 0 ? firstIdx : 0;
+      } else if (targetVisibleIndex < visibleList.length) {
+        const anchorIdx = fullList.indexOf(visibleList[targetVisibleIndex]);
+        fullTargetIndex = anchorIdx >= 0 ? anchorIdx : fullList.length;
+      } else {
+        const lastIdx = fullList.indexOf(visibleList[visibleList.length - 1]);
+        fullTargetIndex = lastIdx >= 0 ? lastIdx + 1 : fullList.length;
+      }
+
+      const nextLayout = moveSidebarItem(effectiveLayout, itemId, targetGroupId, fullTargetIndex);
+      applySidebarLayout(nextLayout);
+    },
+    [applySidebarLayout, effectiveLayout, visibleSidebarGroups]
+  );
+
   const [activeSubTab, setActiveSubTab] = useState<'profile' | 'settings' | 'email' | 'password' | 'privacy' | 'extension'>(initialTab);
+
+  const {
+    draggingId: draggingSidebarId,
+    dropTarget: sidebarDropTarget,
+    pointerPos: sidebarPointerPos,
+    onStartDrag: onStartSidebarDrag,
+    getDragHandleProps: getSidebarDragHandleProps,
+  } = useSidebarDrag({
+    groups: visibleSidebarGroups,
+    enabled: isOpen && activeSubTab === 'settings',
+    onMove: handleMoveSidebarItem,
+  });
   const [loading, setLoading] = useState(false);
   const [fetchingProfile, setFetchingProfile] = useState(false);
   const [profile, setProfile] = useState<UserProfileData | null>(null);
@@ -553,6 +721,47 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
           : 'Aparência alterada para Normal (Azul Tático).',
     });
   };
+
+  const isDefaultLayout = isDefaultSidebarLayout(effectiveLayout);
+  const flatVisibleSidebarIds = SIDEBAR_GROUP_ORDER.flatMap(
+    (groupId) => visibleSidebarGroups[groupId]
+  );
+  const firstVisibleSidebarId = flatVisibleSidebarIds[0] ?? null;
+  const lastVisibleSidebarId =
+    flatVisibleSidebarIds.length > 0
+      ? flatVisibleSidebarIds[flatVisibleSidebarIds.length - 1]
+      : null;
+
+  const handleResetSidebarLayout = () => {
+    if (onResetSidebarLayout) {
+      onResetSidebarLayout();
+      if (sidebarLayout === undefined) {
+        setInternalSidebarLayout(loadSidebarLayout());
+      }
+    } else {
+      const reset = resetSidebarLayout();
+      setInternalSidebarLayout(reset);
+    }
+    setStatusMessage({
+      type: 'success',
+      text: 'Ordem da barra lateral restaurada para o padrão.',
+    });
+  };
+
+  const handleStepSidebarItem = (itemId: string, direction: 'up' | 'down') => {
+    const nextLayout = stepSidebarItem(effectiveLayout, itemId, direction, availableSidebarIds);
+    applySidebarLayout(nextLayout);
+  };
+
+  const dropIndicatorClass = isNotion
+    ? isDark
+      ? 'bg-[#e6e6e4]'
+      : 'bg-[#37352f]'
+    : isDark
+      ? 'bg-blue-400'
+      : 'bg-blue-600';
+
+  const draggingItemMeta = draggingSidebarId ? SIDEBAR_ITEM_CATALOG[draggingSidebarId] : null;
 
   const todayThemeLabel = isNotion
     ? isDark
@@ -1065,6 +1274,291 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
                           Visual cinza neutro em todo o site, igual à área do Notion (funciona no modo escuro e claro).
                         </p>
                       </button>
+                    </div>
+                  </div>
+
+                  {/* Card: Ordem das Páginas na Barra Lateral */}
+                  <div className={`p-4 rounded-xl border space-y-4 ${settingsCardClass}`}>
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <PanelLeft
+                            className={`w-4 h-4 ${
+                              isNotion
+                                ? isDark
+                                  ? 'text-[#e6e6e4]'
+                                  : 'text-[#37352f]'
+                                : isDark
+                                  ? 'text-blue-400'
+                                  : 'text-blue-600'
+                            }`}
+                          />
+                          <h3 className={`text-xs font-bold ${headingTextClass}`}>
+                            Ordem das Páginas na Barra Lateral
+                          </h3>
+                        </div>
+                        <p className={`text-[11px] leading-relaxed ${mutedTextClass}`}>
+                          Arraste as páginas entre os grupos ou use as setas para personalizar o menu (ex.: mover Agenda Notion para o 1º lugar em PRINCIPAL). O layout é sincronizado automaticamente com a sua conta.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {onOpenSidebarEditMode && (
+                          <button
+                            id="btn-open-sidebar-edit-mode"
+                            type="button"
+                            onClick={onOpenSidebarEditMode}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${secondaryButtonClass}`}
+                          >
+                            <PanelLeft className="w-3.5 h-3.5" />
+                            Editar na barra lateral
+                          </button>
+                        )}
+                        <button
+                          id="btn-reset-sidebar-layout"
+                          type="button"
+                          disabled={isDefaultLayout}
+                          onClick={handleResetSidebarLayout}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
+                            isDefaultLayout
+                              ? isNotion
+                                ? isDark
+                                  ? 'bg-[#191919] text-[#e6e6e4]/35 border-white/[0.06] cursor-not-allowed'
+                                  : 'bg-[#fbfbfa] text-[#37352f]/35 border-[#e6e6e3] cursor-not-allowed'
+                                : isDark
+                                  ? 'bg-slate-900/40 text-slate-500 border-slate-800 cursor-not-allowed'
+                                  : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                              : `${secondaryButtonClass} cursor-pointer`
+                          }`}
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Restaurar padrão
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {SIDEBAR_GROUP_ORDER.map((groupId) => {
+                        const groupItems = visibleSidebarGroups[groupId];
+                        const isGroupDropTarget = sidebarDropTarget?.groupId === groupId;
+
+                        return (
+                          <div
+                            key={groupId}
+                            data-dnd-group-id={groupId}
+                            className={`rounded-xl border p-3 space-y-2 transition-colors ${
+                              isGroupDropTarget
+                                ? isNotion
+                                  ? isDark
+                                    ? 'border-[#e6e6e4]/40 bg-[#262626]/70'
+                                    : 'border-[#37352f]/40 bg-[#ffffff]'
+                                  : isDark
+                                    ? 'border-blue-500/60 bg-[#0B1528]'
+                                    : 'border-blue-400 bg-blue-50/40'
+                                : isNotion
+                                  ? isDark
+                                    ? 'border-white/[0.08] bg-[#202020]'
+                                    : 'border-[#e6e6e3] bg-[#ffffff]'
+                                  : isDark
+                                    ? 'border-slate-800/80 bg-[#0B1528]/80'
+                                    : 'border-slate-200 bg-white'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2 px-1">
+                              <span
+                                className={`text-[10px] font-bold uppercase tracking-wider ${mutedTextClass}`}
+                              >
+                                {SIDEBAR_GROUP_TITLES[groupId]}
+                              </span>
+                              <span
+                                className={`text-[10px] font-medium tabular-nums ${mutedTextClass}`}
+                              >
+                                {groupItems.length}
+                              </span>
+                            </div>
+
+                            {groupItems.length === 0 ? (
+                              <div
+                                className={`rounded-lg border border-dashed px-3 py-4 text-center text-[11px] transition-colors ${
+                                  isGroupDropTarget
+                                    ? isNotion
+                                      ? isDark
+                                        ? 'border-[#e6e6e4]/50 bg-[#262626] text-[#e6e6e4]'
+                                        : 'border-[#37352f]/50 bg-[#fbfbfa] text-[#37352f]'
+                                      : isDark
+                                        ? 'border-blue-400/70 bg-blue-500/10 text-blue-300'
+                                        : 'border-blue-500/70 bg-blue-50 text-blue-700'
+                                    : isNotion
+                                      ? isDark
+                                        ? 'border-white/[0.12] text-[#b4b4b0]'
+                                        : 'border-[#e6e6e3] text-[#5c5b57]'
+                                      : isDark
+                                        ? 'border-slate-700/80 text-slate-400'
+                                        : 'border-slate-300 text-slate-500'
+                                }`}
+                              >
+                                Arraste uma página para este grupo
+                              </div>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {groupItems.map((itemId, visibleIndex) => {
+                                  const meta = SIDEBAR_ITEM_CATALOG[itemId];
+                                  if (!meta) return null;
+
+                                  const isDragging = draggingSidebarId === itemId;
+                                  const isFirstPrincipal =
+                                    groupId === 'principal' && visibleIndex === 0;
+                                  const showBeforeIndicator =
+                                    sidebarDropTarget?.itemId === itemId &&
+                                    sidebarDropTarget.position === 'before' &&
+                                    !isDragging;
+                                  const showAfterIndicator =
+                                    sidebarDropTarget?.itemId === itemId &&
+                                    sidebarDropTarget.position === 'after' &&
+                                    !isDragging;
+
+                                  const isFirstOverall = itemId === firstVisibleSidebarId;
+                                  const isLastOverall = itemId === lastVisibleSidebarId;
+
+                                  return (
+                                    <div key={itemId} data-dnd-item-id={itemId} className="relative">
+                                      {showBeforeIndicator && (
+                                        <div
+                                          aria-hidden="true"
+                                          className={`h-0.5 w-full rounded-full mb-1 ${dropIndicatorClass}`}
+                                        />
+                                      )}
+
+                                      <div
+                                        onPointerDown={(e) => {
+                                          const target = e.target as HTMLElement | null;
+                                          if (target?.closest('button, [data-dnd-handle]')) {
+                                            return;
+                                          }
+                                          onStartSidebarDrag(itemId, groupId, e);
+                                        }}
+                                        className={`flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg border select-none transition-all cursor-grab active:cursor-grabbing ${
+                                          isDragging
+                                            ? isNotion
+                                              ? isDark
+                                                ? 'opacity-45 border-dashed border-[#e6e6e4]/50 bg-[#262626]'
+                                                : 'opacity-45 border-dashed border-[#37352f]/50 bg-[#fbfbfa]'
+                                              : isDark
+                                                ? 'opacity-45 border-dashed border-blue-400/70 bg-blue-950/40'
+                                                : 'opacity-45 border-dashed border-blue-500/70 bg-blue-50'
+                                            : isNotion
+                                              ? isDark
+                                                ? 'border-white/[0.08] bg-[#262626]/70 hover:bg-[#262626]'
+                                                : 'border-[#e6e6e3] bg-[#fbfbfa] hover:bg-[#f3f2ef]'
+                                              : isDark
+                                                ? 'border-slate-800 bg-slate-900/60 hover:border-slate-700'
+                                                : 'border-slate-200 bg-slate-50/80 hover:border-slate-300'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <span
+                                            {...getSidebarDragHandleProps(itemId, groupId)}
+                                            title="Arrastar página"
+                                            className={`p-0.5 rounded shrink-0 cursor-grab active:cursor-grabbing ${mutedTextClass}`}
+                                          >
+                                            <GripVertical className="w-3.5 h-3.5" />
+                                          </span>
+
+                                          <span
+                                            className={`text-xs font-medium truncate ${headingTextClass}`}
+                                          >
+                                            {meta.label}
+                                          </span>
+
+                                          {meta.badge && (
+                                            <span
+                                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border shrink-0 ${
+                                                isNotion
+                                                  ? isDark
+                                                    ? 'bg-[#191919] text-[#e6e6e4]/80 border-white/[0.08]'
+                                                    : 'bg-[#ffffff] text-[#37352f]/80 border-[#e6e6e3]'
+                                                  : isDark
+                                                    ? 'bg-slate-800 text-slate-300 border-slate-700'
+                                                    : 'bg-white text-slate-600 border-slate-200'
+                                              }`}
+                                            >
+                                              {meta.badge}
+                                            </span>
+                                          )}
+
+                                          {isFirstPrincipal && (
+                                            <span
+                                              className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold shrink-0 ${
+                                                isNotion
+                                                  ? isDark
+                                                    ? 'bg-[#e6e6e4]/15 text-[#e6e6e4]'
+                                                    : 'bg-[#37352f]/10 text-[#37352f]'
+                                                  : isDark
+                                                    ? 'bg-blue-500/20 text-blue-300'
+                                                    : 'bg-blue-100 text-blue-700'
+                                              }`}
+                                            >
+                                              1º
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <button
+                                            type="button"
+                                            disabled={isFirstOverall}
+                                            aria-label={`Mover ${meta.label} para cima`}
+                                            onClick={() => handleStepSidebarItem(itemId, 'up')}
+                                            className={`p-1 rounded-md border transition-colors ${
+                                              isFirstOverall
+                                                ? 'opacity-30 cursor-not-allowed border-transparent'
+                                                : isNotion
+                                                  ? isDark
+                                                    ? 'border-white/[0.08] bg-[#191919] hover:bg-[#303030] text-[#e6e6e4] cursor-pointer'
+                                                    : 'border-[#e6e6e3] bg-[#ffffff] hover:bg-[#fbfbfa] text-[#37352f] cursor-pointer'
+                                                  : isDark
+                                                    ? 'border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-200 cursor-pointer'
+                                                    : 'border-slate-200 bg-white hover:bg-slate-100 text-slate-700 cursor-pointer'
+                                            }`}
+                                          >
+                                            <ChevronUp className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={isLastOverall}
+                                            aria-label={`Mover ${meta.label} para baixo`}
+                                            onClick={() => handleStepSidebarItem(itemId, 'down')}
+                                            className={`p-1 rounded-md border transition-colors ${
+                                              isLastOverall
+                                                ? 'opacity-30 cursor-not-allowed border-transparent'
+                                                : isNotion
+                                                  ? isDark
+                                                    ? 'border-white/[0.08] bg-[#191919] hover:bg-[#303030] text-[#e6e6e4] cursor-pointer'
+                                                    : 'border-[#e6e6e3] bg-[#ffffff] hover:bg-[#fbfbfa] text-[#37352f] cursor-pointer'
+                                                  : isDark
+                                                    ? 'border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-200 cursor-pointer'
+                                                    : 'border-slate-200 bg-white hover:bg-slate-100 text-slate-700 cursor-pointer'
+                                            }`}
+                                          >
+                                            <ChevronDown className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {showAfterIndicator && (
+                                        <div
+                                          aria-hidden="true"
+                                          className={`h-0.5 w-full rounded-full mt-1 ${dropIndicatorClass}`}
+                                        />
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -1915,6 +2409,43 @@ export const MyAccountModal: React.FC<MyAccountModalProps> = ({
         <TermsOfUseModal isOpen={isTermsModalOpen} onClose={() => setIsTermsModalOpen(false)} />
         <CookiePolicyModal isOpen={isCookieModalOpen} onClose={() => setIsCookieModalOpen(false)} theme={theme} appearance={currentAppearance} />
       </div>
+
+      {draggingItemMeta && sidebarPointerPos && (
+        <div
+          aria-hidden="true"
+          style={{
+            left: sidebarPointerPos.x + 12,
+            top: sidebarPointerPos.y - 16,
+          }}
+          className={`fixed z-[70] pointer-events-none inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border shadow-xl text-xs font-semibold ${
+            isNotion
+              ? isDark
+                ? 'bg-[#262626] border-white/20 text-[#e6e6e4]'
+                : 'bg-[#ffffff] border-[#37352f]/30 text-[#37352f]'
+              : isDark
+                ? 'bg-[#0F1D38] border-blue-400/60 text-slate-100'
+                : 'bg-white border-blue-500 text-slate-900'
+          }`}
+        >
+          <GripVertical className="w-3.5 h-3.5 opacity-70" />
+          <span>{draggingItemMeta.label}</span>
+          {draggingItemMeta.badge && (
+            <span
+              className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                isNotion
+                  ? isDark
+                    ? 'bg-[#191919] text-[#e6e6e4]/80'
+                    : 'bg-[#fbfbfa] text-[#37352f]/80'
+                  : isDark
+                    ? 'bg-blue-500/20 text-blue-300'
+                    : 'bg-blue-50 text-blue-700'
+              }`}
+            >
+              {draggingItemMeta.badge}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 };

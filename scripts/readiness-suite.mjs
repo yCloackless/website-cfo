@@ -34,6 +34,7 @@ files.push('timer_subject_switching');
 files.push('study_time_ssot');
 files.push('anki_add_note_selection');
 files.push('sidebar_interaction');
+files.push('sidebar_layout');
 files.push('postgres_runtime_audit');
 files.push('flashcard_importance_priority');
 files.push('katex_stoichiometry_chemistry');

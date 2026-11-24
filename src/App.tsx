@@ -82,6 +82,13 @@ import { CookieConsent } from './components/CookieConsent';
 const TacticalSimulations = lazy(() => import('./components/TacticalSimulations').then(({ TacticalSimulations }) => ({ default: TacticalSimulations })));
 import { useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { TacticalSidebar, TabType, TAB_ROUTE_MAP, ROUTE_TAB_MAP } from './components/TacticalSidebar';
+import {
+  loadSidebarLayout,
+  saveSidebarLayout,
+  resetSidebarLayout,
+  SIDEBAR_LAYOUT_EVENT,
+  type SidebarLayoutConfig,
+} from './utils/sidebarLayout';
 const StudentRadarTab = lazy(() => import('./components/StudentRadarTab').then(({ StudentRadarTab }) => ({ default: StudentRadarTab })));
 const Release3StudyPanel = lazy(() => import('./components/Release3StudyPanel').then(({ Release3StudyPanel }) => ({ default: Release3StudyPanel })));
 const ErrorNotebookTab = lazy(() => import('./components/ErrorNotebookTab').then(({ ErrorNotebookTab }) => ({ default: ErrorNotebookTab })));
@@ -306,6 +313,9 @@ export default function App() {
     }
   });
 
+  const [sidebarLayout, setSidebarLayout] = useState<SidebarLayoutConfig>(() => loadSidebarLayout());
+  const [isSidebarEditMode, setIsSidebarEditMode] = useState<boolean>(false);
+
   const [appConfirmState, setAppConfirmState] = useState<{
     isOpen: boolean;
     title: string;
@@ -484,6 +494,7 @@ export default function App() {
     setAiAnalysis(null);
     setCanAccessNotion(true);
     setCanAccessIfrj(false);
+    setIsSidebarEditMode(false);
     setIsTerminalUnlocked(false);
     navigate('/login');
   }, [navigate]);
@@ -715,6 +726,46 @@ export default function App() {
     }, 4500);
   }, []);
 
+  const handleChangeSidebarLayout = useCallback((next: SidebarLayoutConfig) => {
+    const saved = saveSidebarLayout(next);
+    setSidebarLayout(saved);
+  }, []);
+
+  const handleResetSidebarLayout = useCallback(() => {
+    const reset = resetSidebarLayout();
+    setSidebarLayout(reset);
+    showToast('Ordem da barra lateral restaurada para o padrão.', 'info');
+  }, [showToast]);
+
+  const handleToggleSidebarEditMode = useCallback((next?: boolean) => {
+    setIsSidebarEditMode((prev) => (typeof next === 'boolean' ? next : !prev));
+  }, []);
+
+  const handleOpenSidebarEditModeFromSettings = useCallback(() => {
+    setIsMyAccountOpen(false);
+    if (normalizedPath === '/perfil' || normalizedPath === '/configuracoes') {
+      navigate('/cronograma');
+    }
+    setIsSidebarOpen(true);
+    try {
+      localStorage.setItem('cfo_sidebar_open', JSON.stringify(true));
+    } catch {}
+    setIsSidebarEditMode(true);
+  }, [navigate, normalizedPath]);
+
+  useEffect(() => {
+    const handleSidebarLayoutSync = (event: Event) => {
+      const customEvent = event as CustomEvent<SidebarLayoutConfig>;
+      if (customEvent?.detail) {
+        setSidebarLayout(customEvent.detail);
+      } else {
+        setSidebarLayout(loadSidebarLayout());
+      }
+    };
+    window.addEventListener(SIDEBAR_LAYOUT_EVENT, handleSidebarLayoutSync);
+    return () => window.removeEventListener(SIDEBAR_LAYOUT_EVENT, handleSidebarLayoutSync);
+  }, []);
+
   const openAccountSwitcher = useCallback(async () => {
     if (!isCurrentAdmin) return;
     setAccountSwitcherOpen(true);
@@ -776,6 +827,8 @@ export default function App() {
       clearPersistentStateCache();
       await hydratePersistentState();
       setAppearance(localStorage.getItem('cfo_appearance') === 'notion' ? 'notion' : 'default');
+      setSidebarLayout(loadSidebarLayout());
+      setIsSidebarEditMode(false);
       setIsPersistentStateReady(true);
       showToast(`Voce entrou na conta @${data.username}.`, 'success');
     } catch (error: any) {
@@ -833,6 +886,8 @@ export default function App() {
       clearPersistentStateCache();
       await hydratePersistentState();
       setAppearance(localStorage.getItem('cfo_appearance') === 'notion' ? 'notion' : 'default');
+      setSidebarLayout(loadSidebarLayout());
+      setIsSidebarEditMode(false);
       setIsPersistentStateReady(true);
       showToast('Voce voltou para a conta ADM.', 'success');
     } catch {
@@ -883,6 +938,7 @@ export default function App() {
     void hydratePersistentState().finally(() => {
       if (!cancelled) {
         setAppearance(localStorage.getItem('cfo_appearance') === 'notion' ? 'notion' : 'default');
+        setSidebarLayout(loadSidebarLayout());
         startPersistentStateSync();
         setIsPersistentStateReady(true);
       }
@@ -2330,6 +2386,11 @@ export default function App() {
           onOpenNotifications={isAdminOrSupportRole ? handleOpenNotifications : undefined}
           onOpenAdminSecurity={() => navigate('/admin')}
           onSignOut={handleLockTerminal}
+          sidebarLayout={sidebarLayout}
+          onChangeSidebarLayout={handleChangeSidebarLayout}
+          onResetSidebarLayout={handleResetSidebarLayout}
+          isEditMode={isSidebarEditMode}
+          onToggleEditMode={handleToggleSidebarEditMode}
         />
 
         {/* Main Content Area */}
@@ -3069,6 +3130,12 @@ export default function App() {
         theme={theme}
         appearance={appearance}
         onChangeAppearance={setAppearance}
+        sidebarLayout={sidebarLayout}
+        onChangeSidebarLayout={handleChangeSidebarLayout}
+        onResetSidebarLayout={handleResetSidebarLayout}
+        onOpenSidebarEditMode={handleOpenSidebarEditModeFromSettings}
+        canAccessNotion={canAccessNotion}
+        isAdmin={isCurrentAdmin && !isImpersonating}
         sessionToken={localStorage.getItem('cfo_terminal_session')}
         onProfileUpdated={(updated) => setUserProfile(updated)}
         initialTab={normalizedPath === '/configuracoes' ? 'settings' : (normalizedPath === '/perfil' ? 'profile' : accountInitialTab)}
