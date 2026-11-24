@@ -3688,9 +3688,8 @@ app.get("/api/admin/realtime/stream", requireAdminOnlyAuth, (req: Request, res: 
     res.flushHeaders();
   }
 
-  const streamToken = req.headers.authorization?.slice(7) || '';
   const clientId = adminRealtimeHub.addClient(res, adminUser.username, lastEventId, () => {
-    const session = verifyTerminalSession(streamToken);
+    const session = authenticatedSession(req);
     return session.valid && (session.role === 'admin' || session.role === 'support');
   });
 

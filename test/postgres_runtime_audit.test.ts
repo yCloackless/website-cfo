@@ -9,7 +9,13 @@ import { getDb, DatabaseService } from '../src/db/database';
 import { PostgresSyncDatabase } from '../src/db/postgresSync';
 import { postgresConnectionOptions } from '../src/db/postgresTls';
 import { AnkiRepository } from '../src/db/ankiRepository';
-import { FlashcardRepository, UserRepository } from '../src/db/repositories';
+import {
+  ActivationTokenRepository,
+  FlashcardRepository,
+  RecoveryCodeRepository,
+  SecurityNotificationRepository,
+  UserRepository,
+} from '../src/db/repositories';
 import { isRedisAvailable, createRateLimitRedisStore } from '../src/services/redisService';
 import pg from 'pg';
 
@@ -218,4 +224,44 @@ test('10. PostgreSQL TLS removes sslmode so pg preserves the verified CA options
     process.off('warning', onWarning);
   }
   assert.deepEqual(warnings, []);
+});
+
+test('11. Boolean Inserts: notifications, activation tokens, and recovery codes use SQL FALSE instead of integer literal 0', () => {
+  const executedSql: string[] = [];
+  const mockDb = {
+    prepare: (sql: string) => {
+      executedSql.push(sql);
+      return {
+        get: () => ({
+          id: 'id-1',
+          order_id: 'order-1',
+          token_hash: 'hash-1',
+          customer_email: 'user@example.com',
+          is_used: false,
+          used_at: null,
+          used_by_user_id: null,
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          created_at: new Date().toISOString(),
+        }),
+        all: () => [],
+        run: () => ({ changes: 1 }),
+      };
+    },
+  } as any;
+
+  new SecurityNotificationRepository(mockDb).createNotification({
+    userId: null,
+    type: 'SYSTEM_ALERT',
+    title: 'Teste',
+    message: 'Mensagem',
+  });
+  new ActivationTokenRepository(mockDb).createToken('order-1', 'user@example.com');
+  new RecoveryCodeRepository(mockDb).generateCodesForUser('user-1', 2);
+
+  const inserts = executedSql.filter((sql) => /\bINSERT\s+INTO\b/i.test(sql));
+  assert.equal(inserts.length, 3);
+  for (const sql of inserts) {
+    assert.doesNotMatch(sql, /,\s*0\s*,/, `Insert must use FALSE instead of integer 0 for PostgreSQL boolean column: ${sql}`);
+    assert.match(sql, /\bFALSE\b/i, `Insert must explicitly use SQL FALSE: ${sql}`);
+  }
 });

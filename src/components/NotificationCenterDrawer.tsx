@@ -28,6 +28,8 @@ interface NotificationCenterDrawerProps {
   unreadCount: number;
   onMarkAsRead: (id: string) => void;
   onMarkAllAsRead: () => void;
+  errorMessage?: string | null;
+  onRefresh?: () => void;
   theme: AppTheme;
 }
 
@@ -38,6 +40,8 @@ export const NotificationCenterDrawer: React.FC<NotificationCenterDrawerProps> =
   unreadCount,
   onMarkAsRead,
   onMarkAllAsRead,
+  errorMessage = null,
+  onRefresh,
   theme,
 }) => {
   const [filter, setFilter] = useState<'ALL' | 'SECURITY' | 'UNREAD'>('ALL');
@@ -184,15 +188,27 @@ export const NotificationCenterDrawer: React.FC<NotificationCenterDrawerProps> =
             <div className="text-center py-16 px-4">
               <div
                 className={`w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3 ${
-                  isDark ? 'bg-slate-800/50 text-slate-500' : 'bg-slate-100 text-slate-400'
+                  errorMessage
+                    ? isDark ? 'bg-red-500/15 text-red-400' : 'bg-red-50 text-red-600'
+                    : isDark ? 'bg-slate-800/50 text-slate-500' : 'bg-slate-100 text-slate-400'
                 }`}
               >
-                <Bell className="w-6 h-6" />
+                {errorMessage ? <AlertTriangle className="w-6 h-6" /> : <Bell className="w-6 h-6" />}
               </div>
               <p className={isDark ? 'text-sm font-semibold text-slate-400' : 'text-sm font-semibold text-slate-600'}>
-                Nenhuma notificação encontrada
+                {errorMessage ? 'Falha ao carregar notificações' : 'Nenhuma notificação encontrada'}
               </p>
-              <p className="text-xs text-slate-500 mt-1">Sua central está atualizada.</p>
+              <p className="text-xs text-slate-500 mt-1">
+                {errorMessage || 'Sua central está atualizada.'}
+              </p>
+              {errorMessage && onRefresh && (
+                <button
+                  onClick={onRefresh}
+                  className="mt-4 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+                >
+                  Tentar novamente
+                </button>
+              )}
             </div>
           ) : (
             filteredNotifications.map((item) => {

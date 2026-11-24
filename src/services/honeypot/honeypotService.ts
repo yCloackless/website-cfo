@@ -226,7 +226,7 @@ export class HoneypotService {
         }
 
         // Notificação interna para administradores
-        this.notifRepo.createNotification({
+        const notif = this.notifRepo.createNotification({
           userId: null,
           type: 'SYSTEM_ALERT',
           title: '🚨 Honeypot Acionado - Bloqueio Temporário Ativado',
@@ -244,6 +244,9 @@ export class HoneypotService {
         // Alerta em tempo real no hub administrativo
         adminRealtimeHub.publish('SECURITY_ALERT', {
           action: 'HONEYPOT_TRIGGERED',
+          notificationId: notif.id,
+          title: notif.title,
+          message: notif.message,
           eventType,
           requestPath,
           riskScore: risk.riskScore,

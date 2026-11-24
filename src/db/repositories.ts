@@ -706,7 +706,7 @@ export class ActivationTokenRepository {
     this.db
       .prepare(
         `INSERT INTO activation_tokens (id, order_id, token_hash, customer_email, is_used, expires_at, created_at)
-         VALUES (?, ?, ?, ?, 0, ?, ?)`
+         VALUES (?, ?, ?, ?, FALSE, ?, ?)`
       )
       .run(id, orderId, tokenHash, customerEmail.toLowerCase().trim(), expiresAt, createdAt);
 
@@ -1583,7 +1583,7 @@ export class RecoveryCodeRepository {
 
     const insertStmt = this.db.prepare(
       `INSERT INTO admin_recovery_codes (id, user_id, code_hash, is_used, created_at)
-       VALUES (?, ?, ?, 0, ?)`
+       VALUES (?, ?, ?, FALSE, ?)`
     );
 
     for (const rawCode of rawCodes) {
@@ -1886,7 +1886,7 @@ export class SecurityNotificationRepository {
 
     this.db.prepare(`
       INSERT INTO security_notifications (id, user_id, type, title, message, is_read, metadata_json, created_at)
-      VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+      VALUES (?, ?, ?, ?, ?, FALSE, ?, ?)
     `).run(id, data.userId ?? null, data.type, data.title, data.message, metadataJson, createdAt);
 
     return {

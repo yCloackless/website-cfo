@@ -13,6 +13,7 @@ import {
   SessionRepository,
 } from '../src/db/repositories';
 import { REGISTERED_HONEYTOKENS } from '../src/services/honeypot/honeytokens';
+import { adminRealtimeHub } from '../src/services/realtimeHub';
 
 const { app } = await import('../server');
 
@@ -177,6 +178,26 @@ test('4. Detecção de Honeytokens em requisições gerais (HONEYTOKEN_TRIGGERED
   `).get() as any;
   assert.ok(tokenEvent, 'Deve registrar evento HONEYTOKEN_TRIGGERED');
   assert.equal(tokenEvent.risk_score >= 80, true, 'Uso de honeytoken deve ter risco crítico >= 80');
+});
+
+test('4.1. Honeypot critical block publishes SECURITY_ALERT with persisted notificationId', async () => {
+  const published: Array<{ type: string; data: Record<string, any> }> = [];
+  const onPublished = (evt: { type: string; data: Record<string, any> }) => published.push(evt);
+  adminRealtimeHub.on('event_published', onPublished);
+  try {
+    const honeytoken = REGISTERED_HONEYTOKENS[1]?.tokenValue || REGISTERED_HONEYTOKENS[0].tokenValue;
+    const res = await fetch(`${baseUrl}/api/any-endpoint-notif-check`, {
+      headers: {
+        Authorization: `Bearer ${honeytoken}`,
+      },
+    });
+    assert.equal(res.status, 403);
+    const alertEvent = published.find((e) => e.type === 'SECURITY_ALERT' && e.data?.action === 'HONEYPOT_TRIGGERED');
+    assert.ok(alertEvent, 'Expected HONEYPOT_TRIGGERED SECURITY_ALERT to be published');
+    assert.ok(typeof alertEvent.data.notificationId === 'string' && alertEvent.data.notificationId.length > 0, 'Expected notificationId on SECURITY_ALERT');
+  } finally {
+    adminRealtimeHub.off('event_published', onPublished);
+  }
 });
 
 test('5. Resposta defensiva com bloqueio temporário por TTL', async () => {

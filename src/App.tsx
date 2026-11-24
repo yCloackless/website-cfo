@@ -169,6 +169,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
   const [activeAlertPopup, setActiveAlertPopup] = useState<NotificationItem | null>(null);
+  const [notificationLoadError, setNotificationLoadError] = useState<string | null>(null);
 
   const canViewSecurityAlertIp = userProfile?.role === 'admin'
     || userProfile?.role === 'support'
@@ -189,6 +190,7 @@ export default function App() {
         const data = await res.json();
         if (Array.isArray(data.items)) {
           const items = data.items as NotificationItem[];
+          setNotificationLoadError(null);
           setNotifications(items);
           setActiveAlertPopup((current) => {
             if (current && items.some((item) => item.id === current.id && !item.isRead)) return current;
@@ -197,9 +199,19 @@ export default function App() {
           return items;
         }
       }
-    } catch (_) {}
+      setNotificationLoadError('Não foi possível carregar as notificações no momento.');
+    } catch (_) {
+      setNotificationLoadError('Erro de comunicação ao consultar notificações.');
+    }
     return [] as NotificationItem[];
   }, [isAdminOrSupportRole]);
+
+  const handleOpenNotifications = useCallback(() => {
+    setIsNotificationDrawerOpen(true);
+    if (isAdminOrSupportRole) {
+      void fetchNotifications();
+    }
+  }, [isAdminOrSupportRole, fetchNotifications]);
 
   const handleMarkNotificationAsRead = useCallback(async (id: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
@@ -248,7 +260,12 @@ export default function App() {
             for (const event of events) {
               const dataLine = event.split('\n').find((line) => line.startsWith('data:'));
               if (!dataLine) continue;
-              const payload = JSON.parse(dataLine.slice(5).trim());
+              let payload: any;
+              try {
+                payload = JSON.parse(dataLine.slice(5).trim());
+              } catch {
+                continue;
+              }
               if (payload.type !== 'SECURITY_ALERT' || !payload.data?.notificationId) continue;
               const latest = await fetchNotifications();
               const alert = latest.find((item) => item.id === payload.data.notificationId) || null;
@@ -2263,7 +2280,7 @@ export default function App() {
         calendarName={backendCalendar.name || user?.displayName}
         isPermanentCalendar={backendCalendar.permanent}
         unreadNotificationsCount={unreadNotificationsCount}
-        onOpenNotifications={() => setIsNotificationDrawerOpen(true)}
+        onOpenNotifications={isAdminOrSupportRole ? handleOpenNotifications : undefined}
         onSignIn={handleSignIn}
         onSignOut={handleSignOut}
         onDisconnectCalendar={handleDisconnectCalendar}
@@ -2310,7 +2327,7 @@ export default function App() {
           onOpenHistory={() => setIsHistoryModalOpen(true)}
           onOpenSettings={() => navigate('/configuracoes')}
           onOpenExtension={() => setIsExtensionModalOpen(true)}
-          onOpenNotifications={() => setIsNotificationDrawerOpen(true)}
+          onOpenNotifications={isAdminOrSupportRole ? handleOpenNotifications : undefined}
           onOpenAdminSecurity={() => navigate('/admin')}
           onSignOut={handleLockTerminal}
         />
@@ -3094,6 +3111,8 @@ export default function App() {
         unreadCount={unreadNotificationsCount}
         onMarkAsRead={handleMarkNotificationAsRead}
         onMarkAllAsRead={handleMarkAllNotificationsAsRead}
+        errorMessage={notificationLoadError}
+        onRefresh={isAdminOrSupportRole ? () => { void fetchNotifications(); } : undefined}
         theme={theme}
       />
 

@@ -329,3 +329,38 @@ test('10. Realtime masks IP and removes credentials before transmission', () => 
   assert.equal(event.data.nested.userAgent, '[PROTECTED]');
   assert.doesNotMatch(JSON.stringify(event), /segredo-nao-pode-vazar|Bearer credencial|fingerprint-completo/);
 });
+
+test('11. SSE stream stays open across broadcasts when authenticated via HttpOnly session cookie (Bearer cookie / no Authorization header)', async () => {
+  const controller = new AbortController();
+  const res = await fetch(`${baseUrl}/api/admin/realtime/stream`, {
+    headers: {
+      Cookie: `cfo_session=${encodeURIComponent(adminToken)}`,
+      Accept: 'text/event-stream',
+    },
+    signal: controller.signal,
+  });
+
+  assert.equal(res.status, 200);
+  const reader = res.body?.getReader();
+  assert.ok(reader);
+
+  // Consome handshake inicial
+  const handshake = await reader.read();
+  assert.equal(handshake.done, false);
+
+  // Publica evento SECURITY_ALERT - o stream não pode ser encerrado por isAuthorized()
+  setTimeout(() => {
+    adminRealtimeHub.publish('SECURITY_ALERT', {
+      action: 'CADET_SECURITY_ALERT',
+      notificationId: 'notif-cookie-test-1',
+    });
+  }, 50);
+
+  const nextChunk = await reader.read();
+  assert.equal(nextChunk.done, false, 'Cookie-authenticated SSE stream must remain open across broadcasts');
+  const text = new TextDecoder().decode(nextChunk.value);
+  assert.match(text, /event: SECURITY_ALERT/);
+  assert.match(text, /notif-cookie-test-1/);
+
+  controller.abort();
+});
